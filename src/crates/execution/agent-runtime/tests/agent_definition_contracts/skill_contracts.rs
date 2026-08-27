@@ -386,6 +386,7 @@ fn builtin_skill_catalog_and_mode_policy_are_runtime_owned() {
         builtin_skill_group_key("create-openbitfun-skin"),
         Some("meta")
     );
+    assert_eq!(builtin_skill_group_key("commit-push-pr"), Some("meta"));
     assert_eq!(builtin_skill_group_key("find-skills"), Some("meta"));
     assert_eq!(builtin_skill_group_key("miniapp-dev"), Some("miniapp"));
     assert_eq!(
@@ -415,6 +416,14 @@ fn builtin_skill_catalog_and_mode_policy_are_runtime_owned() {
     );
     assert_eq!(
         resolve_builtin_default_enabled("create-openbitfun-skin", "DeepResearch"),
+        Some(true)
+    );
+    assert_eq!(
+        resolve_builtin_default_enabled("commit-push-pr", "agentic"),
+        Some(true)
+    );
+    assert_eq!(
+        resolve_builtin_default_enabled("commit-push-pr", "DeepResearch"),
         Some(true)
     );
     assert_eq!(

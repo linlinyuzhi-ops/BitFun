@@ -19,6 +19,7 @@ mod tests {
             builtin_skill_group_key("create-openbitfun-skin"),
             Some("meta")
         );
+        assert_eq!(builtin_skill_group_key("commit-push-pr"), Some("meta"));
         assert_eq!(builtin_skill_group_key("find-skills"), Some("meta"));
         assert_eq!(builtin_skill_group_key("debug"), Some("debugging"));
         assert_eq!(builtin_skill_group_key("multitask"), Some("coordination"));
