@@ -325,6 +325,7 @@ function sameDispatchTargetIdentity(
 // hosts; new-session selection filters them from the current Agent catalog.
 const VALID_AGENT_TYPES = new Set([
   'Standard',
+  'minimal',
   'Multitask',
   'debug',
   'Plan',
