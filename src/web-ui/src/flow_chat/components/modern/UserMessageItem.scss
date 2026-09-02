@@ -16,20 +16,20 @@
     var(--bf-appearance-token-flowchat-font-size-base) * var(--bf-appearance-token-flowchat-text-line-height)
   );
   /*
-   * Fills the reading column instead of hugging its text: the bubble shares the
-   * exact leading and trailing edge as the tool-call bars and body text below
-   * it, so a turn reads as one column rather than a right-floating chat bubble.
+   * WeChat-style own-message bubble: hugs its text, caps at a share of the
+   * reading column, and sits flush against the right edge of the column.
    */
-  width: auto;
+  width: fit-content;
+  max-width: min(72%, 34rem);
   padding: 0.46rem 0.68rem;
-  background: color-mix(in srgb, var(--bf-appearance-token-element-bg-medium) 90%, var(--bf-appearance-token-color-bg-scene));
+  background: #95EC69;
   border: 1px solid color-mix(in srgb, var(--bf-appearance-token-border-base) 72%, transparent);
   border-radius: calc(var(--bf-appearance-token-flowchat-card-radius) + 2px);
   margin:
     0.06rem
     var(--bf-appearance-token-flowchat-content-inline-pad)
     var(--bf-appearance-token-flowchat-turn-gap)
-    var(--bf-appearance-token-flowchat-content-inline-pad);
+    auto;
   box-shadow:
     0 1px 0 color-mix(in srgb, var(--bf-appearance-token-color-static-white) 5%, transparent) inset,
     0 2px 8px var(--bf-appearance-token-color-overlay-black-08);
@@ -42,7 +42,7 @@
   position: relative;
   
   &:hover {
-    background: color-mix(in srgb, var(--bf-appearance-token-element-bg-medium) 92%, var(--bf-appearance-token-color-bg-scene));
+    background: color-mix(in srgb, #95EC69 90%, #000000);
     border-color: color-mix(in srgb, var(--bf-appearance-token-border-subtle) 56%, transparent);
 
     .user-message-item__copy-btn {
@@ -68,9 +68,9 @@
     }
   }
   
-  // Responsive: reduce margins on smaller screens.
+  // Responsive: reduce margins on smaller screens (bubble stays right-aligned).
   @media (max-width: 768px) {
-    margin-left: var(--bf-appearance-token-flowchat-content-inline-pad-mobile);
+    margin-left: auto;
     margin-right: var(--bf-appearance-token-flowchat-content-inline-pad-mobile);
   }
 }
@@ -142,7 +142,7 @@
   font-size: var(--bf-appearance-token-flowchat-font-size-base);
   font-weight: 500;
   line-height: var(--bf-appearance-token-flowchat-text-line-height);
-  color: var(--bf-appearance-token-color-text-primary);
+  color: #191919;
   white-space: pre-wrap;
   display: -webkit-box;
   -webkit-line-clamp: 3;
