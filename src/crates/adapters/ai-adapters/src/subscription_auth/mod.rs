@@ -176,6 +176,10 @@ pub struct ResolvedCredential {
     pub request_url: Option<String>,
     pub format: Option<String>,
     pub extra_headers: HashMap<String, String>,
+    /// Header merge mode for `extra_headers`. `None` keeps the default
+    /// (`"merge"`); OpenCode pins `"replace"` because its gateway requires the
+    /// credential through `x-api-key` and rejects a parallel Bearer header.
+    pub custom_headers_mode: Option<String>,
     /// Unix seconds when this credential expires; `None` means non-expiring.
     pub expires_at: Option<i64>,
 }

@@ -555,9 +555,16 @@ pub async fn apply_subscription_auth_with_options(
         };
         ai_config.custom_headers = Some(merged);
         // Default to merge so adapter-specific headers (Authorization etc.) are
-        // still applied alongside the injected ones.
+        // still applied alongside the injected ones. A resolver may pin a mode
+        // instead (OpenCode pins "replace" because its gateway takes the
+        // credential through x-api-key and rejects a parallel Bearer header).
         if ai_config.custom_headers_mode.is_none() {
-            ai_config.custom_headers_mode = Some("merge".to_string());
+            ai_config.custom_headers_mode = Some(
+                resolved
+                    .custom_headers_mode
+                    .clone()
+                    .unwrap_or_else(|| "merge".to_string()),
+            );
         }
     }
     Ok(resolved.expires_at)

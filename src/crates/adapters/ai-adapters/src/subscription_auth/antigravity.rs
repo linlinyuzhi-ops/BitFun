@@ -356,6 +356,7 @@ pub(crate) async fn resolve(options: &SubscriptionHttpOptions) -> Result<Resolve
         request_url: Some(CODE_ASSIST_REQUEST_URL.to_string()),
         format: Some("gemini-code-assist".to_string()),
         extra_headers: headers,
+        custom_headers_mode: None,
         expires_at: Some(expires / 1000),
     })
 }

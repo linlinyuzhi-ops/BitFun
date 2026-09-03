@@ -554,17 +554,21 @@ async fn refresh(refresh_token: &str, options: &SubscriptionHttpOptions) -> Resu
 
 /// Resolves OpenCode's device verification URI to an absolute URL.
 ///
-/// The console API returns a path such as `/device?user_code=...` (same as
-/// OpenCode's own client, which prefixes `https://console.opencode.ai`).
+/// The console API returns a path such as `/console/device?user_code=...`.
+/// `console.opencode.ai` redirects `/{path}` to `opencode.ai/console/{path}`
+/// (the SPA mount), so strip a leading `/console` to keep the redirect from
+/// doubling the segment and landing on the SPA 404 route. Legacy paths such
+/// as `/device?user_code=...` pass through unchanged.
 fn absolute_verification_url(uri: &str) -> String {
     let trimmed = uri.trim();
     if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
         return trimmed.to_string();
     }
-    if trimmed.starts_with('/') {
-        return format!("{SERVER}{trimmed}");
+    let path = trimmed.strip_prefix("/console").unwrap_or(trimmed);
+    if path.starts_with('/') {
+        return format!("{SERVER}{path}");
     }
-    format!("{SERVER}/{trimmed}")
+    format!("{SERVER}/{path}")
 }
 
 /// Starts the device-code login flow. The verification URL and user code are
@@ -734,17 +738,37 @@ pub(crate) async fn refresh_profile(options: &SubscriptionHttpOptions) -> Result
     Ok(())
 }
 
+/// Headers carrying the resolved credential for a wire format.
+///
+/// The Zen gateway accepts OpenCode's console credential only through
+/// `x-api-key`; sending it as `Authorization: Bearer` is rejected with
+/// "Invalid API key". The Anthropic adapter already sends `x-api-key`
+/// natively, so only the OpenAI-style formats need the header injected,
+/// replacing the adapter's default Bearer auth.
+fn credential_headers(format: &str, api_key: &str) -> (HashMap<String, String>, Option<String>) {
+    if format == "anthropic" {
+        (HashMap::new(), None)
+    } else {
+        (
+            HashMap::from([("x-api-key".to_string(), api_key.to_string())]),
+            Some("replace".to_string()),
+        )
+    }
+}
+
 async fn resolve_route(
     route: OpenCodeRoute,
     options: &SubscriptionHttpOptions,
 ) -> Result<ResolvedCredential> {
     let api_key = ensure_fresh(options).await?;
+    let (extra_headers, custom_headers_mode) = credential_headers(&route.format, &api_key);
     Ok(ResolvedCredential {
         api_key,
         base_url: Some(route.base_url.to_string()),
         request_url: Some(route.request_url.to_string()),
         format: Some(route.format.to_string()),
-        extra_headers: HashMap::new(),
+        extra_headers,
+        custom_headers_mode,
         expires_at: None,
     })
 }
@@ -772,10 +796,10 @@ pub(crate) fn suggested() -> (&'static str, &'static str, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        absolute_verification_url, offerings_from_metadata, offerings_from_remote_config,
-        route_for, OpenCodePlan, RemoteConfig, RemoteModel, RemoteModelProvider, RemoteProvider,
-        GO_MESSAGES_URL, GO_REQUEST_URL, GO_RESPONSES_URL, ZEN_MESSAGES_URL, ZEN_REQUEST_URL,
-        ZEN_RESPONSES_URL,
+        absolute_verification_url, credential_headers, offerings_from_metadata,
+        offerings_from_remote_config, route_for, OpenCodePlan, RemoteConfig, RemoteModel,
+        RemoteModelProvider, RemoteProvider, GO_MESSAGES_URL, GO_REQUEST_URL, GO_RESPONSES_URL,
+        ZEN_MESSAGES_URL, ZEN_REQUEST_URL, ZEN_RESPONSES_URL,
     };
     use std::collections::HashMap;
 
@@ -788,6 +812,16 @@ mod tests {
     }
 
     #[test]
+    fn strips_console_prefix_from_spa_verification_path() {
+        // The redirect on console.opencode.ai prepends `/console` itself, so a
+        // path that already carries the SPA prefix must not keep it doubled.
+        assert_eq!(
+            absolute_verification_url("/console/device?user_code=FBPH-VLFC&client_id=opencode-cli"),
+            "https://console.opencode.ai/device?user_code=FBPH-VLFC&client_id=opencode-cli"
+        );
+    }
+
+    #[test]
     fn keeps_absolute_verification_url() {
         assert_eq!(
             absolute_verification_url(
@@ -795,6 +829,27 @@ mod tests {
             ),
             "https://console.opencode.ai/device?user_code=ABCD-1234&client_id=opencode-cli"
         );
+    }
+
+    #[test]
+    fn injects_x_api_key_for_openai_style_formats_and_replaces_bearer() {
+        // The Zen gateway rejects the console session credential as a Bearer
+        // key, so OpenAI-style formats must carry it through x-api-key with
+        // the adapter's default Authorization header suppressed.
+        for format in ["openai", "responses"] {
+            let (headers, mode) = credential_headers(format, "st-credential");
+            assert_eq!(headers.get("x-api-key").map(String::as_str), Some("st-credential"));
+            assert_eq!(mode.as_deref(), Some("replace"));
+        }
+    }
+
+    #[test]
+    fn anthropic_format_keeps_native_x_api_key_header() {
+        // The Anthropic adapter already sends x-api-key natively, so no
+        // injected header (or merge-mode override) is needed.
+        let (headers, mode) = credential_headers("anthropic", "st-credential");
+        assert!(headers.is_empty());
+        assert!(mode.is_none());
     }
 
     #[test]
