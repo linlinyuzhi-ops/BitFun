@@ -210,7 +210,7 @@ const WelcomeScene: React.FC = () => {
       <div className="welcome-scene__content" data-bf-scene="welcome" data-bf-part="content">
         <div className="welcome-scene__greeting" data-bf-scene="welcome" data-bf-part="greeting">
           <div className="welcome-scene__identity" data-testid="welcome-identity-badge" data-bf-scene="welcome" data-bf-part="identity">
-            <span className="welcome-scene__identity-avatar" aria-hidden>
+            <span className="welcome-scene__identity-avatar" data-bf-scene="welcome" data-bf-part="identityAvatar" aria-hidden>
               <ChatInputPixelPet
                 mood="rest"
                 pet={identity.pet}

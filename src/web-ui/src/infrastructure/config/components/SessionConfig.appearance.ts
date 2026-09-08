@@ -6,6 +6,7 @@ export const sessionConfigAppearanceDescriptor: AppearanceSurfaceDescriptor = {
     { id: 'root' },
     { id: 'content' },
     { id: 'control' },
+    { id: 'identityTitleInput' },
     { id: 'petPicker' },
     { id: 'petChooser' },
     { id: 'petTrigger' },
