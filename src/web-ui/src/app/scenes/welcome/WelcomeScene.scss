@@ -35,6 +35,44 @@
     text-align: left;
   }
 
+  &__identity {
+    display: inline-flex;
+    align-items: center;
+    gap: $size-gap-3;
+    padding: 0;
+  }
+
+  &__identity-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 40px;
+    flex-shrink: 0;
+    --bitfun-petdex-width: 38px;
+    --bitfun-petdex-height: 42px;
+  }
+
+  &__identity-pet {
+    width: 44px;
+    height: 40px;
+  }
+
+  &__identity-label {
+    font-size: var(--bf-appearance-token-font-size-lg);
+    line-height: 1.4;
+    font-weight: $font-weight-medium;
+    color: var(--bf-appearance-token-color-text-primary);
+  }
+
+  &__identity-name {
+    font-family: $font-family-mono;
+    font-size: var(--bf-appearance-token-font-size-xl);
+    font-weight: $font-weight-semibold;
+    letter-spacing: -0.01em;
+    color: var(--bf-appearance-token-color-indigo-500);
+  }
+
   &__title {
     margin: 0;
     font-size: var(--bf-appearance-token-font-size-2xl);

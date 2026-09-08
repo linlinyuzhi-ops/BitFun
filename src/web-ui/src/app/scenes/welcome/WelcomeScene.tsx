@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
+import { Trans } from 'react-i18next';
 import {
   FolderOpen, Clock, FolderPlus, Trash2,
 } from 'lucide-react';
@@ -14,6 +15,8 @@ import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext'
 import { useSceneStore } from '@/app/stores/sceneStore';
 import { useI18n } from '@/infrastructure/i18n';
 import { Tooltip } from '@/component-library';
+import { usePersonalIdentity } from '@/app/hooks/usePersonalIdentity';
+import { ChatInputPixelPet } from '@/flow_chat/components/ChatInputPixelPet';
 import { createLogger } from '@/shared/utils/logger';
 import type { SceneTabId } from '@/app/components/SceneBar/types';
 import type { WorkspaceInfo } from '@/shared/types';
@@ -44,6 +47,7 @@ const WelcomeScene: React.FC = () => {
     [t],
   );
   const welcomeMessage = welcomeMessages[welcomeMessageIndex % welcomeMessages.length];
+  const identity = usePersonalIdentity();
 
   const displayRecentWorkspaces = useMemo(
     () => (hasWorkspace
@@ -205,6 +209,23 @@ const WelcomeScene: React.FC = () => {
     <div className="welcome-scene" data-testid="welcome-scene" data-bf-scene="welcome" data-bf-part="root">
       <div className="welcome-scene__content" data-bf-scene="welcome" data-bf-part="content">
         <div className="welcome-scene__greeting" data-bf-scene="welcome" data-bf-part="greeting">
+          <div className="welcome-scene__identity" data-testid="welcome-identity-badge" data-bf-scene="welcome" data-bf-part="identity">
+            <span className="welcome-scene__identity-avatar" aria-hidden>
+              <ChatInputPixelPet
+                mood="rest"
+                pet={identity.pet}
+                className="welcome-scene__identity-pet"
+              />
+            </span>
+            <span className="welcome-scene__identity-label" data-bf-scene="welcome" data-bf-part="identityLabel">
+              <Trans
+                i18nKey="identityBadge.title"
+                ns="common"
+                values={{ name: identity.displayName }}
+                components={{ name: <span className="welcome-scene__identity-name" /> }}
+              />
+            </span>
+          </div>
           <h1 className="welcome-scene__title" data-bf-scene="welcome" data-bf-part="title">{t('welcomeScene.firstTime.title')}</h1>
           <p className="welcome-scene__greeting-label" data-bf-scene="welcome" data-bf-part="subtitle">{welcomeMessage}</p>
         </div>

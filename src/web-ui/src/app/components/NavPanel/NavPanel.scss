@@ -582,7 +582,7 @@ $_section-header-height: 24px;
     gap: $size-gap-1;
     height: $_section-header-height;
     padding: 0 $size-gap-2;
-    margin: 0 $size-gap-1;
+  margin: 0 $size-gap-1 $size-gap-3;
     border-radius: 4px;
     opacity: 0.92;
     transition: background $motion-fast $easing-standard,
@@ -2195,6 +2195,51 @@ $_section-header-height: 24px;
   flex-direction: column;
   padding: 0 $size-gap-2 $size-gap-1;
   flex-shrink: 0;
+}
+
+.bitfun-nav-panel__identity {
+  display: flex;
+  align-items: center;
+  gap: $size-gap-2;
+  min-width: 0;
+  flex-shrink: 0;
+  margin: 0 $size-gap-1 $size-gap-3;
+  padding: 0;
+}
+
+.bitfun-nav-panel__identity-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 28px;
+  --bitfun-petdex-width: 28px;
+  --bitfun-petdex-height: 31px;
+}
+
+.bitfun-nav-panel__identity-pet {
+  width: 34px;
+  height: 28px;
+}
+
+.bitfun-nav-panel__identity-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--bf-appearance-token-font-size-base);
+  font-weight: $font-weight-medium;
+  line-height: 1.35;
+  color: var(--bf-appearance-token-color-text-primary);
+}
+
+.bitfun-nav-panel__identity-name {
+  font-family: $font-family-mono;
+  font-size: var(--bf-appearance-token-font-size-lg);
+  font-weight: $font-weight-semibold;
+  letter-spacing: -0.01em;
+  color: var(--bf-appearance-token-color-indigo-500);
 }
 
 .bitfun-nav-panel__brand-search {

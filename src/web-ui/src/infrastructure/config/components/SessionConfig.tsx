@@ -134,6 +134,7 @@ const SessionSettingsPanels: React.FC<SessionSettingsPanelsProps> = ({ variant }
   const [companionPetImporting, setCompanionPetImporting] = useState(false);
   const [companionPetDeletingPath, setCompanionPetDeletingPath] = useState<string | null>(null);
   const [companionPetListExpanded, setCompanionPetListExpanded] = useState(false);
+  const [personalTitleDraft, setPersonalTitleDraft] = useState('');
   const [enableDeferredToolLoading, setEnableDeferredToolLoading] = useState(true);
   const [subagentMaxConcurrency, setSubagentMaxConcurrency] = useState(DEFAULT_SUBAGENT_MAX_CONCURRENCY);
   const [executionTimeout, setExecutionTimeout] = useState('');
@@ -436,6 +437,17 @@ const SessionSettingsPanels: React.FC<SessionSettingsPanelsProps> = ({ variant }
       notification.error(t('messages.saveFailed'));
       setSettings(settings);
     }
+  };
+
+  useEffect(() => {
+    setPersonalTitleDraft(settings?.personal_title ?? '');
+  }, [settings?.personal_title]);
+
+  const commitPersonalTitle = async () => {
+    if (!settings) return;
+    const next = personalTitleDraft.trim();
+    if (next === (settings.personal_title ?? '').trim()) return;
+    await updateSetting('personal_title', next);
   };
 
   const handleRefreshCompanionPets = async () => {
@@ -992,6 +1004,35 @@ const SessionSettingsPanels: React.FC<SessionSettingsPanelsProps> = ({ variant }
 
         {variant === 'personalization' ? (
           <>
+
+        {/* ── Personal identity badge (welcome scene) ───────────── */}
+        <ConfigPageSection
+          title={t('features.personalIdentity.title')}
+          description={t('features.personalIdentity.subtitle')}
+        >
+          <ConfigPageRow
+            label={t('features.personalIdentity.titleLabel')}
+            description={t('features.personalIdentity.titleDescription')}
+            align="center"
+          >
+            <Input
+              className="bitfun-func-agent-config__identity-title"
+              size="small"
+              maxLength={24}
+              value={personalTitleDraft}
+              placeholder={t('features.personalIdentity.titlePlaceholder')}
+              onChange={(e) => setPersonalTitleDraft(e.target.value)}
+              onBlur={() => { void commitPersonalTitle(); }}
+              onKeyUp={(e) => {
+                if (e.key === 'Enter') {
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              data-bf-component="session-config"
+              data-bf-part="identityTitleInput"
+            />
+          </ConfigPageRow>
+        </ConfigPageSection>
 
         {/* ── Agent companion (collapsed input) ─────────────────── */}
         <ConfigPageSection

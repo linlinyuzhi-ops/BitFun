@@ -47,7 +47,10 @@ import { getRecentWorkspaceLineParts } from '@/shared/utils/recentWorkspaceDispl
 import { computeFixedPopoverPosition } from '@/shared/utils/fixedPopoverViewport';
 import { useSSHRemoteContext, SSHConnectionDialog, RemoteFileBrowser } from '@/features/ssh-remote';
 import { useSessionModeStore } from '../../stores/sessionModeStore';
+import { Trans } from 'react-i18next';
 import NavSearchDialog from './NavSearchDialog';
+import { usePersonalIdentity } from '@/app/hooks/usePersonalIdentity';
+import { ChatInputPixelPet } from '@/flow_chat/components/ChatInputPixelPet';
 import { useShortcut } from '@/infrastructure/hooks/useShortcut';
 import { ALL_SHORTCUTS } from '@/shared/constants/shortcuts';
 
@@ -521,8 +524,33 @@ const MainNav: React.FC<MainNavProps> = ({
   const agentsTooltip = t('nav.tooltips.agents');
   const skillsTooltip = t('nav.tooltips.skills');
   const extensionsLabel = t('nav.sections.extensions');
+  const identity = usePersonalIdentity();
   return (
     <>
+      {/* ── Personal identity badge ──────────────────── */}
+      <div
+        className="bitfun-nav-panel__identity"
+        data-bf-component="nav-panel"
+        data-bf-part="identity"
+        data-testid="nav-identity-badge"
+      >
+        <span className="bitfun-nav-panel__identity-avatar" data-bf-component="nav-panel" data-bf-part="identityAvatar" aria-hidden="true">
+          <ChatInputPixelPet
+            mood="rest"
+            pet={identity.pet}
+            className="bitfun-nav-panel__identity-pet"
+          />
+        </span>
+        <span className="bitfun-nav-panel__identity-label" data-bf-component="nav-panel" data-bf-part="identityLabel">
+          <Trans
+            i18nKey="identityBadge.title"
+            ns="common"
+            values={{ name: identity.displayName }}
+            components={{ name: <span className="bitfun-nav-panel__identity-name" /> }}
+          />
+        </span>
+      </div>
+
       {/* ── Workspace search ───────────────────────── */}
       <div data-bf-component="nav-panel" data-bf-part="brandHeader" className="bitfun-nav-panel__brand-header">
         <div className="bitfun-nav-panel__brand-search" data-bf-component="nav-panel" data-bf-part="search">

@@ -8,6 +8,13 @@
     "subtitle": "Manage tool permissions, execution, desktop control, and browser access."
   },
   "features": {
+    "personalIdentity": {
+      "title": "Super assistant badge",
+      "subtitle": "Your title shown in the top-left badge; the icon uses the companion appearance selected below.",
+      "titleLabel": "My title",
+      "titleDescription": "The badge reads \"<title>'s Personal Super Assistant\". Defaults to BitFun when empty.",
+      "titlePlaceholder": "e.g. Alex"
+    },
     "agentCompanion": {
       "title": "Agent companion",
       "subtitle": "Control where the BitFun companion appears.",

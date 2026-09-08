@@ -8,6 +8,13 @@
     "subtitle": "管理工具權限、執行方式，以及桌面和瀏覽器控制。"
   },
   "features": {
+    "personalIdentity": {
+      "title": "超級助理標識",
+      "subtitle": "稱謂顯示在介面左上角標識中；頭像使用下方選擇的夥伴形象。",
+      "titleLabel": "我的稱謂",
+      "titleDescription": "標識文案為「稱謂 + 的個人超級助理」，留空時顯示 BitFun。",
+      "titlePlaceholder": "如：小明"
+    },
     "agentCompanion": {
       "title": "Agent 夥伴",
       "subtitle": "控制 BitFun 夥伴的顯示方式。",

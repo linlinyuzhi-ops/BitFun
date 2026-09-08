@@ -1205,6 +1205,9 @@
     "scenes": "Loading scene",
     "workspace": "Loading workspace..."
   },
+  "identityBadge": {
+    "title": "<name>{{name}}</name>'s Personal Super Assistant"
+  },
   "welcomeScene": {
     "tabLabel": "Welcome",
     "welcomeBack": "Welcome back to",
