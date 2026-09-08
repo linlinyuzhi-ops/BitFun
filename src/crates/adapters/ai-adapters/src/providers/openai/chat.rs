@@ -220,7 +220,14 @@ pub(crate) async fn send_stream(
         max_tries,
         ttft_timeout,
         trace,
-        || common::apply_headers(client, client.client.post(&url)),
+        || {
+            shared::apply_opencode_session_header(
+                client,
+                common::apply_headers(client, client.client.post(&url)),
+                &url,
+                request_context.as_ref(),
+            )
+        },
         move |response, tx, tx_raw, remaining_ttft_timeout| {
             handle_openai_stream(
                 response,

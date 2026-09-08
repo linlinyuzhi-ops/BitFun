@@ -492,7 +492,14 @@ pub(crate) async fn send_stream(
         max_tries,
         ttft_timeout,
         trace,
-        || apply_headers(client, client.client.post(&url), &url),
+        || {
+            shared::apply_opencode_session_header(
+                client,
+                apply_headers(client, client.client.post(&url), &url),
+                &url,
+                request_context.as_ref(),
+            )
+        },
         move |response, tx, tx_raw, remaining_ttft_timeout| {
             handle_anthropic_stream(
                 response,

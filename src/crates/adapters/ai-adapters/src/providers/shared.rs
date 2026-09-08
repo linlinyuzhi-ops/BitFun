@@ -1,8 +1,9 @@
+use crate::client::quirks::is_opencode_gateway_url;
 use crate::client::utils::{
     build_request_body_subset, is_trim_custom_request_body_mode, merge_json_value,
 };
 use crate::client::AIClient;
-use crate::types::{ReasoningPresetAction, ReasoningPresetDescriptor};
+use crate::types::{ModelRequestContext, ReasoningPresetAction, ReasoningPresetDescriptor};
 use anyhow::{anyhow, Result};
 use reqwest::RequestBuilder;
 
@@ -47,6 +48,38 @@ pub(crate) fn apply_custom_headers(
     }
 
     builder
+}
+
+const OPENCODE_SESSION_HEADER: &str = "x-opencode-session";
+const OPENCODE_SESSION_FALLBACK: &str = "bitfun";
+
+pub(crate) fn apply_opencode_session_header(
+    client: &AIClient,
+    builder: RequestBuilder,
+    url: &str,
+    request_context: Option<&ModelRequestContext>,
+) -> RequestBuilder {
+    if !is_opencode_gateway_url(url) {
+        return builder;
+    }
+    let user_override = client
+        .config
+        .custom_headers
+        .as_ref()
+        .is_some_and(|headers| {
+            headers
+                .keys()
+                .any(|key| key.eq_ignore_ascii_case(OPENCODE_SESSION_HEADER))
+        });
+    if user_override {
+        return builder;
+    }
+    let session = request_context
+        .and_then(|context| context.prompt_cache_route_key.as_deref())
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .unwrap_or(OPENCODE_SESSION_FALLBACK);
+    builder.header(OPENCODE_SESSION_HEADER, session)
 }
 
 pub(crate) fn protect_request_body(
@@ -439,8 +472,12 @@ pub(crate) fn collect_function_declaration_names_or_object_keys(
 
 #[cfg(test)]
 mod tests {
-    use super::should_log_full_request_body;
-    use super::summarize_request_body_for_log;
+    use super::super::super::client::AIClient;
+    use super::{
+        apply_opencode_session_header, should_log_full_request_body,
+        summarize_request_body_for_log, OPENCODE_SESSION_FALLBACK, OPENCODE_SESSION_HEADER,
+    };
+    use crate::types::ModelRequestContext;
 
     #[test]
     fn request_body_log_summary_keeps_shape_without_message_contents() {
@@ -481,5 +518,88 @@ mod tests {
     fn request_body_logging_keeps_full_payload_when_sensitive_diagnostics_are_enabled() {
         assert!(should_log_full_request_body(true));
         assert!(!should_log_full_request_body(false));
+    }
+
+    fn test_client(custom_headers: Option<std::collections::HashMap<String, String>>) -> AIClient {
+        AIClient::new(crate::types::AIConfig {
+            name: "test".to_string(),
+            base_url: "https://opencode.ai/zen/go/v1".to_string(),
+            request_url: "https://opencode.ai/zen/go/v1/chat/completions".to_string(),
+            api_key: "test-key".to_string(),
+            model: "qwen3.8-flash".to_string(),
+            format: "openai".to_string(),
+            context_window: 128_000,
+            max_tokens: None,
+            temperature: None,
+            top_p: None,
+            inline_think_in_text: false,
+            custom_headers,
+            custom_headers_mode: None,
+            skip_ssl_verify: false,
+            custom_request_body: None,
+            custom_request_body_mode: None,
+        })
+    }
+
+    #[test]
+    fn opencode_session_header_uses_route_key_on_gateway_urls() {
+        let client = test_client(None);
+        let url = "https://opencode.ai/zen/go/v1/chat/completions";
+        let context = ModelRequestContext {
+            prompt_cache_route_key: Some("lineage-7".to_string()),
+            ..Default::default()
+        };
+        let request =
+            apply_opencode_session_header(&client, client.client.post(url), url, Some(&context))
+                .build()
+                .expect("request should build");
+        assert_eq!(
+            request
+                .headers()
+                .get(OPENCODE_SESSION_HEADER)
+                .and_then(|value| value.to_str().ok()),
+            Some("lineage-7")
+        );
+    }
+
+    #[test]
+    fn opencode_session_header_falls_back_without_route_key() {
+        let client = test_client(None);
+        let url = "https://opencode.ai/zen/v1/messages";
+        let request = apply_opencode_session_header(&client, client.client.post(url), url, None)
+            .build()
+            .expect("request should build");
+        assert_eq!(
+            request
+                .headers()
+                .get(OPENCODE_SESSION_HEADER)
+                .and_then(|value| value.to_str().ok()),
+            Some(OPENCODE_SESSION_FALLBACK)
+        );
+    }
+
+    #[test]
+    fn opencode_session_header_skips_other_hosts_and_user_overrides() {
+        let client = test_client(None);
+        let url = "https://api.openai.com/v1/chat/completions";
+        let request = apply_opencode_session_header(&client, client.client.post(url), url, None)
+            .build()
+            .expect("request should build");
+        assert!(request.headers().get(OPENCODE_SESSION_HEADER).is_none());
+
+        let gateway = "https://opencode.ai/zen/go/v1/responses";
+        let overridden = test_client(Some(std::collections::HashMap::from([(
+            OPENCODE_SESSION_HEADER.to_string(),
+            "user-session".to_string(),
+        )])));
+        let request = apply_opencode_session_header(
+            &overridden,
+            overridden.client.post(gateway),
+            gateway,
+            None,
+        )
+        .build()
+        .expect("request should build");
+        assert!(request.headers().get(OPENCODE_SESSION_HEADER).is_none());
     }
 }

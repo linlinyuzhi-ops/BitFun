@@ -20,6 +20,14 @@ pub(crate) fn is_zhipuai_url(url: &str) -> bool {
     })
 }
 
+pub(crate) fn is_opencode_gateway_url(url: &str) -> bool {
+    reqwest::Url::parse(url.trim()).ok().is_some_and(|url| {
+        url.host_str().is_some_and(|host| {
+            host.trim_end_matches('.').eq_ignore_ascii_case("opencode.ai")
+        })
+    })
+}
+
 pub(crate) fn is_deepseek_reasoning_effort_model(model_name: &str) -> bool {
     matches!(
         model_name.trim().to_ascii_lowercase().as_str(),
@@ -105,4 +113,28 @@ pub(crate) fn apply_openai_compatible_toggle(
         return true;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_opencode_gateway_url;
+
+    #[test]
+    fn detects_opencode_gateway_urls_by_host() {
+        assert!(is_opencode_gateway_url(
+            "https://opencode.ai/zen/go/v1/chat/completions"
+        ));
+        assert!(is_opencode_gateway_url("https://OPENCODE.AI/zen/v1/messages"));
+    }
+
+    #[test]
+    fn rejects_non_opencode_hosts_and_lookalikes() {
+        assert!(!is_opencode_gateway_url(
+            "https://api.moonshot.cn/v1/chat/completions"
+        ));
+        assert!(!is_opencode_gateway_url(
+            "https://opencode.ai.example.com/v1/chat/completions"
+        ));
+        assert!(!is_opencode_gateway_url("not a url"));
+    }
 }
