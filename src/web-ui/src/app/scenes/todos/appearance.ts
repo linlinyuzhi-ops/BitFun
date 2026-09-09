@@ -10,6 +10,7 @@ export const todosSceneAppearanceDescriptor: AppearanceSurfaceDescriptor = {
     { id: 'panes' },
     { id: 'listPane' },
     { id: 'overview' },
+    { id: 'tabs' },
     { id: 'rows' },
     { id: 'row' },
     { id: 'rowIcon' },
