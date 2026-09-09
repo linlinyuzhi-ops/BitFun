@@ -4,8 +4,11 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { Trans } from 'react-i18next';
 import { useI18n } from '@/infrastructure/i18n';
 import { isReducedMotionPreferred } from '@/shared/utils/motionPreference';
+import { usePersonalIdentity } from '@/app/hooks/usePersonalIdentity';
+import { AgentCompanionPet } from '@/flow_chat/components/AgentCompanionPet';
 import './WelcomeScene.scss';
 
 const WORD_HOLD_MS = 3000;
@@ -23,6 +26,7 @@ const WelcomeScene: React.FC = () => {
     t('welcomeScene.space.your'),
   ];
   const suffix = t('welcomeScene.space.suffix');
+  const identity = usePersonalIdentity();
 
   useEffect(() => {
     const media = window.matchMedia?.('(prefers-reduced-motion: reduce)');
@@ -59,6 +63,38 @@ const WelcomeScene: React.FC = () => {
       aria-labelledby="welcome-scene-title"
     >
       <div className="welcome-scene__content" data-openbitfun-scene="welcome" data-openbitfun-part="content">
+        {/* ── Personal identity badge ──────────────────── */}
+        <div
+          className="welcome-scene__identity"
+          data-testid="welcome-identity-badge"
+          data-openbitfun-scene="welcome"
+          data-openbitfun-part="identity"
+        >
+          <span
+            className="welcome-scene__identity-avatar"
+            data-openbitfun-scene="welcome"
+            data-openbitfun-part="identityAvatar"
+            aria-hidden="true"
+          >
+            <AgentCompanionPet
+              mood="rest"
+              pet={identity.pet}
+              className="welcome-scene__identity-pet"
+            />
+          </span>
+          <span
+            className="welcome-scene__identity-label"
+            data-openbitfun-scene="welcome"
+            data-openbitfun-part="identityLabel"
+          >
+            <Trans
+              i18nKey="identityBadge.title"
+              ns="common"
+              values={{ name: identity.displayName }}
+              components={{ name: <span className="welcome-scene__identity-name" /> }}
+            />
+          </span>
+        </div>
         <div
           className="welcome-scene__greeting"
           data-openbitfun-scene="welcome"

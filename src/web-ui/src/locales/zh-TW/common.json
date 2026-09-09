@@ -1514,6 +1514,9 @@
     "scenes": "正在載入場景",
     "workspace": "正在載入工作區..."
   },
+  "identityBadge": {
+    "title": "<name>{{name}}</name>的個人超級助理"
+  },
   "welcomeScene": {
     "space": {
       "separator": "，",

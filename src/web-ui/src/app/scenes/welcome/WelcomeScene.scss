@@ -18,12 +18,56 @@
   &__content {
     display: flex;
     flex: 1 1 auto;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: var(--openbitfun-space-5);
     min-width: 0;
     min-height: 0;
     padding: var(--openbitfun-space-6);
     padding-block-end: max(var(--openbitfun-space-6), 12vh);
+  }
+
+  &__identity {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--openbitfun-space-3);
+    min-width: 0;
+    padding: 0;
+  }
+
+  &__identity-avatar {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 40px;
+    --openbitfun-petdex-width: 38px;
+    --openbitfun-petdex-height: 42px;
+  }
+
+  &__identity-pet {
+    width: 44px;
+    height: 40px;
+  }
+
+  &__identity-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--openbitfun-color-content-primary);
+    font-size: var(--openbitfun-type-body-lg-font-size);
+    font-weight: var(--openbitfun-type-body-lg-font-weight);
+    line-height: var(--openbitfun-type-body-lg-line-height);
+  }
+
+  &__identity-name {
+    color: var(--openbitfun-color-accent-default);
+    font-family: var(--openbitfun-type-code-md-font-family);
+    font-size: var(--openbitfun-type-heading-card-font-size);
+    font-weight: var(--openbitfun-type-heading-card-font-weight);
   }
 
   &__greeting {

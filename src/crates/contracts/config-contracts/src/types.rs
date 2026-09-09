@@ -517,6 +517,14 @@ pub struct AIExperienceConfig {
     /// User-defined quick actions (post-coding menu); persisted for the web UI.
     #[serde(default = "default_quick_actions")]
     pub quick_actions: Vec<AiExperienceQuickAction>,
+    /// Owner title shown in the welcome-scene identity badge ("{title}'s personal
+    /// super assistant"). Empty falls back to the product brand name in the UI.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub personal_title: String,
+    /// Emoji picked as the owner's personal avatar for the welcome badge.
+    /// Empty falls back to the generic assistant glyph in the UI.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub personal_avatar: String,
 }
 
 fn default_quick_actions() -> Vec<AiExperienceQuickAction> {
@@ -1816,6 +1824,8 @@ impl Default for AIExperienceConfig {
             enable_workspace_search: false,
             voice_input: VoiceInputConfig::default(),
             quick_actions: default_quick_actions(),
+            personal_title: String::new(),
+            personal_avatar: String::new(),
         }
     }
 }
@@ -2102,6 +2112,34 @@ mod tests {
         SubscriptionProvider, UserSkillGroupsConfig, UserToolGroupsConfig, WebSearchConfig,
     };
     use openbitfun_product_domains::tool_permissions::ToolPermissionConfig;
+
+    #[test]
+    fn personal_identity_badge_fields_default_and_round_trip() {
+        // Payloads written before the badge fields existed must keep
+        // deserializing with empty defaults and stay wire-clean.
+        let legacy: AIExperienceConfig = serde_json::from_value(serde_json::json!({
+            "enable_session_title_generation": true,
+            "enable_agent_companion": true
+        }))
+        .expect("legacy ai_experience payload should deserialize");
+        assert!(legacy.personal_title.is_empty());
+        assert!(legacy.personal_avatar.is_empty());
+        let serialized = serde_json::to_value(&legacy).expect("legacy config should serialize");
+        assert!(serialized.get("personal_title").is_none());
+        assert!(serialized.get("personal_avatar").is_none());
+
+        let configured: AIExperienceConfig = serde_json::from_value(serde_json::json!({
+            "personal_title": "Aki",
+            "personal_avatar": "\u{1F680}"
+        }))
+        .expect("configured badge fields should deserialize");
+        assert_eq!(configured.personal_title, "Aki");
+        assert_eq!(configured.personal_avatar, "\u{1F680}");
+        let serialized =
+            serde_json::to_value(&configured).expect("configured config should serialize");
+        assert_eq!(serialized["personal_title"], "Aki");
+        assert_eq!(serialized["personal_avatar"], "\u{1F680}");
+    }
 
     fn current_global_config_with(overrides: serde_json::Value) -> serde_json::Value {
         let mut value =

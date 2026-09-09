@@ -2131,6 +2131,50 @@ $_section-header-height: 22px;
   flex-shrink: 0;
 }
 
+.openbitfun-nav-panel__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--openbitfun-space-2);
+  min-width: 0;
+  flex-shrink: 0;
+  margin: 0 var(--openbitfun-space-1) var(--openbitfun-space-3);
+  padding: 0;
+}
+
+.openbitfun-nav-panel__identity-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 28px;
+  --openbitfun-petdex-width: 28px;
+  --openbitfun-petdex-height: 31px;
+}
+
+.openbitfun-nav-panel__identity-pet {
+  width: 34px;
+  height: 28px;
+}
+
+.openbitfun-nav-panel__identity-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--openbitfun-color-content-primary);
+  font-size: var(--openbitfun-type-body-md-font-size);
+  font-weight: var(--openbitfun-type-body-md-font-weight);
+  line-height: var(--openbitfun-type-body-md-line-height);
+}
+
+.openbitfun-nav-panel__identity-name {
+  color: var(--openbitfun-color-accent-default);
+  font-family: var(--openbitfun-type-code-md-font-family);
+  font-size: var(--openbitfun-type-body-lg-font-size);
+  font-weight: var(--openbitfun-type-body-lg-font-weight);
+}
+
 .openbitfun-nav-panel__brand-search {
   flex: 1 1 auto;
   width: auto;

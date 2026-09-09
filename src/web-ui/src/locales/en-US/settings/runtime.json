@@ -14,6 +14,13 @@
     "loadFailed": "Default Harness settings could not be read. This setting is locked to avoid overwriting the existing configuration."
   },
   "features": {
+    "personalIdentity": {
+      "title": "Super assistant badge",
+      "subtitle": "Your title shown in the top-left badge; the icon uses the companion appearance selected below.",
+      "titleLabel": "My title",
+      "titleDescription": "The badge reads \"<title>'s Personal Super Assistant\". Defaults to OpenBitFun when empty.",
+      "titlePlaceholder": "e.g. Alex"
+    },
     "pet": {
       "title": "Desktop pet",
       "subtitle": "Control whether the OpenBitFun desktop pet appears and which character it uses.",

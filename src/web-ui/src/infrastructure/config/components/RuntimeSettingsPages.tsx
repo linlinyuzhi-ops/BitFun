@@ -2,6 +2,7 @@ import { OverflowText,
   Button,
   Icon,
   IconButton,
+  Input,
   NumberInput,
   Select,
   Switch,
@@ -172,6 +173,7 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
   const hasLoadedPageDataRef = useRef(false);
   const toolPermissionSaveInFlightRef = useRef(false);
   const [settings, setSettings] = useState<AIExperienceSettings | null>(null);
+  const [personalTitleDraft, setPersonalTitleDraft] = useState('');
   const [companionPets, setCompanionPets] = useState<AgentCompanionPetPackage[]>([]);
   const [companionPetImporting, setCompanionPetImporting] = useState(false);
   const [companionPetDeletingPath, setCompanionPetDeletingPath] = useState<string | null>(null);
@@ -498,6 +500,17 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
       notification.error(t('messages.saveFailed'));
       setSettings(settings);
     }
+  };
+
+  useEffect(() => {
+    setPersonalTitleDraft(settings?.personal_title ?? '');
+  }, [settings?.personal_title]);
+
+  const commitPersonalTitle = async () => {
+    if (!settings) return;
+    const next = personalTitleDraft.trim();
+    if (next === (settings.personal_title ?? '').trim()) return;
+    await updateSetting('personal_title', next);
   };
 
   const handleImportCompanionPet = async () => {
@@ -983,6 +996,36 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
 
         {page === 'pet' && settings ? (
           <>
+
+        {/* ── Personal identity badge ─────────────────────────────── */}
+        <ConfigPageSection
+          title={t('features.personalIdentity.title')}
+          description={t('features.personalIdentity.subtitle')}
+        >
+          <ConfigPageRow
+            label={t('features.personalIdentity.titleLabel')}
+            description={t('features.personalIdentity.titleDescription')}
+            align="center"
+          >
+            <Input
+              className="openbitfun-runtime-settings__identity-title"
+              size="sm"
+              maxLength={24}
+              value={personalTitleDraft}
+              placeholder={t('features.personalIdentity.titlePlaceholder')}
+              aria-label={t('features.personalIdentity.titleLabel')}
+              onValueChange={setPersonalTitleDraft}
+              onBlur={() => { void commitPersonalTitle(); }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.currentTarget.blur();
+                }
+              }}
+              data-openbitfun-component="runtime-settings"
+              data-openbitfun-part="identityTitleInput"
+            />
+          </ConfigPageRow>
+        </ConfigPageSection>
 
         {/* ── Desktop Agent companion ───────────────────────────── */}
         <ConfigPageSection

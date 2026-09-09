@@ -171,6 +171,10 @@ export interface AIExperienceConfig {
   voice_input: VoiceInputSettings;
   /** User-defined quick actions shown in the post-coding actions menu. */
   quick_actions?: Array<{ id: string; label: string; prompt: string; enabled: boolean }>;
+  /** Owner title for the personal-identity badge ("{title}'s personal super assistant"). */
+  personal_title?: string;
+  /** Emoji chosen as the owner's personal avatar for the identity badge. */
+  personal_avatar?: string;
 }
 
 export interface VoiceInputSettings {

@@ -14,6 +14,10 @@
     gap: var(--openbitfun-space-2);
   }
 
+  &__identity-title {
+    width: min(280px, 100%);
+  }
+
   &__status-row {
     --row-grid-cols: minmax(0, 1fr) minmax(0, var(--openbitfun-overlay-menu-inline-size));
   }

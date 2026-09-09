@@ -29,6 +29,10 @@ export interface AIExperienceSettings {
   voice_input: VoiceInputSettings;
   /** User-defined quick actions shown in the post-coding actions menu. */
   quick_actions?: QuickAction[];
+  /** Owner title for the welcome identity badge ("{title}'s personal super assistant"). */
+  personal_title?: string;
+  /** Emoji chosen as the owner's personal avatar for the welcome identity badge. */
+  personal_avatar?: string;
 }
 
 export type AIExperienceSettingsPatch = Partial<Omit<AIExperienceSettings, 'voice_input'>> & {
@@ -82,7 +86,13 @@ const defaultSettings: AIExperienceSettings = {
     microphone_device_id: '',
   },
   quick_actions: DEFAULT_QUICK_ACTIONS,
+  personal_title: '',
+  personal_avatar: '',
 };
+
+function normalizeOptionalText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
 
 function normalizeSettings(settings: PersistedAIExperienceSettings | null | undefined): AIExperienceSettings {
   // Older builds persisted "input" or "desktop" here. The input surface no
@@ -105,6 +115,9 @@ function normalizeSettings(settings: PersistedAIExperienceSettings | null | unde
   if (!merged.agent_companion_pet) {
     merged.agent_companion_pet = DEFAULT_AGENT_COMPANION_PET;
   }
+  // Badge fields tolerate missing/null payloads from older writers.
+  merged.personal_title = normalizeOptionalText(settings?.personal_title);
+  merged.personal_avatar = normalizeOptionalText(settings?.personal_avatar);
   return merged;
 }
 

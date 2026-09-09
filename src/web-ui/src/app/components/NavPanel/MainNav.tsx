@@ -56,6 +56,9 @@ import {
   subscribeGlobalSearchShortcut,
 } from '@/app/global-search/globalSearchShortcut';
 import { useExternalAppAwareness } from '@/infrastructure/config/components/external-sources/useExternalAppAwareness';
+import { Trans } from 'react-i18next';
+import { usePersonalIdentity } from '@/app/hooks/usePersonalIdentity';
+import { AgentCompanionPet } from '@/flow_chat/components/AgentCompanionPet';
 
 import './NavPanel.scss';
 
@@ -352,6 +355,7 @@ const MainNav: React.FC<MainNavProps> = ({
   const extensionsLabel = t('nav.sections.extensions');
   const isAssistantManagerActive = activeTabId === 'assistant' || activeTabId === 'profile';
   const isTaskBoardActive = activeTabId === 'todos';
+  const identity = usePersonalIdentity();
   return (
     <>
     <NavigationPanel
@@ -359,6 +363,29 @@ const MainNav: React.FC<MainNavProps> = ({
     >
       <NavigationPanelHeader className="openbitfun-nav-panel__main-nav-header">
         <div data-openbitfun-component="nav-panel" data-openbitfun-part="brandHeader" className="openbitfun-nav-panel__brand-header">
+        {/* ── Personal identity badge ──────────────────── */}
+        <div
+          className="openbitfun-nav-panel__identity"
+          data-openbitfun-component="nav-panel"
+          data-openbitfun-part="identity"
+          data-testid="nav-identity-badge"
+        >
+          <span className="openbitfun-nav-panel__identity-avatar" data-openbitfun-component="nav-panel" data-openbitfun-part="identityAvatar" aria-hidden="true">
+            <AgentCompanionPet
+              mood="rest"
+              pet={identity.pet}
+              className="openbitfun-nav-panel__identity-pet"
+            />
+          </span>
+          <span className="openbitfun-nav-panel__identity-label" data-openbitfun-component="nav-panel" data-openbitfun-part="identityLabel">
+            <Trans
+              i18nKey="identityBadge.title"
+              ns="common"
+              values={{ name: identity.displayName }}
+              components={{ name: <span className="openbitfun-nav-panel__identity-name" /> }}
+            />
+          </span>
+        </div>
         <div className="openbitfun-nav-panel__utility-row" data-openbitfun-component="nav-panel" data-openbitfun-part="utilityRow">
           <div className="openbitfun-nav-panel__brand-search" data-openbitfun-component="nav-panel" data-openbitfun-part="search">
             <Tooltip content={t('nav.search.triggerTooltip')} placement="right" followCursor>

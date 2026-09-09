@@ -14,6 +14,13 @@
     "loadFailed": "无法读取默认 Harness 设置。为避免覆盖现有配置，此设置已锁定。"
   },
   "features": {
+    "personalIdentity": {
+      "title": "超级助理标识",
+      "subtitle": "称谓显示在界面左上角标识中；头像使用下方选择的伙伴形象。",
+      "titleLabel": "我的称谓",
+      "titleDescription": "标识文案为「称谓 + 的个人超级助理」，留空时显示 OpenBitFun。",
+      "titlePlaceholder": "如：小明"
+    },
     "pet": {
       "title": "桌面宠物",
       "subtitle": "控制 OpenBitFun 桌面宠物是否显示以及使用的形象",
