@@ -53,15 +53,27 @@ pnpm run prepare:dsh-profile   # 可选：本地 DeepSeek Harness 会话
 | `pnpm run desktop:build:fast` | Debug 构建，不打包；手动测试时编译最快 |
 | `pnpm run desktop:build:release-fast` | 类 Release 构建，降低 LTO；需要 release 行为但无法等待完整 LTO 时使用 |
 | `pnpm run desktop:build:nsis:fast` | Windows 安装器，使用 `release-fast` profile；快速验证安装器 |
+| `pnpm run desktop:build:nsis:local` | 本地分发的 Windows 安装器：`release-local` profile 并带 `--skip-audits`；不要启用 `devtools` |
 
 需要完整断点调试信息时设置 `CARGO_PROFILE_DEV_DEBUG=2`。默认 dev profile 保留行号信息，
 同时减少 PDB 体积。
+
+`desktop-tauri-build.mjs` 在结束时打印 `[build-timing]` 摘要。`tauri build` 这一个阶段包含前端
+流水线、Cargo 编译与打包；`BITFUN_SKIP_AUDITS=1` 展开的前端子阶段缩进列在其下，因为 Tauri 的
+`beforeBuildCommand` 本身不可测量。`--skip-audits` 只是从转发给 Tauri/Cargo 的参数中剥离该开关，
+因此也可以加到已有的打包命令上；它会切换到 `build:web:no-audit`，并跳过只校验已完成的 `dist/`、
+不产出任何内容的 CI 关卡（appearance 契约审计、Monaco 资源、WebKit 兼容性、`tsc --noEmit`）。
+本地产包不能替代 CI：正式发布仍然运行 `pnpm run desktop:build:nsis`。
 
 ## Target 缓存 GC
 
 `desktop:dev`（退出时）、`desktop:preview:debug`（关闭时）以及 `desktop:build*` 会裁剪过期的 `target/<profile>` 缓存代际。`incremental` 每个 crate/session 保留最新项；GC 根据 Cargo fingerprint JSON 区分 lib、test、bin、build-script 等构建单元，每个单元保留最新代际，并保留 Cargo 管理的 `invoked.timestamp` 在最近 24 小时内刷新过的全部代际，随后删除失去 fingerprint 的 `deps` 文件和 `build` 目录。忙碌检测只检查所选 profile 的 Cargo 锁文件，因此其他 worktree 的编译不会再阻止清理。手动执行：`pnpm run target:gc -- --profile debug`。禁用：`OPENBITFUN_TARGET_GC=0`；演练：`OPENBITFUN_TARGET_GC_DRY_RUN=1`；可用 `OPENBITFUN_TARGET_GC_MIN_AGE_HOURS` 调整安全窗口。
 
 `release-fast` profile（`Cargo.toml`）：继承 `release`，但关闭 LTO、`codegen-units` 提高到 16、启用增量编译。编译速度显著提升，代价是二进制体积增大和边际运行时性能下降。
+
+`release-local` profile：codegen 设置与 `release-fast` 相同，但保留 `strip = true`，因此产出的
+安装器体积可与正式 `release` 包对比。正式 CI 打包仍使用 `release`；每个额外 profile 都有独立的
+`target/<profile>` 缓存，`pnpm run target:gc` 会分别裁剪。
 
 ## DevTools feature（模型规则）
 
