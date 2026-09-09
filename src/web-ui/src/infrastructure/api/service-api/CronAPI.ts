@@ -4,6 +4,8 @@ import { isTauriRuntime } from '@/infrastructure/runtime';
 
 export type CronJobRunStatus = 'queued' | 'running' | 'ok' | 'error' | 'cancelled';
 export type CronJobTargetKind = 'session' | 'workspace';
+export type CronJobCompletionStatus = 'pending' | 'in_progress' | 'completed';
+export type CronJobHandling = 'agent' | 'manual';
 
 export type CronSchedule =
   | {
@@ -76,6 +78,13 @@ export interface CronJob {
   configUpdatedAtMs: number;
   updatedAtMs: number;
   state: CronJobState;
+  completionStatus: CronJobCompletionStatus;
+  handling: CronJobHandling;
+  /** Latest scheduled time a manual Todo became due, cleared once completed. */
+  manualDueAtMs?: number | null;
+  plannedStartAtMs?: number | null;
+  plannedCompletionAtMs?: number | null;
+  actualCompletionAtMs?: number | null;
 }
 
 export interface ListCronJobsRequest {
@@ -92,6 +101,11 @@ export interface CreateCronJobRequest {
   payload: CronJobPayload;
   enabled?: boolean;
   target: CronJobTarget;
+  completionStatus?: CronJobCompletionStatus;
+  handling?: CronJobHandling;
+  plannedStartAtMs?: number | null;
+  plannedCompletionAtMs?: number | null;
+  actualCompletionAtMs?: number | null;
 }
 
 export interface UpdateCronJobRequest {
@@ -100,6 +114,11 @@ export interface UpdateCronJobRequest {
   payload?: CronJobPayload;
   enabled?: boolean;
   target?: CronJobTarget;
+  completionStatus?: CronJobCompletionStatus;
+  handling?: CronJobHandling;
+  plannedStartAtMs?: number | null;
+  plannedCompletionAtMs?: number | null;
+  actualCompletionAtMs?: number | null;
 }
 
 export class CronAPI {

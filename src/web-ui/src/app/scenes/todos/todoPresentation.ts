@@ -108,8 +108,11 @@ export function resolveJobWorkspaceLabel(
   return segments[segments.length - 1] || ref.workspacePath;
 }
 
-/** What the job launches into: a specific session, or a fresh one. */
+/** What the job launches into: a specific session, a fresh one, or the user. */
 export function formatJobTargetLabel(job: CronJob, t: Translate): string {
+  if (job.handling === 'manual') {
+    return t('target.manual');
+  }
   if (job.target.kind === 'session') {
     return t('target.existingSession');
   }

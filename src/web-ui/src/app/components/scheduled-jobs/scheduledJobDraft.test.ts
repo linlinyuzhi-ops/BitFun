@@ -33,6 +33,8 @@ function jobWithInterval(everyMs: number): CronJob {
     configUpdatedAtMs: 0,
     updatedAtMs: 0,
     state: { consecutiveFailures: 0, coalescedRunCount: 0 },
+    completionStatus: 'pending',
+    handling: 'agent',
   };
 }
 

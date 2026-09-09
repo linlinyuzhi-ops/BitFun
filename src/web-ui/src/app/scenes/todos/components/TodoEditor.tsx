@@ -10,6 +10,7 @@ import { OverflowText, Button, Combobox, Icon, Input, Select, Switch, ScrollArea
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bot, CalendarClock, ClipboardList } from 'lucide-react';
 import { agentAPI, type ModeInfo } from '@/infrastructure/api/service-api/AgentAPI';
+import type { CronJobCompletionStatus, CronJobHandling } from '@/infrastructure/api';
 import { useI18n } from '@/infrastructure/i18n';
 import { WorkspaceKind } from '@/shared/types';
 import { createLogger } from '@/shared/utils/logger';
@@ -232,6 +233,25 @@ const TodoEditor: React.FC<TodoEditorProps> = ({
 
             <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
               <span className="openbitfun-todos__field-label">
+                <Icon name="user" size="md" aria-hidden="true" />
+                {t('editor.fields.handling')}
+              </span>
+              <Select
+                size="md"
+                className="openbitfun-todos__field-control"
+                value={draft.handling}
+                options={[
+                  { value: 'agent', label: t('handling.agent') },
+                  { value: 'manual', label: t('handling.manual') },
+                ]}
+                aria-label={t('editor.fields.handling')}
+                onValueChange={(value) => updateDraft({ handling: value as CronJobHandling })}
+                data-testid="todos-editor-handling"
+              />
+            </div>
+
+            <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
+              <span className="openbitfun-todos__field-label">
                 <Icon name="folder" size="md" aria-hidden="true" />
                 {t('shared:features.workspace')}
               </span>
@@ -246,7 +266,7 @@ const TodoEditor: React.FC<TodoEditorProps> = ({
               />
             </div>
 
-            {boundSessionId ? (
+            {draft.handling === 'manual' ? null : boundSessionId ? (
               <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
                 <span className="openbitfun-todos__field-label">
                   <Bot size={16} aria-hidden="true" />
@@ -376,6 +396,68 @@ const TodoEditor: React.FC<TodoEditorProps> = ({
                 />
               ) : null}
             </div>
+
+            <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
+              <span className="openbitfun-todos__field-label">
+                <Icon name="check-circle" size="md" aria-hidden="true" />
+                {t('editor.fields.completionStatus')}
+              </span>
+              <Select
+                size="md"
+                className="openbitfun-todos__field-control"
+                value={draft.completionStatus}
+                options={[
+                  { value: 'pending', label: t('status.pending') },
+                  { value: 'in_progress', label: t('status.inProgress') },
+                  { value: 'completed', label: t('status.completed') },
+                ]}
+                aria-label={t('editor.fields.completionStatus')}
+                onValueChange={(value) => updateDraft({ completionStatus: value as CronJobCompletionStatus })}
+                data-testid="todos-editor-completion-status"
+              />
+            </div>
+
+            <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
+              <span className="openbitfun-todos__field-label">
+                <CalendarClock size={16} aria-hidden="true" />
+                {t('editor.fields.plannedStartAt')}
+              </span>
+              <LocalizedDateTimeField
+                className="openbitfun-todos__field-control openbitfun-todos__field-control--datetime"
+                value={draft.plannedStartAt}
+                aria-label={t('editor.fields.plannedStartAt')}
+                onChange={(plannedStartAt) => updateDraft({ plannedStartAt })}
+                data-testid="todos-editor-planned-start"
+              />
+            </div>
+
+            <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
+              <span className="openbitfun-todos__field-label">
+                <CalendarClock size={16} aria-hidden="true" />
+                {t('editor.fields.plannedCompletionAt')}
+              </span>
+              <LocalizedDateTimeField
+                className="openbitfun-todos__field-control openbitfun-todos__field-control--datetime"
+                value={draft.plannedCompletionAt}
+                aria-label={t('editor.fields.plannedCompletionAt')}
+                onChange={(plannedCompletionAt) => updateDraft({ plannedCompletionAt })}
+                data-testid="todos-editor-planned-completion"
+              />
+            </div>
+
+            <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
+              <span className="openbitfun-todos__field-label">
+                <CalendarClock size={16} aria-hidden="true" />
+                {t('editor.fields.actualCompletionAt')}
+              </span>
+              <LocalizedDateTimeField
+                className="openbitfun-todos__field-control openbitfun-todos__field-control--datetime"
+                value={draft.actualCompletionAt}
+                aria-label={t('editor.fields.actualCompletionAt')}
+                onChange={(actualCompletionAt) => updateDraft({ actualCompletionAt })}
+                data-testid="todos-editor-actual-completion"
+              />
+            </div>
           </div>
 
           <div
@@ -487,7 +569,7 @@ const TodoEditor: React.FC<TodoEditorProps> = ({
                 </div>
               ) : null}
 
-              {boundSessionId ? (
+              {draft.handling === 'manual' ? null : boundSessionId ? (
                 <p className="openbitfun-todos__editor-advanced-note">
                   {t('editor.hints.boundSession')}
                 </p>
