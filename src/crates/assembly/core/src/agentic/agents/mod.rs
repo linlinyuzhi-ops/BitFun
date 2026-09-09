@@ -117,6 +117,7 @@ pub fn standard_harness_tools() -> Vec<String> {
         "WebSearch".to_string(),
         "WebFetch".to_string(),
         "TodoWrite".to_string(),
+        "get_todo".to_string(),
         "get_goal".to_string(),
         "create_goal".to_string(),
         "update_goal".to_string(),
@@ -129,6 +130,8 @@ pub fn standard_harness_tools() -> Vec<String> {
         // further out than an hour, to Cron rather than holding the turn open
         // for the interval.
         "Cron".to_string(),
+        "get_todos".to_string(),
+        "manage_todos".to_string(),
         "PublishAppearance".to_string(),
         "PageDeploy".to_string(),
         "PagePublish".to_string(),

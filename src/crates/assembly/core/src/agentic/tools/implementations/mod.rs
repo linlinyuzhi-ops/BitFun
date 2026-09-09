@@ -35,10 +35,15 @@ pub mod generative_ui_tool;
 #[cfg(feature = "tools-git")]
 pub mod get_file_diff_tool;
 pub mod get_time_tool;
+pub mod get_todo_tool;
+#[cfg(feature = "tools-agent-control")]
+pub mod get_todos_tool;
 pub mod glob_tool;
 pub mod grep_tool;
 pub mod list_models_tool;
 pub mod ls_tool;
+#[cfg(feature = "tools-agent-control")]
+pub mod manage_todos_tool;
 #[cfg(feature = "tools-mcp")]
 pub mod mcp_tools;
 #[cfg(feature = "tools-miniapp")]
@@ -139,6 +144,11 @@ pub use task::{
 };
 pub use thread_goal_tools::{CreateGoalTool, GetGoalTool, UpdateGoalTool};
 pub use todo_write_tool::TodoWriteTool;
+pub use get_todo_tool::GetTodoTool;
+#[cfg(feature = "tools-agent-control")]
+pub use get_todos_tool::GetTodosTool;
+#[cfg(feature = "tools-agent-control")]
+pub use manage_todos_tool::ManageTodosTool;
 #[cfg(feature = "tools-image-analysis")]
 pub use view_image_tool::ViewImageTool;
 #[cfg(feature = "tools-browser-web")]
