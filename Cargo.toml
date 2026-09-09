@@ -329,3 +329,15 @@ lto = false
 codegen-units = 16
 strip = false
 incremental = true
+
+# Local installer builds: keeps the settings that shape the shipped artifact
+# (`opt-level`, `strip`) and drops only the whole-program costs that matter for
+# official releases. Produces a distributable, size-comparable installer without
+# the cold `codegen-units = 1` + thin-LTO codegen of `release`.
+# CI official packaging continues to use `release`.
+[profile.release-local]
+inherits = "release"
+lto = false
+codegen-units = 16
+strip = true
+incremental = true

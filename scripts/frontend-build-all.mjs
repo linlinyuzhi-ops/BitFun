@@ -8,13 +8,34 @@
  *
  * Used as the Tauri beforeBuildCommand so the stage costs max(…) instead of
  * their sum. Any failure fails the whole script with a non-zero exit code.
+ *
+ * Each pipeline's wall-clock cost is written to `gen/frontend-timings.json` so
+ * the packaging wrapper can report where the time went.
  */
 
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  createStageRecorder,
+  readStageTimings,
+  writeStageTimings,
+} from './build-stage-timings.mjs';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const GEN_DIR = path.join(ROOT_DIR, 'src', 'apps', 'desktop', 'gen');
+const TIMINGS_PATH = path.join(GEN_DIR, 'frontend-timings.json');
+const WEB_TIMINGS_PATH = path.join(GEN_DIR, 'web-timings.json');
+
+/**
+ * The `build:web` audits (appearance contract, Monaco assets, WebKit
+ * compatibility) only validate a finished `dist/`; they produce nothing and are
+ * enforced by CI. `--skip-audits` local packaging drops them.
+ */
+const skipAudits = ['1', 'true', 'yes'].includes(
+  String(process.env.OPENBITFUN_SKIP_AUDITS ?? '').toLowerCase()
+);
+const webScript = skipAudits ? 'build:web:no-audit' : 'build:web';
 
 function runPrefixed(prefix, command, args) {
   return new Promise((resolve) => {
@@ -55,14 +76,32 @@ function runPrefixed(prefix, command, args) {
   });
 }
 
+const startedAtMs = Date.now();
+if (skipAudits) {
+  process.stdout.write(`[frontend-build-all] OPENBITFUN_SKIP_AUDITS=1: running ${webScript}\n`);
+}
+const recorder = createStageRecorder();
 const codes = await Promise.all([
-  runPrefixed('web', 'pnpm', ['run', 'build:web']),
-  runPrefixed('mobile-web', 'pnpm', ['run', 'prepare:mobile-web']),
+  recorder.time('web', () => runPrefixed('web', 'pnpm', ['run', webScript])),
+  recorder.time('mobile-web', () => runPrefixed('mobile-web', 'pnpm', ['run', 'prepare:mobile-web'])),
   // The DeepSeek Harness bridge Tauri ships as a resource. On a cold tree this
   // installs its own pinned toolchain (~30s), which still fits inside the two
   // above; it is independent of them, and of OpenBitFun's pnpm store.
-  runPrefixed('dsh-profile', 'pnpm', ['run', 'prepare:dsh-profile']),
+  recorder.time('dsh-profile', () => runPrefixed('dsh-profile', 'pnpm', ['run', 'prepare:dsh-profile'])),
 ]);
+
+// `build-web-parallel.mjs` records its own steps; inline them under `web/`.
+const webStages = readStageTimings(WEB_TIMINGS_PATH, { notBeforeMs: startedAtMs - 1_000 }).map(
+  (stage) => ({ name: `web/${stage.name}`, ms: stage.ms })
+);
+const stages = [];
+for (const stage of recorder.stages) {
+  stages.push(stage);
+  if (stage.name === 'web') {
+    stages.push(...webStages);
+  }
+}
+writeStageTimings(TIMINGS_PATH, stages, { totalMs: Date.now() - startedAtMs });
 
 const failed = codes.some((code) => code !== 0);
 if (failed) {

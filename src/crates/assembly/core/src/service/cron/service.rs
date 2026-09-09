@@ -338,7 +338,10 @@ impl CronService {
                 drop(jobs);
                 self.wakeup.notify_one();
                 return self.get_job(job_id).await.ok_or_else(|| {
-                    BitFunError::NotFound(format!("Scheduled job not found after run: {}", job_id))
+                    OpenBitFunError::NotFound(format!(
+                        "Scheduled job not found after run: {}",
+                        job_id
+                    ))
                 });
             }
 

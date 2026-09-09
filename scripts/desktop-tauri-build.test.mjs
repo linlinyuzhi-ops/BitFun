@@ -5,8 +5,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 import {
   configureDesktopWebFontProfile,
+  createStageTimer,
+  extractSkipAuditsFlag,
   prepareMacOSFlashgrepForSigning,
   prepareTauriConfig,
+  reportBuildStages,
   shouldRetryMacDmgBuild,
 } from './desktop-tauri-build.mjs';
 import { resolveProductDefinition } from './product-customization/resolver.mjs';
@@ -514,4 +517,73 @@ test('Desktop release config bundles models.dev notices and provenance', () => {
     ],
     'third-party/models.dev/provenance.json'
   );
+});
+
+test('--skip-audits is consumed by the wrapper instead of reaching tauri or cargo', () => {
+  const beforeSeparator = extractSkipAuditsFlag([
+    '--bundles',
+    'nsis',
+    '--skip-audits',
+    '--',
+    '--profile',
+    'release-local',
+  ]);
+  assert.equal(beforeSeparator.skipAudits, true);
+  assert.deepEqual(beforeSeparator.args, [
+    '--bundles',
+    'nsis',
+    '--',
+    '--profile',
+    'release-local',
+  ]);
+
+  // The trailing `--` forwards cargo arguments, so the flag is stripped there too.
+  const afterSeparator = extractSkipAuditsFlag([
+    '--bundles',
+    'nsis',
+    '--',
+    '--profile',
+    'release-local',
+    '--skip-audits',
+  ]);
+  assert.equal(afterSeparator.skipAudits, true);
+  assert.deepEqual(afterSeparator.args, [
+    '--bundles',
+    'nsis',
+    '--',
+    '--profile',
+    'release-local',
+  ]);
+
+  const untouched = extractSkipAuditsFlag(['--bundles', 'nsis']);
+  assert.equal(untouched.skipAudits, false);
+  assert.deepEqual(untouched.args, ['--bundles', 'nsis']);
+});
+
+test('the packaging summary reports wrapper stages and nested frontend stages', () => {
+  const logs = [];
+  const originalLog = console.log;
+  console.log = (line) => logs.push(line);
+  try {
+    const timer = createStageTimer(0);
+    timer.mark('product+release', 400);
+    timer.mark('tauri-build', 60_400);
+    timer.mark('target-gc', 61_000);
+    reportBuildStages(timer, {
+      profile: 'release-local',
+      target: null,
+      skipAudits: true,
+      frontendStages: [{ name: 'web/vite-build', ms: 30_000 }],
+      now: 61_000,
+    });
+  } finally {
+    console.log = originalLog;
+  }
+
+  const output = logs.join('\n');
+  assert.match(output, /profile=release-local target=host skip-audits=true/);
+  assert.match(output, /product\+release\s+0\.4s/);
+  assert.match(output, /tauri-build\s+60\.0s/);
+  assert.match(output, /web\/vite-build\s+30\.0s/);
+  assert.match(output, /total\s+61\.0s/);
 });

@@ -14,6 +14,7 @@ import {
   writeFileSync,
 } from 'fs';
 import { ensureFlashgrepBinary } from './prepare-flashgrep-resource.mjs';
+import { readStageTimings } from './build-stage-timings.mjs';
 import { extractProductConfigArg } from './product-customization/cli.mjs';
 import { productBuildEnvironment } from './product-customization/projections.mjs';
 import { resolveProductDefinition } from './product-customization/resolver.mjs';
@@ -36,8 +37,88 @@ function tauriBuildArgsFromArgv() {
   return args.slice(i);
 }
 
+const SKIP_AUDITS_FLAG = '--skip-audits';
+export const SKIP_AUDITS_ENV = 'OPENBITFUN_SKIP_AUDITS';
+
+/** Same accepted values as the frontend pipelines read from the environment. */
+function envRequestsSkipAudits(value = process.env[SKIP_AUDITS_ENV]) {
+  return ['1', 'true', 'yes'].includes(String(value ?? '').toLowerCase());
+}
+
+/**
+ * Strips this wrapper's own `--skip-audits` flag out of the forwarded arguments.
+ * The flag may appear before or after the `--` cargo separator, so it is removed
+ * from every position: neither `tauri build` nor `cargo` knows about it.
+ */
+export function extractSkipAuditsFlag(args) {
+  if (!args.includes(SKIP_AUDITS_FLAG)) {
+    return { skipAudits: false, args };
+  }
+  return { skipAudits: true, args: args.filter((arg) => arg !== SKIP_AUDITS_FLAG) };
+}
+
+export function createStageTimer(startedAtMs = Date.now()) {
+  const stages = [];
+  let cursor = startedAtMs;
+  return {
+    stages,
+    mark(name, now = Date.now()) {
+      stages.push({ name, ms: Math.max(0, now - cursor) });
+      cursor = now;
+    },
+    elapsedMs(now = Date.now()) {
+      return Math.max(0, now - startedAtMs);
+    },
+  };
+}
+
+function formatStageMs(ms) {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatStageLine(name, ms, indent) {
+  return `[build-timing] ${indent}${name.padEnd(24)} ${formatStageMs(ms)}`;
+}
+
+export function reportBuildStages(
+  timer,
+  { profile, target, skipAudits, frontendStages = null, now = Date.now() }
+) {
+  const lines = [
+    `[build-timing] profile=${profile} target=${target ?? 'host'} skip-audits=${skipAudits ? 'true' : 'false'}`,
+  ];
+  for (const stage of timer.stages) {
+    lines.push(formatStageLine(stage.name, stage.ms, '  '));
+  }
+  if (frontendStages?.length > 0) {
+    lines.push('[build-timing]   frontend stages (inside tauri-build):');
+    for (const stage of frontendStages) {
+      lines.push(formatStageLine(stage.name, stage.ms, '    '));
+    }
+  }
+  lines.push(formatStageLine('total', timer.elapsedMs(now), '  '));
+  console.log(lines.join('\n'));
+}
+
+function buildProfileFromTauriArgs(args) {
+  if (args.includes('--debug')) return 'debug';
+  return optionValue(args, '--profile') || 'release';
+}
+
 async function main() {
-  const { productConfig, forwardArgs: forward } = extractProductConfigArg(tauriBuildArgsFromArgv());
+  const buildStartedAtMs = Date.now();
+  const timer = createStageTimer(buildStartedAtMs);
+  const { productConfig, forwardArgs: argsWithFlag } = extractProductConfigArg(
+    tauriBuildArgsFromArgv()
+  );
+  const { skipAudits: skipAuditsFlag, args: forward } = extractSkipAuditsFlag(argsWithFlag);
+  // The environment form is the same switch, so a developer can export it once
+  // instead of adding the flag to every packaging command.
+  const skipAudits = skipAuditsFlag || envRequestsSkipAudits();
+  if (skipAudits) {
+    process.env[SKIP_AUDITS_ENV] = '1';
+    console.log('[tauri-build] Skipping frontend audits (pure CI gates).');
+  }
   const resolution = resolveProductDefinition({ rootDir: ROOT, productConfig, member: 'desktop' });
   Object.assign(process.env, productBuildEnvironment(resolution));
   console.log(`[product] ${resolution.assembly.member} ${resolution.assembly.assemblyDigest}`);
@@ -45,14 +126,17 @@ async function main() {
   console.log(`[font-profile] ${fontProfile}`);
   const releaseChannel = resolveReleaseChannel(process.env.OPENBITFUN_RELEASE_CHANNEL);
   console.log(`[release] channel=${releaseChannel.channel}`);
+  timer.mark('product+release');
 
   const desktopDir = join(ROOT, 'src', 'apps', 'desktop');
   preparePluginHost();
+  timer.mark('plugin-host');
   const flashgrepBinary = prepareMacOSFlashgrepForSigning(
     ensureFlashgrepBinary({ target: optionValue(forward, '--target') || rustHostTargetTriple() }),
     desktopDir,
   );
   process.env.FLASHGREP_DAEMON_BIN = flashgrepBinary;
+  timer.mark('flashgrep');
   // Tauri CLI reads CI and rejects numeric "1" (common in CI providers).
   process.env.CI = 'true';
   if (process.platform === 'darwin' && requestsDmgBundle(forward)) {
@@ -67,8 +151,14 @@ async function main() {
     resolution,
     releaseChannel,
   });
+  timer.mark('config');
   const tauriBin = join(ROOT, 'node_modules', '.bin', 'tauri');
   const tauriArgs = ['build', '--config', tauriConfig, ...forward];
+  const summaryOptions = {
+    profile: buildProfileFromTauriArgs(forward),
+    target: optionValue(forward, '--target'),
+    skipAudits,
+  };
   let attemptStartedAtMs = Date.now();
   let r = runTauriBuild(tauriBin, tauriArgs, desktopDir);
 
@@ -89,8 +179,17 @@ async function main() {
     r = runTauriBuild(tauriBin, tauriArgs, desktopDir);
   }
 
+  timer.mark('tauri-build');
+  // Tauri runs the frontend pipeline inside the stage above, so its nested costs
+  // are only readable once the build command has returned.
+  const frontendStages = readStageTimings(
+    join(desktopDir, 'gen', 'frontend-timings.json'),
+    { notBeforeMs: buildStartedAtMs - 1_000 }
+  );
+
   if (r.error) {
     console.error(r.error);
+    reportBuildStages(timer, { ...summaryOptions, frontendStages });
     process.exit(1);
   }
 
@@ -107,6 +206,9 @@ async function main() {
   } catch (error) {
     console.warn(`[target-gc] skipped: ${error.message || String(error)}`);
   }
+  timer.mark('target-gc');
+
+  reportBuildStages(timer, { ...summaryOptions, frontendStages });
 
   if (r.status === 0 && forward.includes('--no-bundle')) {
     console.warn(

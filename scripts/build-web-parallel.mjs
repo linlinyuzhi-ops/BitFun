@@ -11,13 +11,33 @@
  * skip it with `pnpm --dir src/web-ui build`. Both child processes must succeed;
  * if either fails the script exits with a non-zero code (after letting the
  * sibling finish so its output is not lost).
+ *
+ * Each step's cost is written to `src/apps/desktop/gen/web-timings.json` and
+ * merged into the packaging summary printed by desktop-tauri-build.mjs.
  */
 
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createStageRecorder, writeStageTimings } from './build-stage-timings.mjs';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const TIMINGS_PATH = path.join(ROOT_DIR, 'src', 'apps', 'desktop', 'gen', 'web-timings.json');
+
+/**
+ * `tsc --noEmit` gates CI but does not feed `dist/` (Vite transpiles with
+ * esbuild), so `OPENBITFUN_SKIP_AUDITS=1` local packaging drops it.
+ */
+const skipAudits = ['1', 'true', 'yes'].includes(
+  String(process.env.OPENBITFUN_SKIP_AUDITS ?? '').toLowerCase()
+);
+
+const startedAtMs = Date.now();
+const recorder = createStageRecorder();
+
+function writeTimings() {
+  writeStageTimings(TIMINGS_PATH, recorder.stages, { totalMs: Date.now() - startedAtMs });
+}
 
 function runPrefixed(prefix, command, args, cwd) {
   return new Promise((resolve) => {
@@ -62,13 +82,17 @@ function runPrefixed(prefix, command, args, cwd) {
 // finish before the Vite build so the frontend picks up fresh types). This is
 // the only step that requires a working Rust toolchain; local frontend-only
 // iteration can skip it with `pnpm --dir src/web-ui build`.
-const genTypesCode = await runPrefixed(
+const genTypesCode = await recorder.time(
   'gen-types',
-  'pnpm',
-  ['--dir', 'src/web-ui', 'run', 'gen:types'],
-  ROOT_DIR,
+  () => runPrefixed(
+    'gen-types',
+    'pnpm',
+    ['--dir', 'src/web-ui', 'run', 'gen:types'],
+    ROOT_DIR,
+  ),
 );
 if (genTypesCode !== 0) {
+  writeTimings();
   process.stderr.write('[build-web-parallel] gen:types failed (see output above)\n');
   process.exitCode = 1;
   process.exit();
@@ -76,13 +100,17 @@ if (genTypesCode !== 0) {
 
 // Step 2: build the independently published design-system packages once before
 // the product type-check and Vite build consume their public `dist` exports.
-const designSystemCode = await runPrefixed(
+const designSystemCode = await recorder.time(
   'design-system',
-  'pnpm',
-  ['--dir', 'design-system', 'run', 'build:packages'],
-  ROOT_DIR,
+  () => runPrefixed(
+    'design-system',
+    'pnpm',
+    ['--dir', 'design-system', 'run', 'build:packages'],
+    ROOT_DIR,
+  ),
 );
 if (designSystemCode !== 0) {
+  writeTimings();
   process.stderr.write('[build-web-parallel] design-system package build failed (see output above)\n');
   process.exitCode = 1;
   process.exit();
@@ -91,12 +119,26 @@ if (designSystemCode !== 0) {
 // Step 3: type-check and Vite build run in parallel. Use the raw tools here so
 // the web-ui package lifecycle hooks do not rebuild the same design-system
 // artifacts concurrently while TypeScript is reading them.
-const tasks = [
-  runPrefixed('type-check', 'pnpm', ['--dir', 'src/web-ui', 'exec', 'tsc', '--noEmit'], ROOT_DIR),
-  runPrefixed('vite-build', 'pnpm', ['--dir', 'src/web-ui', 'exec', 'vite', 'build'], ROOT_DIR),
-];
+const parallelSteps = [];
+if (skipAudits) {
+  process.stdout.write(
+    '[build-web-parallel] OPENBITFUN_SKIP_AUDITS=1: skipping tsc type-check (does not affect dist)\n'
+  );
+} else {
+  parallelSteps.push([
+    'type-check',
+    () => runPrefixed('type-check', 'pnpm', ['--dir', 'src/web-ui', 'exec', 'tsc', '--noEmit'], ROOT_DIR),
+  ]);
+}
+parallelSteps.push([
+  'vite-build',
+  () => runPrefixed('vite-build', 'pnpm', ['--dir', 'src/web-ui', 'exec', 'vite', 'build'], ROOT_DIR),
+]);
 
-const buildCodes = await Promise.all(tasks);
+const buildCodes = await Promise.all(
+  parallelSteps.map(([name, run]) => recorder.time(name, run))
+);
+writeTimings();
 const failed = buildCodes.some((code) => code !== 0);
 if (failed) {
   process.stderr.write('[build-web-parallel] build:web failed (see output above)\n');
