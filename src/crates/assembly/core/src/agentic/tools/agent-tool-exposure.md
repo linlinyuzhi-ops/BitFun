@@ -26,6 +26,9 @@ Notes:
 | `Skill` | Direct | None | - |
 | `AskUserQuestion` | Direct | None | - |
 | `TodoWrite` | Direct | None | - |
+| `get_todo` | Direct | None | - |
+| `get_todos` | Direct | None | - |
+| `manage_todos` | Direct | None | - |
 | `CodeReview` | Direct | None | - |
 | `GetToolSpec` | Direct | None | - |
 | `CallDeferredTool` | Direct | None | - |

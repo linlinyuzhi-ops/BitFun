@@ -37,6 +37,7 @@ const PRODUCT_TOOL_REGISTRATION_ORDER: &[&str] = &[
     "Skill",
     "AskUserQuestion",
     "TodoWrite",
+    "get_todo",
     "get_goal",
     "create_goal",
     "update_goal",
@@ -53,6 +54,8 @@ const PRODUCT_TOOL_REGISTRATION_ORDER: &[&str] = &[
     "SessionMessage",
     "SessionHistory",
     "Cron",
+    "get_todos",
+    "manage_todos",
     "WebSearch",
     "WebFetch",
     "ListMCPResources",
@@ -120,6 +123,7 @@ impl StaticToolProviderFactory<dyn Tool> for ProductConcreteToolFactory {
             "Skill" => Some(Arc::new(SkillTool::new())),
             "AskUserQuestion" => Some(Arc::new(AskUserQuestionTool::new())),
             "TodoWrite" => Some(Arc::new(TodoWriteTool::new())),
+            "get_todo" => Some(Arc::new(GetTodoTool::new())),
             "get_goal" => Some(Arc::new(GetGoalTool::new())),
             "create_goal" => Some(Arc::new(CreateGoalTool::new())),
             "update_goal" => Some(Arc::new(UpdateGoalTool::new())),
@@ -142,6 +146,10 @@ impl StaticToolProviderFactory<dyn Tool> for ProductConcreteToolFactory {
             "SessionHistory" => Some(Arc::new(SessionHistoryTool::new())),
             #[cfg(feature = "tools-agent-control")]
             "Cron" => Some(Arc::new(CronTool::new())),
+            #[cfg(feature = "tools-agent-control")]
+            "get_todos" => Some(Arc::new(GetTodosTool::new())),
+            #[cfg(feature = "tools-agent-control")]
+            "manage_todos" => Some(Arc::new(ManageTodosTool::new())),
             #[cfg(feature = "tools-browser-web")]
             "WebSearch" => Some(Arc::new(WebSearchTool::new())),
             #[cfg(feature = "tools-browser-web")]

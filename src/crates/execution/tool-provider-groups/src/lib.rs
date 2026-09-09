@@ -102,9 +102,11 @@ pub fn tool_feature_group(tool_name: &str) -> Option<ToolPackFeatureGroup> {
             Some(ToolPackFeatureGroup::Canvas)
         }
         "Task" | "AgentWait" | "LaunchReviewAgent" | "Skill" | "AskUserQuestion" | "TodoWrite"
-        | "get_goal" | "create_goal" | "update_goal" | "CreatePlan" | "submit_code_review"
-        | "GetToolSpec" | "CallDeferredTool" | "SessionControl" | "SessionMessage"
-        | "SessionHistory" | "Cron" => Some(ToolPackFeatureGroup::AgentControl),
+        | "get_todo" | "get_todos" | "manage_todos" | "get_goal" | "create_goal" | "update_goal"
+        | "CreatePlan" | "submit_code_review" | "GetToolSpec" | "CallDeferredTool"
+        | "SessionControl" | "SessionMessage" | "SessionHistory" | "Cron" => {
+            Some(ToolPackFeatureGroup::AgentControl)
+        }
         _ => None,
     }
 }
@@ -186,6 +188,7 @@ const PRODUCT_TOOL_PROVIDER_GROUP_PLAN: &[ToolProviderGroupPlan] = &[
             "Skill",
             "AskUserQuestion",
             "TodoWrite",
+            "get_todo",
             "get_goal",
             "create_goal",
             "update_goal",
@@ -197,7 +200,14 @@ const PRODUCT_TOOL_PROVIDER_GROUP_PLAN: &[ToolProviderGroupPlan] = &[
     ToolProviderGroupPlan {
         provider_id: "core.session",
         feature_groups: CORE_SESSION_FEATURE_GROUPS,
-        tool_names: &["SessionControl", "SessionMessage", "SessionHistory", "Cron"],
+        tool_names: &[
+            "SessionControl",
+            "SessionMessage",
+            "SessionHistory",
+            "Cron",
+            "get_todos",
+            "manage_todos",
+        ],
     },
     ToolProviderGroupPlan {
         provider_id: "core.git",
@@ -496,6 +506,7 @@ mod tests {
                 "Skill",
                 "AskUserQuestion",
                 "TodoWrite",
+                "get_todo",
                 "get_goal",
                 "create_goal",
                 "update_goal",
@@ -506,6 +517,8 @@ mod tests {
                 "SessionMessage",
                 "SessionHistory",
                 "Cron",
+                "get_todos",
+                "manage_todos",
                 "GetFileDiff",
                 "Git",
                 "Worktree",

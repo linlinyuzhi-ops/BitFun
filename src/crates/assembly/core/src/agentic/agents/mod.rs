@@ -136,6 +136,7 @@ pub fn shared_coding_mode_tools() -> Vec<String> {
         "WebSearch".to_string(),
         "WebFetch".to_string(),
         "TodoWrite".to_string(),
+        "get_todo".to_string(),
         "get_goal".to_string(),
         "create_goal".to_string(),
         "update_goal".to_string(),
@@ -150,6 +151,8 @@ pub fn shared_coding_mode_tools() -> Vec<String> {
         // further out than an hour, to Cron rather than holding the turn open
         // for the interval.
         "Cron".to_string(),
+        "get_todos".to_string(),
+        "manage_todos".to_string(),
         "InitMiniApp".to_string(),
         "FinalizeMiniApp".to_string(),
         "PublishMiniApp".to_string(),

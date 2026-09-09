@@ -41,6 +41,13 @@ impl ClawMode {
                 "SessionMessage".to_string(),
                 "SessionHistory".to_string(),
                 "Cron".to_string(),
+                // Todos: get_todos reads the scheduled jobs shown in the Todos
+                // panel (same cron source as Cron). TodoWrite + get_todo track
+                // the session's own multi-step task list.
+                "get_todos".to_string(),
+                "manage_todos".to_string(),
+                "TodoWrite".to_string(),
+                "get_todo".to_string(),
                 // Browser, terminal, and routing metadata live under ControlHub.
                 // Local desktop/system control is delegated to the ComputerUse
                 // agent/tool instead of being surfaced as a ControlHub domain.
