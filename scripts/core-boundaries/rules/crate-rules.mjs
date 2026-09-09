@@ -147,7 +147,7 @@ export const forbiddenManifestDependencyRules = [
   },
   {
     dependencyNames: ['bitfun-opencode-plugin-host'],
-    scanRoots: ['src/apps', 'src/crates', 'BitFun-Installer/src-tauri'],
+    scanRoots: ['src/apps', 'src/crates', 'OpenBitFun-Installer/src-tauri'],
     workspaceManifestPath: 'Cargo.toml',
     allowManifestPaths: [
       'src/crates/adapters/opencode-plugin-host/Cargo.toml',

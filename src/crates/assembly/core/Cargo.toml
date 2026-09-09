@@ -65,7 +65,7 @@ openbitfun-agent-stream = { path = "../../execution/agent-stream", optional = tr
 openbitfun-agent-content = { path = "../agent-content", optional = true }
 
 # Agent runtime owner contracts
-bitfun-agent-runtime = { path = "../../execution/agent-runtime", optional = true }
+openbitfun-agent-runtime = { path = "../../execution/agent-runtime", optional = true }
 bitfun-agent-workflows = { path = "../../execution/agent-workflows", optional = true }
 
 # Product capability pack contracts
@@ -118,12 +118,12 @@ openbitfun-runtime-ports = { path = "../../contracts/runtime-ports", features = 
 openbitfun-runtime-services = { path = "../../execution/runtime-services", optional = true }
 
 # Reviewed product-full plugin composition root.
-bitfun-opencode-adapter = { path = "../../adapters/opencode-adapter", optional = true }
-bitfun-dsh-adapter = { path = "../../adapters/dsh-adapter", optional = true }
+openbitfun-opencode-adapter = { path = "../../adapters/opencode-adapter", optional = true }
+openbitfun-dsh-adapter = { path = "../../adapters/dsh-adapter", optional = true }
 bitfun-opencode-plugin-host = { path = "../../adapters/opencode-plugin-host", optional = true }
-bitfun-claude-code-adapter = { path = "../../adapters/claude-code-adapter", optional = true }
-bitfun-codex-adapter = { path = "../../adapters/codex-adapter", optional = true }
-bitfun-plugin-runtime-client = { path = "../../execution/plugin-runtime-client", optional = true }
+openbitfun-claude-code-adapter = { path = "../../adapters/claude-code-adapter", optional = true }
+openbitfun-codex-adapter = { path = "../../adapters/codex-adapter", optional = true }
+openbitfun-plugin-runtime-client = { path = "../../execution/plugin-runtime-client", optional = true }
 
 [features]
 # Full product runtime compatibility set. Product entrypoints with a narrower
@@ -232,11 +232,11 @@ agent-runtime = [
     "dep:similar",
     "dep:tokio-util",
     "dep:tool-runtime",
-    "bitfun-services-core/permission",
-    "bitfun-services-core/runtime-ownership",
-    "bitfun-services-core/workspace-text-runtime",
-    "bitfun-services-core/session-git",
-    "bitfun-services-core/token-usage-statistics",
+    "openbitfun-services-core/permission",
+    "openbitfun-services-core/runtime-ownership",
+    "openbitfun-services-core/workspace-text-runtime",
+    "openbitfun-services-core/session-git",
+    "openbitfun-services-core/token-usage-statistics",
     "filesystem",
     "local-storage",
     "process-runtime",
@@ -318,7 +318,7 @@ web-tools = [
 ]
 deep-research = [
     "dep:bitfun-agent-workflows",
-    "bitfun-services-integrations/deep-research",
+    "openbitfun-services-integrations/deep-research",
 ]
 script-tool-runtime = [
     "openbitfun-runtime-ports/script-tool-runtime",
@@ -393,14 +393,13 @@ opencode-plugin-host = [
     "plugin-runtime",
     "remote-connect",
     "git",
-    "lsp",
     "dep:bitfun-opencode-plugin-host",
+    "openbitfun-runtime-ports/hook-function-runtime",
 ]
 debug-log = [
     "dep:axum",
     "dep:tokio-util",
     "dep:tower-http",
-    "bitfun-services-integrations/debug-log",
     "tokio/macros",
     "tokio/net",
     "tokio/rt",

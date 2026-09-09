@@ -1,5 +1,5 @@
 [package]
-name = "bitfun-page-function-runtime"
+name = "openbitfun-page-function-runtime"
 version = "0.2.19"
 authors = ["BitFun Team"]
 edition = "2021"

@@ -16,13 +16,13 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
 ts-rs = { workspace = true, optional = true }
-bitfun-agent-runtime = { path = "../../execution/agent-runtime", optional = true }
+openbitfun-agent-runtime = { path = "../../execution/agent-runtime", optional = true }
 bitfun-agent-workflows = { path = "../../execution/agent-workflows", optional = true }
-bitfun-agent-tools = { path = "../../execution/tool-contracts", optional = true }
-bitfun-events = { path = "../../contracts/events" }
-bitfun-core-types = { path = "../../contracts/core-types", optional = true }
-bitfun-product-domains = { path = "../../contracts/product-domains", optional = true }
-bitfun-runtime-ports = { path = "../../contracts/runtime-ports", optional = true }
+openbitfun-agent-tools = { path = "../../execution/tool-contracts", optional = true }
+openbitfun-events = { path = "../../contracts/events" }
+openbitfun-core-types = { path = "../../contracts/core-types", optional = true }
+openbitfun-product-domains = { path = "../../contracts/product-domains", optional = true }
+openbitfun-runtime-ports = { path = "../../contracts/runtime-ports", optional = true }
 aes-gcm = { workspace = true, optional = true }
 aes = { workspace = true, optional = true }
 anyhow = { workspace = true, optional = true }
@@ -123,7 +123,7 @@ deep-research = [
     "anyhow",
     "async-trait",
     "dep:bitfun-agent-workflows",
-    "bitfun-runtime-ports/workspace-ports",
+    "openbitfun-runtime-ports/workspace-ports",
 ]
 git = [
     "async-trait",

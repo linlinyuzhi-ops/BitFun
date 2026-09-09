@@ -108,6 +108,8 @@ local-storage = [
     "windows/Win32_Foundation",
     "windows/Win32_Storage_FileSystem",
 ]
+memory-store = ["dep:rusqlite"]
+product-identity = ["dep:openbitfun-core-types"]
 token-usage-statistics = ["local-storage", "dep:chrono-tz"]
 process-runtime = [
     "dep:libc",

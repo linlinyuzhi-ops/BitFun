@@ -18,9 +18,9 @@ path = "tests/product_capability_contracts.rs"
 default = []
 
 [dependencies]
-bitfun-runtime-ports = { path = "../../contracts/runtime-ports", features = ["plugin-runtime"] }
-bitfun-runtime-services = { path = "../../execution/runtime-services" }
-bitfun-tool-packs = { path = "../../execution/tool-provider-groups" }
+openbitfun-runtime-ports = { path = "../../contracts/runtime-ports", features = ["plugin-runtime"] }
+openbitfun-runtime-services = { path = "../../execution/runtime-services" }
+openbitfun-tool-packs = { path = "../../execution/tool-provider-groups" }
 
 [dev-dependencies]
 async-trait = { workspace = true }

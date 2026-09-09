@@ -36,7 +36,6 @@ openbitfun-core = { path = "../../crates/assembly/core", features = [
     "document-read",
     "subscription-auth",
     "remote-connect",
-    "lsp",
     "external-sources",
     "plugin-runtime",
     "opencode-plugin-host",
@@ -49,17 +48,17 @@ openbitfun-core = { path = "../../crates/assembly/core", features = [
     "tools-image-analysis",
     "tools-agent-control",
 ] }
-bitfun-events = { path = "../../crates/contracts/events" }
-bitfun-core-types = { path = "../../crates/contracts/core-types" }
-bitfun-acp = { path = "../../crates/interfaces/acp", default-features = false, features = ["client", "server"] }
-bitfun-agent-runtime = { path = "../../crates/execution/agent-runtime", features = ["agent-runtime"] }
-bitfun-agent-runtime-ipc = { path = "../../crates/adapters/agent-runtime-ipc" }
-bitfun-app-server = { path = "../../crates/interfaces/app-server" }
-bitfun-runtime-ports = { path = "../../crates/contracts/runtime-ports", features = ["agent-api", "git-port", "permission", "plugin-runtime", "workspace-ports"] }
-bitfun-runtime-services = { path = "../../crates/execution/runtime-services" }
-bitfun-services-core = { path = "../../crates/services/services-core", features = ["dispatch-workspace", "local-storage", "process-runtime", "runtime-ownership"] }
-bitfun-agent-tools = { path = "../../crates/execution/tool-contracts" }
-bitfun-product-domains = { path = "../../crates/contracts/product-domains", features = ["external-sources"] }
+openbitfun-events = { path = "../../crates/contracts/events" }
+openbitfun-core-types = { path = "../../crates/contracts/core-types" }
+openbitfun-acp = { path = "../../crates/interfaces/acp", default-features = false, features = ["client", "server"] }
+openbitfun-agent-runtime = { path = "../../crates/execution/agent-runtime", features = ["agent-runtime"] }
+openbitfun-agent-runtime-ipc = { path = "../../crates/adapters/agent-runtime-ipc" }
+openbitfun-app-server = { path = "../../crates/interfaces/app-server" }
+openbitfun-runtime-ports = { path = "../../crates/contracts/runtime-ports", features = ["agent-api", "git-port", "permission", "plugin-runtime", "workspace-ports"] }
+openbitfun-runtime-services = { path = "../../crates/execution/runtime-services" }
+openbitfun-services-core = { path = "../../crates/services/services-core", features = ["dispatch-workspace", "local-storage", "process-runtime", "runtime-ownership"] }
+openbitfun-agent-tools = { path = "../../crates/execution/tool-contracts" }
+openbitfun-product-domains = { path = "../../crates/contracts/product-domains", features = ["external-sources"] }
 
 # CLI framework
 clap = { workspace = true }

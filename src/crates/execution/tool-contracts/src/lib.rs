@@ -60,7 +60,8 @@ pub use framework::{
     materialize_static_tool_provider_groups, miniapp_agent_run_tool_restrictions,
     miniapp_headless_agent_tool_restrictions, miniapp_market_strict_agent_tool_restrictions,
     normalize_absolute_posix_path, normalize_host_path, normalize_runtime_relative_path,
-    parse_bitfun_current_session_uri, parse_bitfun_runtime_uri, posix_resolve_path_with_workspace,
+    parse_openbitfun_current_session_uri, parse_openbitfun_runtime_uri,
+    posix_resolve_path_with_workspace,
     posix_style_path_is_absolute, render_get_tool_spec_tool_use_message,
     resolve_contextual_tool_manifest, resolve_contextual_tool_manifest_from_provider,
     resolve_contextual_visible_tools, resolve_contextual_visible_tools_from_provider,
@@ -77,7 +78,7 @@ pub use framework::{
     DeferredToolUsageError, DynamicMcpToolInfo, DynamicToolInfo, GetToolSpecCatalogProvider,
     GetToolSpecDeferredToolSummary, GetToolSpecDetail, GetToolSpecExecutionError,
     GetToolSpecExecutionPlan, GetToolSpecLoadObservation, GetToolSpecRuntime,
-    LoadedDeferredToolSpec, ParsedBitFunCurrentSessionUri, ParsedBitFunRuntimeUri,
+    LoadedDeferredToolSpec, ParsedOpenBitFunCurrentSessionUri, ParsedOpenBitFunRuntimeUri,
     PortableToolContextProvider, PromptVisibleToolManifestItem, SnapshotToolDecorator,
     SnapshotToolWrapper, SnapshotToolWrapperRef, StaticToolMaterializationError,
     StaticToolProvider, StaticToolProviderFactory, StaticToolProviderGroup, StaticToolProviderPlan,
@@ -86,8 +87,8 @@ pub use framework::{
     ToolManifestPolicyTool, ToolPathBackend, ToolPathContractError, ToolPathOperation,
     ToolPathPolicy, ToolPathResolution, ToolRef, ToolRegistry, ToolRegistryItem, ToolRenderOptions,
     ToolRestrictionError, ToolResult, ToolRuntimeAssembly, ToolRuntimeRestrictions,
-    ToolWorkspaceKind, ValidationResult, BITFUN_CURRENT_SESSION_URI_PREFIX,
-    BITFUN_RUNTIME_URI_PREFIX, GET_TOOL_SPEC_TOOL_NAME,
+    ToolWorkspaceKind, ValidationResult, OPENBITFUN_CURRENT_SESSION_URI_PREFIX,
+    OPENBITFUN_RUNTIME_URI_PREFIX, GET_TOOL_SPEC_TOOL_NAME,
 };
 pub use input_validator::InputValidator;
 #[cfg(feature = "mcp-bridge")]

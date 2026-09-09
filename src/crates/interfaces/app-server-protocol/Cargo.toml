@@ -10,10 +10,10 @@ name = "openbitfun_app_server_protocol"
 
 [dependencies]
 agent-client-protocol = { workspace = true, optional = true }
-bitfun-events = { path = "../../contracts/events" }
-bitfun-core-types = { path = "../../contracts/core-types" }
-bitfun-product-domains = { path = "../../contracts/product-domains", features = ["external-sources"] }
-bitfun-runtime-ports = { path = "../../contracts/runtime-ports", features = ["agent-api", "git-port"] }
+openbitfun-events = { path = "../../contracts/events" }
+openbitfun-core-types = { path = "../../contracts/core-types" }
+openbitfun-product-domains = { path = "../../contracts/product-domains", features = ["external-sources"] }
+openbitfun-runtime-ports = { path = "../../contracts/runtime-ports", features = ["agent-api", "git-port"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ts-rs = { workspace = true, optional = true }
