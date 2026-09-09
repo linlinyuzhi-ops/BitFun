@@ -1,0 +1,67 @@
+// The approval band normally sits in the composer stack, directly above the
+// capsule. Embedded child-session panels reuse the same compact surface when
+// no child composer exists.
+@use '@/shared/styles/surface-recipes' as surfaces;
+
+.openbitfun-chat-input-approval {
+  box-sizing: border-box;
+  // The composer centers its children, so constrain the band before laying out
+  // long resources; otherwise its intrinsic width can exceed the composer.
+  width: 100%;
+  min-width: 0;
+  max-width: min(100%, var(--openbitfun-overlay-dialog-max-inline-size-large));
+  margin-inline: auto;
+  margin-bottom: var(--openbitfun-space-3);
+
+  &__surface {
+    @include surfaces.floating;
+  }
+
+  &__title {
+    flex-shrink: 0;
+  }
+
+  &__owner {
+    color: var(--openbitfun-color-content-secondary);
+    font-size: var(--openbitfun-type-flow-support-font-size);
+    font-weight: var(--openbitfun-type-flow-support-font-weight);
+    line-height: var(--openbitfun-type-flow-support-line-height);
+  }
+
+  // Keep the full command readable without letting it widen the composer or
+  // push the approval actions out of view. Only the resource body scrolls.
+  &__resource {
+    flex: 1;
+    max-height: min(160px, 25vh);
+    color: var(--openbitfun-color-content-primary);
+    font-size: var(--openbitfun-type-code-sm-font-size);
+    line-height: var(--openbitfun-type-code-sm-line-height);
+  }
+
+  &__note {
+    overflow-wrap: anywhere;
+  }
+
+  &__grant-note {
+    margin: 0;
+    color: var(--openbitfun-color-content-secondary);
+    font-size: var(--openbitfun-type-flow-support-font-size);
+    font-weight: var(--openbitfun-type-flow-support-font-weight);
+    line-height: var(--openbitfun-type-flow-support-line-height);
+    overflow-wrap: anywhere;
+  }
+
+  &__actions {
+    flex-wrap: wrap;
+  }
+
+  &__buttons {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--openbitfun-space-2);
+    margin-inline-start: auto;
+  }
+}

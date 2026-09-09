@@ -3,9 +3,20 @@
  * Supports editing terminal name and startup command
  */
 
+import {
+  Button,
+  Field,
+  Input,
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogHeader,
+  DialogHeading,
+  DialogTitle,
+} from '@openbitfun/ui';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Modal, Input, Button } from '@/component-library';
 import { useI18n } from '@/infrastructure/i18n';
+import { isImeOwnedKeyboardEvent } from '@/shared/utils/ime';
 import './TerminalEditModal.scss';
 
 export interface TerminalEditModalProps {
@@ -30,6 +41,8 @@ export const TerminalEditModal: React.FC<TerminalEditModalProps> = ({
   showStartupCommand = true,
 }) => {
   const { t } = useI18n('panels/terminal');
+  const { t: tCommon } = useI18n('common');
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [name, setName] = useState(initialName);
   const [workingDirectory, setWorkingDirectory] = useState(initialWorkingDirectory);
   const [startupCommand, setStartupCommand] = useState(initialStartupCommand);
@@ -37,6 +50,7 @@ export const TerminalEditModal: React.FC<TerminalEditModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      setSaveError(null);
       setName(initialName);
       setWorkingDirectory(initialWorkingDirectory);
       setStartupCommand(initialStartupCommand);
@@ -49,7 +63,7 @@ export const TerminalEditModal: React.FC<TerminalEditModalProps> = ({
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape' && isOpen && !isImeOwnedKeyboardEvent(e)) {
         onClose();
       }
     };
@@ -63,12 +77,17 @@ export const TerminalEditModal: React.FC<TerminalEditModalProps> = ({
 
     const trimmedWorkingDirectory = workingDirectory.trim();
     const trimmedCommand = startupCommand.trim();
-    onSave({
-      name: trimmedName,
-      workingDirectory: trimmedWorkingDirectory || undefined,
-      startupCommand: trimmedCommand || undefined,
-    });
-    onClose();
+    setSaveError(null);
+    try {
+      onSave({
+        name: trimmedName,
+        workingDirectory: trimmedWorkingDirectory || undefined,
+        startupCommand: trimmedCommand || undefined,
+      });
+      onClose();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    }
   }, [name, onClose, onSave, startupCommand, workingDirectory]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -81,49 +100,72 @@ export const TerminalEditModal: React.FC<TerminalEditModalProps> = ({
   const canSave = name.trim().length > 0;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={t('dialog.editTerminal.title')} size="small">
-      <div data-bf-component="terminal-edit-modal" data-bf-part="content" className="terminal-edit-dialog__content">
-        <Input
-          ref={nameInputRef}
-          label={t('dialog.editTerminal.nameLabel')}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={t('dialog.editTerminal.namePlaceholder')}
-        />
+    <Dialog
+      open={isOpen}
+      onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}
+      size="sm"
+    >
+      <DialogHeader>
+        <DialogHeading>
+          <DialogTitle>{t('dialog.editTerminal.title')}</DialogTitle>
+        </DialogHeading>
+        <DialogClose />
+      </DialogHeader>
+      <DialogBody inset="none">
+      <div data-openbitfun-component="terminal-edit-modal" data-openbitfun-part="content" className="terminal-edit-dialog__content">
+        <Field label={t('dialog.editTerminal.nameLabel')}>
+          <Input
+            ref={nameInputRef}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={t('dialog.editTerminal.namePlaceholder')}
+          />
+        </Field>
 
         {showWorkingDirectory ? (
-          <Input
+          <Field
+            description={t('dialog.editTerminal.workingDirectoryHint')}
             label={t('dialog.editTerminal.workingDirectoryLabel')}
-            value={workingDirectory}
-            onChange={(e) => setWorkingDirectory(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={t('dialog.editTerminal.workingDirectoryPlaceholder')}
-            hint={t('dialog.editTerminal.workingDirectoryHint')}
-          />
+          >
+            <Input
+              value={workingDirectory}
+              onChange={(e) => setWorkingDirectory(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={t('dialog.editTerminal.workingDirectoryPlaceholder')}
+            />
+          </Field>
         ) : null}
 
         {showStartupCommand ? (
-          <Input
+          <Field
+            description={t('dialog.editTerminal.startupCommandHint')}
             label={t('dialog.editTerminal.startupCommandLabel')}
-            value={startupCommand}
-            onChange={(e) => setStartupCommand(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={t('dialog.editTerminal.startupCommandPlaceholder')}
-            hint={t('dialog.editTerminal.startupCommandHint')}
-          />
+          >
+            <Input
+              value={startupCommand}
+              onChange={(e) => setStartupCommand(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={t('dialog.editTerminal.startupCommandPlaceholder')}
+            />
+          </Field>
         ) : null}
+        {saveError && <p role="alert" className="terminal-edit-dialog__error"
+          data-openbitfun-component="terminal-edit-modal" data-openbitfun-part="error">
+          {tCommon('nav.resources.actionFailed', { error: saveError })}
+        </p>}
       </div>
 
-      <div data-bf-component="terminal-edit-modal" data-bf-part="footer" className="terminal-edit-dialog__footer">
-        <Button variant="secondary" onClick={onClose}>
+      <div data-openbitfun-component="terminal-edit-modal" data-openbitfun-part="footer" className="terminal-edit-dialog__footer">
+        <Button variant="outline" onClick={onClose}>
           {t('dialog.editTerminal.cancel')}
         </Button>
-        <Button variant="primary" onClick={handleSave} disabled={!canSave}>
+        <Button variant="fill" onClick={handleSave} disabled={!canSave}>
           {t('dialog.editTerminal.save')}
         </Button>
       </div>
-    </Modal>
+          </DialogBody>
+    </Dialog>
   );
 };
 

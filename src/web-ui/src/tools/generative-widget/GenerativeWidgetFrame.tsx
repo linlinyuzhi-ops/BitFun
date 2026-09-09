@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import morphdomRuntime from 'morphdom/dist/morphdom-umd.js?raw';
 import { widgetAppearanceAdapter } from '@/infrastructure/appearance/adapters/WidgetAppearanceAdapter';
+import { fontPreferenceService } from '@/infrastructure/font-preference';
 import {
   createWidgetAppearanceFallbackCss,
-  createWidgetAppearanceStaticShellCss,
   readWidgetAppearancePayload,
   type WidgetAppearancePayload,
 } from './appearancePayload';
@@ -11,25 +11,25 @@ import './GenerativeWidgetFrame.scss';
 
 export type WidgetMessage =
   | {
-      source: 'bitfun-widget';
-      type: 'bitfun-widget:event';
+      source: 'openbitfun-widget';
+      type: 'openbitfun-widget:event';
       widgetId?: string;
       payload?: unknown;
     }
   | {
-      source: 'bitfun-widget';
-      type: 'bitfun-widget:prompt';
+      source: 'openbitfun-widget';
+      type: 'openbitfun-widget:prompt';
       widgetId?: string;
       text?: string;
     }
   | {
-      source: 'bitfun-widget';
-      type: 'bitfun-widget:ready';
+      source: 'openbitfun-widget';
+      type: 'openbitfun-widget:ready';
       widgetId?: string;
     }
   | {
-      source: 'bitfun-widget';
-      type: 'bitfun-widget:open-file';
+      source: 'openbitfun-widget';
+      type: 'openbitfun-widget:open-file';
       widgetId?: string;
       filePath?: string;
       line?: number;
@@ -38,24 +38,24 @@ export type WidgetMessage =
       nodeType?: string;
     }
   | {
-      source: 'bitfun-widget';
-      type: 'bitfun-widget:resize';
+      source: 'openbitfun-widget';
+      type: 'openbitfun-widget:resize';
       widgetId?: string;
       height?: number;
     }
   | {
-      source: 'bitfun-widget';
-      type: 'bitfun-widget:clear-selection';
+      source: 'openbitfun-widget';
+      type: 'openbitfun-widget:clear-selection';
       widgetId?: string;
     }
   | {
-      source: 'bitfun-widget';
-      type: 'bitfun-widget:selection-cleared';
+      source: 'openbitfun-widget';
+      type: 'openbitfun-widget:selection-cleared';
       widgetId?: string;
     }
   | {
-      source: 'bitfun-widget';
-      type: 'bitfun-widget:context-menu';
+      source: 'openbitfun-widget';
+      type: 'openbitfun-widget:context-menu';
       widgetId?: string;
       clientX?: number;
       clientY?: number;
@@ -69,7 +69,7 @@ export type WidgetMessage =
 
 export type WidgetContextMenuMessage = Extract<
   WidgetMessage,
-  { type: 'bitfun-widget:context-menu' }
+  { type: 'openbitfun-widget:context-menu' }
 >;
 
 export interface GenerativeWidgetFrameProps {
@@ -93,18 +93,6 @@ export const GENERATIVE_WIDGET_SHELL_HTML = `<!DOCTYPE html>
     * { box-sizing: border-box; }
     :root {
 ${createWidgetAppearanceFallbackCss()}
-      --bf-appearance-token-font-family-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      --bf-appearance-token-font-family-mono: "SF Mono", Consolas, monospace;
-${createWidgetAppearanceStaticShellCss()}
-      --bf-appearance-token-font-size-xs: 12px;
-      --bf-appearance-token-font-size-sm: 13px;
-      --bf-appearance-token-font-size-base: 14px;
-      --bf-appearance-token-font-size-lg: 15px;
-      --bf-appearance-token-font-size-2xl: 18px;
-      --bf-appearance-token-font-weight-medium: 500;
-      --bf-appearance-token-font-weight-semibold: 600;
-      --bf-appearance-token-motion-fast: 0.15s;
-      --bf-appearance-token-easing-standard: ease;
     }
     html, body {
       margin: 0;
@@ -112,8 +100,8 @@ ${createWidgetAppearanceStaticShellCss()}
       width: 100%;
       min-height: 0;
       background: transparent;
-      color: var(--bf-appearance-token-color-text-primary);
-      font-family: var(--bf-appearance-token-font-family-sans);
+      color: var(--openbitfun-color-content-primary);
+      font-family: var(--openbitfun-type-body-sm-font-family);
       overflow-x: hidden;
       overflow-y: hidden;
     }
@@ -141,176 +129,176 @@ ${createWidgetAppearanceStaticShellCss()}
       word-break: break-word;
     }
     body {
-      font-size: var(--bf-appearance-token-font-size-sm);
-      line-height: 1.5;
+      font-size: var(--openbitfun-type-label-md-font-size);
+      line-height: var(--openbitfun-type-body-sm-line-height);
     }
     body, button, input, textarea, select {
-      font-family: var(--bf-appearance-token-font-family-sans);
+      font-family: var(--openbitfun-type-body-sm-font-family);
     }
     button, input, textarea, select {
       font: inherit;
     }
     a {
-      color: var(--bf-appearance-token-color-accent-500);
+      color: var(--openbitfun-color-accent-default);
       text-decoration: none;
     }
     a:hover {
-      color: var(--bf-appearance-token-color-accent-600);
+      color: var(--openbitfun-color-accent-hover);
     }
     [data-file-path],
-    [data-bitfun-open-file] {
+    [data-openbitfun-open-file] {
       cursor: pointer;
     }
-    .bf-root,
-    .bf-stack,
-    .bf-section,
-    .bf-card,
-    .bf-panel,
-    .bf-empty,
-    .bf-list,
-    .bf-table-wrap {
+    .openbitfun-root,
+    .openbitfun-stack,
+    .openbitfun-section,
+    .openbitfun-card,
+    .openbitfun-panel,
+    .openbitfun-empty,
+    .openbitfun-list,
+    .openbitfun-table-wrap {
       min-width: 0;
     }
-    .bf-root {
+    .openbitfun-root {
       width: 100%;
       max-width: 100%;
       display: flex;
       flex-direction: column;
-      gap: var(--bf-appearance-token-size-gap-4);
-      color: var(--bf-appearance-token-color-text-primary);
+      gap: var(--openbitfun-space-4);
+      color: var(--openbitfun-color-content-primary);
     }
-    .bf-stack {
+    .openbitfun-stack {
       display: flex;
       flex-direction: column;
-      gap: var(--bf-appearance-token-size-gap-3);
+      gap: var(--openbitfun-space-3);
     }
-    .bf-row {
+    .openbitfun-row {
       display: flex;
       align-items: center;
-      gap: var(--bf-appearance-token-size-gap-3);
+      gap: var(--openbitfun-space-3);
       min-width: 0;
     }
-    .bf-row-wrap {
+    .openbitfun-row-wrap {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: var(--bf-appearance-token-size-gap-3);
+      gap: var(--openbitfun-space-3);
       min-width: 0;
     }
-    .bf-toolbar {
+    .openbitfun-toolbar {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: var(--bf-appearance-token-size-gap-3);
-      padding: var(--bf-appearance-token-size-gap-3) var(--bf-appearance-token-size-gap-4);
-      border-radius: var(--bf-appearance-token-size-radius-lg);
-      background: color-mix(in srgb, var(--bf-appearance-token-color-bg-secondary) 82%, transparent);
-      border: 1px solid var(--bf-appearance-token-border-subtle);
-      box-shadow: var(--bf-appearance-token-shadow-xs);
+      gap: var(--openbitfun-space-3);
+      padding: var(--openbitfun-space-3) var(--openbitfun-space-4);
+      border-radius: var(--openbitfun-radius-lg);
+      background: color-mix(in srgb, var(--openbitfun-color-surface-panel) 82%, transparent);
+      border: 1px solid var(--openbitfun-color-border-subtle);
+      box-shadow: var(--openbitfun-shadow-xs);
     }
-    .bf-section {
+    .openbitfun-section {
       display: flex;
       flex-direction: column;
-      gap: var(--bf-appearance-token-size-gap-3);
+      gap: var(--openbitfun-space-3);
     }
-    .bf-section-header {
+    .openbitfun-section-header {
       display: flex;
       flex-wrap: wrap;
       align-items: flex-start;
       justify-content: space-between;
-      gap: var(--bf-appearance-token-size-gap-3);
+      gap: var(--openbitfun-space-3);
     }
-    .bf-title {
+    .openbitfun-title {
       margin: 0;
-      font-size: var(--bf-appearance-token-font-size-lg);
-      font-weight: var(--bf-appearance-token-font-weight-semibold);
-      line-height: 1.2;
-      color: var(--bf-appearance-token-color-text-primary);
-      letter-spacing: -0.01em;
+      font-size: var(--openbitfun-type-body-lg-font-size);
+      font-weight: var(--openbitfun-type-label-selected-font-weight);
+      line-height: var(--openbitfun-type-label-md-line-height);
+      color: var(--openbitfun-color-content-primary);
+      letter-spacing: var(--openbitfun-type-flow-title-letter-spacing);
     }
-    .bf-subtitle {
+    .openbitfun-subtitle {
       margin: 0;
-      font-size: var(--bf-appearance-token-font-size-xs);
-      color: var(--bf-appearance-token-color-text-muted);
-      line-height: 1.5;
+      font-size: var(--openbitfun-type-label-sm-font-size);
+      color: var(--openbitfun-color-content-muted);
+      line-height: var(--openbitfun-type-body-sm-line-height);
     }
-    .bf-eyebrow {
+    .openbitfun-eyebrow {
       margin: 0;
-      font-size: 11px;
-      font-weight: var(--bf-appearance-token-font-weight-medium);
-      letter-spacing: 0.08em;
+      font-size: var(--openbitfun-type-meta-font-size);
+      font-weight: var(--openbitfun-type-label-sm-font-weight);
+      letter-spacing: var(--openbitfun-type-modifier-tracking-widest-letter-spacing);
       text-transform: uppercase;
-      color: var(--bf-appearance-token-color-text-muted);
+      color: var(--openbitfun-color-content-muted);
     }
-    .bf-card,
-    .bf-panel {
+    .openbitfun-card,
+    .openbitfun-panel {
       position: relative;
       display: flex;
       flex-direction: column;
-      gap: var(--bf-appearance-token-size-gap-3);
+      gap: var(--openbitfun-space-3);
       width: 100%;
-      padding: var(--bf-appearance-token-size-gap-4);
-      border-radius: var(--bf-appearance-token-size-radius-lg);
-      background: var(--bf-appearance-token-color-bg-secondary);
-      border: 1px solid var(--bf-appearance-token-border-subtle);
-      box-shadow: var(--bf-appearance-token-shadow-sm);
+      padding: var(--openbitfun-space-4);
+      border-radius: var(--openbitfun-radius-lg);
+      background: var(--openbitfun-color-surface-panel);
+      border: 1px solid var(--openbitfun-color-border-subtle);
+      box-shadow: var(--openbitfun-shadow-sm);
       overflow: hidden;
     }
-    .bf-panel {
-      background: color-mix(in srgb, var(--bf-appearance-token-color-bg-secondary) 74%, var(--bf-appearance-token-element-bg-subtle));
+    .openbitfun-panel {
+      background: color-mix(in srgb, var(--openbitfun-color-surface-panel) 74%, var(--openbitfun-color-surface-subtle));
     }
-    [data-bitfun-prompt-selected="true"],
-    [data-bitfun-context-selected="true"] {
+    [data-openbitfun-prompt-selected="true"],
+    [data-openbitfun-context-selected="true"] {
       position: relative;
-      outline: 2px solid var(--bf-appearance-token-color-accent-500);
+      outline: 2px solid var(--openbitfun-color-accent-default);
       outline-offset: 2px;
       box-shadow:
-        0 0 0 4px color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 18%, transparent),
-        0 10px 24px color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 14%, transparent);
-      border-radius: min(var(--bf-appearance-token-size-radius-base), 12px);
+        0 0 0 4px color-mix(in srgb, var(--openbitfun-color-accent-default) 18%, transparent),
+        0 10px 24px color-mix(in srgb, var(--openbitfun-color-accent-default) 14%, transparent);
+      border-radius: min(var(--openbitfun-radius-base), 12px);
       transition: outline-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
       transform: translateY(-1px);
     }
-    .bf-card-accent {
-      background: color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 10%, var(--bf-appearance-token-color-bg-secondary));
-      border-color: color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 30%, var(--bf-appearance-token-border-subtle));
+    .openbitfun-card-accent {
+      background: color-mix(in srgb, var(--openbitfun-color-accent-default) 10%, var(--openbitfun-color-surface-panel));
+      border-color: color-mix(in srgb, var(--openbitfun-color-accent-default) 30%, var(--openbitfun-color-border-subtle));
     }
-    .bf-grid {
+    .openbitfun-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
-      gap: var(--bf-appearance-token-size-gap-3);
+      gap: var(--openbitfun-space-3);
       width: 100%;
       min-width: 0;
     }
-    .bf-kpi {
+    .openbitfun-kpi {
       display: flex;
       flex-direction: column;
       gap: 6px;
       min-width: 0;
-      padding: var(--bf-appearance-token-size-gap-3);
-      border-radius: var(--bf-appearance-token-size-radius-base);
-      background: var(--bf-appearance-token-element-bg-base);
-      border: 1px solid var(--bf-appearance-token-border-subtle);
+      padding: var(--openbitfun-space-3);
+      border-radius: var(--openbitfun-radius-base);
+      background: var(--openbitfun-color-action-neutral-surface);
+      border: 1px solid var(--openbitfun-color-border-subtle);
     }
-    .bf-kpi-label {
-      font-size: 11px;
-      font-weight: var(--bf-appearance-token-font-weight-medium);
+    .openbitfun-kpi-label {
+      font-size: var(--openbitfun-type-meta-font-size);
+      font-weight: var(--openbitfun-type-label-sm-font-weight);
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--bf-appearance-token-color-text-muted);
+      letter-spacing: var(--openbitfun-type-modifier-tracking-widest-letter-spacing);
+      color: var(--openbitfun-color-content-muted);
     }
-    .bf-kpi-value {
-      font-size: var(--bf-appearance-token-font-size-2xl);
-      font-weight: var(--bf-appearance-token-font-weight-semibold);
-      line-height: 1.1;
-      color: var(--bf-appearance-token-color-text-primary);
+    .openbitfun-kpi-value {
+      font-size: var(--openbitfun-type-flow-section-title-font-size);
+      font-weight: var(--openbitfun-type-label-selected-font-weight);
+      line-height: var(--openbitfun-type-display-sm-line-height);
+      color: var(--openbitfun-color-content-primary);
     }
-    .bf-kpi-meta {
-      font-size: var(--bf-appearance-token-font-size-xs);
-      color: var(--bf-appearance-token-color-text-secondary);
+    .openbitfun-kpi-meta {
+      font-size: var(--openbitfun-type-label-sm-font-size);
+      color: var(--openbitfun-color-content-secondary);
     }
-    .bf-badge {
+    .openbitfun-badge {
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -318,34 +306,34 @@ ${createWidgetAppearanceStaticShellCss()}
       min-height: 24px;
       padding: 0 10px;
       border-radius: 999px;
-      background: var(--bf-appearance-token-element-bg-base);
-      border: 1px solid var(--bf-appearance-token-border-subtle);
-      font-size: 12px;
-      font-weight: var(--bf-appearance-token-font-weight-medium);
-      color: var(--bf-appearance-token-color-text-secondary);
+      background: var(--openbitfun-color-action-neutral-surface);
+      border: 1px solid var(--openbitfun-color-border-subtle);
+      font-size: var(--openbitfun-type-label-sm-font-size);
+      font-weight: var(--openbitfun-type-label-sm-font-weight);
+      color: var(--openbitfun-color-content-secondary);
       white-space: nowrap;
     }
-    .bf-badge-accent {
-      background: color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 14%, transparent);
-      border-color: color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 28%, var(--bf-appearance-token-border-subtle));
-      color: var(--bf-appearance-token-color-accent-500);
+    .openbitfun-badge-accent {
+      background: color-mix(in srgb, var(--openbitfun-color-accent-default) 14%, transparent);
+      border-color: color-mix(in srgb, var(--openbitfun-color-accent-default) 28%, var(--openbitfun-color-border-subtle));
+      color: var(--openbitfun-color-accent-default);
     }
-    .bf-badge-success {
-      background: color-mix(in srgb, var(--bf-appearance-token-color-success) 14%, transparent);
-      border-color: color-mix(in srgb, var(--bf-appearance-token-color-success) 28%, var(--bf-appearance-token-border-subtle));
-      color: var(--bf-appearance-token-color-success);
+    .openbitfun-badge-success {
+      background: color-mix(in srgb, var(--openbitfun-color-status-success-content) 14%, transparent);
+      border-color: color-mix(in srgb, var(--openbitfun-color-status-success-content) 28%, var(--openbitfun-color-border-subtle));
+      color: var(--openbitfun-color-status-success-content);
     }
-    .bf-badge-warning {
-      background: color-mix(in srgb, var(--bf-appearance-token-color-warning) 14%, transparent);
-      border-color: color-mix(in srgb, var(--bf-appearance-token-color-warning) 28%, var(--bf-appearance-token-border-subtle));
-      color: var(--bf-appearance-token-color-warning);
+    .openbitfun-badge-warning {
+      background: color-mix(in srgb, var(--openbitfun-color-status-warning-content) 14%, transparent);
+      border-color: color-mix(in srgb, var(--openbitfun-color-status-warning-content) 28%, var(--openbitfun-color-border-subtle));
+      color: var(--openbitfun-color-status-warning-content);
     }
-    .bf-badge-error {
-      background: color-mix(in srgb, var(--bf-appearance-token-color-error) 14%, transparent);
-      border-color: color-mix(in srgb, var(--bf-appearance-token-color-error) 28%, var(--bf-appearance-token-border-subtle));
-      color: var(--bf-appearance-token-color-error);
+    .openbitfun-badge-error {
+      background: color-mix(in srgb, var(--openbitfun-color-status-danger-content) 14%, transparent);
+      border-color: color-mix(in srgb, var(--openbitfun-color-status-danger-content) 28%, var(--openbitfun-color-border-subtle));
+      color: var(--openbitfun-color-status-danger-content);
     }
-    .bf-button {
+    .openbitfun-button {
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -353,177 +341,177 @@ ${createWidgetAppearanceStaticShellCss()}
       min-height: 32px;
       max-width: 100%;
       padding: 0 12px;
-      border: 1px solid var(--bf-appearance-token-border-base);
-      border-radius: var(--bf-appearance-token-size-radius-sm);
-      background: var(--bf-appearance-token-element-bg-base);
-      color: var(--bf-appearance-token-color-text-secondary);
+      border: 1px solid var(--openbitfun-color-border-default);
+      border-radius: var(--openbitfun-radius-sm);
+      background: var(--openbitfun-color-action-neutral-surface);
+      color: var(--openbitfun-color-content-secondary);
       text-decoration: none;
       white-space: nowrap;
       transition:
         transform 120ms cubic-bezier(0.23, 1, 0.32, 1),
-        background-color var(--bf-appearance-token-motion-fast) var(--bf-appearance-token-easing-standard),
-        border-color var(--bf-appearance-token-motion-fast) var(--bf-appearance-token-easing-standard),
-        color var(--bf-appearance-token-motion-fast) var(--bf-appearance-token-easing-standard),
-        box-shadow var(--bf-appearance-token-motion-fast) var(--bf-appearance-token-easing-standard);
+        background-color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+        border-color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+        color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+        box-shadow var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
     }
-    .bf-button:hover {
-      background: var(--bf-appearance-token-element-bg-medium);
-      color: var(--bf-appearance-token-color-text-primary);
-      border-color: var(--bf-appearance-token-border-medium);
+    .openbitfun-button:hover {
+      background: var(--openbitfun-color-action-neutral-surface-hover);
+      color: var(--openbitfun-color-content-primary);
+      border-color: var(--openbitfun-color-field-border-hover);
     }
-    .bf-button-primary {
-      background: var(--bf-appearance-token-color-accent-500);
-      color: var(--bf-appearance-token-color-static-white);
+    .openbitfun-button-primary {
+      background: var(--openbitfun-color-accent-default);
+      color: var(--openbitfun-color-content-on-dark);
       border-color: transparent;
-      box-shadow: var(--bf-appearance-token-shadow-xs);
+      box-shadow: var(--openbitfun-shadow-xs);
     }
-    .bf-button-primary:hover {
-      background: var(--bf-appearance-token-color-accent-600);
-      color: var(--bf-appearance-token-color-static-white);
+    .openbitfun-button-primary:hover {
+      background: var(--openbitfun-color-accent-hover);
+      color: var(--openbitfun-color-content-on-dark);
       border-color: transparent;
     }
-    .bf-input,
-    .bf-textarea,
-    .bf-select {
+    .openbitfun-input,
+    .openbitfun-textarea,
+    .openbitfun-select {
       width: 100%;
       max-width: 100%;
       min-width: 0;
       padding: 0 12px;
-      border-radius: var(--bf-appearance-token-size-radius-sm);
-      border: 1px solid var(--bf-appearance-token-border-base);
-      background: var(--bf-appearance-token-element-bg-subtle);
-      color: var(--bf-appearance-token-color-text-primary);
+      border-radius: var(--openbitfun-radius-sm);
+      border: 1px solid var(--openbitfun-color-border-default);
+      background: var(--openbitfun-color-surface-subtle);
+      color: var(--openbitfun-color-content-primary);
       transition:
-        background-color var(--bf-appearance-token-motion-fast) var(--bf-appearance-token-easing-standard),
-        border-color var(--bf-appearance-token-motion-fast) var(--bf-appearance-token-easing-standard),
-        color var(--bf-appearance-token-motion-fast) var(--bf-appearance-token-easing-standard),
-        box-shadow var(--bf-appearance-token-motion-fast) var(--bf-appearance-token-easing-standard);
+        background-color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+        border-color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+        color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+        box-shadow var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
     }
-    .bf-input,
-    .bf-select {
+    .openbitfun-input,
+    .openbitfun-select {
       min-height: 34px;
     }
-    .bf-textarea {
+    .openbitfun-textarea {
       min-height: 96px;
       padding-top: 10px;
       padding-bottom: 10px;
       resize: vertical;
     }
-    .bf-input::placeholder,
-    .bf-textarea::placeholder {
-      color: color-mix(in srgb, var(--bf-appearance-token-color-text-muted) 55%, transparent);
+    .openbitfun-input::placeholder,
+    .openbitfun-textarea::placeholder {
+      color: color-mix(in srgb, var(--openbitfun-color-content-muted) 55%, transparent);
     }
-    .bf-input:focus,
-    .bf-textarea:focus,
-    .bf-select:focus {
+    .openbitfun-input:focus,
+    .openbitfun-textarea:focus,
+    .openbitfun-select:focus {
       outline: none;
-      border-color: var(--bf-appearance-token-color-accent-500);
-      background: var(--bf-appearance-token-element-bg-soft);
+      border-color: var(--openbitfun-color-accent-default);
+      background: var(--openbitfun-color-action-quiet-hover);
     }
-    .bf-list {
+    .openbitfun-list {
       display: flex;
       flex-direction: column;
       gap: 8px;
       width: 100%;
     }
-    .bf-list-item {
+    .openbitfun-list-item {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
-      gap: var(--bf-appearance-token-size-gap-3);
-      padding: var(--bf-appearance-token-size-gap-3);
-      border-radius: var(--bf-appearance-token-size-radius-base);
-      background: var(--bf-appearance-token-element-bg-subtle);
+      gap: var(--openbitfun-space-3);
+      padding: var(--openbitfun-space-3);
+      border-radius: var(--openbitfun-radius-base);
+      background: var(--openbitfun-color-surface-subtle);
       border: 1px solid transparent;
     }
-    .bf-list-item[data-file-path]:hover,
-    .bf-list-item[data-bitfun-open-file]:hover,
-    .bf-card[data-file-path]:hover,
-    .bf-panel[data-file-path]:hover {
-      border-color: color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 35%, var(--bf-appearance-token-border-subtle));
-      background: color-mix(in srgb, var(--bf-appearance-token-element-bg-base) 76%, var(--bf-appearance-token-color-accent-500));
+    .openbitfun-list-item[data-file-path]:hover,
+    .openbitfun-list-item[data-openbitfun-open-file]:hover,
+    .openbitfun-card[data-file-path]:hover,
+    .openbitfun-panel[data-file-path]:hover {
+      border-color: color-mix(in srgb, var(--openbitfun-color-accent-default) 35%, var(--openbitfun-color-border-subtle));
+      background: color-mix(in srgb, var(--openbitfun-color-action-neutral-surface) 76%, var(--openbitfun-color-accent-default));
     }
-    .bf-table-wrap {
+    .openbitfun-table-wrap {
       width: 100%;
       overflow-x: auto;
-      border: 1px solid var(--bf-appearance-token-border-subtle);
-      border-radius: var(--bf-appearance-token-size-radius-base);
-      background: var(--bf-appearance-token-color-bg-secondary);
+      border: 1px solid var(--openbitfun-color-border-subtle);
+      border-radius: var(--openbitfun-radius-base);
+      background: var(--openbitfun-color-surface-panel);
     }
-    .bf-table {
+    .openbitfun-table {
       width: 100%;
       border-collapse: collapse;
       table-layout: fixed;
     }
-    .bf-table th,
-    .bf-table td {
+    .openbitfun-table th,
+    .openbitfun-table td {
       padding: 10px 12px;
       text-align: left;
       vertical-align: top;
-      border-bottom: 1px solid var(--bf-appearance-token-border-subtle);
-      color: var(--bf-appearance-token-color-text-secondary);
-      font-size: 13px;
+      border-bottom: 1px solid var(--openbitfun-color-border-subtle);
+      color: var(--openbitfun-color-content-secondary);
+      font-size: var(--openbitfun-type-label-md-font-size);
       word-break: break-word;
     }
-    .bf-table th {
-      font-size: 12px;
-      font-weight: var(--bf-appearance-token-font-weight-medium);
-      color: var(--bf-appearance-token-color-text-muted);
+    .openbitfun-table th {
+      font-size: var(--openbitfun-type-label-sm-font-size);
+      font-weight: var(--openbitfun-type-label-sm-font-weight);
+      color: var(--openbitfun-color-content-muted);
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: var(--openbitfun-type-modifier-tracking-wider-letter-spacing);
     }
-    .bf-empty {
+    .openbitfun-empty {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       gap: 8px;
       min-height: 140px;
-      padding: var(--bf-appearance-token-size-gap-5);
-      border-radius: var(--bf-appearance-token-size-radius-lg);
-      border: 1px dashed var(--bf-appearance-token-border-base);
-      background: color-mix(in srgb, var(--bf-appearance-token-element-bg-subtle) 80%, transparent);
-      color: var(--bf-appearance-token-color-text-muted);
+      padding: var(--openbitfun-space-5);
+      border-radius: var(--openbitfun-radius-lg);
+      border: 1px dashed var(--openbitfun-color-border-default);
+      background: color-mix(in srgb, var(--openbitfun-color-surface-subtle) 80%, transparent);
+      color: var(--openbitfun-color-content-muted);
       text-align: center;
     }
-    .bf-divider {
+    .openbitfun-divider {
       width: 100%;
       height: 1px;
-      background: var(--bf-appearance-token-border-subtle);
+      background: var(--openbitfun-color-border-subtle);
       border: 0;
       margin: 0;
     }
-    .bf-code {
+    .openbitfun-code {
       padding: 2px 6px;
       border-radius: 6px;
-      background: var(--bf-appearance-token-element-bg-base);
-      color: var(--bf-appearance-token-color-text-primary);
-      font-family: var(--bf-appearance-token-font-family-mono);
-      font-size: 12px;
+      background: var(--openbitfun-color-action-neutral-surface);
+      color: var(--openbitfun-color-content-primary);
+      font-family: var(--openbitfun-type-code-md-font-family);
+      font-size: var(--openbitfun-type-label-sm-font-size);
     }
-    .bf-mono {
-      font-family: var(--bf-appearance-token-font-family-mono);
+    .openbitfun-mono {
+      font-family: var(--openbitfun-type-code-md-font-family);
     }
     @media (max-width: 560px) {
-      .bf-card,
-      .bf-panel,
-      .bf-toolbar {
-        padding: var(--bf-appearance-token-size-gap-3);
+      .openbitfun-card,
+      .openbitfun-panel,
+      .openbitfun-toolbar {
+        padding: var(--openbitfun-space-3);
       }
-      .bf-grid {
+      .openbitfun-grid {
         grid-template-columns: 1fr;
       }
-      .bf-title {
-        font-size: var(--bf-appearance-token-font-size-base);
+      .openbitfun-title {
+        font-size: var(--openbitfun-type-body-md-font-size);
       }
     }
     @media (prefers-reduced-motion: reduce) {
-      .bf-button,
-      .bf-input,
-      .bf-textarea,
-      .bf-select,
-      [data-bitfun-prompt-selected="true"],
-      [data-bitfun-context-selected="true"] {
+      .openbitfun-button,
+      .openbitfun-input,
+      .openbitfun-textarea,
+      .openbitfun-select,
+      [data-openbitfun-prompt-selected="true"],
+      [data-openbitfun-context-selected="true"] {
         transition: none;
       }
     }
@@ -542,7 +530,7 @@ ${createWidgetAppearanceStaticShellCss()}
 
       function send(type, payload) {
         parent.postMessage({
-          source: 'bitfun-widget',
+          source: 'openbitfun-widget',
           type: type,
           widgetId: currentWidgetId,
           payload: payload
@@ -566,7 +554,7 @@ ${createWidgetAppearanceStaticShellCss()}
 
       function clearPromptTargetSelection() {
         if (!selectedPromptTarget) return;
-        selectedPromptTarget.removeAttribute('data-bitfun-prompt-selected');
+        selectedPromptTarget.removeAttribute('data-openbitfun-prompt-selected');
         selectedPromptTarget = null;
       }
 
@@ -578,7 +566,7 @@ ${createWidgetAppearanceStaticShellCss()}
         if (selectedPromptTarget === element) return;
         clearPromptTargetSelection();
         selectedPromptTarget = element;
-        selectedPromptTarget.setAttribute('data-bitfun-prompt-selected', 'true');
+        selectedPromptTarget.setAttribute('data-openbitfun-prompt-selected', 'true');
       }
 
       function findPromptTarget(target) {
@@ -586,7 +574,7 @@ ${createWidgetAppearanceStaticShellCss()}
         while (node && node !== document.body) {
           if (
             node.hasAttribute('data-file-path') ||
-            node.hasAttribute('data-bitfun-open-file') ||
+            node.hasAttribute('data-openbitfun-open-file') ||
             node.hasAttribute('data-prompt-target') ||
             node.hasAttribute('data-section-title')
           ) {
@@ -648,8 +636,8 @@ ${createWidgetAppearanceStaticShellCss()}
             tag === 'article' ||
             role === 'region' ||
             role === 'group' ||
-            node.classList.contains('bf-card') ||
-            node.classList.contains('bf-panel')
+            node.classList.contains('openbitfun-card') ||
+            node.classList.contains('openbitfun-panel')
           ) {
             var heading = node.querySelector('h1, h2, h3, h4, h5, h6, [data-section-title]');
             var headingText = truncateText(
@@ -683,8 +671,8 @@ ${createWidgetAppearanceStaticShellCss()}
         resizeFrame = window.requestAnimationFrame(function () {
           resizeFrame = null;
           sendMessage({
-            source: 'bitfun-widget',
-            type: 'bitfun-widget:resize',
+            source: 'openbitfun-widget',
+            type: 'openbitfun-widget:resize',
             widgetId: currentWidgetId,
             height: measureHeight()
           });
@@ -742,38 +730,38 @@ ${createWidgetAppearanceStaticShellCss()}
         if (!appearance) return;
         var root = document.documentElement;
         if (!root) return;
-        if (appearance.id) root.setAttribute('data-bf-appearance', String(appearance.id));
-        if (appearance.mode) root.setAttribute('data-bf-appearance-mode', String(appearance.mode));
+        if (appearance.id) root.setAttribute('data-openbitfun-appearance', String(appearance.id));
+        if (appearance.mode) root.setAttribute('data-openbitfun-appearance-mode', String(appearance.mode));
         var vars = appearance.vars || {};
         Object.keys(vars).forEach(function (name) {
           root.style.setProperty(name, String(vars[name]));
         });
         var body = document.body;
         if (body) {
-          body.style.background = vars['--bf-appearance-token-color-bg-primary'] || 'transparent';
+          body.style.background = vars['--openbitfun-color-surface-canvas'] || 'transparent';
           body.style.color =
-            vars['--bf-appearance-token-color-text-primary'] ||
-            getComputedStyle(root).getPropertyValue('--bf-appearance-token-color-text-primary') ||
+            vars['--openbitfun-color-content-primary'] ||
+            getComputedStyle(root).getPropertyValue('--openbitfun-color-content-primary') ||
             body.style.color;
           body.style.fontFamily =
-            vars['--bf-appearance-token-font-family-sans'] ||
-            getComputedStyle(root).getPropertyValue('--bf-appearance-token-font-family-sans') ||
+            vars['--openbitfun-font-family-sans'] ||
+            getComputedStyle(root).getPropertyValue('--openbitfun-font-family-sans') ||
             body.style.fontFamily;
         }
       }
 
       var bridge = {
         send: function (data) {
-          send('bitfun-widget:event', data);
+          send('openbitfun-widget:event', data);
         }
       };
 
-      window.bitfunWidget = bridge;
+      window.openbitfunWidget = bridge;
       window.glimpse = bridge;
       window.sendPrompt = function (text) {
         parent.postMessage({
-          source: 'bitfun-widget',
-          type: 'bitfun-widget:prompt',
+          source: 'openbitfun-widget',
+          type: 'openbitfun-widget:prompt',
           widgetId: currentWidgetId,
           text: String(text || '')
         }, '*');
@@ -781,9 +769,9 @@ ${createWidgetAppearanceStaticShellCss()}
 
       document.addEventListener('click', function (event) {
         var target = event.target;
-        var fileTarget = target && target.closest ? target.closest('[data-file-path], [data-bitfun-open-file]') : null;
+        var fileTarget = target && target.closest ? target.closest('[data-file-path], [data-openbitfun-open-file]') : null;
         if (fileTarget) {
-          var filePath = fileTarget.getAttribute('data-file-path') || fileTarget.getAttribute('data-bitfun-open-file') || '';
+          var filePath = fileTarget.getAttribute('data-file-path') || fileTarget.getAttribute('data-openbitfun-open-file') || '';
           if (filePath) {
             var lineValue = Number(fileTarget.getAttribute('data-line') || '');
             var columnValue = Number(fileTarget.getAttribute('data-column') || '');
@@ -791,8 +779,8 @@ ${createWidgetAppearanceStaticShellCss()}
             event.preventDefault();
             event.stopPropagation();
             sendMessage({
-              source: 'bitfun-widget',
-              type: 'bitfun-widget:open-file',
+              source: 'openbitfun-widget',
+              type: 'openbitfun-widget:open-file',
               widgetId: currentWidgetId,
               filePath: filePath,
               line: Number.isFinite(lineValue) && lineValue > 0 ? lineValue : undefined,
@@ -819,8 +807,8 @@ ${createWidgetAppearanceStaticShellCss()}
         if (selectedPromptTarget.contains && selectedPromptTarget.contains(target)) return;
         clearPromptTargetSelection();
         sendMessage({
-          source: 'bitfun-widget',
-          type: 'bitfun-widget:selection-cleared',
+          source: 'openbitfun-widget',
+          type: 'openbitfun-widget:selection-cleared',
           widgetId: currentWidgetId
         });
       }, true);
@@ -837,7 +825,7 @@ ${createWidgetAppearanceStaticShellCss()}
 
         var filePath = normalizeSpace(
           promptTarget && promptTarget.getAttribute
-            ? promptTarget.getAttribute('data-file-path') || promptTarget.getAttribute('data-bitfun-open-file')
+            ? promptTarget.getAttribute('data-file-path') || promptTarget.getAttribute('data-openbitfun-open-file')
             : ''
         );
         var lineValue = Number(
@@ -847,8 +835,8 @@ ${createWidgetAppearanceStaticShellCss()}
         event.preventDefault();
         event.stopPropagation();
         sendMessage({
-          source: 'bitfun-widget',
-          type: 'bitfun-widget:context-menu',
+          source: 'openbitfun-widget',
+          type: 'openbitfun-widget:context-menu',
           widgetId: currentWidgetId,
           clientX: Number(event.clientX) || 0,
           clientY: Number(event.clientY) || 0,
@@ -862,13 +850,13 @@ ${createWidgetAppearanceStaticShellCss()}
       window.addEventListener('message', function (event) {
         var data = event.data;
         if (!data) return;
-        if (data.type === 'bitfun-widget:clear-selection') {
+        if (data.type === 'openbitfun-widget:clear-selection') {
           if (!data.widgetId || data.widgetId === currentWidgetId) {
             clearPromptTargetSelection();
           }
           return;
         }
-        if (data.type !== 'bitfun-widget:update') return;
+        if (data.type !== 'openbitfun-widget:update') return;
         currentWidgetId = data.widgetId || currentWidgetId || '';
         applyAppearance(data.appearance);
         setContent(String(data.html || ''), Boolean(data.runScripts));
@@ -885,8 +873,8 @@ ${createWidgetAppearanceStaticShellCss()}
       }
 
       sendMessage({
-        source: 'bitfun-widget',
-        type: 'bitfun-widget:ready',
+        source: 'openbitfun-widget',
+        type: 'openbitfun-widget:ready',
         widgetId: currentWidgetId
       });
       scheduleResize();
@@ -919,10 +907,10 @@ export const GenerativeWidgetFrame: React.FC<GenerativeWidgetFrameProps> = ({
     const handleMessage = (event: MessageEvent<WidgetMessage>) => {
       const data = event.data;
       if (event.source !== iframeRef.current?.contentWindow) return;
-      if (!data || data.source !== 'bitfun-widget') return;
+      if (!data || data.source !== 'openbitfun-widget') return;
       if (data.widgetId && data.widgetId !== widgetId) return;
 
-      if (data.type === 'bitfun-widget:resize') {
+      if (data.type === 'openbitfun-widget:resize') {
         const nextHeight = Math.max(120, Math.ceil(Number(data.height) || 0));
         setFrameHeight((prev) => {
           if (Math.abs(prev - nextHeight) <= 1) return prev;
@@ -932,7 +920,7 @@ export const GenerativeWidgetFrame: React.FC<GenerativeWidgetFrameProps> = ({
         return;
       }
 
-      if (data.type === 'bitfun-widget:context-menu') {
+      if (data.type === 'openbitfun-widget:context-menu') {
         const iframeRect = iframeRef.current?.getBoundingClientRect();
         onWidgetEvent?.({
           ...data,
@@ -995,9 +983,11 @@ export const GenerativeWidgetFrame: React.FC<GenerativeWidgetFrameProps> = ({
     };
 
     updateAppearance();
-    const unsubscribe = widgetAppearanceAdapter.subscribe(updateAppearance);
+    const unsubscribeAppearance = widgetAppearanceAdapter.subscribe(updateAppearance);
+    const unsubscribeFont = fontPreferenceService.on('font:after-change', updateAppearance);
     return () => {
-      unsubscribe?.();
+      unsubscribeAppearance?.();
+      unsubscribeFont();
     };
   }, []);
 
@@ -1009,7 +999,7 @@ export const GenerativeWidgetFrame: React.FC<GenerativeWidgetFrameProps> = ({
 
     iframeRef.current.contentWindow.postMessage(
       {
-        type: 'bitfun-widget:update',
+        type: 'openbitfun-widget:update',
         widgetId,
         title,
         html: normalizedCode,
@@ -1031,7 +1021,7 @@ export const GenerativeWidgetFrame: React.FC<GenerativeWidgetFrameProps> = ({
 
     iframeRef.current.contentWindow.postMessage(
       {
-        type: 'bitfun-widget:clear-selection',
+        type: 'openbitfun-widget:clear-selection',
         widgetId,
       },
       '*',
@@ -1040,17 +1030,17 @@ export const GenerativeWidgetFrame: React.FC<GenerativeWidgetFrameProps> = ({
 
   return (
     <div
-      className={`bitfun-generative-widget-frame ${className}`.trim()}
-      data-bf-component="generative-widget"
-      data-bf-part="frame"
+      className={`openbitfun-generative-widget-frame ${className}`.trim()}
+      data-openbitfun-component="generative-widget"
+      data-openbitfun-part="frame"
       style={{ height: `${frameHeight}px` }}
     >
       <iframe
         ref={iframeRef}
         title={title || 'Generative widget'}
-        className={`bitfun-generative-widget-frame__iframe${isLoaded ? ' bitfun-generative-widget-frame__iframe--loaded' : ''}`}
-        data-bf-component="generative-widget"
-        data-bf-part="iframe"
+        className={`openbitfun-generative-widget-frame__iframe${isLoaded ? ' openbitfun-generative-widget-frame__iframe--loaded' : ''}`}
+        data-openbitfun-component="generative-widget"
+        data-openbitfun-part="iframe"
         style={{ width: '100%', minWidth: '100%' }}
         sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
         src="about:blank"

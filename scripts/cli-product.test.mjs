@@ -30,7 +30,7 @@ test('CLI uses the shared resolver and stages the internal binary under the memb
 
   assert.deepEqual(plan.cargoArgs.slice(0, 2), ['build', '--manifest-path']);
   assert.ok(plan.cargoArgs.includes('--locked'));
-  assert.ok(plan.internalBinaryPath.endsWith('bitfun.exe'));
+  assert.ok(plan.internalBinaryPath.endsWith('openbitfun.exe'));
   assert.ok(plan.stagedBinaryPath.endsWith('acme.exe'));
   assert.ok(plan.stagedPluginHostPath.endsWith(join('resources', 'ext-host')));
   assert.equal(plan.environment.BITFUN_PRODUCT_DISPLAY_NAME, 'Acme CLI');
@@ -52,7 +52,7 @@ test('CLI build stages a standard cross-target artifact from the Cargo target su
   );
 
   assert.ok(plan.internalBinaryPath.endsWith(
-    join('aarch64-unknown-linux-gnu', 'release', 'bitfun'),
+    join('aarch64-unknown-linux-gnu', 'release', 'openbitfun'),
   ));
 });
 
@@ -63,7 +63,7 @@ test('CLI build uses CARGO_BUILD_TARGET when no explicit target is forwarded', {
     const resolution = resolveProductDefinition({ rootDir: ROOT, member: 'cli' });
     const plan = cliBuildPlan(resolution, 'build', [], 'linux');
     assert.ok(plan.internalBinaryPath.endsWith(
-      join('x86_64-unknown-linux-gnu', 'release', 'bitfun'),
+      join('x86_64-unknown-linux-gnu', 'release', 'openbitfun'),
     ));
   } finally {
     if (previousTarget === undefined) delete process.env.CARGO_BUILD_TARGET;
@@ -109,9 +109,9 @@ test('CLI build derives the executable suffix from an explicit target OS', () =>
     'win32',
   );
 
-  assert.ok(windowsPlan.internalBinaryPath.endsWith(join('release', 'bitfun.exe')));
+  assert.ok(windowsPlan.internalBinaryPath.endsWith(join('release', 'openbitfun.exe')));
   assert.ok(windowsPlan.stagedBinaryPath.endsWith('acme.exe'));
-  assert.ok(linuxPlan.internalBinaryPath.endsWith(join('release', 'bitfun')));
+  assert.ok(linuxPlan.internalBinaryPath.endsWith(join('release', 'openbitfun')));
   assert.ok(linuxPlan.stagedBinaryPath.endsWith('acme'));
 });
 

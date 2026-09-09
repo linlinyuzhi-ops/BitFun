@@ -1,4 +1,4 @@
-# BitFun Agent SDK for TypeScript
+# OpenBitFun Agent SDK for TypeScript
 
 This package is a repository-internal vertical slice. It is private, reports
 `not_delivered` through the Host handshake, and must not be published or
@@ -7,7 +7,7 @@ described as a Preview SDK yet.
 The slice validates the intended public object model:
 
 - one application-level `AgentClient` owns one managed native
-  `bitfun-sdk-host` process and one Host connection;
+  `openbitfun-sdk-host` process and one Host connection;
 - `client.query()` uses a Host-managed transient Session;
 - `client.sessions.create()` creates a durable Session whose Turns reuse the
   same connection, while `client.sessions.resume(id)` attaches it to a later
@@ -59,7 +59,7 @@ The trusted application then supplies one process-lifetime model configuration;
 the SDK finds and manages the staged native Host automatically:
 
 ```typescript
-import { AgentClient } from "@bitfun/agent-sdk";
+import { AgentClient } from "@openbitfun/agent-sdk";
 
 const apiKey = await trustedSecretStore.read("openai");
 await using client = await AgentClient.start({

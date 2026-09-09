@@ -11,8 +11,12 @@ import {
 } from './rules/feature-rules.mjs';
 
 const SKIPPED_DIRECTORIES = new Set([
+  '.openbitfun',
+  '.claude',
+  '.cursor',
   '.git',
   '.targets',
+  '.tmp',
   '.worktrees',
   'node_modules',
   'target',
@@ -51,7 +55,7 @@ function layerForManifest(manifestPath, { root, crateLayoutRules }) {
   }
   const cratePath = repoManifestPath.replace(/\/Cargo\.toml$/, '');
 
-  if (cratePath.startsWith('src/apps/') || cratePath === 'BitFun-Installer/src-tauri') {
+  if (cratePath.startsWith('src/apps/') || cratePath === 'OpenBitFun-Installer/src-tauri') {
     return 'apps';
   }
 
@@ -132,12 +136,12 @@ const SERVICES_INTEGRATIONS_TOKIO_FEATURES = new Map([
   ['models-dev', ['fs', 'sync', 'time']],
   ['browser-control', ['time']],
   ['canvas-runtime', ['fs']],
-  ['debug-log', ['rt']],
   ['deep-research', []],
   ['git', ['fs', 'io-util', 'macros', 'rt', 'time']],
   ['file-watch', ['rt', 'sync']],
   ['function-agents', ['fs', 'io-util', 'macros', 'rt', 'time']],
   ['mcp', ['fs', 'io-util', 'net', 'process', 'rt', 'sync', 'time']],
+  ['miniapp-storage', ['fs', 'time']],
   ['miniapp-runtime', ['fs', 'io-util', 'net', 'process', 'rt', 'sync', 'time']],
   ['miniapp-market', ['fs', 'io-util', 'net', 'process', 'rt', 'sync', 'time']],
   ['plugin-source', ['fs', 'rt', 'sync', 'time']],
@@ -147,20 +151,22 @@ const SERVICES_INTEGRATIONS_TOKIO_FEATURES = new Map([
   ['remote-ssh-concrete', ['fs', 'io-util', 'macros', 'net', 'process', 'rt', 'sync', 'time']],
   ['review-platform', ['fs', 'io-util', 'sync']],
   ['speech', ['fs', 'io-util', 'macros', 'rt', 'sync']],
+  ['speech-realtime', ['fs', 'io-util', 'macros', 'net', 'rt', 'sync', 'time']],
   ['workspace-search', ['io-util', 'rt', 'sync', 'time']],
   ['script-tool-runtime', ['io-util', 'process', 'rt', 'sync', 'time']],
 ]);
 
 const SERVICES_CORE_TOKIO_FEATURES = new Map([
+  ['credential-vault', ['fs', 'io-util', 'rt']],
   ['diff', ['rt', 'time']],
   ['filesystem', ['fs', 'rt']],
   ['json-io', ['fs', 'rt', 'sync', 'time']],
   ['local-storage', ['fs', 'rt', 'sync', 'time']],
   ['permission', ['rt']],
   ['process-runtime', ['io-util', 'process', 'rt', 'time']],
+  ['session-search', ['rt']],
   ['workspace-instructions', ['fs', 'io-util', 'rt']],
   ['workspace-text-runtime', ['rt']],
-  ['lsp', ['fs', 'io-util', 'process', 'rt', 'sync', 'time']],
   ['workspace-runtime', ['fs', 'io-util', 'process', 'rt', 'sync', 'time']],
 ]);
 const SERVICES_CORE_BASE_TOKIO_FEATURES = [];
@@ -168,10 +174,9 @@ const SERVICES_INTEGRATIONS_TOKIO_AGGREGATES = new Set(['product-full']);
 const SERVICES_CORE_TOKIO_AGGREGATES = new Set(['session-git', 'token-usage-statistics']);
 const CORE_TOKIO_FEATURES = new Map([
   ['agent-runtime', ['io-util', 'macros', 'rt', 'time']],
+  ['legacy-migration', []],
   ['mcp-runtime', ['io-util', 'macros', 'rt', 'rt-multi-thread', 'time']],
   ['browser-control', ['net', 'rt', 'time']],
-  ['debug-log', ['macros', 'net', 'rt', 'time']],
-  ['lsp', ['macros']],
 ]);
 const CORE_TOKIO_AGGREGATES = new Set([
   'external-sources',
@@ -294,35 +299,39 @@ function reqwestDependencyFeatureReferences(references) {
 }
 
 const REQWEST_PACKAGE_PROFILES = new Map([
-  ['bitfun-core', { dependencyFeatures: [], optional: true }],
-  ['bitfun-services-integrations', {
+  ['openbitfun-core', { dependencyFeatures: [], optional: true }],
+  ['openbitfun-services-integrations', {
     dependencyFeatures: ['http2'],
     optional: true,
     servicesOwners: true,
   }],
-  ['bitfun-ai-adapters', {
-    dependencyFeatures: ['http2', 'json', 'rustls', 'socks', 'stream'],
+  ['openbitfun-ai-adapters', {
+    dependencyFeatures: ['http2', 'json', 'rustls-no-provider', 'socks', 'stream'],
     optional: false,
     allowedPackageFeatureRefs: new Set(['reqwest/form']),
     requiredPackageFeatureRefs: new Map([
       ['subscription-auth', new Set(['reqwest/form'])],
     ]),
+    tlsProviderDependency: 'openbitfun-services-core',
   }],
-  ['bitfun-cli', {
-    dependencyFeatures: ['http2', 'rustls', 'stream'],
+  ['openbitfun-cli', {
+    dependencyFeatures: ['http2', 'rustls-no-provider', 'stream'],
+    optional: false,
+    tlsProviderDependency: 'openbitfun-services-core',
+  }],
+  ['openbitfun-desktop', {
+    dependencyFeatures: ['http2', 'json', 'query', 'rustls-no-provider', 'stream'],
     optional: false,
   }],
-  ['bitfun-desktop', {
-    dependencyFeatures: ['http2', 'json', 'query', 'rustls', 'stream'],
+  ['openbitfun-miniapp-market-service', {
+    dependencyFeatures: ['form', 'http2', 'json', 'rustls-no-provider'],
     optional: false,
+    tlsProviderDependency: 'openbitfun-services-core',
   }],
-  ['bitfun-miniapp-market-service', {
-    dependencyFeatures: ['form', 'http2', 'json', 'rustls'],
+  ['openbitfun-skin-market-service', {
+    dependencyFeatures: ['http2', 'json', 'rustls-no-provider'],
     optional: false,
-  }],
-  ['bitfun-skin-market-service', {
-    dependencyFeatures: ['http2', 'json', 'rustls'],
-    optional: false,
+    tlsProviderDependency: 'openbitfun-services-core',
   }],
 ]);
 
@@ -418,6 +427,26 @@ function findReqwestPackageProfileViolations(pkg, profile) {
           });
         }
       }
+    }
+  }
+
+  if (profile.tlsProviderDependency) {
+    const providerDependencies = (pkg.dependencies ?? []).filter(
+      (candidate) => candidate.name === profile.tlsProviderDependency
+        && (candidate.kind ?? null) === null
+        && (candidate.target ?? null) === null,
+    );
+    if (
+      providerDependencies.length !== 1
+      || !(providerDependencies[0].features ?? []).includes('tls-provider')
+    ) {
+      violations.push({
+        path: pkg.manifest_path,
+        line: 1,
+        message:
+          `${pkg.name} must select ${profile.tlsProviderDependency}/tls-provider `
+          + 'for its provider-neutral Reqwest client',
+      });
     }
   }
 
@@ -856,9 +885,9 @@ export function findRuntimeServicesTestSupportFeatureViolations(packages) {
   };
 
   for (const pkg of packages) {
-    const runtimeServiceAliases = new Set(['bitfun-runtime-services']);
+    const runtimeServiceAliases = new Set(['openbitfun-runtime-services']);
     for (const dependency of pkg.dependencies ?? []) {
-      if (dependency.name !== 'bitfun-runtime-services') {
+      if (dependency.name !== 'openbitfun-runtime-services') {
         continue;
       }
       runtimeServiceAliases.add(dependency.rename ?? dependency.name);
@@ -870,7 +899,7 @@ export function findRuntimeServicesTestSupportFeatureViolations(packages) {
           path: pkg.manifest_path,
           line: 1,
           message:
-            `${pkg.name} must not enable bitfun-runtime-services/test-support for its `
+            `${pkg.name} must not enable openbitfun-runtime-services/test-support for its `
             + dependencyDescription(dependency),
         });
       }
@@ -890,12 +919,12 @@ export function findRuntimeServicesTestSupportFeatureViolations(packages) {
         path: pkg.manifest_path,
         line: 1,
         message:
-          `${pkg.name}:${featureName} must not expose bitfun-runtime-services/test-support `
+          `${pkg.name}:${featureName} must not expose openbitfun-runtime-services/test-support `
           + 'through a package feature',
       });
     }
 
-    if (pkg.name === 'bitfun-runtime-services') {
+    if (pkg.name === 'openbitfun-runtime-services') {
       for (const featureName of Object.keys(pkg.features ?? {})) {
         if (featureName === 'test-support') {
           continue;
@@ -908,7 +937,7 @@ export function findRuntimeServicesTestSupportFeatureViolations(packages) {
           path: pkg.manifest_path,
           line: 1,
           message:
-            `bitfun-runtime-services:${featureName} must not expose test-support; `
+            `openbitfun-runtime-services:${featureName} must not expose test-support; `
             + `reachable via ${path.join(' -> ')}`,
         });
       }
@@ -928,7 +957,7 @@ export function findResolvedReqwestNativeTlsViolations(records, { root }) {
     }];
   }
 
-  return reqwestRecords.flatMap((record) => {
+  const reqwestViolations = reqwestRecords.flatMap((record) => {
     const nativeTlsFeatures = (record.features ?? []).filter(
       (feature) =>
         feature === 'default-tls'
@@ -937,7 +966,12 @@ export function findResolvedReqwestNativeTlsViolations(records, { root }) {
         || feature === 'native-tls'
         || feature.startsWith('native-tls-'),
     );
-    if (nativeTlsFeatures.length === 0) {
+    const providerSelectingFeatures = record.version.startsWith('0.13.')
+      && (record.features ?? []).includes('rustls')
+      ? ['rustls (selects AWS-LC)']
+      : [];
+    const unreviewedTlsFeatures = [...nativeTlsFeatures, ...providerSelectingFeatures];
+    if (unreviewedTlsFeatures.length === 0) {
       return [];
     }
     return [{
@@ -945,9 +979,35 @@ export function findResolvedReqwestNativeTlsViolations(records, { root }) {
       line: 1,
       message:
         `resolved reqwest ${record.version} feature union enables an unreviewed TLS backend: `
-        + nativeTlsFeatures.join(', '),
+        + unreviewedTlsFeatures.join(', '),
     }];
   });
+
+  const rustlsRecords = records.filter((record) => record.name === 'rustls');
+  const selectedRustlsProviders = new Set(rustlsRecords
+    .flatMap((record) => (record.features ?? [])
+        .filter((feature) => feature === 'ring' || feature === 'aws_lc_rs' || feature === 'aws-lc-rs')
+        .map((feature) => feature === 'ring' ? feature : 'aws_lc_rs')));
+  if (records.some((record) => record.name === 'aws-lc-rs' || record.name === 'aws-lc-sys')) {
+    selectedRustlsProviders.add('aws_lc_rs');
+  }
+  const sortedRustlsProviders = [...selectedRustlsProviders].sort();
+  const rustlsVersions = [...new Set(rustlsRecords.map((record) => record.version))].sort();
+  const reqwestUsesRustls = reqwestRecords.some((record) =>
+    (record.features ?? []).some((feature) => feature.includes('rustls')));
+  const rustlsProviderViolations = !reqwestUsesRustls
+    || (sortedRustlsProviders.length === 1 && sortedRustlsProviders[0] === 'ring')
+    ? []
+    : [{
+        path: join(root, 'Cargo.toml'),
+        line: 1,
+        message:
+          `resolved Reqwest/Rustls closure must select only the ring crypto provider; `
+          + `rustls ${rustlsVersions.join(', ') || '(missing)'} selects `
+          + (sortedRustlsProviders.join(', ') || '(no provider)'),
+      }];
+
+  return [...reqwestViolations, ...rustlsProviderViolations];
 }
 
 export function findServicesIntegrationsReqwestFeatureViolations(pkg) {
@@ -957,7 +1017,6 @@ export function findServicesIntegrationsReqwestFeatureViolations(pkg) {
   const ownerFeatureReferences = new Map([
     ['announcement', ['reqwest/json']],
     ['browser-control', ['reqwest/json']],
-    ['debug-log', ['reqwest/json']],
     ['mcp', ['reqwest/json', 'reqwest/stream']],
     ['miniapp-market', ['reqwest/json', 'reqwest/query', 'reqwest/stream']],
     ['miniapp-runtime', ['reqwest/stream']],
@@ -986,11 +1045,18 @@ export function findServicesIntegrationsReqwestFeatureViolations(pkg) {
         message: `${pkg.name}:${featureName} must explicitly enable reqwest`,
       });
     }
-    if (!references.includes('reqwest/rustls')) {
+    if (!references.includes('reqwest/rustls-no-provider')) {
       violations.push({
         path: pkg.manifest_path,
         line: 1,
-        message: `${pkg.name}:${featureName} is missing reqwest/rustls`,
+        message: `${pkg.name}:${featureName} is missing reqwest/rustls-no-provider`,
+      });
+    }
+    if (!references.includes('openbitfun-services-core/tls-provider')) {
+      violations.push({
+        path: pkg.manifest_path,
+        line: 1,
+        message: `${pkg.name}:${featureName} is missing openbitfun-services-core/tls-provider`,
       });
     }
     for (const reference of ownerFeatureReferences.get(featureName) ?? []) {
@@ -1025,7 +1091,7 @@ export function findServicesIntegrationsReqwestFeatureViolations(pkg) {
     const allowedReferences = new Set([
       'reqwest',
       'dep:reqwest',
-      'reqwest/rustls',
+      'reqwest/rustls-no-provider',
       ...(ownerFeatureReferences.get(featureName) ?? []),
     ]);
     for (const reference of reqwestReferences) {
@@ -1058,7 +1124,7 @@ export function findServicesCorePlatformDependencyFeatureViolations(packages) {
   const violations = [];
 
   for (const pkg of packages) {
-    if (pkg.name !== 'bitfun-services-core') {
+    if (pkg.name !== 'openbitfun-services-core') {
       continue;
     }
     for (const dependency of pkg.dependencies ?? []) {
@@ -1148,16 +1214,16 @@ export function findTokioDependencyFeatureViolations(packages) {
         });
       }
       const featureOwnedIntegrationRuntime =
-        pkg.name === 'bitfun-services-integrations'
+        pkg.name === 'openbitfun-services-integrations'
         && (dependency.kind ?? null) === null;
       const featureOwnedServicesCoreRuntime =
-        pkg.name === 'bitfun-services-core'
+        pkg.name === 'openbitfun-services-core'
         && (dependency.kind ?? null) === null;
       const featureOwnedCoreRuntime =
-        pkg.name === 'bitfun-core'
+        pkg.name === 'openbitfun-core'
         && (dependency.kind ?? null) === null;
       const featureOwnedAgentRuntime =
-        pkg.name === 'bitfun-agent-runtime'
+        pkg.name === 'openbitfun-agent-runtime'
         && (dependency.kind ?? null) === null;
       if (
         featureOwnedIntegrationRuntime
@@ -1194,20 +1260,20 @@ export function findTokioDependencyFeatureViolations(packages) {
       }
     }
 
-    if (pkg.name === 'bitfun-services-integrations') {
+    if (pkg.name === 'openbitfun-services-integrations') {
       violations.push(...findServicesIntegrationsTokioFeatureViolations(pkg));
     }
-    if (pkg.name === 'bitfun-services-core') {
+    if (pkg.name === 'openbitfun-services-core') {
       violations.push(...findServicesCoreTokioFeatureViolations(pkg));
     }
-    if (pkg.name === 'bitfun-core') {
+    if (pkg.name === 'openbitfun-core') {
       violations.push(...findOwnedTokioFeatureViolations(
         pkg,
         CORE_TOKIO_FEATURES,
         CORE_TOKIO_AGGREGATES,
       ));
     }
-    if (pkg.name === 'bitfun-agent-runtime') {
+    if (pkg.name === 'openbitfun-agent-runtime') {
       violations.push(...findOwnedTokioFeatureViolations(
         pkg,
         AGENT_RUNTIME_TOKIO_FEATURES,
@@ -1335,23 +1401,25 @@ export function findProductEntrypointCoreFeatureViolations(
     'tools-agent-control',
   ];
   const reviewedCoreFeatureClosures = new Map([
-    ['bitfun-cli', [
+    ['openbitfun-cli', [
       ...coreCompatibilityReviewedFeatures,
+      'product-search',
       'remote-connect',
       'plugin-runtime',
       'opencode-plugin-host',
       'ssh-remote',
     ]],
-    ['bitfun-acp', [...new Set([...acpClientCoreFeatures, ...acpServerCoreFeatures])]],
-    ['bitfun-app-server', [
+    ['openbitfun-acp', [...new Set([...acpClientCoreFeatures, ...acpServerCoreFeatures])]],
+    ['openbitfun-app-server', [
       'external-sources',
       'git',
       'i18n-runtime',
       'remote-connect',
+      'web-tools',
     ]],
-    ['bitfun-sdk-host-app', coreCompatibilityReviewedFeatures],
+    ['openbitfun-sdk-host-app', coreCompatibilityReviewedFeatures],
   ]);
-  const fullProductCoreEntrypoints = new Set(['bitfun-desktop', 'bitfun-server']);
+  const fullProductCoreEntrypoints = new Set(['openbitfun-desktop', 'openbitfun-server']);
   const fullProductCoreEntrypointsFound = new Set();
   const coreCompatibilityActiveFeatures = [
     'agent-runtime',
@@ -1364,7 +1432,6 @@ export function findProductEntrypointCoreFeatureViolations(
     'file-watch',
     'filesystem',
     'git',
-    'lsp',
     'local-storage',
     'mcp-runtime',
     'model-catalog',
@@ -1383,6 +1450,7 @@ export function findProductEntrypointCoreFeatureViolations(
     'tools-browser-web',
     'tools-canvas',
     'tools-computer-use',
+    'tools-creation',
     'tools-git',
     'tools-image-analysis',
     'tools-mcp',
@@ -1398,16 +1466,16 @@ export function findProductEntrypointCoreFeatureViolations(
     'ssh-remote',
   ];
   const reviewedActiveCoreFeatureClosures = new Map([
-    ['bitfun-cli', [
+    ['openbitfun-cli', [
       ...acpActiveCoreFeatures,
       'i18n-runtime',
       'plugin-runtime',
       'opencode-plugin-host',
       'remote-connect',
     ]],
-    ['bitfun-acp', acpActiveCoreFeatures],
-    ['bitfun-sdk-host-app', coreCompatibilityActiveFeatures],
-    ['bitfun-app-server', [
+    ['openbitfun-acp', acpActiveCoreFeatures],
+    ['openbitfun-sdk-host-app', coreCompatibilityActiveFeatures],
+    ['openbitfun-app-server', [
       'agent-runtime',
       'ai-adapter-runtime',
       'external-sources',
@@ -1430,24 +1498,24 @@ export function findProductEntrypointCoreFeatureViolations(
       'tools-agent-control',
       'tools-basic',
       'ts',
+      'web-tools',
       'workspace-search',
       'workspace-runtime',
       'workspace-watch',
     ]],
   ]);
   const reviewedForbiddenDependencyOwnerFeatures = new Map([
-    ['bitfun-sdk-host-app', new Map([
-      ['bitfun-services-integrations', [
+    ['openbitfun-sdk-host-app', new Map([
+      ['openbitfun-services-integrations', [
         'announcement',
-        'debug-log',
         'function-agents',
         'product-full',
         'remote-connect',
         'remote-ssh',
         'remote-ssh-concrete',
       ]],
-      ['bitfun-product-domains', ['function-agents', 'product-full']],
-      ['bitfun-services-core', ['dispatch-workspace']],
+      ['openbitfun-product-domains', ['function-agents', 'product-full']],
+      ['openbitfun-services-core', ['dispatch-workspace']],
     ])],
   ]);
   const packageByManifest = new Map(
@@ -1456,16 +1524,16 @@ export function findProductEntrypointCoreFeatureViolations(
   const violations = [];
 
   const reviewedAcpRoleSelections = new Map([
-    ['bitfun-cli', {
+    ['openbitfun-cli', {
       label: 'CLI',
       requiredFeatures: ['client', 'server'],
     }],
-    ['bitfun-desktop', {
+    ['openbitfun-desktop', {
       label: 'Desktop',
       requiredFeatures: ['client'],
     }],
   ]);
-  const acpPackage = packages.find((pkg) => pkg.name === 'bitfun-acp');
+  const acpPackage = packages.find((pkg) => pkg.name === 'openbitfun-acp');
   if (acpPackage) {
     const reviewedConsumersFound = new Set();
     for (const sourcePackage of packages) {
@@ -1475,7 +1543,7 @@ export function findProductEntrypointCoreFeatureViolations(
         }
         return packageByManifest.get(
           normalizedPath(join(candidate.path, 'Cargo.toml')),
-        )?.name === 'bitfun-acp';
+        )?.name === 'openbitfun-acp';
       });
       const normalDependencies = declaredDependencies.filter(
         (dependency) => dependency.kind === null,
@@ -1486,7 +1554,7 @@ export function findProductEntrypointCoreFeatureViolations(
           violations.push({
             path: sourcePackage.manifest_path,
             line: 1,
-            message: `bitfun-acp consumer ${sourcePackage.name} must register an explicit role selection`,
+            message: `openbitfun-acp consumer ${sourcePackage.name} must register an explicit role selection`,
           });
         }
         continue;
@@ -1502,14 +1570,14 @@ export function findProductEntrypointCoreFeatureViolations(
         violations.push({
           path: sourcePackage.manifest_path,
           line: 1,
-          message: `${rule.label} ACP role selection must keep an unconditional normal bitfun-acp dependency`,
+          message: `${rule.label} ACP role selection must keep an unconditional normal openbitfun-acp dependency`,
         });
       }
       if (declaredDependencies.some((dependency) => dependency.optional === true)) {
         violations.push({
           path: sourcePackage.manifest_path,
           line: 1,
-          message: `${rule.label} ACP role selection must not make a bitfun-acp dependency optional`,
+          message: `${rule.label} ACP role selection must not make a openbitfun-acp dependency optional`,
         });
       }
       if (declaredDependencies.some((dependency) => dependency.uses_default_features !== false)) {
@@ -1552,7 +1620,7 @@ export function findProductEntrypointCoreFeatureViolations(
         violations.push({
           path: sourcePackage.manifest_path,
           line: 1,
-          message: `${rule.label} ACP role selection must keep the bitfun-acp dependency`,
+          message: `${rule.label} ACP role selection must keep the openbitfun-acp dependency`,
         });
       }
     }
@@ -1574,11 +1642,11 @@ export function findProductEntrypointCoreFeatureViolations(
       const targetPackage = packageByManifest.get(
         normalizedPath(join(dependency.path, 'Cargo.toml')),
       );
-      if (targetPackage?.name !== 'bitfun-core') {
+      if (targetPackage?.name !== 'openbitfun-core') {
         continue;
       }
       const roleOwnedAcpDependency =
-        sourcePackage.name === 'bitfun-acp' && dependency.optional === true;
+        sourcePackage.name === 'openbitfun-acp' && dependency.optional === true;
       if (
         !roleOwnedAcpDependency
         && (!Array.isArray(dependency.features) || dependency.features.length === 0)
@@ -1586,7 +1654,7 @@ export function findProductEntrypointCoreFeatureViolations(
         violations.push({
           path: sourcePackage.manifest_path,
           line: 1,
-          message: `product entrypoint ${sourcePackage.name} must select at least one explicit feature for its bitfun-core ${dependencyDescription(dependency)}`,
+          message: `product entrypoint ${sourcePackage.name} must select at least one explicit feature for its openbitfun-core ${dependencyDescription(dependency)}`,
         });
       }
       if (fullProductCoreEntrypoints.has(sourcePackage.name)) {
@@ -1626,7 +1694,7 @@ export function findProductEntrypointCoreFeatureViolations(
       }
     }
   }
-  for (const sourceName of packages.some((pkg) => pkg.name === 'bitfun-core')
+  for (const sourceName of packages.some((pkg) => pkg.name === 'openbitfun-core')
     ? fullProductCoreEntrypoints
     : []) {
     const sourcePackage = packages.find((pkg) => pkg.name === sourceName);
@@ -1634,17 +1702,16 @@ export function findProductEntrypointCoreFeatureViolations(
       violations.push({
         path: sourcePackage.manifest_path,
         line: 1,
-        message: `${sourceName} Core capability closure must keep the bitfun-core dependency`,
+        message: `${sourceName} Core capability closure must keep the openbitfun-core dependency`,
       });
     }
   }
 
-  const corePackage = packages.find((pkg) => pkg.name === 'bitfun-core');
+  const corePackage = packages.find((pkg) => pkg.name === 'openbitfun-core');
   if (corePackage) {
     const forbiddenCoreFeatures = [
       'product-full',
       'announcement',
-      'debug-log',
       'dispatch-store',
     ];
     const reportedUnexpectedFeatures = new Set();
@@ -1660,10 +1727,10 @@ export function findProductEntrypointCoreFeatureViolations(
       const rootSelectedFeatures = Object.keys(rootPackage.features ?? {})
         .filter((feature) => feature !== 'default');
       const rootLabel = new Map([
-        ['bitfun-cli', 'CLI'],
-        ['bitfun-acp', 'ACP'],
-        ['bitfun-app-server', 'App Server'],
-        ['bitfun-sdk-host-app', 'SDK Host'],
+        ['openbitfun-cli', 'CLI'],
+        ['openbitfun-acp', 'ACP'],
+        ['openbitfun-app-server', 'App Server'],
+        ['openbitfun-sdk-host-app', 'SDK Host'],
       ]).get(rootName) ?? rootName;
       const forbiddenOwnerFeatures =
         reviewedForbiddenDependencyOwnerFeatures.get(rootName);
@@ -1784,7 +1851,7 @@ export function findProductEntrypointCoreFeatureViolations(
             targetPath,
           );
 
-          if (targetPackage.name === 'bitfun-core') {
+          if (targetPackage.name === 'openbitfun-core') {
             const activeCoreFeatures = targetState.featureState.active;
             const unexpected = forbiddenCoreFeatures.find((feature) =>
               activeCoreFeatures.has(feature))

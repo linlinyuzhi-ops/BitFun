@@ -3,11 +3,9 @@
  */
 
 import React, { useMemo } from 'react';
-import { FileText } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ToolCardProps } from '../types/flow-chat';
-import { CompactToolCard, CompactToolCardHeader } from './CompactToolCard';
-import { ToolCardStatusSlot } from './ToolCardStatusSlot';
+import { ReadFileToolCard } from '@openbitfun/ui/flow-chat';
 import { isSessionViewPreviewText } from '../utils/sessionViewPreview';
 
 export const ReadFileDisplay: React.FC<ToolCardProps> = React.memo(({
@@ -117,21 +115,37 @@ export const ReadFileDisplay: React.FC<ToolCardProps> = React.memo(({
     return null;
   }
 
+  const renderAction = () => {
+    if (status === 'completed') {
+      return `${t('toolCards.readFile.readFile')}:`;
+    }
+    if (status === 'running' || status === 'streaming') {
+      return t('toolCards.readFile.readingFile');
+    }
+    if (showConfirmationActions || status === 'pending_confirmation') {
+      return t('toolCards.readFile.permissionRequest');
+    }
+    if (status === 'pending') {
+      return t('toolCards.readFile.preparingRead');
+    }
+    return undefined;
+  };
+
   const renderContent = () => {
     if (status === 'completed') {
       return (
         <>
-          {t('toolCards.readFile.readFile')}: {fileName}
-          {lineRange && <span className="read-file-meta"> {lineRange}</span>}
-          {fileSize && <span className="read-file-meta"> ({fileSize})</span>}
+          {fileName}
+          {lineRange && <> {lineRange}</>}
+          {fileSize && <> ({fileSize})</>}
         </>
       );
     }
     if (status === 'running' || status === 'streaming') {
       return (
         <>
-          {t('toolCards.readFile.readingFile')} {fileName}
-          {lineRange && <span className="read-file-meta"> {lineRange}</span>}
+          {fileName}
+          {lineRange && <> {lineRange}</>}
           ...
         </>
       );
@@ -139,16 +153,16 @@ export const ReadFileDisplay: React.FC<ToolCardProps> = React.memo(({
     if (showConfirmationActions || status === 'pending_confirmation') {
       return (
         <>
-          {t('toolCards.readFile.permissionRequest')} {permissionTargetPath}
-          {lineRange && <span className="read-file-meta"> {lineRange}</span>}
+          {permissionTargetPath}
+          {lineRange && <> {lineRange}</>}
         </>
       );
     }
     if (status === 'pending') {
       return (
         <>
-          {t('toolCards.readFile.preparingRead')} {fileName}
-          {lineRange && <span className="read-file-meta"> {lineRange}</span>}
+          {fileName}
+          {lineRange && <> {lineRange}</>}
         </>
       );
     }
@@ -156,18 +170,12 @@ export const ReadFileDisplay: React.FC<ToolCardProps> = React.memo(({
   };
 
   return (
-    <CompactToolCard
+    <ReadFileToolCard
+      action={renderAction()}
+      content={renderContent()}
       status={status}
-      isExpanded={false}
-      onClick={() => canOpenFile && handleOpenInEditor()}
-      className="read-file-card"
-      clickable={canOpenFile}
-      header={
-        <CompactToolCardHeader
-          icon={<ToolCardStatusSlot status={status} toolIcon={<FileText size={16} className="read-file-card-icon" />} />}
-          content={renderContent()}
-        />
-      }
+      interactive={canOpenFile}
+      onOpen={canOpenFile ? handleOpenInEditor : undefined}
     />
   );
 });

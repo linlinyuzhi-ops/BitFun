@@ -6,9 +6,9 @@ use crate::{
     ToolDecorator, CALL_DEFERRED_TOOL_NAME,
 };
 use async_trait::async_trait;
-use bitfun_core_types::ToolImageAttachment;
-use bitfun_runtime_ports::DelegationPolicy;
 use indexmap::IndexMap;
+use openbitfun_core_types::ToolImageAttachment;
+use openbitfun_runtime_ports::DelegationPolicy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -358,7 +358,7 @@ pub fn get_tool_spec_input_schema() -> Value {
         "properties": {
             "tool_name": {
                 "type": "string",
-                "description": "Exact deferred tool name to load, using the tool's canonical casing from the catalog (for example, \"Git\"). Do not pass a command such as \"git status\" or an operation such as \"status\" here."
+                "description": "Exact deferred tool name to load, using the tool's canonical casing from the catalog (for example, \"WebFetch\"). Do not pass a URL or an operation name here."
             }
         }
     })
@@ -639,8 +639,7 @@ fn escape_get_tool_spec_xml_text(value: &str) -> String {
 pub fn tool_manifest_sort_rank(tool_name: &str) -> usize {
     match tool_name {
         "Task" => 1,
-        "Bash" => 2,
-        "TerminalControl" => 3,
+        "ExecCommand" => 2,
         "Glob" => 4,
         "Grep" => 5,
         "Read" => 6,
@@ -1673,25 +1672,25 @@ impl ToolPathResolution {
         let root = self.runtime_root.as_ref()?;
         let relative = absolute_child_path.strip_prefix(root).ok()?;
         let relative_str = relative.to_string_lossy().replace('\\', "/");
-        if is_bitfun_current_session_uri(&self.logical_path) {
-            return build_bitfun_current_session_uri(&relative_str).ok();
+        if is_openbitfun_current_session_uri(&self.logical_path) {
+            return build_openbitfun_current_session_uri(&relative_str).ok();
         }
         let scope = self.runtime_scope.as_deref()?;
-        build_bitfun_runtime_uri(scope, &relative_str).ok()
+        build_openbitfun_runtime_uri(scope, &relative_str).ok()
     }
 }
 
-pub const BITFUN_RUNTIME_URI_PREFIX: &str = "bitfun://runtime/";
-pub const BITFUN_CURRENT_SESSION_URI_PREFIX: &str = "bitfun://current-session/";
+pub const OPENBITFUN_RUNTIME_URI_PREFIX: &str = "openbitfun://runtime/";
+pub const OPENBITFUN_CURRENT_SESSION_URI_PREFIX: &str = "openbitfun://current-session/";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParsedBitFunRuntimeUri {
+pub struct ParsedOpenBitFunRuntimeUri {
     pub workspace_scope: String,
     pub relative_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParsedBitFunCurrentSessionUri {
+pub struct ParsedOpenBitFunCurrentSessionUri {
     pub relative_path: String,
 }
 
@@ -1766,16 +1765,17 @@ impl fmt::Display for ToolPathContractError {
 
 impl std::error::Error for ToolPathContractError {}
 
-pub fn is_bitfun_runtime_uri(path: &str) -> bool {
-    path.trim().starts_with(BITFUN_RUNTIME_URI_PREFIX)
+pub fn is_openbitfun_runtime_uri(path: &str) -> bool {
+    path.trim().starts_with(OPENBITFUN_RUNTIME_URI_PREFIX)
 }
 
-pub fn is_bitfun_current_session_uri(path: &str) -> bool {
-    path.trim().starts_with(BITFUN_CURRENT_SESSION_URI_PREFIX)
+pub fn is_openbitfun_current_session_uri(path: &str) -> bool {
+    path.trim()
+        .starts_with(OPENBITFUN_CURRENT_SESSION_URI_PREFIX)
 }
 
-pub fn is_bitfun_tool_uri(path: &str) -> bool {
-    path.trim().starts_with("bitfun://")
+pub fn is_openbitfun_tool_uri(path: &str) -> bool {
+    path.trim().starts_with("openbitfun://")
 }
 
 pub fn normalize_host_path(path: &str) -> String {
@@ -1880,8 +1880,8 @@ pub fn resolve_tool_path_with_context_roots(
     runtime_root: Option<PathBuf>,
     current_session_root: Option<PathBuf>,
 ) -> Result<ToolPathResolution, ToolPathContractError> {
-    if is_bitfun_runtime_uri(path) {
-        let parsed = parse_bitfun_runtime_uri(path)?;
+    if is_openbitfun_runtime_uri(path) {
+        let parsed = parse_openbitfun_runtime_uri(path)?;
         let scope_matches = parsed.workspace_scope == "current"
             || workspace_scope == Some(parsed.workspace_scope.as_str());
         if !scope_matches {
@@ -1899,7 +1899,7 @@ pub fn resolve_tool_path_with_context_roots(
         let effective_scope = workspace_scope
             .map(str::to_string)
             .unwrap_or_else(|| parsed.workspace_scope.clone());
-        let logical_path = build_bitfun_runtime_uri(&effective_scope, &parsed.relative_path)?;
+        let logical_path = build_openbitfun_runtime_uri(&effective_scope, &parsed.relative_path)?;
 
         return Ok(ToolPathResolution {
             requested_path: path.to_string(),
@@ -1911,8 +1911,8 @@ pub fn resolve_tool_path_with_context_roots(
         });
     }
 
-    if is_bitfun_current_session_uri(path) {
-        let parsed = parse_bitfun_current_session_uri(path)?;
+    if is_openbitfun_current_session_uri(path) {
+        let parsed = parse_openbitfun_current_session_uri(path)?;
         let current_session_root =
             current_session_root.ok_or(ToolPathContractError::MissingCurrentSessionRoot)?;
         let mut resolved_path = current_session_root.clone();
@@ -1921,7 +1921,7 @@ pub fn resolve_tool_path_with_context_roots(
         }
         return Ok(ToolPathResolution {
             requested_path: path.to_string(),
-            logical_path: build_bitfun_current_session_uri(&parsed.relative_path)?,
+            logical_path: build_openbitfun_current_session_uri(&parsed.relative_path)?,
             resolved_path: resolved_path.to_string_lossy().to_string(),
             backend: ToolPathBackend::Local,
             runtime_scope: None,
@@ -1929,7 +1929,7 @@ pub fn resolve_tool_path_with_context_roots(
         });
     }
 
-    if is_bitfun_tool_uri(path) {
+    if is_openbitfun_tool_uri(path) {
         return Err(ToolPathContractError::UnsupportedRuntimeUri {
             uri: path.to_string(),
         });
@@ -1951,7 +1951,7 @@ pub fn resolve_tool_path_with_context_roots(
 }
 
 pub fn tool_path_is_effectively_absolute(path: &str, workspace_is_remote: bool) -> bool {
-    if is_bitfun_tool_uri(path) {
+    if is_openbitfun_tool_uri(path) {
         return true;
     }
 
@@ -1985,12 +1985,12 @@ pub fn normalize_runtime_relative_path(path: &str) -> Result<String, ToolPathCon
     Ok(segments.join("/"))
 }
 
-pub fn parse_bitfun_runtime_uri(
+pub fn parse_openbitfun_runtime_uri(
     path: &str,
-) -> Result<ParsedBitFunRuntimeUri, ToolPathContractError> {
+) -> Result<ParsedOpenBitFunRuntimeUri, ToolPathContractError> {
     let trimmed = path.trim();
     let suffix = trimmed
-        .strip_prefix(BITFUN_RUNTIME_URI_PREFIX)
+        .strip_prefix(OPENBITFUN_RUNTIME_URI_PREFIX)
         .ok_or_else(|| ToolPathContractError::UnsupportedRuntimeUri {
             uri: path.to_string(),
         })?;
@@ -2006,40 +2006,40 @@ pub fn parse_bitfun_runtime_uri(
         .next()
         .ok_or(ToolPathContractError::MissingRuntimeUriArtifactPath)?;
 
-    Ok(ParsedBitFunRuntimeUri {
+    Ok(ParsedOpenBitFunRuntimeUri {
         workspace_scope,
         relative_path: normalize_runtime_relative_path(relative_path)?,
     })
 }
 
-pub fn parse_bitfun_current_session_uri(
+pub fn parse_openbitfun_current_session_uri(
     path: &str,
-) -> Result<ParsedBitFunCurrentSessionUri, ToolPathContractError> {
+) -> Result<ParsedOpenBitFunCurrentSessionUri, ToolPathContractError> {
     let trimmed = path.trim();
     let relative_path = trimmed
-        .strip_prefix(BITFUN_CURRENT_SESSION_URI_PREFIX)
+        .strip_prefix(OPENBITFUN_CURRENT_SESSION_URI_PREFIX)
         .ok_or_else(|| ToolPathContractError::UnsupportedRuntimeUri {
             uri: path.to_string(),
         })?;
     if relative_path.trim().is_empty() {
         return Err(ToolPathContractError::MissingCurrentSessionArtifactPath);
     }
-    Ok(ParsedBitFunCurrentSessionUri {
+    Ok(ParsedOpenBitFunCurrentSessionUri {
         relative_path: normalize_runtime_relative_path(relative_path)?,
     })
 }
 
-pub fn build_bitfun_current_session_uri(
+pub fn build_openbitfun_current_session_uri(
     relative_path: &str,
 ) -> Result<String, ToolPathContractError> {
     Ok(format!(
         "{}{}",
-        BITFUN_CURRENT_SESSION_URI_PREFIX,
+        OPENBITFUN_CURRENT_SESSION_URI_PREFIX,
         normalize_runtime_relative_path(relative_path)?
     ))
 }
 
-pub fn build_bitfun_runtime_uri(
+pub fn build_openbitfun_runtime_uri(
     workspace_scope: &str,
     relative_path: &str,
 ) -> Result<String, ToolPathContractError> {
@@ -2050,7 +2050,7 @@ pub fn build_bitfun_runtime_uri(
 
     Ok(format!(
         "{}{}/{}",
-        BITFUN_RUNTIME_URI_PREFIX,
+        OPENBITFUN_RUNTIME_URI_PREFIX,
         scope,
         normalize_runtime_relative_path(relative_path)?
     ))
@@ -2064,7 +2064,7 @@ pub fn build_tool_runtime_artifact_reference(
 ) -> Result<String, ToolPathContractError> {
     let normalized_relative_path = normalize_runtime_relative_path(relative_path)?;
     if emit_runtime_uri {
-        return build_bitfun_runtime_uri(
+        return build_openbitfun_runtime_uri(
             workspace_scope.unwrap_or("current"),
             &normalized_relative_path,
         );
@@ -2176,6 +2176,7 @@ pub fn posix_resolve_path_with_workspace(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ToolPathOperation {
+    Read,
     Write,
     Edit,
     Delete,
@@ -2184,6 +2185,7 @@ pub enum ToolPathOperation {
 impl ToolPathOperation {
     pub fn verb(self) -> &'static str {
         match self {
+            Self::Read => "read",
             Self::Write => "write",
             Self::Edit => "edit",
             Self::Delete => "delete",
@@ -2193,6 +2195,8 @@ impl ToolPathOperation {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolPathPolicy {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read_roots: Vec<String>,
     #[serde(default)]
     pub write_roots: Vec<String>,
     #[serde(default)]
@@ -2204,6 +2208,7 @@ pub struct ToolPathPolicy {
 impl ToolPathPolicy {
     pub fn roots_for(&self, operation: ToolPathOperation) -> &[String] {
         match operation {
+            ToolPathOperation::Read => &self.read_roots,
             ToolPathOperation::Write => &self.write_roots,
             ToolPathOperation::Edit => &self.edit_roots,
             ToolPathOperation::Delete => &self.delete_roots,
@@ -2256,11 +2261,18 @@ pub struct ToolRuntimeRestrictions {
     pub denied_tool_messages: BTreeMap<String, String>,
     #[serde(default)]
     pub path_policy: ToolPathPolicy,
+    /// Host-owned virtual MiniApp context scope for this turn. This grants no
+    /// filesystem access by itself; assembled Read/Grep providers resolve it
+    /// through the in-process context registry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub miniapp_context_scope: Option<String>,
 }
 
 const MINIAPP_HEADLESS_AGENT_SURFACE: &str = "miniapp_agent";
 const MINIAPP_HEADLESS_AGENT_OWNER_PREFIX: &str = "miniapp-agent:";
 const MINIAPP_MARKET_STRICT_METADATA_KEY: &str = "marketStrict";
+const MINIAPP_CONTEXT_SCOPE_METADATA_KEY: &str = "contextScope";
+const MINIAPP_CONTEXT_ROOT: &str = ".miniapp-context";
 
 /// MiniApp agent runs execute inside a MiniApp iframe without Flow Chat tool
 /// cards or AskUserQuestion UI. Treat those sessions as headless even on
@@ -2348,12 +2360,15 @@ pub fn miniapp_headless_agent_tool_restrictions() -> ToolRuntimeRestrictions {
 /// Tool set for a marketplace MiniApp agent turn.
 ///
 /// Marketplace MiniApps are third-party code, so their hidden agent sessions
-/// must not reach the filesystem, the shell, or any host control surface. They
-/// do need to answer questions about the live world, so the allowlist keeps
-/// read-only web research and the clock that dates it. The deferred gateway pair
-/// stays allowed because the execution gate matches the effective tool name, so
-/// an allowlisted tool that resolves as deferred still has to pass this list.
-/// An allowlist (rather than a longer deny list) keeps newly registered tools
+/// must not reach the general filesystem, the shell, or any host control
+/// surface. The host may publish bounded, app-supplied context through a
+/// reserved virtual `.miniapp-context/<opaque-scope>` namespace. Read and Grep
+/// are added later only when the host supplies a valid scope for this turn, and
+/// are confined to that exact immutable snapshot. Read-only web research and the clock
+/// remain available for live-world questions. The deferred gateway pair stays
+/// allowed because the execution gate matches the effective tool name, so an
+/// allowlisted tool that resolves as deferred still has to pass this list. An
+/// allowlist (rather than a longer deny list) keeps newly registered tools
 /// closed by default.
 pub fn miniapp_market_strict_agent_tool_restrictions() -> ToolRuntimeRestrictions {
     const ALLOWED_TOOLS: &[&str] = &[
@@ -2372,6 +2387,16 @@ pub fn miniapp_market_strict_agent_tool_restrictions() -> ToolRuntimeRestriction
     restrictions
 }
 
+fn miniapp_context_read_root(user_message_metadata: Option<&serde_json::Value>) -> Option<String> {
+    let scope = user_message_metadata?
+        .get(MINIAPP_CONTEXT_SCOPE_METADATA_KEY)?
+        .as_str()?;
+    if scope.len() != 32 || !scope.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(format!("{MINIAPP_CONTEXT_ROOT}/{scope}"))
+}
+
 /// Restrictions for one agent turn, keyed on whether it belongs to a MiniApp.
 ///
 /// Turns outside the MiniApp agent bridge keep the unrestricted default set.
@@ -2383,9 +2408,21 @@ pub fn miniapp_agent_run_tool_restrictions(
         return ToolRuntimeRestrictions::default();
     }
     if is_miniapp_market_strict_agent_run(user_message_metadata) {
-        return miniapp_market_strict_agent_tool_restrictions();
+        let mut restrictions = miniapp_market_strict_agent_tool_restrictions();
+        if let Some(read_root) = miniapp_context_read_root(user_message_metadata) {
+            restrictions.miniapp_context_scope = read_root
+                .rsplit_once('/')
+                .map(|(_, scope)| scope.to_string());
+            restrictions.allowed_tool_names.insert("Read".to_string());
+            restrictions.allowed_tool_names.insert("Grep".to_string());
+            restrictions.path_policy.read_roots = vec![read_root];
+        }
+        return restrictions;
     }
-    miniapp_headless_agent_tool_restrictions()
+    let mut restrictions = miniapp_headless_agent_tool_restrictions();
+    restrictions.miniapp_context_scope = miniapp_context_read_root(user_message_metadata)
+        .and_then(|root| root.rsplit_once('/').map(|(_, scope)| scope.to_string()));
+    restrictions
 }
 
 pub fn tool_restrictions_for_delegation_policy(
@@ -2393,11 +2430,13 @@ pub fn tool_restrictions_for_delegation_policy(
 ) -> ToolRuntimeRestrictions {
     let mut restrictions = ToolRuntimeRestrictions::default();
     if !delegation_policy.allow_subagent_spawn {
-        restrictions.denied_tool_names.insert("Task".to_string());
-        restrictions.denied_tool_messages.insert(
-            "Task".to_string(),
-            "Recursive subagent delegation is blocked. Use direct tools instead.".to_string(),
-        );
+        for tool_name in ["Task", "AgentSpawn"] {
+            restrictions.denied_tool_names.insert(tool_name.to_string());
+            restrictions.denied_tool_messages.insert(
+                tool_name.to_string(),
+                "Recursive subagent delegation is blocked. Use direct tools instead.".to_string(),
+            );
+        }
     }
     restrictions
 }
@@ -2655,7 +2694,7 @@ mod tests {
     fn get_tool_spec_catalog_description_keeps_builtin_summaries_optional() {
         let description = build_get_tool_spec_catalog_description(&[
             GetToolSpecDeferredToolSummary {
-                name: "Git".to_string(),
+                name: "Worktree".to_string(),
                 short_description: Some("Inspect repository state.".to_string()),
             },
             GetToolSpecDeferredToolSummary {
@@ -2665,9 +2704,9 @@ mod tests {
         ])
         .expect("catalog description");
 
-        assert!(description.contains("- Git"));
+        assert!(description.contains("- Worktree"));
         assert!(description.contains("- WebFetch"));
-        assert!(description.contains("- Git: Inspect repository state."));
+        assert!(description.contains("- Worktree: Inspect repository state."));
         assert!(!description.contains("Fetch a URL."));
     }
 
@@ -2725,6 +2764,7 @@ mod tests {
             denied_tool_names: ["Write"].into_iter().map(str::to_string).collect(),
             denied_tool_messages: Default::default(),
             path_policy: ToolPathPolicy::default(),
+            miniapp_context_scope: None,
         };
 
         assert!(!restrictions.is_tool_allowed("Write"));
@@ -2793,14 +2833,17 @@ mod tests {
     }
 
     #[test]
-    fn market_strict_miniapp_runs_keep_web_research_and_drop_host_reach() {
+    fn market_strict_miniapp_runs_default_to_web_only_and_drop_host_reach() {
         let restrictions = miniapp_market_strict_agent_tool_restrictions();
 
+        assert!(!restrictions.is_tool_allowed("Read"));
+        assert!(!restrictions.is_tool_allowed("Grep"));
         assert!(restrictions.is_tool_allowed("WebSearch"));
         assert!(restrictions.is_tool_allowed("WebFetch"));
         assert!(restrictions.is_tool_allowed("GetToolSpec"));
+        assert!(restrictions.path_policy.read_roots.is_empty());
 
-        for denied in ["Read", "Write", "Edit", "ExecCommand", "Task", "Skill"] {
+        for denied in ["Write", "Edit", "ExecCommand", "Task", "Skill"] {
             assert!(
                 !restrictions.is_tool_allowed(denied),
                 "{denied} must stay closed for marketplace MiniApp agent runs"
@@ -2848,15 +2891,52 @@ mod tests {
             "surface": "miniapp_agent",
             "marketStrict": true,
         });
+        let market_with_context = json!({
+            "surface": "miniapp_agent",
+            "marketStrict": true,
+            "contextScope": "0123456789abcdef0123456789abcdef",
+        });
         let builtin = json!({ "surface": "miniapp_agent" });
 
-        assert!(
-            !miniapp_agent_run_tool_restrictions(Some(&market_strict), created_by)
-                .is_tool_allowed("Write")
+        let strict = miniapp_agent_run_tool_restrictions(Some(&market_strict), created_by);
+        assert!(!strict.is_tool_allowed("Write"));
+        assert!(!strict.is_tool_allowed("Read"));
+
+        let scoped = miniapp_agent_run_tool_restrictions(Some(&market_with_context), created_by);
+        assert!(scoped.is_tool_allowed("Read"));
+        assert!(scoped.is_tool_allowed("Grep"));
+        assert_eq!(
+            scoped.path_policy.read_roots,
+            vec![".miniapp-context/0123456789abcdef0123456789abcdef"]
+        );
+        assert_eq!(
+            scoped.miniapp_context_scope.as_deref(),
+            Some("0123456789abcdef0123456789abcdef")
         );
         assert!(
             miniapp_agent_run_tool_restrictions(Some(&builtin), created_by)
                 .is_tool_allowed("Write")
+        );
+        let builtin_with_context = json!({
+            "surface": "miniapp_agent",
+            "contextScope": "fedcba9876543210fedcba9876543210",
+        });
+        let builtin_scoped =
+            miniapp_agent_run_tool_restrictions(Some(&builtin_with_context), created_by);
+        assert!(builtin_scoped.path_policy.read_roots.is_empty());
+        assert_eq!(
+            builtin_scoped.miniapp_context_scope.as_deref(),
+            Some("fedcba9876543210fedcba9876543210")
+        );
+
+        let invalid_scope = json!({
+            "surface": "miniapp_agent",
+            "marketStrict": true,
+            "contextScope": "../outside",
+        });
+        assert!(
+            !miniapp_agent_run_tool_restrictions(Some(&invalid_scope), created_by)
+                .is_tool_allowed("Read")
         );
         // A turn outside the MiniApp bridge keeps the unrestricted default set,
         // even when some other surface happens to carry the strict flag.

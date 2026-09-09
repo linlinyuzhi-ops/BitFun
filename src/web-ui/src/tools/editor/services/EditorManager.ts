@@ -14,17 +14,26 @@ import { globalEventBus } from '../../../infrastructure/event-bus';
 import { getMonacoLanguage } from '@/infrastructure/language-detection';
 import { createLogger } from '@/shared/utils/logger';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
+import {
+  DEFAULT_EDITOR_CONFIG,
+  DEFAULT_EDITOR_FONT_FAMILY,
+  DEFAULT_EDITOR_FONT_SIZE,
+  DEFAULT_EDITOR_FONT_WEIGHT,
+  DEFAULT_EDITOR_INLAY_FONT_SIZE,
+  DEFAULT_EDITOR_LINE_HEIGHT,
+} from '../config/defaults';
 
 const log = createLogger('EditorManager');
 
 /** Default editor config used when no user config exists. */
 const DEFAULT_CONFIG: EditorConfig = {
-  fontSize: 14,
-  fontFamily: "'Fira Code', 'Noto Sans SC', Consolas, 'Courier New', monospace",
-  fontWeight: 'normal',
-  lineHeight: 1.5,
-  tabSize: 2,
-  insertSpaces: true,
+  fontSize: DEFAULT_EDITOR_FONT_SIZE,
+  fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
+  fontWeight: DEFAULT_EDITOR_FONT_WEIGHT,
+  lineHeight: DEFAULT_EDITOR_LINE_HEIGHT,
+  tabSize: DEFAULT_EDITOR_CONFIG.tabSize,
+  insertSpaces: DEFAULT_EDITOR_CONFIG.insertSpaces,
+  detectIndentation: DEFAULT_EDITOR_CONFIG.detectIndentation,
   wordWrap: 'off',
   lineNumbers: 'on',
   minimap: {
@@ -78,8 +87,8 @@ const DEFAULT_CONFIG: EditorConfig = {
   },
   inlayHints: {
     enabled: 'on',
-    fontSize: 12,
-    fontFamily: "'Fira Code', Consolas, 'Courier New', monospace",
+    fontSize: DEFAULT_EDITOR_INLAY_FONT_SIZE,
+    fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
     padding: false,
   },
 };

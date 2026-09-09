@@ -103,7 +103,7 @@ pub(crate) async fn get_session_files(
     let session_id = get_string(request, "sessionId")?;
     let workspace_path = get_string(request, "workspacePath")?;
 
-    bitfun_agent_runtime::session_control::validate_session_id(&session_id)?;
+    openbitfun_agent_runtime::session_control::validate_session_id(&session_id)?;
     require_local_snapshot_workspace(request, &workspace_path).await?;
     let scope = ensure_session_workspace_runtime_ownership(state, request)?;
     let storage_path = resolved_session_storage_scope(state, scope).await?;
@@ -157,7 +157,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
-    use bitfun_runtime_ports::{
+    use openbitfun_runtime_ports::{
         LocalWorkspaceSnapshotPort, LocalWorkspaceSnapshotSessionRequest,
         LocalWorkspaceSnapshotStats, LocalWorkspaceSnapshotTurnRequest, PortError, PortErrorKind,
         PortResult,

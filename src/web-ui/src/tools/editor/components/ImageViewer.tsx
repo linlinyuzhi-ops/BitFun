@@ -6,9 +6,10 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { ZoomIn, ZoomOut, RotateCw, Download, Maximize2 } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCw, Maximize2 } from 'lucide-react';
+import { OverflowText, Button, Icon, IconButton, Toolbar, ToolbarGroup, ToolbarSeparator, Tooltip } from '@openbitfun/ui';
 import { createLogger } from '@/shared/utils/logger';
-import { Tooltip } from '@/component-library';
+
 import { useI18n } from '@/infrastructure/i18n';
 import './ImageViewer.scss';
 
@@ -148,118 +149,122 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
   return (
     <div
-      className={`bitfun-image-viewer ${className} ${isFullscreen ? 'fullscreen' : ''}`}
-      data-bf-component="image-viewer"
-      data-bf-part="root"
-      data-bf-state={isFullscreen ? 'fullscreen' : undefined}
+      className={`openbitfun-image-viewer ${className} ${isFullscreen ? 'fullscreen' : ''}`}
+      data-openbitfun-component="image-viewer"
+      data-openbitfun-part="root"
+      data-openbitfun-state={isFullscreen ? 'fullscreen' : undefined}
     >
-      <div data-bf-component="image-viewer" data-bf-part="toolbar" className="bitfun-image-viewer__toolbar">
-        <div data-bf-component="image-viewer" data-bf-part="info" className="bitfun-image-viewer__info">
-          <span className="bitfun-image-viewer__filename">{fileName || filePath.split(/[/\\]/).pop()}</span>
-          {imageDimensions && (
-            <span className="bitfun-image-viewer__dimensions">
-              {imageDimensions.width} × {imageDimensions.height}
-            </span>
-          )}
-          {fileSize > 0 && (
-            <span className="bitfun-image-viewer__filesize">
-              {formatFileSize(fileSize)}
-            </span>
-          )}
-        </div>
-        <div data-bf-component="image-viewer" data-bf-part="controls" className="bitfun-image-viewer__controls">
-          <Tooltip content={t('editor.imageViewer.zoomOut')} placement="top">
-            <button
-              data-bf-component="image-viewer"
-              data-bf-part="action"
-              className="bitfun-image-viewer__btn"
-              onClick={handleZoomOut}
-              disabled={zoom <= 25}
-            >
-              <ZoomOut size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip content={t('editor.imageViewer.zoomReset')} placement="top">
-            <button
-              data-bf-component="image-viewer"
-              data-bf-part="action"
-              className="bitfun-image-viewer__btn bitfun-image-viewer__btn--zoom-display"
-              onClick={handleZoomReset}
-            >
-              {zoom}%
-            </button>
-          </Tooltip>
-          <Tooltip content={t('editor.imageViewer.zoomIn')} placement="top">
-            <button
-              data-bf-component="image-viewer"
-              data-bf-part="action"
-              className="bitfun-image-viewer__btn"
-              onClick={handleZoomIn}
-              disabled={zoom >= 500}
-            >
-              <ZoomIn size={14} />
-            </button>
-          </Tooltip>
-          <div className="bitfun-image-viewer__divider" />
-          <Tooltip content={t('editor.imageViewer.rotate90')} placement="top">
-            <button
-              data-bf-component="image-viewer"
-              data-bf-part="action"
-              className="bitfun-image-viewer__btn"
-              onClick={handleRotate}
-            >
-              <RotateCw size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip content={t('editor.imageViewer.download')} placement="top">
-            <button
-              data-bf-component="image-viewer"
-              data-bf-part="action"
-              className="bitfun-image-viewer__btn"
-              onClick={handleDownload}
-            >
-              <Download size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip
-            content={isFullscreen ? t('editor.imageViewer.exitFullscreen') : t('editor.imageViewer.enterFullscreen')}
-            placement="top"
-          >
-            <button
-              data-bf-component="image-viewer"
-              data-bf-part="action"
-              className="bitfun-image-viewer__btn"
-              onClick={handleToggleFullscreen}
-            >
-              <Maximize2 size={14} />
-            </button>
-          </Tooltip>
-        </div>
-      </div>
+      <Toolbar
+        className="openbitfun-image-viewer__toolbar"
+        leading={
+          <div data-openbitfun-component="image-viewer" data-openbitfun-part="info" className="openbitfun-image-viewer__info">
+            <OverflowText className="openbitfun-image-viewer__filename">{fileName || filePath.split(/[/\\]/).pop()}</OverflowText>
+            {imageDimensions && (
+              <span className="openbitfun-image-viewer__dimensions">
+                {imageDimensions.width} × {imageDimensions.height}
+              </span>
+            )}
+            {fileSize > 0 && (
+              <span className="openbitfun-image-viewer__filesize">
+                {formatFileSize(fileSize)}
+              </span>
+            )}
+          </div>
+        }
+        trailing={
+          <>
+            <ToolbarGroup>
+              <Tooltip content={t('editor.imageViewer.zoomOut')} placement="top">
+                <IconButton
+                  aria-label={t('editor.imageViewer.zoomOut')}
+                  size="sm"
+                  variant="quiet"
+                  icon={<ZoomOut size={14} />}
+                  onClick={handleZoomOut}
+                  disabled={zoom <= 25}
+                />
+              </Tooltip>
+              <Tooltip content={t('editor.imageViewer.zoomReset')} placement="top">
+                <Button
+                  size="sm"
+                  variant="text"
+                  className="openbitfun-image-viewer__zoom-display"
+                  onClick={handleZoomReset}
+                >
+                  {zoom}%
+                </Button>
+              </Tooltip>
+              <Tooltip content={t('editor.imageViewer.zoomIn')} placement="top">
+                <IconButton
+                  aria-label={t('editor.imageViewer.zoomIn')}
+                  size="sm"
+                  variant="quiet"
+                  icon={<ZoomIn size={14} />}
+                  onClick={handleZoomIn}
+                  disabled={zoom >= 500}
+                />
+              </Tooltip>
+            </ToolbarGroup>
+            <ToolbarSeparator />
+            <ToolbarGroup>
+              <Tooltip content={t('editor.imageViewer.rotate90')} placement="top">
+                <IconButton
+                  aria-label={t('editor.imageViewer.rotate90')}
+                  size="sm"
+                  variant="quiet"
+                  icon={<RotateCw size={14} />}
+                  onClick={handleRotate}
+                />
+              </Tooltip>
+              <Tooltip content={t('editor.imageViewer.download')} placement="top">
+                <IconButton
+                  aria-label={t('editor.imageViewer.download')}
+                  size="sm"
+                  variant="quiet"
+                  icon={<Icon name="arrow-down" size="sm" />}
+                  onClick={handleDownload}
+                />
+              </Tooltip>
+              <Tooltip
+                content={isFullscreen ? t('editor.imageViewer.exitFullscreen') : t('editor.imageViewer.enterFullscreen')}
+                placement="top"
+              >
+                <IconButton
+                  aria-label={isFullscreen ? t('editor.imageViewer.exitFullscreen') : t('editor.imageViewer.enterFullscreen')}
+                  size="sm"
+                  variant="quiet"
+                  icon={<Maximize2 size={14} />}
+                  onClick={handleToggleFullscreen}
+                />
+              </Tooltip>
+            </ToolbarGroup>
+          </>
+        }
+      />
 
-      <div data-bf-component="image-viewer" data-bf-part="container" className="bitfun-image-viewer__container">
+      <div data-openbitfun-component="image-viewer" data-openbitfun-part="container" className="openbitfun-image-viewer__container">
         {loading && (
-          <div data-bf-component="image-viewer" data-bf-part="loading" className="bitfun-image-viewer__loading">
-            <div className="bitfun-image-viewer__spinner" />
+          <div data-openbitfun-component="image-viewer" data-openbitfun-part="loading" className="openbitfun-image-viewer__loading">
+            <div className="openbitfun-image-viewer__spinner" />
             <p>{t('editor.common.loading')}</p>
           </div>
         )}
 
         {error && (
-          <div data-bf-component="image-viewer" data-bf-part="error" className="bitfun-image-viewer__error">
+          <div data-openbitfun-component="image-viewer" data-openbitfun-part="error" className="openbitfun-image-viewer__error">
             <p>{error}</p>
-            <p className="bitfun-image-viewer__error-path">{filePath}</p>
+            <p className="openbitfun-image-viewer__error-path">{filePath}</p>
           </div>
         )}
 
         {!loading && !error && imageUrl && (
-          <div data-bf-component="image-viewer" data-bf-part="imageWrapper" className="bitfun-image-viewer__image-wrapper">
+          <div data-openbitfun-component="image-viewer" data-openbitfun-part="imageWrapper" className="openbitfun-image-viewer__image-wrapper">
             <img
               src={imageUrl}
               alt={fileName || filePath}
-              className="bitfun-image-viewer__image"
-              data-bf-component="image-viewer"
-              data-bf-part="image"
+              className="openbitfun-image-viewer__image"
+              data-openbitfun-component="image-viewer"
+              data-openbitfun-part="image"
               style={{
                 transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
               }}
@@ -270,7 +275,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         )}
         
         {!loading && !error && !imageUrl && (
-          <div data-bf-component="image-viewer" data-bf-part="error" className="bitfun-image-viewer__error">
+          <div data-openbitfun-component="image-viewer" data-openbitfun-part="error" className="openbitfun-image-viewer__error">
             <p>{t('editor.imageViewer.imageUrlEmpty')}</p>
           </div>
         )}

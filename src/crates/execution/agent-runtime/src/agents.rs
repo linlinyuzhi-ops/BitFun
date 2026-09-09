@@ -9,13 +9,21 @@ use std::path::Path;
 pub const SHARED_CODING_MODE_PROMPT_TEMPLATE: &str = "agentic_mode";
 pub const SHARED_CODING_MODE_CONFIG_PROFILE_ID: &str = "coding_shared";
 pub const SHARED_CODING_MODE_CONFIG_PROFILE_LABEL: &str = "Coding Shared";
-pub const SHARED_CODING_MODE_IDS: &[&str] = &["agentic", "Plan", "debug", "Multitask"];
+pub const SHARED_CODING_MODE_IDS: &[&str] = &["agentic"];
+pub const SWARM_PLANNER_AGENT_TYPES: &[&str] = &["Ultra", "SwarmPlanner"];
+pub const SWARM_DELEGATE_AGENT_TYPES: &[&str] = &["SwarmPlanner", "SwarmWorker", "SwarmReviewer"];
+
+pub fn is_swarm_planner_agent_type(agent_type: &str) -> bool {
+    SWARM_PLANNER_AGENT_TYPES.contains(&agent_type.trim())
+}
+
+pub fn is_swarm_delegate_agent_type(agent_type: &str) -> bool {
+    SWARM_DELEGATE_AGENT_TYPES.contains(&agent_type.trim())
+}
 
 pub fn resolve_mode_config_profile_id<'a>(mode_id: &'a str) -> Cow<'a, str> {
     match mode_id.trim() {
-        "agentic" | "Plan" | "debug" | "Multitask" => {
-            Cow::Borrowed(SHARED_CODING_MODE_CONFIG_PROFILE_ID)
-        }
+        "agentic" => Cow::Borrowed(SHARED_CODING_MODE_CONFIG_PROFILE_ID),
         _ => Cow::Borrowed(mode_id),
     }
 }
@@ -80,25 +88,65 @@ pub fn builtin_agent_definition_specs() -> Vec<BuiltinAgentDefinitionSpec> {
         builtin_agent_spec("Cowork", Mode, "auto", SubagentVisibilityPolicy::default()),
         builtin_agent_spec("debug", Mode, "auto", SubagentVisibilityPolicy::default()),
         builtin_agent_spec(
-            "Multitask",
+            "minimal",
             Mode,
-            "auto",
+            "primary",
             SubagentVisibilityPolicy::default(),
         ),
-        builtin_agent_spec("Plan", Mode, "auto", SubagentVisibilityPolicy::default()),
-        builtin_agent_spec("Claw", Mode, "auto", SubagentVisibilityPolicy::default()),
+        builtin_agent_spec(
+            "agentic",
+            Mode,
+            "primary",
+            SubagentVisibilityPolicy::default(),
+        ),
+        builtin_agent_spec(
+            "Cowork",
+            Mode,
+            "primary",
+            SubagentVisibilityPolicy::default(),
+        ),
+        builtin_agent_spec(
+            "Creative",
+            Mode,
+            "primary",
+            SubagentVisibilityPolicy::default(),
+        ),
+        builtin_agent_spec("Claw", Mode, "primary", SubagentVisibilityPolicy::default()),
         builtin_agent_spec(
             "DeepResearch",
             Mode,
-            "auto",
+            "primary",
             SubagentVisibilityPolicy::default(),
         ),
-        builtin_agent_spec("Team", Mode, "auto", SubagentVisibilityPolicy::default()),
+        builtin_agent_spec(
+            "Ultra",
+            Mode,
+            "primary",
+            SubagentVisibilityPolicy::default(),
+        ),
+        builtin_agent_spec(
+            "SwarmPlanner",
+            SubAgent,
+            "primary",
+            SubagentVisibilityPolicy::hidden(["Ultra", "SwarmPlanner"]),
+        ),
+        builtin_agent_spec(
+            "SwarmWorker",
+            SubAgent,
+            "primary",
+            SubagentVisibilityPolicy::hidden(["Ultra", "SwarmPlanner"]),
+        ),
+        builtin_agent_spec(
+            "SwarmReviewer",
+            SubAgent,
+            "fast",
+            SubagentVisibilityPolicy::hidden(["Ultra", "SwarmPlanner"]),
+        ),
         builtin_agent_spec(
             "ComputerUse",
             SubAgent,
-            "auto",
-            SubagentVisibilityPolicy::restricted(["Claw", "Team"]),
+            "primary",
+            SubagentVisibilityPolicy::restricted(["Claw"]),
         ),
         builtin_agent_spec(
             "Explore",
@@ -117,12 +165,6 @@ pub fn builtin_agent_definition_specs() -> Vec<BuiltinAgentDefinitionSpec> {
             SubAgent,
             "fast",
             SubagentVisibilityPolicy::restricted(["DeepResearch"]),
-        ),
-        builtin_agent_spec(
-            "FileFinder",
-            SubAgent,
-            "primary",
-            SubagentVisibilityPolicy::public(),
         ),
         builtin_agent_spec(
             "ReviewWorker",
@@ -146,14 +188,7 @@ pub fn builtin_agent_definition_specs() -> Vec<BuiltinAgentDefinitionSpec> {
             "CodeReview",
             SubAgent,
             "primary",
-            SubagentVisibilityPolicy::hidden([
-                "agentic",
-                "Cowork",
-                "Plan",
-                "debug",
-                "Multitask",
-                "Team",
-            ]),
+            SubagentVisibilityPolicy::hidden(["agentic", "Cowork"]),
         ),
         builtin_agent_spec(
             "DeepReview",
@@ -192,7 +227,8 @@ pub fn default_model_id_for_builtin_agent(agent_type: &str) -> &'static str {
         | "ReviewArchitecture"
         | "ReviewFrontend"
         | "ReviewJudge"
-        | "ReviewFixer" => "fast",
+        | "ReviewFixer"
+        | "SwarmReviewer" => "fast",
         _ => "fast",
     }
 }

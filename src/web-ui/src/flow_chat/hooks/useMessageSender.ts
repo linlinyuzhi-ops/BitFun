@@ -32,6 +32,7 @@ import type {
   AgentDialogTurnExecution,
   SessionPermissionMode,
 } from '@/infrastructure/api/service-api/AgentAPI';
+import type { PendingLargePasteMap } from '../store/sessionComposerStore';
 
 const log = createLogger('FlowChat');
 
@@ -77,6 +78,12 @@ interface UseMessageSenderReturn {
     options?: {
       displayMessage?: string;
       composerPresentation?: ComposerPresentation | null;
+      composerDraft?: {
+        value: string;
+        pendingLargePastes: PendingLargePasteMap;
+      };
+      /** Set false when the caller already cleared the full composer synchronously. */
+      clearContextsOnSuccess?: boolean;
       execution?: AgentDialogTurnExecution;
     }
   ) => Promise<void>;
@@ -103,6 +110,11 @@ export function useMessageSender(props: UseMessageSenderProps): UseMessageSender
     options?: {
       displayMessage?: string;
       composerPresentation?: ComposerPresentation | null;
+      composerDraft?: {
+        value: string;
+        pendingLargePastes: PendingLargePasteMap;
+      };
+      clearContextsOnSuccess?: boolean;
       execution?: AgentDialogTurnExecution;
     }
   ) => {
@@ -141,11 +153,9 @@ export function useMessageSender(props: UseMessageSenderProps): UseMessageSender
 
       if (!sessionId) {
         const agentType = currentAgentType || 'agentic';
+        const sessionConfig = flowChatSessionConfigForCurrentWorkspace();
 
-        sessionId = await flowChatManager.createChatSession(
-          flowChatSessionConfigForCurrentWorkspace(),
-          agentType,
-        );
+        sessionId = await flowChatManager.createChatSession(sessionConfig, agentType);
         agentTypeForSend =
           FlowChatManager.getInstance().getFlowChatState().sessions.get(sessionId)?.mode ||
           agentType;
@@ -211,7 +221,6 @@ export function useMessageSender(props: UseMessageSenderProps): UseMessageSender
           ? `${fullContextSection}\n\n${aiTrimmedMessage}`
           : aiTrimmedMessage;
       }
-
       // Always pass imageContexts to the backend; the coordinator decides
       // whether to pre-analyse via a vision model or attach directly.
       await flowChatManager.sendMessage(
@@ -222,6 +231,11 @@ export function useMessageSender(props: UseMessageSenderProps): UseMessageSender
         undefined,
         {
           ...(imagePayload ?? {}),
+          pendingQueueDraft: {
+            value: options?.composerDraft?.value ?? displayMessage,
+            contexts: [...contexts],
+            pendingLargePastes: { ...(options?.composerDraft?.pendingLargePastes ?? {}) },
+          },
           ...(userMessageMetadata ? { userMessageMetadata } : {}),
           ...(options?.execution ? { execution: options.execution } : {}),
           onSessionConflictRetryStart: () => {
@@ -241,14 +255,15 @@ export function useMessageSender(props: UseMessageSenderProps): UseMessageSender
         }
       );
 
-      onClearContexts();
+      if (options?.clearContextsOnSuccess !== false) {
+        onClearContexts();
+      }
 
       // The one-off mode belongs to the submission that just left, not to the
       // next one the user types.
       if (turnPermissionMode) {
         onTurnPermissionModeConsumed?.();
       }
-
       onExitTemplateMode?.();
 
       onSuccess?.(trimmedMessage);

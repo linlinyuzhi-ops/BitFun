@@ -1,7 +1,8 @@
  
 
 import React from 'react';
-import { X, Loader2 } from 'lucide-react';
+import { Icon, IconButton } from '@openbitfun/ui';
+import { Loader2 } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n';
 import { Notification } from '../types';
 import { notificationService } from '../services/NotificationService';
@@ -37,9 +38,9 @@ export const LoadingNotification: React.FC<LoadingNotificationProps> = ({ notifi
   return (
     <div
       className={`loading-notification loading-notification--${status || 'active'}`}
-      data-bf-component="notification"
-      data-bf-part="loadingItem"
-      data-bf-state={status || undefined}
+      data-openbitfun-component="notification"
+      data-openbitfun-part="loadingItem"
+      data-openbitfun-state={status || undefined}
     >
       
       <div className="loading-notification__icon">
@@ -54,13 +55,14 @@ export const LoadingNotification: React.FC<LoadingNotificationProps> = ({ notifi
 
       
       {cancellable && status === 'active' && (
-        <button
+        <IconButton
+          type="button"
+          size="sm"
           className="loading-notification__cancel"
           onClick={handleCancel}
           aria-label={t('actions.cancel')}
-        >
-          <X size={14} />
-        </button>
+          icon={<Icon name="xmark" size="lg" />}
+        />
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 # Detached task dispatch
 
-Detached dispatch lets one BitFun process submit work to another BitFun process
+Detached dispatch lets one OpenBitFun process submit work to another OpenBitFun process
 without making the submitting process part of the execution topology. The
 submitter can disconnect or exit after the target has durably acknowledged the
 job.
@@ -24,7 +24,7 @@ There are three roles:
 
 The controller is never a runtime or filesystem proxy for a non-local job. It
 stores only an outbound observer record under
-`~/.bitfun/dispatch/outbound/`; it must not create the target session in the
+`~/.openbitfun/dispatch/outbound/`; it must not create the target session in the
 controller's normal session store. A target session is an ordinary local
 session on the target and can be resumed there.
 
@@ -71,7 +71,7 @@ build output are not delivery inputs.
 
 Setup that can outlive one request is recorded before the outbound submit is
 acknowledged. The controller keeps an owner-only crash journal at
-`~/.bitfun/dispatch/outbound/.preparations/<jobId>.json` and retains it through
+`~/.openbitfun/dispatch/outbound/.preparations/<jobId>.json` and retains it through
 the target's validated submit acknowledgement. Preparation, retry, and recovery
 for the same job are serialized by one per-job run lock, so an expired-entry
 recovery cannot race a live attempt.
@@ -98,7 +98,7 @@ The controller resolves the repository remote URL when one exists and derives
 a stable `repoKey`. The target keeps an owner-only bare repository cache at:
 
 ```text
-~/.bitfun/dispatch/repos/<repoKey>
+~/.openbitfun/dispatch/repos/<repoKey>
 ```
 
 `workspace-provision` creates or refreshes that repository, fetches its remote
@@ -107,8 +107,10 @@ commit. When the commit is reachable, the target creates the job worktree and
 branch at:
 
 ```text
-~/.bitfun/dispatch/worktrees/<jobId>
+~/.openbitfun/dispatch/worktrees/<repoKey>/<project>-<short job id>
 ```
+
+(see "Workspace naming" below for how the leaf is derived)
 
 If the target cannot reach the commit, it returns `needsBundle` and the commits
 it already has. The controller then creates a Git bundle advertised by the
@@ -170,11 +172,15 @@ synchronization request can be retried after the lock clears.
 
 ## Protocol
 
-The target CLI owns transport-independent dispatch protocol version 4 and the
-durable store. Version 4 is intentionally incompatible with targets that do
-not implement Git worktree delivery. SSH submission can repair that mismatch
+The target CLI owns transport-independent dispatch protocol version 6 and the
+durable store; `DISPATCH_PROTOCOL_VERSION` in
+`src/crates/services/services-core/src/dispatch_contract.rs` is the single
+source, and the Web UI pins its copy against that file. Version 4 introduced
+Git worktree delivery and is intentionally incompatible with targets that do
+not implement it; version 5 adds the target-owned reasoning catalog and
+per-turn preset selection (`reasoning_presets`). SSH submission can repair that mismatch
 through signed release installation; an account device must be upgraded as a
-BitFun device.
+OpenBitFun device.
 
 Public job verbs are:
 
@@ -214,11 +220,14 @@ locked correctly.
 means every dispatch process selects `DeliveryProfile::Cli` before model/config
 inspection can lazily initialize product-full tool state. Controllers must
 check it both during target setup and immediately before submission; package
-version equality is not evidence of this behavior.
+version equality is not evidence of this behavior. Version 6 adds the immutable
+`productId` and `dataNamespace` handshake. A target with a different or missing
+product identity is rejected before workspace preparation; protocol equality
+cannot make two product data spaces compatible.
 
 `probe` is read-only and never installs software. Immediately before SSH
 provisioning, submission probes again and automatically installs or upgrades a
-compatible latest prebuilt `bitfun` release when needed. Release resolution
+compatible latest prebuilt `openbitfun` release when needed. Release resolution
 stays bound to the expected OS and architecture. GitHub is the default byte
 source; when its measured transfer rate is below 512 KiB/s, OpenBitFun is tried
 first and GitHub remains the fallback. The same policy applies whether the SSH
@@ -229,7 +238,7 @@ archive signature, pins the SHA-256 passed to the installer, waits with a
 bounded deadline, and probes the installed binary again before continuing.
 
 The signed prebuilt release is the only install path. The controller never
-compiles BitFun on a target, and exposes no command to do so: when no published
+compiles OpenBitFun on a target, and exposes no command to do so: when no published
 binary can run there — an unsupported platform, a libc floor, a missing `tar`,
 an unreachable release, or a release that predates a required capability — the
 probe reports why and the target cannot be selected.
@@ -271,9 +280,9 @@ Conversely, controller-side commands such as `dispatch_submit` remain
 local-only in every Peer Device Mode deny table. Disconnecting the last Peer
 controller must not cancel or hide a detached dispatch job.
 
-An account target must already have a compatible `bitfun dispatch` runner. A
+An account target must already have a compatible `openbitfun dispatch` runner. A
 CLI daemon already satisfies this. The Desktop account host delegates to an
-installed `bitfun` binary (including a package-manager symlink); if none is
+installed `openbitfun` binary (including a package-manager symlink); if none is
 available, probe reports the missing runner and submission remains disabled
 rather than falling back to local execution. Device dispatch never performs
 SSH-style installation through the Relay.
@@ -302,7 +311,7 @@ reading one growing transcript.
 A target checkout lives at:
 
 ```text
-~/.bitfun/dispatch/worktrees/<repoKey>/<project>-<short job id>
+~/.openbitfun/dispatch/worktrees/<repoKey>/<project>-<short job id>
 ```
 
 `repoKey` groups every checkout of one source repository under its shared clone.
@@ -342,6 +351,14 @@ corrupt, mismatched, or above the size ceiling replays the job from byte zero.
 The controller stores the projection verbatim and never interprets it; caching
 it creates no durable session and acquires no runtime ownership.
 
+The controller also persists the projected session title and whether it came from
+a target event or a manual rename. Submission titles in the outbound index are
+fallback metadata; polling must not replace a later projected title. Manual names
+win over replayed generated-title events. Transcript caches carry this metadata
+with their cursor, and caches written before title projection replay once after
+an upgrade to recover the title event. This changes controller presentation only;
+it does not rename the target-owned job or session.
+
 Target and outbound records are retained for 30 days after terminal state, as
 are the cached transcripts, which are also dropped as soon as a projection is
 deleted or archived. Garbage collection never removes queued or running jobs.
@@ -356,13 +373,20 @@ Every submit requires an explicit policy:
 
 - `auto` uses the shared Runtime auto-approval metadata.
 - `reject-and-report` fails closed when confirmation is required.
-- `remote` disables inherited auto-approval while keeping user input
-  available. The worker persists the safe presentation DTO, status exposes it,
+- `remote` disables inherited auto-approval and supports remote permission
+  decisions. The worker persists the safe presentation DTO, status exposes it,
   and `answer` records a user-sourced reply before execution resumes.
 
 Permission responses and appended messages are target-owned mailboxes. They are
 idempotent across controller retries and do not depend on the controller that
 originally submitted the job.
+
+The current dispatch protocol has no user-question mailbox or answer operation.
+All three policies therefore declare interactive user input unavailable through
+the shared Runtime context. `AskUserQuestion` must fail explicitly instead of
+waiting for an answer that no controller can deliver. Enabling it requires a
+negotiated capability and durable question/reply support on both sides; permission
+supervision alone is not evidence of that capability.
 
 ## Failure rules
 
@@ -387,3 +411,17 @@ originally submitted the job.
   directories or silently run against an unrelated target directory.
 - A missing baseline worktree or rejected fast-forward leaves both Git histories
   intact and returns a visible synchronization error.
+
+### Target-owned file previews
+
+Detached transcript file links and file-operation cards read through `dispatch query` with
+`kind: "readFile"` and `filePath`. Both SSH and account-device controllers first require the
+optional `query_file_content` capability; older targets keep their existing query and execution
+paths and return an explicit update-or-sync instruction for file previews. This capability does
+not change protocol version 6 or the required submission capabilities. The target resolves the
+path inside the job workspace, checks canonical containment (including symlinks), and returns
+UTF-8 text up to 4 MiB. The controller displays a read-only memory editor, never watches or
+reads the target path on its own filesystem, and drops replies after a device-surface switch.
+Binary or larger files can be inspected after result synchronization. Detached projections do
+not expose controller-local snapshot rollback or message editing until a target-side history
+mutation capability exists.

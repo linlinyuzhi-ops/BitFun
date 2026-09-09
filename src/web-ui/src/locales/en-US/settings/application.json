@@ -1,0 +1,273 @@
+{
+  "title": "Basics",
+  "subtitle": "Power, logging, terminal, notifications, and launch at login",
+  "common": {
+    "retry": "Retry"
+  },
+  "applicationGroups": {
+    "startupAndUpdates": {
+      "title": "Startup & updates",
+      "description": "Manage launch at login, wake behavior while running, and update checks."
+    },
+    "windowAndNotifications": {
+      "title": "Window & notifications",
+      "description": "Manage what closing the window does and which events should notify you."
+    }
+  },
+  "appearance": {
+    "title": "Appearance",
+    "hint": "Interface language and appearance",
+    "interfaceTitle": "Interface",
+    "interfaceHint": "Choose the language used across OpenBitFun.",
+    "language": "Language",
+    "appearances": "Appearances",
+    "builtIn": "Built-in",
+    "custom": "Custom",
+    "export": "Export",
+    "delete": "Delete",
+    "confirmDelete": "Are you sure you want to delete appearance \"{{name}}\"?",
+    "languageRowHint": "Choose one language pack as the active UI language.",
+    "appearanceRowHint": "Choose the interface appearance.",
+    "systemAppearance": "Match system",
+    "systemAppearanceDescription": "Use a light or dark appearance based on your OS setting. Updates when the system switches.",
+    "presets": {
+      "openbitfun-dark": {
+        "name": "Dark",
+        "description": "Default dark appearance"
+      },
+      "openbitfun-light": {
+        "name": "Light",
+        "description": "Light appearance - Crisp white surfaces, soft neutral grays, and deep navy actions"
+      },
+      "openbitfun-monochrome": {
+        "name": "Black & White",
+        "description": "Black-and-white contrast appearance - Deep black chrome, bright white workspace, and soft neutral blocks"
+      },
+      "openbitfun-midnight": {
+        "name": "Midnight",
+        "description": "Midnight gray dark appearance - Professional and elegant, inspired by JetBrains IDE"
+      },
+      "openbitfun-china-style": {
+        "name": "Ink Charm",
+        "description": "Chinese style appearance - Rice paper and ink, blue and vermilion, warm and elegant"
+      },
+      "openbitfun-china-night": {
+        "name": "Ink Night",
+        "description": "Chinese dark appearance - Starlit ink night, moonlight like water, serene and elegant"
+      },
+      "openbitfun-cyber": {
+        "name": "Cyber",
+        "description": "Tech-style appearance - Deep black hole, neon future, ultimate tech aesthetics"
+      },
+      "openbitfun-slate": {
+        "name": "Slate",
+        "description": "Slate gray geometric appearance - Deep immersion, high contrast grayscale aesthetics"
+      },
+      "openbitfun-tokyo-night": {
+        "name": "Tokyo Night",
+        "description": "Popular Tokyo Night palette - Indigo night, blue and violet highlights"
+      }
+    },
+    "fontSize": {
+      "title": "Font Size",
+      "hint": "Adjust text size across the interface and conversations. Editor text size is configured separately in Editor settings.",
+      "uiSizeLabel": "Interface and chat",
+      "uiSizeHint": "Choose a comfortable scale for navigation, panels, settings, and conversation content.",
+      "levels": {
+        "compact": "Compact",
+        "small": "Small",
+        "default": "Default",
+        "medium": "Medium",
+        "large": "Large",
+        "custom": "Custom"
+      },
+      "customPxLabel": "Custom size (12–20 px)",
+      "previewLabel": "Font size preview",
+      "previewPlaceholder": "Type to preview the selected size"
+    }
+  },
+  "autoUpdate": {
+    "sections": {
+      "title": "Updates",
+      "hint": "Check for new versions after startup"
+    },
+    "toggleLabel": "Automatic update check",
+    "toggleDescription": "When enabled, OpenBitFun may prompt you shortly after launch if a newer version is available. Manual check from About is always available.",
+    "messages": {
+      "loading": "Loading...",
+      "loadFailed": "Failed to read update settings",
+      "saveFailed": "Failed to save update settings",
+      "saved": "Update preference saved"
+    }
+  },
+  "launchAtLogin": {
+    "sections": {
+      "title": "Login",
+      "hint": "Start OpenBitFun when you sign in to this account"
+    },
+    "toggleLabel": "Launch at login",
+    "toggleDescription": "Automatically start OpenBitFun after you log in. Exact behavior depends on your operating system.",
+    "messages": {
+      "loading": "Loading...",
+      "loadFailed": "Failed to read launch-at-login setting",
+      "saveFailed": "Failed to update launch-at-login setting"
+    }
+  },
+  "preventSleep": {
+    "sections": {
+      "title": "Power",
+      "hint": "Computer sleep behavior while OpenBitFun is running"
+    },
+    "toggleLabel": "Prevent sleep",
+    "toggleDescription": "Keep the computer awake whenever OpenBitFun is running, whether or not a task is active. The display may still turn off, and explicit sleep or closing a laptop lid follows system policy.",
+    "messages": {
+      "loading": "Loading…",
+      "loadFailed": "Failed to read the prevent-sleep setting",
+      "saveFailed": "Failed to update the prevent-sleep setting",
+      "saved": "Prevent-sleep setting saved"
+    }
+  },
+  "logging": {
+    "sections": {
+      "logging": "Logging",
+      "loggingHint": "Log level and directory for this session",
+      "level": "Log Level",
+      "path": "Startup Log Path"
+    },
+    "level": {
+      "description": "Controls log verbosity in real time. Changes apply immediately."
+    },
+    "sensitiveDiagnostics": {
+      "label": "Include sensitive diagnostic data",
+      "description": "Off by default. When enabled, local logs may include prompts, model request and response payloads, tool arguments, file paths, and webview event payloads for troubleshooting. OpenBitFun does not upload these log files automatically."
+    },
+    "path": {
+      "description": "Directory where log files for this run are written."
+    },
+    "diagnostics": {
+      "label": "Diagnostics Bundle",
+      "description": "Export recent local logs, crash reports, and runtime metadata as a zip file. OpenBitFun does not upload it automatically.",
+      "confirmTitle": "Export diagnostics bundle?",
+      "confirmSensitive": "The bundle will include sensitive diagnostic data and may contain prompts, model requests and responses, tool arguments, and file paths. Save it only to a trusted location and review it before sharing.",
+      "confirmStandard": "The bundle may contain local paths, runtime details, and error information. Save it only to a trusted location and review it before sharing.",
+      "confirmAction": "Export"
+    },
+    "previousCrash": {
+      "title": "Previous session ended unexpectedly",
+      "description": "Last session logs are available at {{path}}."
+    },
+    "previousUncleanShutdown": {
+      "title": "Previous session did not record a normal shutdown",
+      "description": "Last session logs are available at {{path}}. This can happen after a restart, system shutdown, or development reload."
+    },
+    "startupRecovery": {
+      "title": "Previous session ended unexpectedly",
+      "message": "OpenBitFun found a crash report from the previous session. You can export diagnostics if you want to report the issue."
+    },
+    "configRecovery": {
+      "title": "Configuration recovered",
+      "message": "OpenBitFun repaired or isolated {{count}} configuration issue(s) so the app could start. Review your model settings before continuing."
+    },
+    "levels": {
+      "trace": "Trace",
+      "debug": "Debug",
+      "info": "Info",
+      "warn": "Warn",
+      "error": "Error",
+      "off": "Off"
+    },
+    "actions": {
+      "refreshTooltip": "Refresh runtime status",
+      "openFolder": "Open Folder",
+      "openFolderTooltip": "Open log folder in file explorer",
+      "exportDiagnostics": "Export Diagnostics",
+      "openLoggingSettings": "Open Logging Settings"
+    },
+    "messages": {
+      "loading": "Loading...",
+      "loadFailed": "Failed to load logging configuration",
+      "saveFailed": "Failed to save logging level",
+      "levelUpdated": "Logging level updated",
+      "sensitiveDiagnosticsUpdated": "Sensitive diagnostic logging preference updated",
+      "refreshed": "Runtime status refreshed",
+      "openedFolder": "Log folder opened",
+      "openFailed": "Failed to open log folder",
+      "pathUnavailable": "Log folder path is unavailable",
+      "diagnosticsExported": "Diagnostics bundle exported",
+      "diagnosticsExportFailed": "Failed to export diagnostics bundle"
+    }
+  },
+  "terminal": {
+    "sections": {
+      "terminal": "Terminal",
+      "terminalHint": "Default shell and new terminal behavior",
+      "defaultTerminal": "Default Terminal"
+    },
+    "controls": {
+      "refreshTooltip": "Refresh available terminals",
+      "autoDetect": "Auto Detect (Recommended)",
+      "description": "Default shell type for new terminals and for agent command execution in local workspaces.",
+      "cmdFallbackMessage": "Agent commands actually use PowerShell.",
+      "placeholder": "Select default terminal",
+      "noShells": "No available terminals detected"
+    },
+    "panelPosition": {
+      "label": "Open terminal in",
+      "description": "Where new terminal tabs open in a session",
+      "placeholder": "Select terminal location",
+      "options": {
+        "right": "Right panel",
+        "bottom": "Bottom panel"
+      }
+    },
+    "messages": {
+      "loading": "Loading...",
+      "loadFailed": "Failed to load configuration",
+      "updated": "Default terminal updated",
+      "panelPositionUpdated": "Terminal panel location updated",
+      "saveFailed": "Failed to save configuration",
+      "refreshed": "Available terminals list refreshed"
+    }
+  },
+  "windowBehavior": {
+    "sections": {
+      "title": "Window Behavior",
+      "hint": "What happens when the close button is clicked"
+    },
+    "closeButtonLabel": "Close button action",
+    "closeButtonDescription": "Default action when the window close button (×) is clicked.",
+    "options": {
+      "quit": "Quit",
+      "minimizeToTray": "Minimize to System Tray",
+      "ask": "Ask every time"
+    },
+    "messages": {
+      "loading": "Loading...",
+      "loadFailed": "Failed to read window behavior settings",
+      "saveFailed": "Failed to save window behavior settings",
+      "saved": "Window behavior settings saved"
+    }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "hint": "Toast notification preferences",
+    "dialogCompletion": {
+      "label": "Task completion notification",
+      "description": "Show a toast notification when an AI task completes while the window is not in focus"
+    },
+    "permissionRequest": {
+      "label": "Permission request notification",
+      "description": "Show a toast notification when an action needs your approval while the window is not in focus"
+    },
+    "startupTips": {
+      "label": "Show tips on startup",
+      "description": "Display a usage tip card each time the app starts to help you discover features"
+    },
+    "messages": {
+      "loading": "Loading…",
+      "loadFailed": "Failed to read notification settings",
+      "saveSuccess": "Notification settings saved",
+      "saveFailed": "Failed to save notification settings"
+    }
+  }
+}

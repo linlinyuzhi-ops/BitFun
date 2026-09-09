@@ -1,6 +1,6 @@
 //! Core Agent Runtime compatibility adapter boundary.
 //!
-//! Product runtime assembly facts live in `bitfun-product-capabilities`. Core
+//! Product runtime assembly facts live in `openbitfun-product-capabilities`. Core
 //! keeps only compatibility exports and adapter wiring that still depends on
 //! existing concrete core paths.
 
@@ -11,15 +11,16 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use bitfun_agent_runtime::permission::PermissionRequestManager;
-use bitfun_agent_runtime::sdk::{
+use openbitfun_agent_runtime::permission::PermissionRequestManager;
+use openbitfun_agent_runtime::sdk::{
     AgentEventReceiver, AgentEventSource, AgentRuntime, AgentSessionForkAtTurnRequest,
     AgentSessionForkBeforeTurnRequest, AgentSessionForkPort, AgentSessionForkRequest,
     AgentSessionForkResult, AgentSessionLifecycleStatus, AgentSessionLineageCancellationRequest,
     AgentSessionLineageEntry, AgentSessionLineageInspection, AgentSessionLineagePort,
     AgentSessionLineageRequest, AgentSessionLineageSnapshot, AgentSessionLineageTranscriptRequest,
     AgentSessionUsagePort, AgentSessionUsageRequest, AgentTurnCancellationResult,
-    AgentTurnSettlementPort, AgentTurnSettlementRequest, SessionTranscript,
+    AgentTurnSettlementPort, AgentTurnSettlementRequest, AgentTurnSettlementResult,
+    AgentTurnSettlementStatus, SessionTranscript,
 };
 use bitfun_core_types::{SESSION_PROVIDER_ACP, SESSION_PROVIDER_METADATA_KEY};
 use bitfun_runtime_ports::{
@@ -29,12 +30,14 @@ use bitfun_runtime_ports::{
     RuntimeServiceCapability, RuntimeServicePort, SessionStoragePathRequest, SessionStorePort,
     SessionTranscriptRequest, SessionTurnWindowRequest, SessionViewRestoreTiming,
 };
-use bitfun_runtime_services::RuntimeServices;
-use bitfun_services_core::permission_store::ProjectPermissionSqliteStore;
-use bitfun_services_core::session::{
+use openbitfun_runtime_services::RuntimeServices;
+use openbitfun_services_core::permission_store::ProjectPermissionSqliteStore;
+use openbitfun_services_core::session::{
     build_session_lineage_snapshot, normalized_session_relationship, SessionBranchBoundary,
     SessionRelationshipKind,
 };
+#[cfg(feature = "product-search")]
+use openbitfun_services_core::session_search::{SessionSearchIndexError, SessionSearchSqliteIndex};
 
 use crate::agentic::coordination::{
     runtime_transcript_messages_from_turns, validate_required_lineage_turns_settled,
@@ -45,6 +48,11 @@ use crate::agentic::events::EventQueue;
 use crate::agentic::keyed_lock::KeyedAsyncLockGuard;
 use crate::agentic::persistence::session_branch::SessionBranchRequest;
 use crate::agentic::persistence::{PersistenceManager, SessionMetadataPage};
+use crate::agentic::session::transcript_render::transcript_final_assistant_content;
+#[cfg(feature = "product-search")]
+use crate::agentic::session::transcript_render::{
+    transcript_display_assistant_content, transcript_display_user_content,
+};
 use crate::agentic::session::{
     CoreSessionStorePort, PromptCacheScope,
     INTERRUPTED_TURN_MODEL_BINDING_FINGERPRINT_METADATA_KEY,
@@ -55,10 +63,15 @@ use crate::agentic::session::{
     INTERRUPTED_TURN_RESOLVED_MODEL_ID_METADATA_KEY,
 };
 use crate::agentic::tools::implementations::skills::SkillRegistry;
+use crate::service::remote_ssh::workspace_state::{
+    workspace_session_identity, WorkspaceSessionIdentity,
+};
 use crate::service::session::{
     DialogTurnData, SessionMetadata, SessionTranscriptExport, SessionTranscriptExportOptions,
     SessionTurnCatalog, SessionTurnWindowResponse, TurnStatus,
 };
+#[cfg(feature = "product-search")]
+use crate::service::session::{DialogTurnKind, SessionStatus};
 use crate::service::session_usage::{
     generate_session_usage_report_from_storage_path, SessionUsageReport,
 };
@@ -68,9 +81,9 @@ use crate::service::snapshot::{
 };
 use crate::service::token_usage::TokenUsageService;
 use crate::service_agent_runtime::CoreServiceAgentRuntime;
-use crate::util::errors::{BitFunError, BitFunResult};
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 
-pub use bitfun_product_capabilities::ProductRuntimeAssembly as CoreProductRuntimeAssembly;
+pub use openbitfun_product_capabilities::ProductRuntimeAssembly as CoreProductRuntimeAssembly;
 pub use runtime_services::{build_local_runtime_services, CoreRuntimeServicesProvider};
 
 fn projected_turn_save_would_overwrite_runtime_state(
@@ -221,7 +234,7 @@ impl CoreProductEventQueueOwner {
 ///
 /// First-party hosts must retain [`CoreProductEventQueueOwner`] and subscribe
 /// through `AgentRuntime`. This wrapper remains only to avoid silently breaking
-/// existing `bitfun-core` consumers during the migration.
+/// existing `openbitfun-core` consumers during the migration.
 #[deprecated(note = "use CoreProductEventQueueOwner and subscribe through AgentRuntime instead")]
 #[derive(Clone)]
 pub struct CoreProductAgentEventSource {
@@ -298,9 +311,9 @@ pub fn core_permission_request_manager() -> Result<Arc<PermissionRequestManager>
     let store = Arc::new(ProjectPermissionSqliteStore::new(
         path_manager.user_data_dir().join("permissions"),
     ));
-    let audit_store: Arc<dyn bitfun_runtime_ports::PermissionAuditStorePort> = store.clone();
-    let reply_store: Arc<dyn bitfun_runtime_ports::PermissionReplyStorePort> = store.clone();
-    let grant_store: Arc<dyn bitfun_runtime_ports::PermissionGrantStorePort> = store;
+    let audit_store: Arc<dyn openbitfun_runtime_ports::PermissionAuditStorePort> = store.clone();
+    let reply_store: Arc<dyn openbitfun_runtime_ports::PermissionReplyStorePort> = store.clone();
+    let grant_store: Arc<dyn openbitfun_runtime_ports::PermissionGrantStorePort> = store;
     let manager = Arc::new(
         PermissionRequestManager::new(audit_store, reply_store, Arc::new(SystemPermissionClock))
             .with_grant_store(grant_store),
@@ -340,8 +353,90 @@ pub struct CoreSessionMaintenancePermit {
     _permit: SessionMaintenancePermit,
 }
 
-fn validate_persisted_session_id(session_id: &str) -> BitFunResult<()> {
-    bitfun_core_types::validate_session_id(session_id).map_err(BitFunError::Validation)
+fn validate_persisted_session_id(session_id: &str) -> OpenBitFunResult<()> {
+    openbitfun_core_types::validate_session_id(session_id).map_err(OpenBitFunError::Validation)
+}
+
+fn validate_session_workspace_identity(
+    session: &Session,
+    expected: &WorkspaceSessionIdentity,
+) -> OpenBitFunResult<()> {
+    let config = &session.config;
+    let actual = config.workspace_path.as_deref().and_then(|path| {
+        workspace_session_identity(
+            path,
+            config.remote_connection_id.as_deref(),
+            config.remote_ssh_host.as_deref(),
+        )
+    });
+    if actual.as_ref() != Some(expected) {
+        return Err(OpenBitFunError::Validation(format!(
+            "Session workspace identity does not match the requested workspace scope: {}",
+            session.session_id,
+        )));
+    }
+    Ok(())
+}
+
+fn fork_workspace_identity(
+    session: &Session,
+    request: &SessionStoragePathRequest,
+) -> OpenBitFunResult<Option<WorkspaceSessionIdentity>> {
+    fn nonempty(value: Option<&str>) -> Option<&str> {
+        value.map(str::trim).filter(|value| !value.is_empty())
+    }
+    fn declares_remote(connection_id: Option<&str>, hostname: Option<&str>) -> bool {
+        connection_id.is_some()
+            || hostname.is_some_and(|host| {
+                host != openbitfun_services_core::workspace_identity::LOCAL_WORKSPACE_SSH_HOST
+            })
+    }
+    let connection_id = nonempty(request.remote_connection_id.as_deref());
+    let hostname = nonempty(request.remote_ssh_host.as_deref());
+    let config = &session.config;
+    let request_is_remote = declares_remote(connection_id, hostname);
+    let (workspace_path, connection_id, hostname) = if request_is_remote {
+        (
+            request.workspace_path.to_string_lossy().into_owned(),
+            connection_id.or_else(|| nonempty(config.remote_connection_id.as_deref())),
+            hostname.or_else(|| nonempty(config.remote_ssh_host.as_deref())),
+        )
+    } else {
+        // Legacy/plugin callers may provide only a resolved Session store or a
+        // project root (different from a worktree). Its durable execution
+        // identity remains authoritative; do not reinterpret that path locally.
+        let Some(workspace_path) = config.workspace_path.clone() else {
+            if declares_remote(
+                nonempty(config.remote_connection_id.as_deref()),
+                nonempty(config.remote_ssh_host.as_deref()),
+            ) {
+                return Err(OpenBitFunError::Validation(
+                    "Remote Session fork requires a persisted workspace path".to_string(),
+                ));
+            }
+            return Ok(None);
+        };
+        (
+            workspace_path,
+            nonempty(config.remote_connection_id.as_deref()),
+            nonempty(config.remote_ssh_host.as_deref()),
+        )
+    };
+    let identity = workspace_session_identity(&workspace_path, connection_id, hostname);
+    if (request_is_remote || declares_remote(connection_id, hostname))
+        && identity
+            .as_ref()
+            .is_none_or(|identity| identity.remote_connection_id.is_none())
+    {
+        return Err(OpenBitFunError::Validation(
+            "Remote Session fork requires a complete persisted connection and host identity"
+                .to_string(),
+        ));
+    }
+    if let Some(identity) = identity.as_ref() {
+        validate_session_workspace_identity(session, identity)?;
+    }
+    Ok(identity)
 }
 
 async fn begin_consistent_persisted_session_read(
@@ -349,11 +444,25 @@ async fn begin_consistent_persisted_session_read(
     persistence: &PersistenceManager,
     storage_path: &Path,
     session_id: &str,
-) -> BitFunResult<CoreSessionReadPermit> {
+    expected_workspace: Option<&WorkspaceSessionIdentity>,
+) -> OpenBitFunResult<CoreSessionReadPermit> {
     validate_persisted_session_id(session_id)?;
     let session_manager = coordinator.get_session_manager();
     let guard = session_manager.acquire_session_mutation(session_id).await?;
     session_manager.validate_session_storage_path_binding(session_id, storage_path)?;
+
+    // A remote mirror's Session directory predates connection-specific snapshot
+    // scopes. Check durable and loaded identity under the same lock before
+    // reconciling history or exposing any operation content.
+    if let Some(expected) = expected_workspace {
+        if let Some(session) = session_manager.get_session(session_id) {
+            validate_session_workspace_identity(&session, expected)?;
+        }
+        let persisted = persistence
+            .load_session_header(storage_path, session_id)
+            .await?;
+        validate_session_workspace_identity(&persisted, expected)?;
+    }
 
     if let Some(state) = persistence
         .load_session_revert_state(storage_path, session_id)
@@ -361,7 +470,7 @@ async fn begin_consistent_persisted_session_read(
     {
         if state.phase != crate::agentic::session::revert::SessionRevertPhase::Staged {
             if session_manager.get_session(session_id).is_none() {
-                return Err(BitFunError::OutcomeUnknown(
+                return Err(OpenBitFunError::OutcomeUnknown(
                     "Session facts are unavailable until the unfinished undo transition is restored"
                         .to_string(),
                 ));
@@ -382,12 +491,12 @@ async fn begin_consistent_persisted_session_read(
     })
 }
 
-fn latest_persisted_turn_id(turns: &[DialogTurnData]) -> BitFunResult<String> {
+fn latest_persisted_turn_id(turns: &[DialogTurnData]) -> OpenBitFunResult<String> {
     turns
         .last()
         .map(|turn| turn.turn_id.clone())
         .ok_or_else(|| {
-            BitFunError::Validation("Session has no persisted turns to fork".to_string())
+            OpenBitFunError::Validation("Session has no persisted turns to fork".to_string())
         })
 }
 
@@ -396,7 +505,7 @@ async fn generate_core_session_usage_report(
     token_usage_service: &TokenUsageService,
     session_storage_path: &Path,
     request: AgentSessionUsageRequest,
-) -> BitFunResult<SessionUsageReport> {
+) -> OpenBitFunResult<SessionUsageReport> {
     validate_persisted_session_id(&request.session_id)?;
     generate_session_usage_report_from_storage_path(
         persistence,
@@ -413,7 +522,7 @@ async fn load_visible_persisted_session_turns(
     session_id: &str,
     visible_turn_end: Option<usize>,
     limit: Option<usize>,
-) -> BitFunResult<Vec<DialogTurnData>> {
+) -> OpenBitFunResult<Vec<DialogTurnData>> {
     let mut turns = persistence
         .load_session_turns(storage_path, session_id)
         .await?;
@@ -428,7 +537,7 @@ async fn load_visible_persisted_session_turns(
 }
 
 fn runtime_lineage_snapshot(
-    snapshot: bitfun_services_core::session::SessionLineageSnapshot,
+    snapshot: openbitfun_services_core::session::SessionLineageSnapshot,
     remote_connection_id: Option<&str>,
     remote_ssh_host: Option<&str>,
 ) -> AgentSessionLineageSnapshot {
@@ -445,13 +554,13 @@ fn runtime_lineage_snapshot(
                     agent_type: metadata.agent_type,
                     created_at_ms: metadata.created_at,
                     status: match metadata.status {
-                        bitfun_services_core::session::SessionStatus::Active => {
+                        openbitfun_services_core::session::SessionStatus::Active => {
                             AgentSessionLifecycleStatus::Active
                         }
-                        bitfun_services_core::session::SessionStatus::Archived => {
+                        openbitfun_services_core::session::SessionStatus::Archived => {
                             AgentSessionLifecycleStatus::Archived
                         }
-                        bitfun_services_core::session::SessionStatus::Completed => {
+                        openbitfun_services_core::session::SessionStatus::Completed => {
                             AgentSessionLifecycleStatus::Completed
                         }
                     },
@@ -465,6 +574,7 @@ fn runtime_lineage_snapshot(
                     subagent_type: relationship
                         .as_ref()
                         .and_then(|value| value.subagent_type.clone()),
+                    agent_id: None,
                     workspace_path: metadata.workspace_path,
                     remote_connection_id: remote_connection_id.map(str::to_string),
                     remote_ssh_host: remote_ssh_host.map(str::to_string),
@@ -483,6 +593,7 @@ fn snapshot_port_error(error: SnapshotError) -> PortError {
         | SnapshotError::OperationNotFound(_)
         | SnapshotError::FileNotFound(_) => PortErrorKind::NotFound,
         SnapshotError::Io(_)
+        | SnapshotError::WorkspaceIo(_)
         | SnapshotError::Serialization(_)
         | SnapshotError::GitIsolationFailure(_)
         | SnapshotError::ConfigError(_)
@@ -695,7 +806,7 @@ impl CoreProductAgentRuntime {
         coordinator: Arc<ConversationCoordinator>,
         scheduler: Arc<DialogScheduler>,
         token_usage_service: Arc<TokenUsageService>,
-        event_journal: Arc<bitfun_agent_runtime::sdk::SessionEventJournal>,
+        event_journal: Arc<openbitfun_agent_runtime::sdk::SessionEventJournal>,
     ) -> Result<AgentRuntime, String> {
         Self::build_session_surface(coordinator, scheduler, token_usage_service)
             .map(|runtime| runtime.with_session_event_journal(event_journal))
@@ -864,7 +975,7 @@ impl CoreAgentRuntimeCompatibility {
     pub fn ensure_workspace_runtime_ownership(
         &self,
         request: &SessionStoragePathRequest,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         self.coordinator.ensure_workspace_runtime_ownership(
             &request.workspace_path,
             request.remote_connection_id.as_deref(),
@@ -878,7 +989,7 @@ impl CoreAgentRuntimeCompatibility {
     pub async fn reload_session_context(
         &self,
         request: AgentContextReloadRequest,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         let session_id = request.session_id.trim();
         validate_persisted_session_id(session_id)?;
 
@@ -888,7 +999,7 @@ impl CoreAgentRuntimeCompatibility {
             .get_session(session_id)
             .is_none()
         {
-            return Err(BitFunError::NotFound(format!(
+            return Err(OpenBitFunError::NotFound(format!(
                 "Session '{session_id}' is not loaded"
             )));
         }
@@ -915,7 +1026,7 @@ impl CoreAgentRuntimeCompatibility {
         storage_path: &Path,
         session_id: &str,
         include_internal: bool,
-    ) -> BitFunResult<Session> {
+    ) -> OpenBitFunResult<Session> {
         validate_persisted_session_id(session_id)?;
         if include_internal {
             self.coordinator
@@ -934,7 +1045,7 @@ impl CoreAgentRuntimeCompatibility {
         session_id: &str,
         include_internal: bool,
         tail_turn_count: Option<usize>,
-    ) -> BitFunResult<(
+    ) -> OpenBitFunResult<(
         Session,
         Vec<DialogTurnData>,
         usize,
@@ -994,7 +1105,7 @@ impl CoreAgentRuntimeCompatibility {
         &self,
         storage_path: &Path,
         mut request: SessionTurnWindowRequest,
-    ) -> BitFunResult<SessionTurnWindowResponse> {
+    ) -> OpenBitFunResult<SessionTurnWindowResponse> {
         validate_persisted_session_id(&request.session_id)?;
         if self
             .persistence
@@ -1004,7 +1115,7 @@ impl CoreAgentRuntimeCompatibility {
                 !request.include_internal && metadata.should_hide_from_user_lists()
             })
         {
-            return Err(BitFunError::NotFound(format!(
+            return Err(OpenBitFunError::NotFound(format!(
                 "Session not found: {}",
                 request.session_id
             )));
@@ -1022,7 +1133,7 @@ impl CoreAgentRuntimeCompatibility {
         storage_path: &Path,
         session_id: &str,
         include_internal: bool,
-    ) -> BitFunResult<(Session, Vec<DialogTurnData>)> {
+    ) -> OpenBitFunResult<(Session, Vec<DialogTurnData>)> {
         validate_persisted_session_id(session_id)?;
         if include_internal {
             self.coordinator
@@ -1041,7 +1152,7 @@ impl CoreAgentRuntimeCompatibility {
         session_id: &str,
         include_internal: bool,
         tail_turn_count: Option<usize>,
-    ) -> BitFunResult<(
+    ) -> OpenBitFunResult<(
         Session,
         Vec<DialogTurnData>,
         usize,
@@ -1064,7 +1175,7 @@ impl CoreAgentRuntimeCompatibility {
         request: SessionStoragePathRequest,
         session_id: &str,
         include_internal: bool,
-    ) -> BitFunResult<(Session, Vec<DialogTurnData>)> {
+    ) -> OpenBitFunResult<(Session, Vec<DialogTurnData>)> {
         validate_persisted_session_id(session_id)?;
         if include_internal {
             self.coordinator
@@ -1080,7 +1191,7 @@ impl CoreAgentRuntimeCompatibility {
     pub async fn list_persisted_sessions(
         &self,
         workspace_path: &Path,
-    ) -> BitFunResult<Vec<SessionMetadata>> {
+    ) -> OpenBitFunResult<Vec<SessionMetadata>> {
         self.persistence.list_session_metadata(workspace_path).await
     }
 
@@ -1089,17 +1200,260 @@ impl CoreAgentRuntimeCompatibility {
         workspace_path: &Path,
         cursor: Option<&str>,
         limit: usize,
-    ) -> BitFunResult<SessionMetadataPage> {
+    ) -> OpenBitFunResult<SessionMetadataPage> {
         self.persistence
             .list_session_metadata_page(workspace_path, cursor, limit)
             .await
+    }
+
+    /// A bounded navigation read over metadata + current runtime owners. Initial
+    /// pages stay index-only; targeted reads can repair missing legacy outcomes
+    /// without restoring a Session or changing execution state.
+    pub async fn list_persisted_sessions_page_with_activity(
+        &self,
+        runtime: &AgentRuntime,
+        workspace_path: &Path,
+        cursor: Option<&str>,
+        limit: usize,
+        session_ids: Option<&[String]>,
+    ) -> OpenBitFunResult<SessionMetadataPage> {
+        use futures::StreamExt;
+        use openbitfun_agent_runtime::session_state::SessionState;
+        use openbitfun_services_core::session::page::{
+            empty_session_metadata_page, SessionActivitySummary,
+        };
+
+        if let Some(ids) = session_ids {
+            if ids.len() > 128 {
+                return Err(OpenBitFunError::Validation(
+                    "A session activity batch may contain at most 128 session ids".to_string(),
+                ));
+            }
+            for id in ids {
+                validate_persisted_session_id(id)?;
+            }
+        }
+        let mut page = if session_ids.is_some() {
+            empty_session_metadata_page()
+        } else {
+            self.list_persisted_sessions_page(workspace_path, cursor, limit)
+                .await?
+        };
+        let selected = match session_ids {
+            Some(ids) => {
+                self.persistence
+                    .session_metadata_by_ids(workspace_path, ids)
+                    .await?
+            }
+            None => page.sessions.clone(),
+        };
+        // Capture the mailbox once for the batch, including delegated owners.
+        let mut approvals = std::collections::HashMap::<String, usize>::new();
+        for request in runtime.pending_permission_requests().map_err(|error| {
+            OpenBitFunError::Service(format!(
+                "Session activity permission snapshot unavailable: {error}"
+            ))
+        })? {
+            *approvals.entry(request.session_id.clone()).or_default() += 1;
+            if let Some(parent) = request.delegation {
+                if parent.parent_session_id != request.session_id {
+                    *approvals.entry(parent.parent_session_id).or_default() += 1;
+                }
+            }
+        }
+        let manager = self.coordinator.get_session_manager();
+        let questions = openbitfun_agent_runtime::user_questions::get_user_input_manager()
+            .pending_question_counts();
+        let selected = futures::stream::iter(selected)
+            .map(|metadata| {
+                let manager = &manager;
+                let approvals = &approvals;
+                let questions = &questions;
+                async move {
+                    let native = metadata.custom_metadata.as_ref()
+                        .and_then(|custom| custom.get(SESSION_PROVIDER_METADATA_KEY))
+                        .and_then(serde_json::Value::as_str) != Some(SESSION_PROVIDER_ACP);
+                    let live = matches!(manager.get_session_state(&metadata.session_id),
+                        Some(SessionState::Processing { .. } | SessionState::Error { .. }))
+                        || self.scheduler.is_session_busy_or_queued(&metadata.session_id)
+                        || approvals.contains_key(&metadata.session_id)
+                        || questions.contains_key(&metadata.session_id);
+                    if native && !live && metadata.needs_last_turn_backfill() {
+                        // Publish metadata immediately. The application-level
+                        // sidebar synchronizer coalesces missing activities into
+                        // a targeted batch instead of blocking the first page.
+                        session_ids?;
+                        let session_id = metadata.session_id.clone();
+                        match self.persistence.backfill_session_last_turn(workspace_path, metadata).await {
+                            Ok(metadata) => Some(metadata),
+                            Err(error) => {
+                                // Omit only this unavailable activity. Existing
+                                // client backoff handles missing entries; the
+                                // Session and its history remain untouched.
+                                log::warn!("Failed to repair legacy session activity: session_id={}, error={}",
+                                    session_id, error);
+                                None
+                            }
+                        }
+                    } else {
+                        Some(metadata)
+                    }
+                }
+            })
+            .buffered(2)
+            .filter_map(|metadata| async { metadata })
+            .collect::<Vec<_>>()
+            .await;
+        page.activities = Some(
+            selected
+                .into_iter()
+                .map(|metadata| {
+                    let state = manager.get_session_state(&metadata.session_id);
+                    let (execution, active_turn_id) = match state {
+                        Some(SessionState::Processing {
+                            current_turn_id, ..
+                        }) => ("running", Some(current_turn_id)),
+                        _ if self.scheduler.queue_depth(&metadata.session_id) > 0 => {
+                            ("queued", None)
+                        }
+                        _ if self
+                            .scheduler
+                            .is_session_busy_or_queued(&metadata.session_id) =>
+                        {
+                            ("running", None)
+                        }
+                        Some(SessionState::Error { .. }) => ("error", None),
+                        _ if metadata
+                            .custom_metadata
+                            .as_ref()
+                            .and_then(|custom| custom.get(SESSION_PROVIDER_METADATA_KEY))
+                            .and_then(serde_json::Value::as_str)
+                            == Some(SESSION_PROVIDER_ACP) =>
+                        {
+                            ("external", None)
+                        }
+                        _ => ("idle", None),
+                    };
+                    SessionActivitySummary {
+                        pending_approvals: approvals
+                            .get(&metadata.session_id)
+                            .copied()
+                            .unwrap_or_default(),
+                        pending_questions: questions
+                            .get(&metadata.session_id)
+                            .copied()
+                            .unwrap_or_default(),
+                        session_id: metadata.session_id,
+                        execution: execution.to_string(),
+                        active_turn_id,
+                        last_turn: metadata.last_turn,
+                        unread_completion: metadata.unread_completion,
+                    }
+                })
+                .collect(),
+        );
+        Ok(page)
+    }
+
+    /// Search presentation-safe persisted Session content at an already-resolved
+    /// sessions root. The SQLite sidecar is reconciled against authoritative
+    /// metadata before every query and stale transcript rows are never served.
+    #[cfg(feature = "product-search")]
+    pub async fn search_persisted_session_content(
+        &self,
+        storage_path: &Path,
+        query: &str,
+        limit: usize,
+        include_archived: bool,
+    ) -> OpenBitFunResult<SessionContentSearchResponse> {
+        let query = validated_session_content_search_query(query)?;
+        if query.is_empty() {
+            return Ok(SessionContentSearchResponse::default());
+        }
+        if !storage_path.exists() {
+            return Ok(SessionContentSearchResponse::default());
+        }
+
+        let metadata = self.list_persisted_sessions(storage_path).await?;
+        let documents = metadata
+            .iter()
+            .map(session_search_document)
+            .collect::<Vec<_>>();
+        let revisions = documents
+            .iter()
+            .map(|document| {
+                (
+                    document.session_id.clone(),
+                    document.source_revision.clone(),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        let index = SessionSearchSqliteIndex::new(storage_path);
+        let reconciliation = index
+            .reconcile_sessions(documents)
+            .await
+            .map_err(session_search_index_error)?;
+        let mut diagnostics = Vec::new();
+
+        for session_id in reconciliation.stale_session_ids {
+            let Some(source_revision) = revisions.get(&session_id) else {
+                continue;
+            };
+            let turns = match self
+                .load_persisted_session_turns(storage_path, &session_id, None)
+                .await
+            {
+                Ok(turns) => turns,
+                Err(error) => {
+                    log::warn!(
+                        "Failed to read persisted Session for product search: session_id={session_id}, error={error}"
+                    );
+                    diagnostics.push(SessionSearchDiagnostic {
+                        code: SessionSearchDiagnosticCode::SessionUnreadable,
+                        session_id: Some(session_id),
+                        message: "Session content could not be indexed".to_string(),
+                    });
+                    continue;
+                }
+            };
+            let turn_documents = turns
+                .iter()
+                .filter(|turn| turn.kind == DialogTurnKind::UserDialog)
+                .map(session_search_turn_document)
+                .collect::<Vec<_>>();
+            if let Err(error) = index
+                .replace_session_turns(&session_id, source_revision, turn_documents)
+                .await
+            {
+                match error {
+                    SessionSearchIndexError::InvalidDocument(message) => {
+                        log::warn!(
+                            "Product search rejected a persisted Session document: session_id={session_id}, error={message}"
+                        );
+                        diagnostics.push(SessionSearchDiagnostic {
+                            code: SessionSearchDiagnosticCode::SessionIndexStale,
+                            session_id: Some(session_id),
+                            message: "Session search index remained stale".to_string(),
+                        });
+                    }
+                    error => return Err(session_search_index_error(error)),
+                }
+            }
+        }
+
+        let mut response = index
+            .search(query, limit, include_archived)
+            .await
+            .map_err(session_search_index_error)?;
+        response.diagnostics.extend(diagnostics);
+        Ok(response)
     }
 
     pub async fn load_persisted_session_metadata(
         &self,
         workspace_path: &Path,
         session_id: &str,
-    ) -> BitFunResult<Option<SessionMetadata>> {
+    ) -> OpenBitFunResult<Option<SessionMetadata>> {
         validate_persisted_session_id(session_id)?;
         self.persistence
             .load_session_metadata(workspace_path, session_id)
@@ -1116,7 +1470,7 @@ impl CoreAgentRuntimeCompatibility {
         &self,
         workspace_path: &Path,
         session_id: &str,
-    ) -> BitFunResult<bool> {
+    ) -> OpenBitFunResult<bool> {
         let metadata = self
             .load_persisted_session_metadata(workspace_path, session_id)
             .await?;
@@ -1133,14 +1487,14 @@ impl CoreAgentRuntimeCompatibility {
         workspace_path: &Path,
         session_id: &str,
         update: impl FnOnce(&mut SessionMetadata),
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         validate_persisted_session_id(session_id)?;
         self.persistence
             .update_session_metadata(workspace_path, session_id, update)
             .await
     }
 
-    pub fn is_session_loaded_in_memory(&self, session_id: &str) -> BitFunResult<bool> {
+    pub fn is_session_loaded_in_memory(&self, session_id: &str) -> OpenBitFunResult<bool> {
         validate_persisted_session_id(session_id)?;
         Ok(self
             .coordinator
@@ -1156,7 +1510,7 @@ impl CoreAgentRuntimeCompatibility {
     /// so a later process restart cannot resurrect work. Live read-only views
     /// (for example Peer Device controllers) still need the current process
     /// state to distinguish an executing session from interrupted history.
-    pub fn loaded_session_snapshot(&self, session_id: &str) -> BitFunResult<Option<Session>> {
+    pub fn loaded_session_snapshot(&self, session_id: &str) -> OpenBitFunResult<Option<Session>> {
         validate_persisted_session_id(session_id)?;
         Ok(self
             .coordinator
@@ -1168,7 +1522,7 @@ impl CoreAgentRuntimeCompatibility {
         &self,
         session_id: &str,
         title: &str,
-    ) -> BitFunResult<String> {
+    ) -> OpenBitFunResult<String> {
         validate_persisted_session_id(session_id)?;
         self.coordinator
             .update_session_title(session_id, title)
@@ -1178,19 +1532,19 @@ impl CoreAgentRuntimeCompatibility {
     pub async fn resolve_persisted_session_storage_path(
         &self,
         request: SessionStoragePathRequest,
-    ) -> BitFunResult<PathBuf> {
+    ) -> OpenBitFunResult<PathBuf> {
         CoreSessionStorePort::with_path_manager(self.persistence.path_manager().clone())
             .resolve_session_storage_path(request)
             .await
             .map(|resolution| resolution.effective_storage_path)
-            .map_err(|error| BitFunError::Session(error.to_string()))
+            .map_err(|error| OpenBitFunError::Session(error.to_string()))
     }
 
     pub fn is_session_loaded_from_storage_path(
         &self,
         storage_path: &Path,
         session_id: &str,
-    ) -> BitFunResult<bool> {
+    ) -> OpenBitFunResult<bool> {
         validate_persisted_session_id(session_id)?;
         self.coordinator
             .get_session_manager()
@@ -1202,7 +1556,7 @@ impl CoreAgentRuntimeCompatibility {
         storage_path: &Path,
         session_id: &str,
         include_internal: bool,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         if self.is_session_loaded_from_storage_path(storage_path, session_id)? {
             return Ok(());
         }
@@ -1222,7 +1576,7 @@ impl CoreAgentRuntimeCompatibility {
         &self,
         storage_path: &Path,
         session_id: &str,
-    ) -> BitFunResult<CoreSessionMutationPermit> {
+    ) -> OpenBitFunResult<CoreSessionMutationPermit> {
         validate_persisted_session_id(session_id)?;
         let session_manager = self.coordinator.get_session_manager();
         let guard = session_manager.acquire_session_mutation(session_id).await?;
@@ -1242,7 +1596,7 @@ impl CoreAgentRuntimeCompatibility {
         &self,
         storage_path: &Path,
         session_id: &str,
-    ) -> BitFunResult<CoreSessionMutationPermit> {
+    ) -> OpenBitFunResult<CoreSessionMutationPermit> {
         let permit = self
             .begin_persisted_session_mutation(storage_path, session_id)
             .await?;
@@ -1252,7 +1606,7 @@ impl CoreAgentRuntimeCompatibility {
             .await?
             .is_some()
         {
-            return Err(BitFunError::SessionInUse {
+            return Err(OpenBitFunError::SessionInUse {
                 session_id: session_id.to_string(),
             });
         }
@@ -1263,12 +1617,29 @@ impl CoreAgentRuntimeCompatibility {
         &self,
         storage_path: &Path,
         session_id: &str,
-    ) -> BitFunResult<CoreSessionReadPermit> {
+    ) -> OpenBitFunResult<CoreSessionReadPermit> {
         begin_consistent_persisted_session_read(
             self.coordinator.as_ref(),
             self.persistence.as_ref(),
             storage_path,
             session_id,
+            None,
+        )
+        .await
+    }
+
+    pub async fn begin_persisted_session_read_for_workspace(
+        &self,
+        storage_path: &Path,
+        session_id: &str,
+        workspace: &WorkspaceSessionIdentity,
+    ) -> OpenBitFunResult<CoreSessionReadPermit> {
+        begin_consistent_persisted_session_read(
+            self.coordinator.as_ref(),
+            self.persistence.as_ref(),
+            storage_path,
+            session_id,
+            Some(workspace),
         )
         .await
     }
@@ -1278,7 +1649,7 @@ impl CoreAgentRuntimeCompatibility {
         storage_path: &Path,
         session_id: &str,
         wait_timeout_ms: u64,
-    ) -> BitFunResult<CoreSessionMaintenancePermit> {
+    ) -> OpenBitFunResult<CoreSessionMaintenancePermit> {
         let permit = self
             .scheduler
             .begin_session_maintenance(
@@ -1293,7 +1664,7 @@ impl CoreAgentRuntimeCompatibility {
     /// Compatibility-only lifecycle operation for ACP setup compensation and
     /// session/close. It releases loaded Core state but preserves persistence
     /// and the storage binding so the same session can be restored later.
-    pub async fn unload_persisted_session(&self, session_id: &str) -> BitFunResult<bool> {
+    pub async fn unload_persisted_session(&self, session_id: &str) -> OpenBitFunResult<bool> {
         validate_persisted_session_id(session_id)?;
         self.coordinator
             .get_session_manager()
@@ -1305,9 +1676,9 @@ impl CoreAgentRuntimeCompatibility {
         &self,
         parent_session_id: &str,
         subagent_session_id: &str,
-    ) -> BitFunResult<usize> {
+    ) -> OpenBitFunResult<usize> {
         self.coordinator
-            .cancel_background_subagents_for_parent(parent_session_id, subagent_session_id)
+            .cancel_background_subagents_for_parent(parent_session_id, subagent_session_id, true)
             .await
     }
 
@@ -1315,7 +1686,7 @@ impl CoreAgentRuntimeCompatibility {
         &self,
         permit: &CoreSessionMutationPermit,
         target_turn: usize,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         self.coordinator
             .get_session_manager()
             .rollback_context_to_turn_start_locked(
@@ -1330,7 +1701,7 @@ impl CoreAgentRuntimeCompatibility {
         &self,
         permit: &CoreSessionMutationPermit,
         target_turn: usize,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         self.coordinator
             .get_session_manager()
             .validate_rollback_context_to_turn_start_locked(
@@ -1347,7 +1718,7 @@ impl CoreAgentRuntimeCompatibility {
     pub async fn commit_session_revert_before_snapshot_mutation(
         &self,
         permit: &CoreSessionMutationPermit,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         self.coordinator
             .commit_session_revert_locked(&permit.storage_path, &permit.session_id)
             .await
@@ -1358,14 +1729,14 @@ impl CoreAgentRuntimeCompatibility {
     pub async fn ensure_snapshot_record_allowed(
         &self,
         permit: &CoreSessionMutationPermit,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         if self
             .persistence
             .load_session_revert_state(&permit.storage_path, &permit.session_id)
             .await?
             .is_some()
         {
-            return Err(BitFunError::OutcomeUnknown(format!(
+            return Err(OpenBitFunError::OutcomeUnknown(format!(
                 "Snapshot recording is not allowed while a Session undo is staged: session_id={}",
                 permit.session_id
             )));
@@ -1378,7 +1749,7 @@ impl CoreAgentRuntimeCompatibility {
         storage_path: &Path,
         session_id: &str,
         limit: Option<usize>,
-    ) -> BitFunResult<Vec<DialogTurnData>> {
+    ) -> OpenBitFunResult<Vec<DialogTurnData>> {
         let read = self
             .begin_persisted_session_read(storage_path, session_id)
             .await?;
@@ -1396,7 +1767,7 @@ impl CoreAgentRuntimeCompatibility {
         &self,
         permit: &CoreSessionMutationPermit,
         limit: Option<usize>,
-    ) -> BitFunResult<Vec<DialogTurnData>> {
+    ) -> OpenBitFunResult<Vec<DialogTurnData>> {
         let visible_turn_end = self
             .persistence
             .load_session_revert_state(&permit.storage_path, &permit.session_id)
@@ -1417,7 +1788,7 @@ impl CoreAgentRuntimeCompatibility {
         storage_path: &Path,
         session_id: &str,
         options: &SessionTranscriptExportOptions,
-    ) -> BitFunResult<SessionTranscriptExport> {
+    ) -> OpenBitFunResult<SessionTranscriptExport> {
         let _read = self
             .begin_persisted_session_read(storage_path, session_id)
             .await?;
@@ -1430,7 +1801,7 @@ impl CoreAgentRuntimeCompatibility {
         &self,
         workspace_path: &Path,
         session_id: &str,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         validate_persisted_session_id(session_id)?;
         self.persistence
             .touch_session(workspace_path, session_id)
@@ -1441,10 +1812,10 @@ impl CoreAgentRuntimeCompatibility {
         &self,
         permit: &CoreSessionMutationPermit,
         turn: &DialogTurnData,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         validate_persisted_session_id(&turn.session_id)?;
         if turn.session_id != permit.session_id {
-            return Err(BitFunError::Validation(format!(
+            return Err(OpenBitFunError::Validation(format!(
                 "Turn session does not match the active mutation: turn_session_id={}, mutation_session_id={}",
                 turn.session_id, permit.session_id
             )));
@@ -1465,14 +1836,14 @@ impl CoreAgentRuntimeCompatibility {
             .get_session_manager()
             .get_session(&permit.session_id)
             .ok_or_else(|| {
-                BitFunError::OutcomeUnknown(format!(
+                OpenBitFunError::OutcomeUnknown(format!(
                     "Session must be loaded before saving a projected Turn: session_id={}",
                     permit.session_id
                 ))
             })?;
         let expected_turn_id = session.dialog_turn_ids.get(turn.turn_index);
         if expected_turn_id != Some(&turn.turn_id) {
-            return Err(BitFunError::Validation(format!(
+            return Err(OpenBitFunError::Validation(format!(
                 "Turn does not belong to the active Session history branch: session_id={}, turn_index={}, turn_id={}",
                 permit.session_id, turn.turn_index, turn.turn_id
             )));
@@ -1505,7 +1876,7 @@ impl CoreAgentRuntimeCompatibility {
         workspace_path: &Path,
         parent_session_id: &str,
         parent_dialog_turn_ids: &std::collections::HashSet<String>,
-    ) -> BitFunResult<Vec<String>> {
+    ) -> OpenBitFunResult<Vec<String>> {
         validate_persisted_session_id(parent_session_id)?;
         self.coordinator
             .delete_hidden_subagent_sessions_for_parent_turns(
@@ -1517,20 +1888,101 @@ impl CoreAgentRuntimeCompatibility {
     }
 }
 
+#[cfg(feature = "product-search")]
+fn session_search_document(metadata: &SessionMetadata) -> SessionSearchSessionDocument {
+    SessionSearchSessionDocument {
+        session_id: metadata.session_id.clone(),
+        title: metadata.session_name.clone(),
+        tags: metadata.tags.clone(),
+        archived: metadata.status == SessionStatus::Archived,
+        updated_at_ms: i64::try_from(metadata.last_active_at).unwrap_or(i64::MAX),
+        source_revision: format!(
+            "v1:{}:{}:{}:{}:{}",
+            metadata.turn_count,
+            metadata.message_count,
+            metadata.tool_call_count,
+            metadata.last_active_at,
+            metadata.last_finished_at.unwrap_or_default(),
+        ),
+    }
+}
+
+#[cfg(feature = "product-search")]
+fn session_search_turn_document(turn: &DialogTurnData) -> SessionSearchTurnDocument {
+    SessionSearchTurnDocument {
+        session_id: turn.session_id.clone(),
+        turn_id: turn.turn_id.clone(),
+        turn_index: turn.turn_index,
+        user_text: transcript_display_user_content(turn),
+        assistant_text: transcript_display_assistant_content(turn),
+        updated_at_ms: i64::try_from(turn.end_time.unwrap_or(turn.timestamp)).unwrap_or(i64::MAX),
+    }
+}
+
+#[cfg(feature = "product-search")]
+fn session_search_index_error(error: SessionSearchIndexError) -> OpenBitFunError {
+    log::warn!("Product search index operation failed: {error}");
+    OpenBitFunError::Session("Session content search is temporarily unavailable".to_string())
+}
+
+#[cfg(feature = "product-search")]
+fn validated_session_content_search_query(query: &str) -> OpenBitFunResult<&str> {
+    let query = query.trim();
+    if query.chars().count() > MAX_SESSION_CONTENT_SEARCH_QUERY_CHARS {
+        return Err(OpenBitFunError::Validation(format!(
+            "Session content search queries must not exceed {MAX_SESSION_CONTENT_SEARCH_QUERY_CHARS} characters"
+        )));
+    }
+    Ok(query)
+}
+
 #[async_trait::async_trait]
 impl AgentContextReloadPort for CoreAgentRuntimeCompatibility {
     async fn reload_session_context(
         &self,
         request: AgentContextReloadRequest,
-    ) -> bitfun_runtime_ports::PortResult<()> {
+    ) -> openbitfun_runtime_ports::PortResult<()> {
         CoreAgentRuntimeCompatibility::reload_session_context(self, request)
             .await
             .map_err(|error| {
-                bitfun_runtime_ports::PortError::new(
-                    bitfun_runtime_ports::PortErrorKind::Backend,
+                openbitfun_runtime_ports::PortError::new(
+                    openbitfun_runtime_ports::PortErrorKind::Backend,
                     error.to_string(),
                 )
             })
+    }
+}
+
+#[cfg(feature = "product-search")]
+#[async_trait::async_trait]
+impl ProductSearchPort for CoreAgentRuntimeCompatibility {
+    async fn search_session_content(
+        &self,
+        request: SessionContentSearchRequest,
+    ) -> PortResult<SessionContentSearchResponse> {
+        if request.workspace_path.trim().is_empty() {
+            return Err(PortError::new(
+                PortErrorKind::InvalidRequest,
+                "Session content search requires a workspace path",
+            ));
+        }
+        let limit = request.normalized_limit();
+        let storage_path = self
+            .resolve_persisted_session_storage_path(SessionStoragePathRequest {
+                workspace_path: PathBuf::from(request.workspace_path),
+                remote_connection_id: request.remote_connection_id,
+                remote_ssh_host: request.remote_ssh_host,
+            })
+            .await
+            .map_err(runtime_port_error)?;
+        self.search_persisted_session_content(
+            &storage_path,
+            &request.query,
+            limit,
+            request.include_archived,
+        )
+        .await
+        .map_err(runtime_port_error)
     }
 }
 
@@ -1594,6 +2046,7 @@ impl CoreSessionOperationsPort {
         source_session_id: String,
         source_turn_id: Option<String>,
         boundary: SessionBranchBoundary,
+        workspace_scope: &SessionStoragePathRequest,
     ) -> PortResult<AgentSessionForkResult> {
         if source_turn_id
             .as_deref()
@@ -1604,18 +2057,51 @@ impl CoreSessionOperationsPort {
                 "source turn id is required",
             ));
         }
-        if !self
-            .coordinator
-            .get_session_manager()
+        let session_manager = self.coordinator.get_session_manager();
+        let expected_workspace = {
+            let _guard = session_manager
+                .acquire_session_mutation(&source_session_id)
+                .await
+                .map_err(runtime_port_error)?;
+            session_manager
+                .validate_session_storage_path_binding(&source_session_id, storage_path)
+                .map_err(runtime_port_error)?;
+            let persisted = self
+                .persistence
+                .load_session_header(storage_path, &source_session_id)
+                .await
+                .map_err(runtime_port_error)?;
+            let identity =
+                fork_workspace_identity(&persisted, workspace_scope).map_err(runtime_port_error)?;
+            if let Some(identity) = identity.as_ref() {
+                if let Some(loaded) = session_manager.get_session(&source_session_id) {
+                    validate_session_workspace_identity(&loaded, identity)
+                        .map_err(runtime_port_error)?;
+                }
+                if identity.remote_connection_id.is_some() {
+                    self.coordinator
+                        .ensure_workspace_runtime_ownership(
+                            Path::new(&identity.logical_workspace_path),
+                            identity.remote_connection_id.as_deref(),
+                            Some(&identity.hostname),
+                        )
+                        .map_err(runtime_port_error)?;
+                }
+            }
+            identity
+        };
+        if !session_manager
             .is_session_loaded_from_storage_path(storage_path, &source_session_id)
             .map_err(runtime_port_error)?
         {
-            self.coordinator
+            // Restore owns its own mutation lock. Do not use Coordinator's
+            // restore-and-reconcile facade: identity must be rechecked before
+            // an unfinished undo transition can change files or history.
+            session_manager
                 .restore_session_from_storage_path(storage_path, &source_session_id)
                 .await
                 .map_err(runtime_port_error)?;
         }
-        let session_manager = self.coordinator.get_session_manager();
         let _mutation_guard = session_manager
             .acquire_session_mutation(&source_session_id)
             .await
@@ -1623,6 +2109,19 @@ impl CoreSessionOperationsPort {
         session_manager
             .validate_session_storage_path_binding(&source_session_id, storage_path)
             .map_err(runtime_port_error)?;
+        if let Some(expected) = expected_workspace.as_ref() {
+            if let Some(loaded) = session_manager.get_session(&source_session_id) {
+                validate_session_workspace_identity(&loaded, expected)
+                    .map_err(runtime_port_error)?;
+            }
+            let persisted = self
+                .persistence
+                .load_session_header(storage_path, &source_session_id)
+                .await
+                .map_err(runtime_port_error)?;
+            validate_session_workspace_identity(&persisted, expected)
+                .map_err(runtime_port_error)?;
+        }
         self.coordinator
             .reconcile_session_revert_locked(storage_path, &source_session_id)
             .await
@@ -1781,38 +2280,18 @@ async fn validate_persisted_lineage_descendant(
     }
 }
 
-fn runtime_port_error(error: BitFunError) -> PortError {
+fn runtime_port_error(error: OpenBitFunError) -> PortError {
     let kind = match &error {
-        BitFunError::Validation(_) => PortErrorKind::InvalidRequest,
-        BitFunError::NotFound(_) => PortErrorKind::NotFound,
-        BitFunError::Timeout(_) => PortErrorKind::Timeout,
-        BitFunError::Cancelled(_) => PortErrorKind::Cancelled,
-        BitFunError::SessionInUse { .. } => PortErrorKind::SessionInUse,
-        BitFunError::SessionCreateCleanupRequired { .. } => PortErrorKind::CleanupRequired,
-        BitFunError::OutcomeUnknown(_) => PortErrorKind::OutcomeUnknown,
+        OpenBitFunError::Validation(_) => PortErrorKind::InvalidRequest,
+        OpenBitFunError::NotFound(_) => PortErrorKind::NotFound,
+        OpenBitFunError::Timeout(_) => PortErrorKind::Timeout,
+        OpenBitFunError::Cancelled(_) => PortErrorKind::Cancelled,
+        OpenBitFunError::SessionInUse { .. } => PortErrorKind::SessionInUse,
+        OpenBitFunError::SessionCreateCleanupRequired { .. } => PortErrorKind::CleanupRequired,
+        OpenBitFunError::OutcomeUnknown(_) => PortErrorKind::OutcomeUnknown,
         _ => PortErrorKind::Backend,
     };
     PortError::new(kind, error.to_string())
-}
-
-fn validate_latest_turn_fork_scope(request: &AgentSessionForkRequest) -> PortResult<()> {
-    validate_local_fork_scope(
-        request.remote_connection_id.as_deref(),
-        request.remote_ssh_host.as_deref(),
-    )
-}
-
-fn validate_local_fork_scope(
-    remote_connection_id: Option<&str>,
-    remote_ssh_host: Option<&str>,
-) -> PortResult<()> {
-    if remote_connection_id.is_some() || remote_ssh_host.is_some() {
-        return Err(PortError::new(
-            PortErrorKind::NotAvailable,
-            "Remote session fork is not supported by the local CLI runtime",
-        ));
-    }
-    Ok(())
 }
 
 #[async_trait::async_trait]
@@ -1849,6 +2328,13 @@ impl AgentSessionLineagePort for CoreSessionOperationsPort {
                 .active_turn_id_in_storage_path(&storage_path, &entry.session_id)
                 .await
                 .map_err(runtime_port_error)?;
+            if let Some(parent_session_id) = entry.parent_session_id.as_deref() {
+                entry.agent_id = self
+                    .coordinator
+                    .existing_agent_id_for_subagent_session(parent_session_id, &entry.session_id)
+                    .await
+                    .map_err(runtime_port_error)?;
+            }
         }
         Ok(Some(snapshot))
     }
@@ -1966,13 +2452,17 @@ impl AgentSessionForkPort for CoreSessionOperationsPort {
         &self,
         request: AgentSessionForkRequest,
     ) -> PortResult<AgentSessionForkResult> {
-        validate_latest_turn_fork_scope(&request)?;
         let AgentSessionForkRequest {
             workspace_path,
             source_session_id,
             remote_connection_id,
             remote_ssh_host,
         } = request;
+        let workspace_scope = SessionStoragePathRequest {
+            workspace_path: PathBuf::from(&workspace_path),
+            remote_connection_id: remote_connection_id.clone(),
+            remote_ssh_host: remote_ssh_host.clone(),
+        };
         self.coordinator
             .ensure_workspace_runtime_ownership(
                 Path::new(&workspace_path),
@@ -1988,6 +2478,7 @@ impl AgentSessionForkPort for CoreSessionOperationsPort {
             source_session_id,
             None,
             SessionBranchBoundary::ThroughTurn,
+            &workspace_scope,
         )
         .await
     }
@@ -1996,10 +2487,11 @@ impl AgentSessionForkPort for CoreSessionOperationsPort {
         &self,
         request: AgentSessionForkAtTurnRequest,
     ) -> PortResult<AgentSessionForkResult> {
-        validate_local_fork_scope(
-            request.remote_connection_id.as_deref(),
-            request.remote_ssh_host.as_deref(),
-        )?;
+        let workspace_scope = SessionStoragePathRequest {
+            workspace_path: PathBuf::from(&request.workspace_path),
+            remote_connection_id: request.remote_connection_id.clone(),
+            remote_ssh_host: request.remote_ssh_host.clone(),
+        };
         self.coordinator
             .ensure_workspace_runtime_ownership(
                 Path::new(&request.workspace_path),
@@ -2019,6 +2511,7 @@ impl AgentSessionForkPort for CoreSessionOperationsPort {
             request.source_session_id,
             Some(request.source_turn_id),
             SessionBranchBoundary::ThroughTurn,
+            &workspace_scope,
         )
         .await
     }
@@ -2027,10 +2520,11 @@ impl AgentSessionForkPort for CoreSessionOperationsPort {
         &self,
         request: AgentSessionForkBeforeTurnRequest,
     ) -> PortResult<AgentSessionForkResult> {
-        validate_local_fork_scope(
-            request.remote_connection_id.as_deref(),
-            request.remote_ssh_host.as_deref(),
-        )?;
+        let workspace_scope = SessionStoragePathRequest {
+            workspace_path: PathBuf::from(&request.workspace_path),
+            remote_connection_id: request.remote_connection_id.clone(),
+            remote_ssh_host: request.remote_ssh_host.clone(),
+        };
         self.coordinator
             .ensure_workspace_runtime_ownership(
                 Path::new(&request.workspace_path),
@@ -2050,6 +2544,7 @@ impl AgentSessionForkPort for CoreSessionOperationsPort {
             request.source_session_id,
             Some(request.source_turn_id),
             SessionBranchBoundary::BeforeTurn,
+            &workspace_scope,
         )
         .await
     }
@@ -2079,6 +2574,7 @@ impl AgentSessionUsagePort for CoreSessionOperationsPort {
             self.persistence.as_ref(),
             &storage_path,
             &request.session_id,
+            None,
         )
         .await
         .map_err(runtime_port_error)?;
@@ -2098,22 +2594,107 @@ impl AgentTurnSettlementPort for CoreSessionOperationsPort {
     async fn wait_for_turn_settlement(
         &self,
         request: AgentTurnSettlementRequest,
-    ) -> PortResult<()> {
+    ) -> PortResult<AgentTurnSettlementResult> {
         if request.wait_timeout_ms == 0 {
             return Err(PortError::new(
                 PortErrorKind::InvalidRequest,
                 "turn settlement timeout must be greater than zero",
             ));
         }
-        self.coordinator
+        let wait_error = self
+            .coordinator
             .wait_for_turn_settlement(
                 &request.session_id,
                 &request.turn_id,
                 Duration::from_millis(request.wait_timeout_ms),
             )
             .await
-            .map_err(runtime_port_error)
+            .err()
+            .map(runtime_port_error);
+        if let Some(error) = wait_error
+            .as_ref()
+            .filter(|error| error.kind != PortErrorKind::OutcomeUnknown)
+        {
+            return Err(error.clone());
+        }
+
+        let session_manager = self.coordinator.get_session_manager();
+        let _mutation = session_manager
+            .acquire_session_mutation(&request.session_id)
+            .await
+            .map_err(runtime_port_error)?;
+        let turn_is_loaded = session_manager
+            .get_session(&request.session_id)
+            .is_some_and(|session| {
+                session
+                    .dialog_turn_ids
+                    .iter()
+                    .any(|turn_id| turn_id == &request.turn_id)
+            });
+        let persisted_turns = session_manager
+            .load_persisted_transcript_turns_locked(&request.session_id)
+            .await
+            .map_err(runtime_port_error)?;
+        let turn = persisted_turns
+            .as_deref()
+            .and_then(|turns| turns.iter().find(|turn| turn.turn_id == request.turn_id));
+
+        if let Some(turn) = turn.filter(|turn| turn.status != TurnStatus::InProgress) {
+            let persisted_result = persisted_turn_settlement_result(turn)?;
+            if let Some(cached_result) = session_manager
+                .turn_settlement_result(&request.session_id, &request.turn_id)
+                .filter(|cached| cached.status == persisted_result.status)
+            {
+                return Ok(cached_result);
+            }
+            return Ok(persisted_result);
+        }
+        if persisted_turns.is_none() && turn_is_loaded {
+            if let Some(cached_result) =
+                session_manager.turn_settlement_result(&request.session_id, &request.turn_id)
+            {
+                return Ok(cached_result);
+            }
+        }
+        if let Some(error) = wait_error {
+            return Err(error);
+        }
+
+        Err(PortError::new(
+            PortErrorKind::OutcomeUnknown,
+            format!(
+                "Authoritative turn result is unavailable: session_id={}, turn_id={}",
+                request.session_id, request.turn_id
+            ),
+        ))
     }
+}
+
+fn persisted_turn_settlement_result(
+    turn: &DialogTurnData,
+) -> PortResult<AgentTurnSettlementResult> {
+    let final_response = transcript_final_assistant_content(turn);
+    let status = match turn.status {
+        TurnStatus::Completed if turn.has_final_response != Some(false) => {
+            AgentTurnSettlementStatus::Completed
+        }
+        TurnStatus::Completed | TurnStatus::Error => AgentTurnSettlementStatus::Failed,
+        TurnStatus::Cancelled => AgentTurnSettlementStatus::Cancelled,
+        TurnStatus::InProgress => {
+            return Err(PortError::new(
+                PortErrorKind::OutcomeUnknown,
+                format!("Dialog turn is still in progress: {}", turn.turn_id),
+            ));
+        }
+    };
+
+    Ok(AgentTurnSettlementResult {
+        final_response: (status == AgentTurnSettlementStatus::Completed)
+            .then_some(final_response)
+            .flatten(),
+        finish_reason: turn.finish_reason.clone(),
+        status,
+    })
 }
 
 #[cfg(test)]
@@ -2128,7 +2709,7 @@ mod tests {
         AgentContextReloadRequest, AgentContextReloadTarget, LocalWorkspaceSnapshotSessionRequest,
         LocalWorkspaceSnapshotTurnRequest,
     };
-    use bitfun_runtime_services::RuntimeServices;
+    use openbitfun_runtime_services::RuntimeServices;
     use uuid::Uuid;
 
     #[allow(deprecated)]
@@ -2137,11 +2718,13 @@ mod tests {
         build_session_lineage_snapshot, generate_core_session_usage_report,
         get_snapshot_manager_for_workspace, latest_persisted_turn_id,
         merge_runtime_owned_turn_facts, projected_turn_save_would_overwrite_runtime_state,
-        runtime_lineage_snapshot, runtime_port_error, validate_latest_turn_fork_scope,
-        validate_persisted_session_id, CoreAgentRuntimeCompatibility, CoreLocalWorkspaceSnapshot,
-        CoreProductAgentRuntime, CoreProductEventQueueOwner, CoreSessionOperationsPort,
-        SESSION_PROVIDER_ACP, SESSION_PROVIDER_METADATA_KEY,
+        runtime_lineage_snapshot, runtime_port_error, validate_persisted_session_id,
+        CoreAgentRuntimeCompatibility, CoreLocalWorkspaceSnapshot, CoreProductAgentRuntime,
+        CoreProductEventQueueOwner, CoreSessionOperationsPort, SESSION_PROVIDER_ACP,
+        SESSION_PROVIDER_METADATA_KEY,
     };
+    #[cfg(feature = "product-search")]
+    use super::{session_search_index_error, validated_session_content_search_query};
     use crate::agentic::coordination::{ConversationCoordinator, DialogScheduler};
     use crate::agentic::events::{EventQueue, EventQueueConfig, EventRouter};
     use crate::agentic::execution::{
@@ -2157,8 +2740,8 @@ mod tests {
     use crate::agentic::tools::{ToolPipeline, ToolStateManager};
     use crate::infrastructure::PathManager;
     use crate::service::session::{
-        DialogTurnData, DialogTurnRecoveryData, DialogTurnRecoveryStatus, SessionMetadata,
-        TurnStatus, UserMessageData,
+        DialogTurnData, DialogTurnRecoveryData, DialogTurnRecoveryStatus, SessionKind,
+        SessionMetadata, TurnStatus, UserMessageData,
     };
     use crate::service::session_usage::UsageTokenSource;
     use crate::service::snapshot::manager::clear_snapshot_manager_for_test;
@@ -2166,13 +2749,45 @@ mod tests {
     use crate::service::workspace_runtime::{
         set_workspace_runtime_service_for_current_test, WorkspaceRuntimeService,
     };
-    use crate::util::errors::BitFunError;
-    use bitfun_agent_runtime::sdk::{
-        AgentSessionForkAtTurnRequest, AgentSessionForkPort, AgentSessionForkRequest,
-        AgentSessionUsagePort, AgentSessionUsageRequest, PortErrorKind,
+    use crate::util::errors::OpenBitFunError;
+    use openbitfun_agent_runtime::sdk::{
+        AgentSessionForkAtTurnRequest, AgentSessionForkBeforeTurnRequest, AgentSessionForkPort,
+        AgentSessionForkRequest, AgentSessionUsagePort, AgentSessionUsageRequest, PortErrorKind,
     };
-    use bitfun_events::AgenticEvent;
+    use openbitfun_events::AgenticEvent;
     use tokio::sync::RwLock as TokioRwLock;
+
+    #[cfg(feature = "product-search")]
+    #[test]
+    fn product_search_index_errors_do_not_cross_the_runtime_boundary() {
+        let private_backend_detail = "C:\\Users\\private\\product-search-v1.sqlite";
+        let error = session_search_index_error(
+            openbitfun_services_core::session_search::SessionSearchIndexError::Backend(
+                private_backend_detail.to_string(),
+            ),
+        );
+        let visible = error.to_string();
+
+        assert!(visible.contains("Session content search is temporarily unavailable"));
+        assert!(!visible.contains(private_backend_detail));
+    }
+
+    #[cfg(feature = "product-search")]
+    #[test]
+    fn product_search_query_length_is_bounded_before_storage_access() {
+        let oversized = "x".repeat(
+            openbitfun_product_domains::product_search::MAX_SESSION_CONTENT_SEARCH_QUERY_CHARS + 1,
+        );
+
+        assert_eq!(
+            validated_session_content_search_query("  roadmap  ").expect("valid query"),
+            "roadmap"
+        );
+        assert!(matches!(
+            validated_session_content_search_query(&oversized),
+            Err(OpenBitFunError::Validation(_))
+        ));
+    }
 
     struct TestWorkspace {
         path: PathBuf,
@@ -2181,7 +2796,7 @@ mod tests {
     impl TestWorkspace {
         fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
-                "bitfun-product-runtime-compatibility-test-{}",
+                "openbitfun-product-runtime-compatibility-test-{}",
                 Uuid::new_v4()
             ));
             std::fs::create_dir_all(&path).expect("test workspace should be created");
@@ -2796,7 +3411,7 @@ mod tests {
             Arc::new(
                 crate::runtime_ownership::CoreRuntimeOwnership::embedded_with_facts(
                     workspace.path().join("runtime-ownership"),
-                    "bitfun".to_string(),
+                    "openbitfun".to_string(),
                     "test",
                 ),
             ),
@@ -2948,7 +3563,7 @@ mod tests {
 
     #[test]
     fn session_create_rollback_residual_remains_typed_across_the_runtime_port() {
-        let error = runtime_port_error(BitFunError::SessionCreateCleanupRequired {
+        let error = runtime_port_error(OpenBitFunError::SessionCreateCleanupRequired {
             session_id: "session-1".to_string(),
             error: "metadata write failed".to_string(),
             cleanup_error: "session directory is locked".to_string(),
@@ -2960,7 +3575,7 @@ mod tests {
 
     #[test]
     fn session_writer_conflict_remains_typed_across_the_runtime_port() {
-        let error = runtime_port_error(BitFunError::SessionInUse {
+        let error = runtime_port_error(OpenBitFunError::SessionInUse {
             session_id: "session-1".to_string(),
         });
 
@@ -3010,23 +3625,416 @@ mod tests {
         );
     }
 
-    #[test]
-    fn latest_turn_session_fork_keeps_remote_identity_unsupported() {
-        for (remote_connection_id, remote_ssh_host) in [
-            (Some("remote-1".to_string()), None),
-            (None, Some("host-1".to_string())),
-        ] {
-            let request = AgentSessionForkRequest {
-                workspace_path: "D:/workspace/project".to_string(),
-                source_session_id: "session-1".to_string(),
-                remote_connection_id,
-                remote_ssh_host,
-            };
-            let error = validate_latest_turn_fork_scope(&request)
-                .expect_err("latest-turn remote fork must remain unsupported");
+    #[tokio::test]
+    async fn session_fork_uses_verified_remote_storage_and_preserves_execution_identity() {
+        let workspace = TestWorkspace::new();
+        let remote_path = format!("/workspace/remote-fork-{}", Uuid::new_v4());
+        assert!(!Path::new(&remote_path).exists());
+        let path_manager = workspace.path_manager();
+        let runtime_service = WorkspaceRuntimeService::new(path_manager.clone());
+        let persistence =
+            Arc::new(PersistenceManager::new(path_manager.clone()).expect("persistence manager"));
+        let session_manager = Arc::new(SessionManager::new(
+            Arc::new(SessionContextStore::new()),
+            persistence.clone(),
+            SessionManagerConfig {
+                max_active_sessions: 100,
+                session_idle_timeout: Duration::from_secs(3600),
+                auto_save_interval: Duration::from_secs(300),
+                enable_persistence: true,
+                prompt_cache_policy: PromptCachePolicy::default(),
+            },
+        ));
+        let event_queue = Arc::new(EventQueue::new(EventQueueConfig::default()));
+        let tool_pipeline = Arc::new(ToolPipeline::new(
+            Arc::new(TokioRwLock::new(ToolRegistry::new())),
+            Arc::new(ToolStateManager::new(event_queue.clone())),
+            None,
+        ));
+        let execution_engine = Arc::new(ExecutionEngine::new(
+            Arc::new(RoundExecutor::new(
+                Arc::new(StreamProcessor::new(event_queue.clone())),
+                event_queue.clone(),
+                tool_pipeline.clone(),
+            )),
+            event_queue.clone(),
+            session_manager.clone(),
+            Arc::new(ContextCompressor::new(CompressionConfig::default())),
+            ExecutionEngineConfig::default(),
+        ));
+        let coordinator = Arc::new(ConversationCoordinator::new(
+            session_manager.clone(),
+            execution_engine,
+            tool_pipeline,
+            event_queue,
+            Arc::new(EventRouter::new()),
+            Arc::new(
+                crate::runtime_ownership::CoreRuntimeOwnership::embedded_with_facts(
+                    workspace.path().join("ownership"),
+                    "openbitfun".to_string(),
+                    "test",
+                ),
+            ),
+        ));
+        let scheduler = DialogScheduler::new(coordinator.clone(), session_manager.clone());
+        let token_usage_service = Arc::new(
+            TokenUsageService::new_in_base_dir(workspace.path().join("tokens"))
+                .await
+                .expect("token usage service"),
+        );
+        let port =
+            CoreSessionOperationsPort::new(coordinator.clone(), scheduler, token_usage_service);
 
-            assert_eq!(error.kind, PortErrorKind::NotAvailable);
+        // Two SSH hosts may use the same POSIX path. Forking is a Session-store
+        // operation: no checkout, Git command, or controller path may be used.
+        for (connection_id, host) in [("ssh-a", "host-a"), ("ssh-b", "host-b")] {
+            let storage_path = runtime_service
+                .context_for_remote_workspace(host, &remote_path)
+                .sessions_dir;
+            let source_session_id = format!("session-{connection_id}");
+            let source = crate::agentic::core::Session::new_with_id(
+                source_session_id.clone(),
+                format!("Remote fork {host}"),
+                "agentic".to_string(),
+                crate::agentic::core::SessionConfig {
+                    workspace_path: Some(remote_path.clone()),
+                    remote_connection_id: Some(connection_id.to_string()),
+                    remote_ssh_host: Some(host.to_string()),
+                    ..Default::default()
+                },
+            );
+            persistence
+                .save_session(&storage_path, &source)
+                .await
+                .expect("remote source session");
+            for index in 0..2 {
+                let mut turn = DialogTurnData::new(
+                    format!("turn-{index}"),
+                    index,
+                    source_session_id.clone(),
+                    UserMessageData {
+                        id: format!("user-{index}"),
+                        content: format!("{host} turn {index}"),
+                        timestamp: index as u64,
+                        metadata: None,
+                    },
+                );
+                turn.mark_completed();
+                persistence
+                    .save_dialog_turn(&storage_path, &turn)
+                    .await
+                    .expect("remote source turn");
+            }
+
+            let identity =
+                super::workspace_session_identity(&remote_path, Some(connection_id), Some(host))
+                    .unwrap();
+            let read = super::begin_consistent_persisted_session_read(
+                coordinator.as_ref(),
+                persistence.as_ref(),
+                &storage_path,
+                &source_session_id,
+                Some(&identity),
+            )
+            .await
+            .expect("offline recorded history validates persisted Session identity");
+            drop(read);
+            let other_profile = super::workspace_session_identity(
+                &remote_path,
+                Some("another-profile"),
+                Some(host),
+            )
+            .unwrap();
+            let error = super::begin_consistent_persisted_session_read(
+                coordinator.as_ref(),
+                persistence.as_ref(),
+                &storage_path,
+                &source_session_id,
+                Some(&other_profile),
+            )
+            .await
+            .err()
+            .expect("same host and root cannot alias another profile's Session");
+            assert!(error
+                .to_string()
+                .contains("workspace identity does not match"));
+            assert!(session_manager.get_session(&source_session_id).is_none());
+
+            let unverified_error = port
+                .fork_session(AgentSessionForkRequest {
+                    workspace_path: remote_path.clone(),
+                    source_session_id: source_session_id.clone(),
+                    remote_connection_id: Some(connection_id.to_string()),
+                    remote_ssh_host: Some(host.to_string()),
+                })
+                .await
+                .expect_err("raw remote identity must not bypass Runtime ownership");
+            assert!(unverified_error
+                .message
+                .contains("unverified_remote_workspace_scope"));
+            assert!(session_manager.get_session(&source_session_id).is_none());
+
+            coordinator
+                .ensure_verified_remote_workspace_runtime_ownership(
+                    Path::new(&remote_path),
+                    connection_id,
+                    Some(host),
+                )
+                .expect("Workspace owner has verified this remote binding");
+            let wrong_host_error = port
+                .fork_session_at_turn(AgentSessionForkAtTurnRequest {
+                    workspace_path: remote_path.clone(),
+                    source_session_id: source_session_id.clone(),
+                    source_turn_id: "turn-0".to_string(),
+                    remote_connection_id: Some(connection_id.to_string()),
+                    remote_ssh_host: Some("wrong-host".to_string()),
+                })
+                .await
+                .expect_err("a mismatched host cannot use a verified connection");
+            assert!(wrong_host_error
+                .message
+                .contains("unverified_remote_workspace_scope"));
+
+            let other_connection_id = format!("{connection_id}-other-profile");
+            coordinator
+                .ensure_verified_remote_workspace_runtime_ownership(
+                    Path::new(&remote_path),
+                    &other_connection_id,
+                    Some(host),
+                )
+                .expect("second profile is independently verified for the same host and root");
+            // Both profiles resolve to the same legacy Session mirror. None of
+            // the three fork APIs may restore or branch the other profile's
+            // Session merely because its storage path matches.
+            for loaded in [false, true] {
+                if loaded {
+                    coordinator
+                        .restore_session_from_storage_path(&storage_path, &source_session_id)
+                        .await
+                        .expect("load the source under its own identity");
+                }
+                for variant in 0..3 {
+                    let result = match variant {
+                        0 => {
+                            port.fork_session(AgentSessionForkRequest {
+                                workspace_path: remote_path.clone(),
+                                source_session_id: source_session_id.clone(),
+                                remote_connection_id: Some(other_connection_id.clone()),
+                                remote_ssh_host: Some(host.to_string()),
+                            })
+                            .await
+                        }
+                        1 => {
+                            port.fork_session_at_turn(AgentSessionForkAtTurnRequest {
+                                workspace_path: remote_path.clone(),
+                                source_session_id: source_session_id.clone(),
+                                source_turn_id: "turn-0".to_string(),
+                                remote_connection_id: Some(other_connection_id.clone()),
+                                remote_ssh_host: Some(host.to_string()),
+                            })
+                            .await
+                        }
+                        _ => {
+                            port.fork_session_before_turn(AgentSessionForkBeforeTurnRequest {
+                                workspace_path: remote_path.clone(),
+                                source_session_id: source_session_id.clone(),
+                                source_turn_id: "turn-0".to_string(),
+                                remote_connection_id: Some(other_connection_id.clone()),
+                                remote_ssh_host: Some(host.to_string()),
+                            })
+                            .await
+                        }
+                    };
+                    let error = result.expect_err("another profile cannot fork the source Session");
+                    assert_eq!(error.kind, PortErrorKind::InvalidRequest);
+                    assert!(error.message.contains("workspace identity does not match"));
+                    assert_eq!(
+                        session_manager.get_session(&source_session_id).is_some(),
+                        loaded
+                    );
+                    assert_eq!(
+                        persistence
+                            .list_session_metadata(&storage_path)
+                            .await
+                            .unwrap()
+                            .len(),
+                        1,
+                        "scope rejection must not persist a fork",
+                    );
+                }
+            }
+
+            // A loaded Session cannot override contradictory durable identity.
+            let persisted_source = persistence
+                .load_session(&storage_path, &source_session_id)
+                .await
+                .unwrap();
+            let mut changed_source = persisted_source.clone();
+            changed_source.config.remote_connection_id = Some(other_connection_id.clone());
+            persistence
+                .save_session(&storage_path, &changed_source)
+                .await
+                .unwrap();
+            let error = port
+                .fork_session(AgentSessionForkRequest {
+                    workspace_path: remote_path.clone(),
+                    source_session_id: source_session_id.clone(),
+                    remote_connection_id: Some(other_connection_id),
+                    remote_ssh_host: Some(host.to_string()),
+                })
+                .await
+                .expect_err("loaded and persisted identities must both match");
+            assert!(error.message.contains("workspace identity does not match"));
+            persistence
+                .save_session(&storage_path, &persisted_source)
+                .await
+                .unwrap();
+
+            for variant in 0..3 {
+                let result = match variant {
+                    0 => {
+                        port.fork_session_at_turn(AgentSessionForkAtTurnRequest {
+                            workspace_path: remote_path.clone(),
+                            source_session_id: source_session_id.clone(),
+                            source_turn_id: "turn-0".to_string(),
+                            remote_connection_id: Some(connection_id.to_string()),
+                            remote_ssh_host: Some(host.to_string()),
+                        })
+                        .await
+                    }
+                    1 => {
+                        port.fork_session(AgentSessionForkRequest {
+                            workspace_path: remote_path.clone(),
+                            source_session_id: source_session_id.clone(),
+                            remote_connection_id: Some(connection_id.to_string()),
+                            remote_ssh_host: Some(host.to_string()),
+                        })
+                        .await
+                    }
+                    _ => {
+                        port.fork_session_before_turn(AgentSessionForkBeforeTurnRequest {
+                            workspace_path: remote_path.clone(),
+                            source_session_id: source_session_id.clone(),
+                            source_turn_id: "turn-0".to_string(),
+                            remote_connection_id: Some(connection_id.to_string()),
+                            remote_ssh_host: Some(host.to_string()),
+                        })
+                        .await
+                    }
+                }
+                .expect("verified remote session can be forked");
+                let restored = coordinator
+                    .restore_session_from_storage_path(&storage_path, &result.session_id)
+                    .await
+                    .expect("fork restores from the same remote session store");
+                assert_eq!(
+                    restored.config.workspace_path.as_deref(),
+                    Some(remote_path.as_str())
+                );
+                assert_eq!(
+                    restored.config.remote_connection_id.as_deref(),
+                    Some(connection_id)
+                );
+                assert_eq!(restored.config.remote_ssh_host.as_deref(), Some(host));
+                let turns = persistence
+                    .load_session_turns(&storage_path, &result.session_id)
+                    .await
+                    .expect("fork turns");
+                assert_eq!(turns.len(), [1, 2, 0][variant]);
+                assert!(turns.iter().all(|turn| {
+                    turn.session_id == result.session_id
+                        && turn.user_message.content.starts_with(host)
+                }));
+                assert!(!runtime_service
+                    .context_for_local_workspace(Path::new(&remote_path))
+                    .sessions_dir
+                    .join(&result.session_id)
+                    .exists());
+            }
+            let legacy_fork = port
+                .fork_session(AgentSessionForkRequest {
+                    workspace_path: storage_path.to_string_lossy().into_owned(),
+                    source_session_id: source_session_id.clone(),
+                    remote_connection_id: None,
+                    remote_ssh_host: None,
+                })
+                .await
+                .expect("legacy callers may fork from a trusted resolved Session store");
+            let legacy_fork = persistence
+                .load_session(&storage_path, &legacy_fork.session_id)
+                .await
+                .unwrap();
+            assert_eq!(
+                legacy_fork.config.remote_connection_id.as_deref(),
+                Some(connection_id)
+            );
+            assert_eq!(legacy_fork.config.remote_ssh_host.as_deref(), Some(host));
+            assert_eq!(
+                persistence
+                    .load_session_turns(&storage_path, &source_session_id)
+                    .await
+                    .expect("source history is preserved")
+                    .len(),
+                2
+            );
         }
+        assert!(!Path::new(&remote_path).exists());
+    }
+
+    #[test]
+    fn session_fork_legacy_scope_uses_durable_identity_without_local_downgrade() {
+        let source = crate::agentic::core::Session::new_with_id(
+            "remote-source".into(),
+            "Remote source".into(),
+            "agentic".into(),
+            crate::agentic::core::SessionConfig {
+                workspace_path: Some("/workspace/repo".into()),
+                remote_connection_id: Some("ssh-source".into()),
+                remote_ssh_host: Some("source-host".into()),
+                ..Default::default()
+            },
+        );
+        let expected = super::workspace_session_identity(
+            "/workspace/repo",
+            Some("ssh-source"),
+            Some("source-host"),
+        );
+        let mut request = openbitfun_runtime_ports::SessionStoragePathRequest {
+            workspace_path: PathBuf::from("/controller/mirror/sessions"),
+            remote_connection_id: None,
+            remote_ssh_host: None,
+        };
+        assert_eq!(
+            super::fork_workspace_identity(&source, &request).unwrap(),
+            expected
+        );
+        request.workspace_path = PathBuf::from("/workspace/repo");
+        request.remote_connection_id = Some("ssh-source".into());
+        assert_eq!(
+            super::fork_workspace_identity(&source, &request).unwrap(),
+            expected
+        );
+        request.remote_connection_id = None;
+        request.remote_ssh_host = Some("source-host".into());
+        assert_eq!(
+            super::fork_workspace_identity(&source, &request).unwrap(),
+            expected
+        );
+
+        let mut incomplete = source.clone();
+        incomplete.config.remote_connection_id = None;
+        assert!(super::fork_workspace_identity(&incomplete, &request).is_err());
+        request.remote_ssh_host = None;
+        assert!(super::fork_workspace_identity(&incomplete, &request).is_err());
+
+        let local = TestWorkspace::new();
+        incomplete.config.workspace_path = Some(local.path().to_string_lossy().into_owned());
+        incomplete.config.remote_ssh_host = Some("localhost".into());
+        request.workspace_path = local.path().to_path_buf();
+        request.remote_ssh_host = Some("localhost".into());
+        assert!(super::fork_workspace_identity(&incomplete, &request)
+            .unwrap()
+            .is_some_and(|identity| identity.remote_connection_id.is_none()));
     }
 
     #[tokio::test]
@@ -3048,7 +4056,7 @@ mod tests {
                 max_active_sessions: 100,
                 session_idle_timeout: Duration::from_secs(3600),
                 auto_save_interval: Duration::from_secs(300),
-                enable_persistence: false,
+                enable_persistence: true,
                 prompt_cache_policy: PromptCachePolicy::default(),
             },
         ));
@@ -3078,10 +4086,10 @@ mod tests {
             Arc::new(
                 crate::runtime_ownership::CoreRuntimeOwnership::embedded_with_facts(
                     std::env::temp_dir().join(format!(
-                        "bitfun-product-runtime-ownership-test-{}",
+                        "openbitfun-product-runtime-ownership-test-{}",
                         uuid::Uuid::new_v4()
                     )),
-                    "bitfun".to_string(),
+                    "openbitfun".to_string(),
                     "test",
                 ),
             ),
@@ -3160,7 +4168,10 @@ mod tests {
             .load_visible_persisted_session_turns(&storage_path, session_id)
             .await
             .expect_err("cold readers must fail closed on an unfinished undo transition");
-        assert!(matches!(cold_read_error, BitFunError::OutcomeUnknown(_)));
+        assert!(matches!(
+            cold_read_error,
+            OpenBitFunError::OutcomeUnknown(_)
+        ));
 
         let result = port
             .fork_session(AgentSessionForkRequest {
@@ -3171,6 +4182,66 @@ mod tests {
             })
             .await
             .expect("latest-turn fork should restore through the resolved storage path");
+
+        let settlement = port
+            .wait_for_turn_settlement(AgentTurnSettlementRequest {
+                session_id: session_id.to_string(),
+                turn_id: visible_turn.turn_id.clone(),
+                wait_timeout_ms: 10,
+            })
+            .await
+            .expect("a cold persisted turn should remain authoritative without a live tracker");
+        assert_eq!(settlement.status, AgentTurnSettlementStatus::Completed);
+
+        let transient = session_manager
+            .create_transient_session_with_id_and_details(
+                Some("session-transient-settlement".to_string()),
+                "Transient settlement".to_string(),
+                "agentic".to_string(),
+                crate::agentic::core::SessionConfig {
+                    workspace_path: Some(workspace_root.to_string_lossy().into_owned()),
+                    ..Default::default()
+                },
+                None,
+                SessionKind::Standard,
+            )
+            .await
+            .expect("transient session");
+        let transient_turn_id = session_manager
+            .start_dialog_turn(
+                &transient.session_id,
+                "agentic".to_string(),
+                "finish transiently".to_string(),
+                Some("turn-transient-settlement".to_string()),
+                None,
+                None,
+            )
+            .await
+            .expect("transient turn");
+        session_manager
+            .reset_session_state_if_processing(&transient.session_id, &transient_turn_id);
+        session_manager.record_turn_settlement_result(
+            &transient.session_id,
+            &transient_turn_id,
+            AgentTurnSettlementResult {
+                status: AgentTurnSettlementStatus::Completed,
+                final_response: Some("transient final answer".to_string()),
+                finish_reason: Some("complete".to_string()),
+            },
+        );
+
+        let transient_settlement = port
+            .wait_for_turn_settlement(AgentTurnSettlementRequest {
+                session_id: transient.session_id,
+                turn_id: transient_turn_id,
+                wait_timeout_ms: 10,
+            })
+            .await
+            .expect("transient settlement should use the Runtime-owned result cache");
+        assert_eq!(
+            transient_settlement.final_response.as_deref(),
+            Some("transient final answer")
+        );
 
         assert_ne!(result.session_id, session_id);
         assert_eq!(result.agent_type, "agentic");
@@ -3305,7 +4376,7 @@ mod tests {
             .save_persisted_dialog_turn(&commit_mutation, &hidden_turn)
             .await
             .expect_err("a delayed save cannot revive a committed suffix Turn");
-        assert!(matches!(stale_save, BitFunError::Validation(_)));
+        assert!(matches!(stale_save, OpenBitFunError::Validation(_)));
         drop(commit_mutation);
         assert_eq!(
             persistence
@@ -3504,10 +4575,10 @@ mod tests {
             Arc::new(
                 crate::runtime_ownership::CoreRuntimeOwnership::embedded_with_facts(
                     std::env::temp_dir().join(format!(
-                        "bitfun-product-runtime-ownership-test-{}",
+                        "openbitfun-product-runtime-ownership-test-{}",
                         uuid::Uuid::new_v4()
                     )),
-                    "bitfun".to_string(),
+                    "openbitfun".to_string(),
                     "test",
                 ),
             ),
@@ -3588,7 +4659,7 @@ mod tests {
             .await
             .expect_err("a Runtime-owned Session still needs its history branch");
         assert!(
-            matches!(error, BitFunError::OutcomeUnknown(_)),
+            matches!(error, OpenBitFunError::OutcomeUnknown(_)),
             "unexpected error: {error}"
         );
     }

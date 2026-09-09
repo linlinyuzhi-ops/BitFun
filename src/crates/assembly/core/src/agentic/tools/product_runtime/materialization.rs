@@ -4,11 +4,11 @@ use crate::agentic::tools::framework::Tool;
 use crate::agentic::tools::implementations::*;
 use crate::agentic::tools::product_runtime::CallDeferredTool;
 use crate::agentic::tools::registry::ProductToolDecoratorRef;
-use bitfun_agent_tools::{
+use openbitfun_agent_tools::{
     StaticToolMaterializationError, StaticToolProviderFactory, ToolRegistry as AgentToolRegistry,
     ToolRuntimeAssembly,
 };
-use bitfun_tool_packs::{
+use openbitfun_tool_packs::{
     tool_feature_group, unavailable_feature_groups, ToolPackFeatureGroup, ToolProviderGroupPlan,
 };
 use std::collections::{HashMap, HashSet};
@@ -114,7 +114,13 @@ impl StaticToolProviderFactory<dyn Tool> for ProductConcreteToolFactory {
             "ExecControl" => Some(Arc::new(ExecControlTool::new())),
             "GetTime" => Some(Arc::new(GetTimeTool::new())),
             "ListModels" => Some(Arc::new(ListModelsTool::new())),
+            "OpenBitFunControl" => Some(Arc::new(OpenBitFunControlTool::new())),
             "Task" => Some(Arc::new(TaskTool::new())),
+            "AgentSpawn" => Some(Arc::new(AgentSpawnTool::new())),
+            "AgentSendInput" => Some(Arc::new(AgentSendInputTool::new())),
+            "AgentInterrupt" => Some(Arc::new(AgentInterruptTool::new())),
+            "AgentList" => Some(Arc::new(AgentListTool::new())),
+            "AgentDelete" => Some(Arc::new(AgentDeleteTool::new())),
             "AgentWait" => Some(Arc::new(AgentWaitTool::new())),
             "LaunchReviewAgent" => Some(Arc::new(LaunchReviewAgentTool::new())),
             "Skill" => Some(Arc::new(SkillTool::new())),
@@ -131,7 +137,6 @@ impl StaticToolProviderFactory<dyn Tool> for ProductConcreteToolFactory {
             "UpdateCanvas" => Some(Arc::new(UpdateCanvasTool::new())),
             #[cfg(feature = "tools-canvas")]
             "PatchCanvas" => Some(Arc::new(PatchCanvasTool::new())),
-            "CreatePlan" => Some(Arc::new(CreatePlanTool::new())),
             "submit_code_review" => Some(Arc::new(CodeReviewTool::new())),
             "GetToolSpec" => Some(Arc::new(GetToolSpecTool::new())),
             "CallDeferredTool" => Some(Arc::new(CallDeferredTool::new())),
@@ -142,6 +147,8 @@ impl StaticToolProviderFactory<dyn Tool> for ProductConcreteToolFactory {
             "SessionHistory" => Some(Arc::new(SessionHistoryTool::new())),
             #[cfg(feature = "tools-agent-control")]
             "Cron" => Some(Arc::new(CronTool::new())),
+            #[cfg(feature = "tools-agent-control")]
+            "PortForward" => Some(Arc::new(PortForwardTool::new())),
             #[cfg(feature = "tools-browser-web")]
             "WebSearch" => Some(Arc::new(WebSearchTool::new())),
             #[cfg(feature = "tools-browser-web")]
@@ -157,8 +164,6 @@ impl StaticToolProviderFactory<dyn Tool> for ProductConcreteToolFactory {
             #[cfg(feature = "tools-miniapp")]
             "GenerativeUI" => Some(Arc::new(GenerativeUITool::new())),
             #[cfg(feature = "tools-git")]
-            "Git" => Some(Arc::new(GitTool::new())),
-            #[cfg(feature = "tools-git")]
             "Worktree" => Some(Arc::new(WorktreeTool::new())),
             #[cfg(feature = "tools-git")]
             "ReviewPlatform" => Some(Arc::new(ReviewPlatformTool::new())),
@@ -168,6 +173,8 @@ impl StaticToolProviderFactory<dyn Tool> for ProductConcreteToolFactory {
             "FinalizeMiniApp" => Some(Arc::new(FinalizeMiniAppTool::new())),
             #[cfg(feature = "tools-miniapp")]
             "PublishMiniApp" => Some(Arc::new(PublishMiniAppTool::new())),
+            #[cfg(feature = "tools-creation")]
+            "FrontendWorkbench" => Some(Arc::new(FrontendWorkbenchTool::new())),
             #[cfg(feature = "tools-miniapp")]
             "PublishAppearance" => Some(Arc::new(PublishAppearanceTool::new())),
             #[cfg(feature = "tools-miniapp")]
@@ -235,4 +242,51 @@ pub(in crate::agentic::tools) fn create_product_tool_registry_from_plan(
 
     Ok(ToolRuntimeAssembly::with_tool_decorator(tool_decorator)
         .create_registry_from_static_provider_entries(entries, &ProductConcreteToolFactory)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agentic::tools::framework::ToolExposure;
+    use openbitfun_tool_packs::product_tool_provider_group_plan;
+
+    /// Every tool name the provider plan advertises must materialize.
+    ///
+    /// Registry construction treats an unknown name as a hard error, so a tool
+    /// that is listed but not built takes down every session in a build that
+    /// requests its feature group — the failure is total, not local to the tool.
+    #[test]
+    fn every_planned_tool_name_materializes() {
+        let factory = ProductConcreteToolFactory;
+        for provider in product_tool_provider_group_plan() {
+            for tool_name in provider.tool_names() {
+                let Some(group) = tool_feature_group(tool_name) else {
+                    panic!("{tool_name} has no feature owner");
+                };
+                if unavailable_feature_groups(&[group]).is_empty() {
+                    assert!(
+                        factory.materialize_tool(tool_name).is_some(),
+                        "{tool_name} is planned under provider {} but does not materialize",
+                        provider.provider_id()
+                    );
+                }
+            }
+        }
+    }
+
+    #[cfg(all(feature = "tools-agent-control", feature = "remote-workspace"))]
+    #[test]
+    fn port_forward_materializes_as_a_deferred_tool() {
+        let tool = ProductConcreteToolFactory
+            .materialize_tool("PortForward")
+            .expect("PortForward should materialize when its feature group is present");
+        assert_eq!(tool.name(), "PortForward");
+        // Deferred keeps it out of the default manifest; the model finds it
+        // through the GetToolSpec catalog, which is built from this exposure.
+        assert!(matches!(tool.default_exposure(), ToolExposure::Deferred));
+        assert!(
+            !tool.short_description().trim().is_empty(),
+            "the catalog entry is how the model learns this tool exists"
+        );
+    }
 }

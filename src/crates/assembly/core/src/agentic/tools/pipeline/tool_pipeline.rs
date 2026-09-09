@@ -13,16 +13,20 @@ use crate::agentic::tools::registry::ToolRegistry;
 use crate::agentic::tools::tool_context_runtime;
 use crate::agentic::tools::tool_context_runtime::ToolUseContext;
 use crate::agentic::tools::tool_result_storage;
+#[cfg(feature = "opencode-plugin-host")]
+use crate::agentic::WorkspaceBinding;
 use crate::native_hooks::{self, NativeHookSessionFacts};
 use crate::util::elapsed_ms_u64;
-use crate::util::errors::{BitFunError, BitFunResult};
-use bitfun_agent_runtime::permission::{
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
+use futures::future::join_all;
+use log::{debug, error, info, warn};
+use openbitfun_agent_runtime::permission::{
     plan_permission_intents, PendingPermissionReceiver, PermissionIntentPlan,
     PermissionRequestManager, PermissionWaitOutcome,
 };
-use bitfun_agent_runtime::sdk::PermissionReplySource;
-use bitfun_agent_stream::ToolArgumentRepairKind;
-use bitfun_agent_tools::{
+use openbitfun_agent_runtime::sdk::PermissionReplySource;
+use openbitfun_agent_stream::ToolArgumentRepairKind;
+use openbitfun_agent_tools::{
     build_invalid_tool_call_error_message, build_normal_tool_json_repair_notice,
     build_permission_denied_tool_presentation, build_tool_execution_error_presentation,
     build_tool_execution_timeout_presentation,
@@ -32,14 +36,11 @@ use bitfun_agent_tools::{
     ResolvedToolInvocation, ToolExecutionAdmissionRejection, ToolExecutionAdmissionRequest,
     ToolExecutionErrorPresentation, GET_TOOL_SPEC_TOOL_NAME, USER_STEERING_INTERRUPTED_MESSAGE,
 };
-use bitfun_runtime_ports::{
+use openbitfun_runtime_ports::{
     PermissionReply, PermissionRequest, PermissionRequestSource, PermissionRequestSourceKind,
     PermissionResourceCaseSensitivity, RoundInjectionToolPreemption,
 };
-use futures::future::join_all;
-use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock};
@@ -53,19 +54,15 @@ use tool_runtime::pipeline::{
 
 fn resolve_contextual_tool(
     tool: Arc<dyn crate::agentic::tools::framework::Tool>,
-    workspace_root: Option<&Path>,
-    remote: bool,
+    context: &ToolUseContext,
 ) -> Option<Arc<dyn crate::agentic::tools::framework::Tool>> {
     #[cfg(feature = "external-sources")]
     {
-        return crate::external_tools::resolve_external_tool_for_workspace(
-            tool,
-            crate::external_tools::external_tool_route_root(workspace_root, remote),
-        );
+        return crate::external_tools::resolve_external_tool_for_context(tool, context);
     }
     #[cfg(not(feature = "external-sources"))]
     {
-        let _ = (workspace_root, remote);
+        let _ = context;
         Some(tool)
     }
 }
@@ -75,6 +72,53 @@ fn persisted_effective_tool_name(
     effective_tool_name: &str,
 ) -> Option<String> {
     (wire_tool_name != effective_tool_name).then(|| effective_tool_name.to_string())
+}
+
+#[cfg(feature = "opencode-plugin-host")]
+struct PluginAfterPresentation {
+    title: String,
+    output: String,
+    metadata: serde_json::Value,
+}
+
+#[cfg(feature = "opencode-plugin-host")]
+fn plugin_after_presentation(
+    tool_name: &str,
+    tool_result: &ModelToolResult,
+) -> PluginAfterPresentation {
+    let object = tool_result.result.as_object();
+    let title = object
+        .and_then(|value| value.get("title"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(tool_name)
+        .to_string();
+    let output = tool_result
+        .result_for_assistant
+        .clone()
+        .or_else(|| {
+            object
+                .and_then(|value| value.get("output"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| tool_result.result.to_string());
+    let metadata = object
+        .and_then(|value| value.get("metadata"))
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({"isError": tool_result.is_error}));
+    PluginAfterPresentation {
+        title,
+        output,
+        metadata,
+    }
+}
+
+#[cfg(feature = "opencode-plugin-host")]
+fn local_plugin_workspace_scope(workspace: &WorkspaceBinding) -> Option<String> {
+    (!workspace.is_remote())
+        .then(|| crate::plugin_host::canonical_plugin_workspace_scope(workspace.root_path()))
+        .flatten()
 }
 
 /// Convert framework::ToolResult to core::ToolResult
@@ -98,6 +142,12 @@ fn convert_tool_result(
             // next decision.
             let assistant_text = result_for_assistant
                 .or_else(|| Some(render_tool_result_for_assistant(effective_tool_name, &data)));
+            // Tools with a typed response envelope can report a recoverable
+            // domain failure without throwing away their structured error and
+            // hints. Preserve that payload, but propagate its semantic status
+            // so the tool card, hooks, persistence, and model all agree that
+            // `{ ok: false }` is a failure rather than a completed operation.
+            let is_error = data.get("ok").and_then(|value| value.as_bool()) == Some(false);
 
             ModelToolResult {
                 tool_id: tool_id.to_string(),
@@ -108,7 +158,7 @@ fn convert_tool_result(
                 ),
                 result: data,
                 result_for_assistant: assistant_text,
-                is_error: false,
+                is_error,
                 duration_ms: None,
                 image_attachments,
             }
@@ -206,12 +256,12 @@ fn elapsed_ms_since(time: SystemTime) -> u64 {
         .unwrap_or(0)
 }
 
-fn classify_tool_error(error: &BitFunError) -> &'static str {
+fn classify_tool_error(error: &OpenBitFunError) -> &'static str {
     match error {
-        BitFunError::Validation(_) => "invalid_arguments",
-        BitFunError::Cancelled(_) => "cancelled",
-        BitFunError::Timeout(_) => "timeout",
-        BitFunError::NotFound(_) => "not_found",
+        OpenBitFunError::Validation(_) => "invalid_arguments",
+        OpenBitFunError::Cancelled(_) => "cancelled",
+        OpenBitFunError::Timeout(_) => "timeout",
+        OpenBitFunError::NotFound(_) => "not_found",
         _ => "execution_error",
     }
 }
@@ -219,7 +269,7 @@ fn classify_tool_error(error: &BitFunError) -> &'static str {
 fn build_error_execution_result(
     task_id: &str,
     task: Option<ToolTask>,
-    error: &BitFunError,
+    error: &OpenBitFunError,
 ) -> ToolExecutionResult {
     let error_message = error.to_string();
     let category = classify_tool_error(error);
@@ -395,20 +445,23 @@ fn build_permission_rejected_tool_result(
 const ROUND_INJECTION_RUNNING_TOOL_CANCELLED_MESSAGE: &str =
     "Tool execution cancelled because a pending round injection requested running-tool preemption for this turn.";
 
-fn should_retry_tool_error(error: &BitFunError) -> bool {
+fn should_retry_tool_error(error: &OpenBitFunError) -> bool {
+    if matches!(error, OpenBitFunError::OutcomeUnknown(_)) {
+        return false;
+    }
     matches!(
         error,
-        BitFunError::Timeout(_)
-            | BitFunError::Io(_)
-            | BitFunError::Http(_)
-            | BitFunError::Service(_)
-            | BitFunError::MCPError(_)
-            | BitFunError::ProcessError(_)
-            | BitFunError::Other(_)
+        OpenBitFunError::Timeout(_)
+            | OpenBitFunError::Io(_)
+            | OpenBitFunError::Http(_)
+            | OpenBitFunError::Service(_)
+            | OpenBitFunError::MCPError(_)
+            | OpenBitFunError::ProcessError(_)
+            | OpenBitFunError::Other(_)
     )
 }
 
-fn classify_tool_retry_error(error: &BitFunError) -> ToolExecutionErrorClass {
+fn classify_tool_retry_error(error: &OpenBitFunError) -> ToolExecutionErrorClass {
     if should_retry_tool_error(error) {
         ToolExecutionErrorClass::Retryable
     } else {
@@ -416,14 +469,16 @@ fn classify_tool_retry_error(error: &BitFunError) -> ToolExecutionErrorClass {
     }
 }
 
-fn map_tool_execution_admission_rejection(error: ToolExecutionAdmissionRejection) -> BitFunError {
+fn map_tool_execution_admission_rejection(
+    error: ToolExecutionAdmissionRejection,
+) -> OpenBitFunError {
     match error {
         ToolExecutionAdmissionRejection::RuntimeRestriction(error) => error.into(),
         ToolExecutionAdmissionRejection::AllowedList(error) => {
-            BitFunError::Validation(error.to_string())
+            OpenBitFunError::Validation(error.to_string())
         }
         ToolExecutionAdmissionRejection::Deferred(error) => {
-            BitFunError::Validation(error.to_string())
+            OpenBitFunError::Validation(error.to_string())
         }
     }
 }
@@ -472,12 +527,12 @@ enum PermissionPlanDraft {
 }
 
 pub fn permission_project_id_for_workspace_identity(
-    identity: &bitfun_services_core::workspace_identity::WorkspaceSessionIdentity,
+    identity: &openbitfun_services_core::workspace_identity::WorkspaceSessionIdentity,
     is_remote: bool,
-) -> BitFunResult<String> {
+) -> OpenBitFunResult<String> {
     if !is_remote {
         return Ok(
-            bitfun_services_core::workspace_identity::local_workspace_stable_storage_id(
+            openbitfun_services_core::workspace_identity::local_workspace_stable_storage_id(
                 identity.logical_workspace_path(),
             ),
         );
@@ -485,35 +540,36 @@ pub fn permission_project_id_for_workspace_identity(
 
     if identity.hostname == "_unresolved" {
         let connection_id = identity.remote_connection_id.as_deref().ok_or_else(|| {
-            BitFunError::validation(
+            OpenBitFunError::validation(
                 "Unresolved remote workspace permission identity has no connection id".to_string(),
             )
         })?;
-        let key = bitfun_services_core::workspace_identity::unresolved_remote_session_storage_key(
-            connection_id,
-            identity.logical_workspace_path(),
-        );
+        let key =
+            openbitfun_services_core::workspace_identity::unresolved_remote_session_storage_key(
+                connection_id,
+                identity.logical_workspace_path(),
+            );
         return Ok(format!("remote_unresolved_{key}"));
     }
 
     Ok(
-        bitfun_services_core::workspace_identity::remote_workspace_stable_id(
+        openbitfun_services_core::workspace_identity::remote_workspace_stable_id(
             &identity.hostname,
             identity.logical_workspace_path(),
         ),
     )
 }
 
-fn permission_project_id(context: &ToolUseContext) -> BitFunResult<String> {
+fn permission_project_id(context: &ToolUseContext) -> OpenBitFunResult<String> {
     let workspace = context.workspace.as_ref().ok_or_else(|| {
-        BitFunError::validation("A workspace is required for file permissions".to_string())
+        OpenBitFunError::validation("A workspace is required for file permissions".to_string())
     })?;
     permission_project_id_for_workspace_identity(&workspace.session_identity, workspace.is_remote())
 }
 
-fn permission_project_path(context: &ToolUseContext) -> BitFunResult<String> {
+fn permission_project_path(context: &ToolUseContext) -> OpenBitFunResult<String> {
     let workspace = context.workspace.as_ref().ok_or_else(|| {
-        BitFunError::validation("A workspace is required for file permissions".to_string())
+        OpenBitFunError::validation("A workspace is required for file permissions".to_string())
     })?;
     Ok(workspace
         .session_identity
@@ -522,13 +578,13 @@ fn permission_project_path(context: &ToolUseContext) -> BitFunResult<String> {
 }
 
 const ACCOUNT_PERMISSION_SCOPE: &str = "account";
-const ACCOUNT_PERMISSION_PROJECT_ID: &str = "__bitfun_account_actions__";
-const ACCOUNT_PERMISSION_PROJECT_PATH: &str = "BitFun account";
+const ACCOUNT_PERMISSION_PROJECT_ID: &str = "__openbitfun_account_actions__";
+const ACCOUNT_PERMISSION_PROJECT_PATH: &str = "OpenBitFun account";
 
 fn permission_scope(
     context: &ToolUseContext,
     intents: &[PermissionIntent],
-) -> BitFunResult<(String, String)> {
+) -> OpenBitFunResult<(String, String)> {
     if context.workspace.is_some() {
         return Ok((
             permission_project_id(context)?,
@@ -550,7 +606,7 @@ fn permission_scope(
         ));
     }
 
-    Err(BitFunError::validation(
+    Err(OpenBitFunError::validation(
         "A workspace is required for file permissions".to_string(),
     ))
 }
@@ -565,7 +621,7 @@ fn permission_resource_case_sensitivity(
     }
 }
 
-const SUBAGENT_LAUNCH_TOOL_NAME: &str = "Task";
+const SUBAGENT_LAUNCH_TOOL_NAMES: &[&str] = &["Task", "AgentSpawn"];
 
 /// Native hook session facts derived from one tool task.
 fn native_hook_session_facts<'a>(
@@ -637,7 +693,7 @@ impl ToolPipeline {
         tool_name: String,
         intents: Vec<PermissionIntent>,
         context: ToolUseContext,
-    ) -> BitFunResult<PermissionPlanDraft> {
+    ) -> OpenBitFunResult<PermissionPlanDraft> {
         if intents.is_empty() {
             return Ok(PermissionPlanDraft::Allowed);
         }
@@ -660,7 +716,7 @@ impl ToolPipeline {
             Some(ref manager) => manager
                 .list_project_grants(&project_id)
                 .await
-                .map_err(|error| BitFunError::service(error.to_string()))?,
+                .map_err(|error| OpenBitFunError::service(error.to_string()))?,
             None => Vec::new(),
         };
         let asks =
@@ -713,7 +769,7 @@ impl ToolPipeline {
         }
 
         if manager.is_none() {
-            return Err(BitFunError::service(
+            return Err(OpenBitFunError::service(
                 "Permission request manager is unavailable for a file tool request".to_string(),
             ));
         }
@@ -749,9 +805,9 @@ impl ToolPipeline {
         requests: Vec<PermissionRequest>,
         dialog_turn_id: &str,
         auto_approve: bool,
-    ) -> BitFunResult<Vec<PendingPermissionReceiver>> {
+    ) -> OpenBitFunResult<Vec<PendingPermissionReceiver>> {
         let manager = self.permission_request_manager.as_ref().ok_or_else(|| {
-            BitFunError::service(
+            OpenBitFunError::service(
                 "Permission request manager is unavailable for a file tool request".to_string(),
             )
         })?;
@@ -768,7 +824,7 @@ impl ToolPipeline {
                 .register_batch_for_turn(requests.clone(), dialog_turn_id.to_string())
                 .await
         }
-        .map_err(|error| BitFunError::service(error.to_string()))?;
+        .map_err(|error| OpenBitFunError::service(error.to_string()))?;
 
         if auto_approve {
             for request in &requests {
@@ -776,7 +832,7 @@ impl ToolPipeline {
                     .reply(
                         &request.request_id,
                         PermissionReply::Once,
-                        bitfun_runtime_ports::PermissionReplySource::AutoApprove,
+                        openbitfun_runtime_ports::PermissionReplySource::AutoApprove,
                     )
                     .await
                 {
@@ -788,7 +844,7 @@ impl ToolPipeline {
                         "Automatic permission approval failed".to_string(),
                     )
                     .await;
-                    return Err(BitFunError::service(error.to_string()));
+                    return Err(OpenBitFunError::service(error.to_string()));
                 }
             }
         }
@@ -858,7 +914,7 @@ impl ToolPipeline {
     /// but cannot relax non-relaxable validation of the original input.
     async fn apply_pre_tool_use_hooks(&self, task_ids: &[String]) {
         for task_id in task_ids {
-            let Some(task) = self.state_manager.get_task(task_id) else {
+            let Some(mut task) = self.state_manager.get_task(task_id) else {
                 continue;
             };
             if task.invocation_resolution_error.is_some()
@@ -868,6 +924,52 @@ impl ToolPipeline {
                 continue;
             }
             let tool_name = task.invocation.effective_tool_name.clone();
+            #[cfg(feature = "opencode-plugin-host")]
+            if let Some(workspace_scope) = task
+                .context
+                .workspace
+                .as_ref()
+                .and_then(local_plugin_workspace_scope)
+            {
+                match native_hooks::dispatch_plugin_tool_before(
+                    &workspace_scope,
+                    &tool_name,
+                    Some(&task.context.session_id),
+                    Some(&task.tool_call.tool_id),
+                    Some(&task.context.agent_type),
+                    task.invocation.effective_arguments.clone(),
+                )
+                .await
+                {
+                    Ok(Some(updated_input)) => {
+                        if self.apply_hook_input_rewrite(&task, updated_input).await {
+                            info!(
+                                "OpenCode plugin hook rewrite was rejected by original-input constraints: tool_name={}, tool_id={}",
+                                tool_name, task_id
+                            );
+                            continue;
+                        }
+                        let Some(updated_task) = self.state_manager.get_task(task_id) else {
+                            continue;
+                        };
+                        task = updated_task;
+                    }
+                    Ok(None) => {}
+                    Err(reason) => {
+                        error!(
+                            "OpenCode plugin before hook rejected tool execution: tool_name={}, tool_id={}, error={}",
+                            tool_name, task_id, reason
+                        );
+                        self.permission_plans.lock().await.insert(
+                            task_id.clone(),
+                            PermissionExecutionPlan::Rejected {
+                                reason: format!("OpenCode plugin before hook failed: {reason}"),
+                            },
+                        );
+                        continue;
+                    }
+                }
+            }
             let decision = native_hooks::dispatch_pre_tool_use(
                 native_hook_session_facts(&task.context, &task.options),
                 &tool_name,
@@ -956,7 +1058,7 @@ impl ToolPipeline {
 
     /// Run PostToolUse hooks for a completed tool call and fold blocking
     /// feedback and additional context into the model-visible result text.
-    async fn apply_post_tool_use_hooks(
+    async fn apply_native_post_tool_use_hooks(
         &self,
         task: &ToolTask,
         tool_name: &str,
@@ -1001,7 +1103,7 @@ impl ToolPipeline {
         });
     }
 
-    async fn prepare_permission_plans(&self, task_ids: &[String]) -> BitFunResult<()> {
+    async fn prepare_permission_plans(&self, task_ids: &[String]) -> OpenBitFunResult<()> {
         let mut drafts = Vec::with_capacity(task_ids.len());
         let mut ordered_requests = Vec::new();
 
@@ -1092,7 +1194,9 @@ impl ToolPipeline {
                 .and_then(|task_id| self.state_manager.get_task(task_id))
                 .map(|task| task.context.dialog_turn_id)
                 .ok_or_else(|| {
-                    BitFunError::service("Permission batch lost its owning Dialog Turn".to_string())
+                    OpenBitFunError::service(
+                        "Permission batch lost its owning Dialog Turn".to_string(),
+                    )
                 })?;
             let receivers = self
                 .register_permission_requests(batch_requests, &dialog_turn_id, auto_approve)
@@ -1105,7 +1209,7 @@ impl ToolPipeline {
             for (task_id, draft) in &drafts {
                 if let PermissionPlanDraft::Requests(_) = draft {
                     let receivers = receivers_by_task.remove(task_id).ok_or_else(|| {
-                        BitFunError::service(format!(
+                        OpenBitFunError::service(format!(
                             "Permission plan lost its pending receivers for tool task '{task_id}'"
                         ))
                     })?;
@@ -1142,7 +1246,7 @@ impl ToolPipeline {
         &self,
         task_id: &str,
         cancellation_token: &CancellationToken,
-    ) -> BitFunResult<PermissionAuthorization> {
+    ) -> OpenBitFunResult<PermissionAuthorization> {
         let Some(plan) = self.permission_plans.lock().await.remove(task_id) else {
             return Ok(PermissionAuthorization::Allowed);
         };
@@ -1155,7 +1259,7 @@ impl ToolPipeline {
         &self,
         plan: PermissionExecutionPlan,
         cancellation_token: &CancellationToken,
-    ) -> BitFunResult<PermissionAuthorization> {
+    ) -> OpenBitFunResult<PermissionAuthorization> {
         let receivers = match plan {
             PermissionExecutionPlan::Allowed => return Ok(PermissionAuthorization::Allowed),
             PermissionExecutionPlan::Rejected { reason } => {
@@ -1177,7 +1281,7 @@ impl ToolPipeline {
                         "Tool execution was cancelled".to_string(),
                     )
                     .await;
-                    return Err(BitFunError::Cancelled(
+                    return Err(OpenBitFunError::Cancelled(
                         "Tool execution was cancelled while awaiting permission".to_string(),
                     ));
                 }
@@ -1207,7 +1311,7 @@ impl ToolPipeline {
                         "Another permission request for this tool was cancelled".to_string(),
                     )
                     .await;
-                    return Err(BitFunError::Cancelled(reason));
+                    return Err(OpenBitFunError::Cancelled(reason));
                 }
             }
 
@@ -1219,7 +1323,7 @@ impl ToolPipeline {
                     "Tool execution was cancelled".to_string(),
                 )
                 .await;
-                return Err(BitFunError::Cancelled(
+                return Err(OpenBitFunError::Cancelled(
                     "Tool execution was cancelled after permission reply".to_string(),
                 ));
             }
@@ -1275,7 +1379,7 @@ impl ToolPipeline {
         intents: Vec<PermissionIntent>,
         context: &ToolUseContext,
         cancellation_token: &CancellationToken,
-    ) -> BitFunResult<PermissionAuthorization> {
+    ) -> OpenBitFunResult<PermissionAuthorization> {
         let draft = self
             .draft_permission_plan(
                 task.clone(),
@@ -1347,7 +1451,7 @@ impl ToolPipeline {
     fn append_execution_result(
         &self,
         task_id: &str,
-        result: BitFunResult<ToolExecutionResult>,
+        result: OpenBitFunResult<ToolExecutionResult>,
         all_results: &mut Vec<ToolExecutionResult>,
     ) {
         match result {
@@ -1364,21 +1468,33 @@ impl ToolPipeline {
         }
     }
 
-    async fn cancel_tools_for_round_injection(
+    async fn preempt_tools_for_round_injection(
         &self,
         task_ids: impl IntoIterator<Item = String>,
-    ) -> BitFunResult<()> {
+        preemption: RoundInjectionToolPreemption,
+    ) -> OpenBitFunResult<()> {
         for task_id in task_ids {
-            self.cancel_tool(
-                &task_id,
-                ROUND_INJECTION_RUNNING_TOOL_CANCELLED_MESSAGE.to_string(),
-            )
-            .await?;
+            let Some(task) = self.state_manager.get_task(&task_id) else {
+                continue;
+            };
+            if tool_task_state_kind(&task.state).is_terminal() {
+                continue;
+            }
+
+            if let Some(token) = task.round_injection_preemption_token {
+                token.cancel();
+            } else if preemption.should_cancel_running_tools() {
+                self.cancel_tool(
+                    &task_id,
+                    ROUND_INJECTION_RUNNING_TOOL_CANCELLED_MESSAGE.to_string(),
+                )
+                .await?;
+            }
         }
         Ok(())
     }
 
-    fn spawn_round_injection_cancellation_watch(
+    fn spawn_round_injection_preemption_watch(
         &self,
         task_ids: Vec<String>,
         interrupt: Option<crate::agentic::round_preempt::DialogRoundInjectionInterrupt>,
@@ -1392,8 +1508,11 @@ impl ToolPipeline {
             };
 
             loop {
-                if interrupt.should_cancel_running_tools() {
-                    let _ = pipeline.cancel_tools_for_round_injection(task_ids).await;
+                let preemption = interrupt.pending_tool_preemption();
+                if preemption.should_interrupt_after_current_atomic_unit() {
+                    let _ = pipeline
+                        .preempt_tools_for_round_injection(task_ids, preemption)
+                        .await;
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(25)).await;
@@ -1412,7 +1531,7 @@ impl ToolPipeline {
         tool_calls: Vec<ToolCall>,
         context: ToolExecutionContext,
         options: ToolExecutionOptions,
-    ) -> BitFunResult<Vec<ToolExecutionResult>> {
+    ) -> OpenBitFunResult<Vec<ToolExecutionResult>> {
         if tool_calls.is_empty() {
             return Ok(vec![]);
         }
@@ -1434,7 +1553,7 @@ impl ToolPipeline {
         let subagent_call_count = resolved_tool_calls
             .iter()
             .filter(|(_, invocation, _)| {
-                invocation.effective_tool_name == SUBAGENT_LAUNCH_TOOL_NAME
+                SUBAGENT_LAUNCH_TOOL_NAMES.contains(&invocation.effective_tool_name.as_str())
             })
             .count();
 
@@ -1554,13 +1673,13 @@ impl ToolPipeline {
     async fn execute_parallel(
         &self,
         task_ids: Vec<String>,
-    ) -> BitFunResult<Vec<ToolExecutionResult>> {
+    ) -> OpenBitFunResult<Vec<ToolExecutionResult>> {
         let batch_interrupt = task_ids
             .first()
             .and_then(|task_id| self.state_manager.get_task(task_id))
             .and_then(|task| task.context.steering_interrupt.clone());
         let watch_handle =
-            self.spawn_round_injection_cancellation_watch(task_ids.clone(), batch_interrupt);
+            self.spawn_round_injection_preemption_watch(task_ids.clone(), batch_interrupt);
 
         let futures: Vec<_> = task_ids
             .iter()
@@ -1587,7 +1706,7 @@ impl ToolPipeline {
     async fn execute_sequential(
         &self,
         task_ids: Vec<String>,
-    ) -> BitFunResult<Vec<ToolExecutionResult>> {
+    ) -> OpenBitFunResult<Vec<ToolExecutionResult>> {
         let mut results = Vec::new();
 
         let mut task_iter = task_ids.into_iter().peekable();
@@ -1607,7 +1726,7 @@ impl ToolPipeline {
 
             let interrupt = task.and_then(|task| task.context.steering_interrupt.clone());
             let watch_handle =
-                self.spawn_round_injection_cancellation_watch(vec![task_id.clone()], interrupt);
+                self.spawn_round_injection_preemption_watch(vec![task_id.clone()], interrupt);
             let result = self.execute_single_tool(task_id.clone()).await;
             if let Some(handle) = watch_handle {
                 handle.abort();
@@ -1620,16 +1739,15 @@ impl ToolPipeline {
     }
 
     /// Execute single tool
-    async fn execute_single_tool(&self, tool_id: String) -> BitFunResult<ToolExecutionResult> {
+    async fn execute_single_tool(&self, tool_id: String) -> OpenBitFunResult<ToolExecutionResult> {
         let start_time = Instant::now();
 
         debug!("Starting tool execution: tool_id={}", tool_id);
 
         // Get task
-        let task = self
-            .state_manager
-            .get_task(&tool_id)
-            .ok_or_else(|| BitFunError::NotFound(format!("Tool task not found: {}", tool_id)))?;
+        let task = self.state_manager.get_task(&tool_id).ok_or_else(|| {
+            OpenBitFunError::NotFound(format!("Tool task not found: {}", tool_id))
+        })?;
 
         let wire_tool_name = task.tool_call.tool_name.clone();
         let tool_name = task.invocation.effective_tool_name.clone();
@@ -1685,7 +1803,31 @@ impl ToolPipeline {
                 )
                 .await;
 
-            return Err(BitFunError::Validation(error_msg));
+            return Err(OpenBitFunError::Validation(error_msg));
+        }
+
+        if let Some(rejection) = task.input_rewrite_rejection.as_ref() {
+            let error_msg = rejection.message.clone().unwrap_or_else(|| {
+                format!(
+                    "PreToolUse input rewrite cannot relax validation constraints for tool '{}'",
+                    tool_name
+                )
+            });
+            self.state_manager
+                .update_state(
+                    &tool_id,
+                    ToolExecutionState::Failed {
+                        error: error_msg.clone(),
+                        is_retryable: false,
+                        duration_ms: None,
+                        queue_wait_ms: None,
+                        preflight_ms: None,
+                        confirmation_wait_ms: None,
+                        execution_ms: None,
+                    },
+                )
+                .await;
+            return Err(OpenBitFunError::Validation(error_msg));
         }
 
         if let Some(rejection) = task.input_rewrite_rejection.as_ref() {
@@ -1774,7 +1916,7 @@ impl ToolPipeline {
         let registered_tool = tool.ok_or_else(|| {
             let error_msg = format!("Tool '{}' is not registered or enabled.", tool_name);
             error!("{}", error_msg);
-            BitFunError::tool(error_msg)
+            OpenBitFunError::tool(error_msg)
         })?;
 
         let cancellation_token = task
@@ -1797,7 +1939,7 @@ impl ToolPipeline {
                     },
                 )
                 .await;
-            return Err(BitFunError::Cancelled(
+            return Err(OpenBitFunError::Cancelled(
                 "Tool was cancelled before validation".to_string(),
             ));
         }
@@ -1825,7 +1967,7 @@ impl ToolPipeline {
                     },
                 )
                 .await;
-            return Err(BitFunError::Validation(error_msg));
+            return Err(OpenBitFunError::Validation(error_msg));
         }
         if let Some(message) = validation
             .message
@@ -1856,7 +1998,7 @@ impl ToolPipeline {
                 )
                 .await;
             self.cancellation_tokens.remove(&tool_id);
-            return Err(BitFunError::Cancelled(
+            return Err(OpenBitFunError::Cancelled(
                 "Tool was cancelled during validation".to_string(),
             ));
         }
@@ -1941,7 +2083,7 @@ impl ToolPipeline {
                 )
                 .await;
             self.cancellation_tokens.remove(&tool_id);
-            return Err(BitFunError::Cancelled(
+            return Err(OpenBitFunError::Cancelled(
                 "Tool was cancelled before execution".to_string(),
             ));
         }
@@ -1981,6 +2123,12 @@ impl ToolPipeline {
         match result {
             Ok(tool_result) => {
                 let duration_ms = elapsed_ms_u64(start_time);
+                let mut tool_result = tool_result;
+                tool_result.duration_ms = Some(duration_ms);
+
+                self.apply_plugin_post_tool_use_hook(&task, &tool_name, &tool_id, &mut tool_result)
+                    .await;
+
                 let mut tool_result =
                     tool_result_storage::maybe_persist_large_tool_result_for_tool(
                         tool_result,
@@ -1988,7 +2136,6 @@ impl ToolPipeline {
                         &tool_context,
                     )
                     .await;
-                tool_result.duration_ms = Some(duration_ms);
 
                 if !matches!(repair_kind, ToolArgumentRepairKind::None) || recovered_from_truncation
                 {
@@ -2010,8 +2157,13 @@ impl ToolPipeline {
                     });
                 }
 
-                self.apply_post_tool_use_hooks(&task, &tool_name, &tool_id, &mut tool_result)
-                    .await;
+                self.apply_native_post_tool_use_hooks(
+                    &task,
+                    &tool_name,
+                    &tool_id,
+                    &mut tool_result,
+                )
+                .await;
 
                 self.state_manager
                     .update_state(
@@ -2050,7 +2202,7 @@ impl ToolPipeline {
                 // Cancellation is a first-class terminal state, not a failure.
                 // Preserve Cancelled here so a late cancel cannot be overwritten
                 // by the generic Failed branch below.
-                if let BitFunError::Cancelled(reason) = &e {
+                if let OpenBitFunError::Cancelled(reason) = &e {
                     self.state_manager
                         .update_state(
                             &tool_id,
@@ -2079,7 +2231,7 @@ impl ToolPipeline {
                     return Err(e);
                 }
 
-                if matches!(e, BitFunError::Timeout(_)) {
+                if matches!(e, OpenBitFunError::Timeout(_)) {
                     let duration_ms = elapsed_ms_u64(start_time);
                     let presentation = build_tool_execution_timeout_presentation(
                         &tool_name,
@@ -2173,14 +2325,14 @@ impl ToolPipeline {
         task: &ToolTask,
         cancellation_token: CancellationToken,
         tool: Arc<dyn crate::agentic::tools::framework::Tool>,
-    ) -> BitFunResult<ModelToolResult> {
+    ) -> OpenBitFunResult<ModelToolResult> {
         let mut attempts = 0;
         let max_attempts = task.options.max_retries + 1;
 
         loop {
             // Check cancellation token
             if cancellation_token.is_cancelled() {
-                return Err(BitFunError::Cancelled(
+                return Err(OpenBitFunError::Cancelled(
                     "Tool execution was cancelled".to_string(),
                 ));
             }
@@ -2220,10 +2372,10 @@ impl ToolPipeline {
         task: &ToolTask,
         cancellation_token: CancellationToken,
         tool: Arc<dyn crate::agentic::tools::framework::Tool>,
-    ) -> BitFunResult<ModelToolResult> {
+    ) -> OpenBitFunResult<ModelToolResult> {
         // Check cancellation token
         if cancellation_token.is_cancelled() {
-            return Err(BitFunError::Cancelled(
+            return Err(OpenBitFunError::Cancelled(
                 "Tool execution was cancelled".to_string(),
             ));
         }
@@ -2232,11 +2384,7 @@ impl ToolPipeline {
 
         let execution_future = tool.call(task.effective_arguments(), &tool_context);
 
-        let timeout_owner = resolve_contextual_tool(
-            Arc::clone(&tool),
-            tool_context.workspace_root(),
-            tool_context.is_remote(),
-        );
+        let timeout_owner = resolve_contextual_tool(Arc::clone(&tool), &tool_context);
         let pipeline_timeout_secs = if timeout_owner
             .as_ref()
             .is_some_and(|selected| selected.manages_own_execution_timeout())
@@ -2252,7 +2400,7 @@ impl ToolPipeline {
                 let result = timeout(timeout_duration, execution_future)
                     .await
                     .map_err(|_| {
-                        BitFunError::Timeout(format!(
+                        OpenBitFunError::Timeout(format!(
                             "Tool execution timeout: {}",
                             task.effective_tool_name()
                         ))
@@ -2278,7 +2426,7 @@ impl ToolPipeline {
                 )
             })
             .ok_or_else(|| {
-                BitFunError::Tool(format!(
+                OpenBitFunError::Tool(format!(
                     "Tool did not return result: {}",
                     task.effective_tool_name()
                 ))
@@ -2302,7 +2450,7 @@ impl ToolPipeline {
         &self,
         task: &ToolTask,
         results: &[FrameworkToolResult],
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         let mut chunks_received = 0;
 
         for result in results {
@@ -2327,7 +2475,7 @@ impl ToolPipeline {
 
                 // Send StreamChunk event
                 let _event_data = ToolEventData::StreamChunk {
-                    identity: bitfun_events::ToolEventIdentity::resolved(
+                    identity: openbitfun_events::ToolEventIdentity::resolved(
                         task.tool_call.tool_id.clone(),
                         task.invocation.wire_tool_name.clone(),
                         task.effective_tool_name().to_string(),
@@ -2341,7 +2489,7 @@ impl ToolPipeline {
     }
 
     /// Cancel tool execution
-    pub async fn cancel_tool(&self, tool_id: &str, reason: String) -> BitFunResult<()> {
+    pub async fn cancel_tool(&self, tool_id: &str, reason: String) -> OpenBitFunResult<()> {
         let Some(task) = self.state_manager.get_task(tool_id) else {
             debug!(
                 "Ignoring cancel request for unknown tool: tool_id={}",
@@ -2390,9 +2538,13 @@ impl ToolPipeline {
         Ok(())
     }
 
-    pub async fn reply_to_tool(&self, tool_id: &str, reply: PermissionReply) -> BitFunResult<()> {
+    pub async fn reply_to_tool(
+        &self,
+        tool_id: &str,
+        reply: PermissionReply,
+    ) -> OpenBitFunResult<()> {
         let manager = self.permission_request_manager.as_ref().ok_or_else(|| {
-            BitFunError::service("Permission request manager is unavailable".to_string())
+            OpenBitFunError::service("Permission request manager is unavailable".to_string())
         })?;
         let request = manager
             .pending_requests()
@@ -2401,17 +2553,19 @@ impl ToolPipeline {
                 request.tool_call_id.as_deref() == Some(tool_id) || request.request_id == tool_id
             })
             .ok_or_else(|| {
-                BitFunError::NotFound(format!("Permission request not found for tool: {tool_id}"))
+                OpenBitFunError::NotFound(format!(
+                    "Permission request not found for tool: {tool_id}"
+                ))
             })?;
         manager
             .reply(&request.request_id, reply, PermissionReplySource::User)
             .await
             .map(|_| ())
-            .map_err(|error| BitFunError::service(error.to_string()))
+            .map_err(|error| OpenBitFunError::service(error.to_string()))
     }
 
     /// Cancel all tools for a dialog turn
-    pub async fn cancel_dialog_turn_tools(&self, dialog_turn_id: &str) -> BitFunResult<()> {
+    pub async fn cancel_dialog_turn_tools(&self, dialog_turn_id: &str) -> OpenBitFunResult<()> {
         info!(
             "Cancelling all tools for dialog turn: dialog_turn_id={}",
             dialog_turn_id
@@ -2474,10 +2628,10 @@ mod tests {
     use crate::agentic::tools::ToolRuntimeRestrictions;
     use crate::agentic::WorkspaceBinding;
     use async_trait::async_trait;
-    use bitfun_agent_tools::{
+    use openbitfun_agent_tools::{
         LoadedDeferredToolSpec, CALL_DEFERRED_TOOL_NAME, USER_REJECTED_TOOL_MESSAGE,
     };
-    use bitfun_runtime_ports::{
+    use openbitfun_runtime_ports::{
         ClockPort, PermissionAuditEvent, PermissionAuditRecord, PermissionAuditStorePort,
         PermissionConstraintLayer, PermissionEffect, PermissionGrant, PermissionGrantKey,
         PermissionGrantStorePort, PermissionReplyStorePort, PermissionRule, PortResult,
@@ -2499,6 +2653,140 @@ mod tests {
             tool_name: tool_name.to_string(),
             catalog_generation,
         }
+    }
+
+    #[cfg(feature = "opencode-plugin-host")]
+    #[test]
+    fn plugin_after_presentation_prefers_model_visible_output_over_structured_output() {
+        let result = ModelToolResult {
+            tool_id: "call-a".to_string(),
+            tool_name: "ExecCommand".to_string(),
+            effective_tool_name: None,
+            result: json!({
+                "title": "ExecCommand",
+                "output": "raw terminal output",
+                "metadata": {"tty": true},
+                "session_id": 42
+            }),
+            result_for_assistant: Some("Process is still running with session ID 42.".to_string()),
+            is_error: false,
+            duration_ms: None,
+            image_attachments: None,
+        };
+
+        let presentation = plugin_after_presentation("ExecCommand", &result);
+        assert_eq!(presentation.title, "ExecCommand");
+        assert_eq!(
+            presentation.output,
+            "Process is still running with session ID 42."
+        );
+        assert_eq!(presentation.metadata["tty"], true);
+    }
+
+    #[cfg(feature = "opencode-plugin-host")]
+    #[test]
+    fn plugin_after_presentation_preserves_specialized_exec_and_stdin_results() {
+        let cases = [
+            (
+                "ExecCommand",
+                json!({"output": "", "tty": false}),
+                "Command completed successfully.",
+            ),
+            (
+                "ExecCommand",
+                json!({"output": "\u{1b}[?25l", "tty": true, "session_id": 73}),
+                "Process is still running with session ID 73.",
+            ),
+            (
+                "WriteStdin",
+                json!({"output": "done", "session_id": 73}),
+                "Wrote input to session 73.",
+            ),
+            (
+                "WriteStdin",
+                json!({"output": "", "requested_session_id": 999}),
+                "Session 999 was not found.",
+            ),
+        ];
+
+        for (tool_name, structured_result, assistant_result) in cases {
+            let result = ModelToolResult {
+                tool_id: "call-a".to_string(),
+                tool_name: tool_name.to_string(),
+                effective_tool_name: None,
+                result: structured_result,
+                result_for_assistant: Some(assistant_result.to_string()),
+                is_error: false,
+                duration_ms: None,
+                image_attachments: None,
+            };
+
+            assert_eq!(
+                plugin_after_presentation(tool_name, &result).output,
+                assistant_result
+            );
+        }
+    }
+
+    #[cfg(feature = "opencode-plugin-host")]
+    #[test]
+    fn plugin_after_presentation_falls_back_to_plugin_output_without_assistant_text() {
+        let result = ModelToolResult {
+            tool_id: "call-a".to_string(),
+            tool_name: "report".to_string(),
+            effective_tool_name: None,
+            result: json!({
+                "title": "Generated report",
+                "output": "report ready",
+                "metadata": {"path": "report.md"}
+            }),
+            result_for_assistant: None,
+            is_error: false,
+            duration_ms: None,
+            image_attachments: None,
+        };
+
+        assert_eq!(
+            plugin_after_presentation("report", &result).output,
+            "report ready"
+        );
+    }
+
+    #[cfg(feature = "opencode-plugin-host")]
+    #[test]
+    fn plugin_after_presentation_normalizes_non_object_metadata() {
+        let result = ModelToolResult {
+            tool_id: "call-a".to_string(),
+            tool_name: "report".to_string(),
+            effective_tool_name: None,
+            result: json!({
+                "title": "Generated report",
+                "output": "report ready",
+                "metadata": ["legacy"]
+            }),
+            result_for_assistant: Some("report ready".to_string()),
+            is_error: false,
+            duration_ms: None,
+            image_attachments: None,
+        };
+
+        let presentation = plugin_after_presentation("report", &result);
+        assert_eq!(presentation.metadata, json!({"isError": false}));
+    }
+
+    #[cfg(feature = "opencode-plugin-host")]
+    #[test]
+    fn remote_workspace_never_resolves_a_local_plugin_hook_scope() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let local = WorkspaceBinding::new(None, workspace.path().to_path_buf());
+        let mut remote = local.clone();
+        remote.backend = crate::agentic::workspace::WorkspaceBackend::Remote {
+            connection_id: "remote-a".to_string(),
+            connection_name: "Remote A".to_string(),
+        };
+
+        assert!(local_plugin_workspace_scope(&local).is_some());
+        assert!(local_plugin_workspace_scope(&remote).is_none());
     }
 
     #[test]
@@ -2578,6 +2866,7 @@ mod tests {
         response: serde_json::Value,
         delay_ms: u64,
         readonly: bool,
+        round_injection_yieldable: bool,
     }
 
     struct CapturingTestTool {
@@ -2602,7 +2891,7 @@ mod tests {
             true
         }
 
-        async fn description(&self) -> BitFunResult<String> {
+        async fn description(&self) -> OpenBitFunResult<String> {
             Ok("File permission test tool".to_string())
         }
 
@@ -2618,7 +2907,7 @@ mod tests {
             &self,
             _input: &serde_json::Value,
             _context: &ToolUseContext,
-        ) -> BitFunResult<Vec<PermissionIntent>> {
+        ) -> OpenBitFunResult<Vec<PermissionIntent>> {
             Ok(self.intents.clone())
         }
 
@@ -2626,7 +2915,7 @@ mod tests {
             &self,
             _input: &serde_json::Value,
             _context: &ToolUseContext,
-        ) -> BitFunResult<Vec<ToolResult>> {
+        ) -> OpenBitFunResult<Vec<ToolResult>> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             Ok(vec![ToolResult::Result {
                 data: json!({ "written": true }),
@@ -2748,7 +3037,7 @@ mod tests {
             &self.name
         }
 
-        async fn description(&self) -> BitFunResult<String> {
+        async fn description(&self) -> OpenBitFunResult<String> {
             Ok("capturing test tool".to_string())
         }
 
@@ -2831,7 +3120,7 @@ mod tests {
             &self,
             input: &serde_json::Value,
             _context: &ToolUseContext,
-        ) -> BitFunResult<Vec<ToolResult>> {
+        ) -> OpenBitFunResult<Vec<ToolResult>> {
             *self
                 .received_arguments
                 .lock()
@@ -2850,7 +3139,7 @@ mod tests {
             &self.name
         }
 
-        async fn description(&self) -> BitFunResult<String> {
+        async fn description(&self) -> OpenBitFunResult<String> {
             Ok("static test tool".to_string())
         }
 
@@ -2860,6 +3149,10 @@ mod tests {
 
         fn is_readonly(&self) -> bool {
             self.readonly
+        }
+
+        fn round_injection_yieldable(&self) -> bool {
+            self.round_injection_yieldable
         }
 
         fn input_schema(&self) -> serde_json::Value {
@@ -2882,10 +3175,20 @@ mod tests {
         async fn call_impl(
             &self,
             _input: &serde_json::Value,
-            _context: &ToolUseContext,
-        ) -> BitFunResult<Vec<ToolResult>> {
+            context: &ToolUseContext,
+        ) -> OpenBitFunResult<Vec<ToolResult>> {
             if self.delay_ms > 0 {
-                sleep(Duration::from_millis(self.delay_ms)).await;
+                if let Some(token) = context
+                    .round_injection_preemption_token()
+                    .filter(|_| self.round_injection_yieldable)
+                {
+                    tokio::select! {
+                        _ = sleep(Duration::from_millis(self.delay_ms)) => {}
+                        _ = token.cancelled() => {}
+                    }
+                } else {
+                    sleep(Duration::from_millis(self.delay_ms)).await;
+                }
             }
             Ok(vec![ToolResult::Result {
                 data: self.response.clone(),
@@ -2931,7 +3234,7 @@ mod tests {
             context_vars: HashMap::new(),
             subagent_parent_info: None,
             permission_delegation: None,
-            delegation_policy: bitfun_runtime_ports::DelegationPolicy::top_level(),
+            delegation_policy: openbitfun_runtime_ports::DelegationPolicy::top_level(),
             deferred_tools: Vec::new(),
             loaded_deferred_tool_specs: Vec::new(),
             allowed_tools: Vec::new(),
@@ -3022,6 +3325,25 @@ mod tests {
                 response,
                 delay_ms,
                 readonly: true,
+                round_injection_yieldable: false,
+            }));
+    }
+
+    async fn register_yieldable_test_tool(
+        pipeline: &ToolPipeline,
+        name: &str,
+        response: serde_json::Value,
+    ) {
+        pipeline
+            .tool_registry
+            .write()
+            .await
+            .register_tool(Arc::new(StaticTestTool {
+                name: name.to_string(),
+                response,
+                delay_ms: 30_000,
+                readonly: true,
+                round_injection_yieldable: true,
             }));
     }
 
@@ -3067,7 +3389,7 @@ mod tests {
         let mut context = test_tool_execution_context();
         context.workspace = Some(WorkspaceBinding::new(
             None,
-            std::env::temp_dir().join("bitfun-permission-test"),
+            std::env::temp_dir().join("openbitfun-permission-test"),
         ));
         context
     }
@@ -3097,6 +3419,7 @@ mod tests {
                 response: json!({ "unexpected": true }),
                 delay_ms: 0,
                 readonly: false,
+                round_injection_yieldable: false,
             }));
         let mut options = ToolExecutionOptions::default();
         options.permission_policy = ResolvedPermissionPolicy::new(
@@ -3145,7 +3468,7 @@ mod tests {
 
     async fn wait_for_permission_request(
         manager: &PermissionRequestManager,
-    ) -> bitfun_runtime_ports::PermissionRequest {
+    ) -> openbitfun_runtime_ports::PermissionRequest {
         for _ in 0..100 {
             if let Some(request) = manager.pending_requests().into_iter().next() {
                 return request;
@@ -3158,7 +3481,7 @@ mod tests {
     async fn wait_for_permission_request_count(
         manager: &PermissionRequestManager,
         expected: usize,
-    ) -> Vec<bitfun_runtime_ports::PermissionRequest> {
+    ) -> Vec<openbitfun_runtime_ports::PermissionRequest> {
         for _ in 0..100 {
             let requests = manager.pending_requests();
             if requests.len() >= expected {
@@ -3513,6 +3836,308 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn complete_shell_hook_workdir_rewrites_preserve_guard_and_model_observation() {
+        use crate::agentic::execution::edit_constraint_guard::{
+            ConstraintMatcher, ConstraintOperationScope, ConstraintSource, EditConstraintState,
+            ExtractedConstraint,
+        };
+        use crate::agentic::tools::implementations::exec_command::ExecCommandTool;
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        let scratch = temp.path().join("scratch");
+        std::fs::create_dir(&repo).unwrap();
+        std::fs::create_dir(&scratch).unwrap();
+        let state = EditConstraintState {
+            constraints: vec![ExtractedConstraint {
+                id: "fixture:protected".into(),
+                description: "Do not modify protected fixtures".into(),
+                operation_scope: ConstraintOperationScope::All,
+                matcher: ConstraintMatcher::PathUnderDir {
+                    dirs: vec![repo.to_string_lossy().into_owned()],
+                },
+                source: ConstraintSource::Legacy,
+                source_text: None,
+            }],
+            ..Default::default()
+        };
+        let protected_cmd = format!("printf x > '{}'", repo.join("victim").display());
+        let allowed_cmd = format!("printf x > '{}'", scratch.join("victim").display());
+        for (case, original_cwd, final_cwd, original_cmd, final_cmd) in [
+            (
+                "original-cwd",
+                &repo,
+                &scratch,
+                "printf x > victim",
+                "printf x > victim",
+            ),
+            (
+                "final-cwd",
+                &scratch,
+                &repo,
+                "printf x > victim",
+                "printf x > victim",
+            ),
+            (
+                "original-cmd",
+                &repo,
+                &repo,
+                protected_cmd.as_str(),
+                allowed_cmd.as_str(),
+            ),
+            (
+                "final-cmd",
+                &repo,
+                &repo,
+                allowed_cmd.as_str(),
+                protected_cmd.as_str(),
+            ),
+        ] {
+            let pipeline = test_tool_pipeline();
+            let mut tool = ExecCommandTool::new();
+            tool.guard_fixture_state = Some(state.clone());
+            pipeline
+                .tool_registry
+                .write()
+                .await
+                .register_tool(Arc::new(tool));
+            let mut task = test_tool_task_with_arguments(
+                case,
+                "ExecCommand",
+                json!({"cmd":original_cmd, "workdir":original_cwd}),
+            );
+            task.context.workspace = Some(WorkspaceBinding::new(None, repo.clone()));
+            let id = pipeline.state_manager.create_task(task.clone()).await;
+            assert_eq!(
+                pipeline
+                    .apply_hook_input_rewrite(&task, json!({"cmd":final_cmd, "workdir":final_cwd}))
+                    .await,
+                case.starts_with("original")
+            );
+            let persisted = pipeline.state_manager.get_task(&id).unwrap();
+            assert_eq!(
+                persisted.input_rewrite_rejection.is_some(),
+                case.starts_with("original")
+            );
+            let error = pipeline
+                .execute_single_tool(id.clone())
+                .await
+                .expect_err("guard must reject before execution");
+            assert!(error.to_string().contains("Command was not executed"));
+            let observation = build_error_execution_result(&id, Some(persisted), &error);
+            let text = observation.result.result_for_assistant.unwrap();
+            assert!(
+                text.contains("executed") && text.contains("false"),
+                "{text}"
+            );
+            assert!(
+                text.contains("deny_constraint") && text.contains("fixture:protected"),
+                "{text}"
+            );
+            assert!(!text.contains("your own implementation"));
+            assert!(!repo.join("victim").exists());
+            assert!(!scratch.join("victim").exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn hook_rewrite_cannot_hide_a_non_relaxable_original_input_rejection() {
+        let pipeline = test_tool_pipeline();
+        let received_arguments = Arc::new(Mutex::new(None));
+        register_capturing_test_tool(&pipeline, "get_weather", Arc::clone(&received_arguments))
+            .await;
+        let task = test_tool_task_with_arguments(
+            "rewrite-protected-original",
+            "get_weather",
+            json!({ "city": "protected" }),
+        );
+        let tool_id = pipeline.state_manager.create_task(task.clone()).await;
+
+        assert!(
+            pipeline
+                .apply_hook_input_rewrite(&task, json!({ "city": "copy" }))
+                .await
+        );
+        let persisted = pipeline
+            .state_manager
+            .get_task(&tool_id)
+            .expect("rewritten task");
+        assert_eq!(
+            persisted.original_effective_arguments,
+            json!({ "city": "protected" })
+        );
+        assert_eq!(persisted.effective_arguments(), &json!({ "city": "copy" }));
+        assert!(persisted
+            .input_rewrite_rejection
+            .as_ref()
+            .is_some_and(ValidationResult::blocks_input_rewrite));
+
+        let error = pipeline
+            .execute_single_tool(tool_id)
+            .await
+            .expect_err("protected original input must block execution");
+        assert!(matches!(error, OpenBitFunError::Validation(_)));
+        assert!(received_arguments
+            .lock()
+            .expect("capturing tool argument lock")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn hook_rewrite_cannot_hide_a_protected_target_behind_a_repairable_error() {
+        let pipeline = test_tool_pipeline();
+        let received_arguments = Arc::new(Mutex::new(None));
+        register_capturing_test_tool(&pipeline, "get_weather", Arc::clone(&received_arguments))
+            .await;
+        let task = test_tool_task_with_arguments(
+            "rewrite-malformed-protected-original",
+            "get_weather",
+            json!({ "city": "protected", "unexpected": true }),
+        );
+        let tool_id = pipeline.state_manager.create_task(task.clone()).await;
+
+        assert!(
+            pipeline
+                .apply_hook_input_rewrite(&task, json!({ "city": "Paris" }))
+                .await,
+            "a repairable schema error must not hide a protected original target"
+        );
+        let persisted = pipeline
+            .state_manager
+            .get_task(&tool_id)
+            .expect("rewritten task");
+        assert!(persisted
+            .input_rewrite_rejection
+            .as_ref()
+            .is_some_and(ValidationResult::blocks_input_rewrite));
+
+        let error = pipeline
+            .execute_single_tool(tool_id)
+            .await
+            .expect_err("protected original target must block execution");
+        assert!(matches!(error, OpenBitFunError::Validation(_)));
+        assert!(received_arguments
+            .lock()
+            .expect("capturing tool argument lock")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn hook_rewrite_can_repair_an_ordinary_validation_failure() {
+        let pipeline = test_tool_pipeline();
+        let received_arguments = Arc::new(Mutex::new(None));
+        register_capturing_test_tool(&pipeline, "get_weather", Arc::clone(&received_arguments))
+            .await;
+        let task = test_tool_task_with_arguments(
+            "rewrite-repairable-original",
+            "get_weather",
+            json!({ "legacy_city": "Paris" }),
+        );
+        let tool_id = pipeline.state_manager.create_task(task.clone()).await;
+
+        assert!(
+            !pipeline
+                .apply_hook_input_rewrite(&task, json!({ "city": "Paris" }))
+                .await
+        );
+        let persisted = pipeline
+            .state_manager
+            .get_task(&tool_id)
+            .expect("rewritten task");
+        assert_eq!(
+            persisted.original_effective_arguments,
+            json!({ "legacy_city": "Paris" })
+        );
+        assert_eq!(persisted.effective_arguments(), &json!({ "city": "Paris" }));
+        assert!(persisted.input_rewrite_rejection.is_none());
+
+        pipeline
+            .execute_single_tool(tool_id)
+            .await
+            .expect("repaired input should execute");
+        assert_eq!(
+            *received_arguments
+                .lock()
+                .expect("capturing tool argument lock"),
+            Some(json!({ "city": "Paris" }))
+        );
+    }
+
+    #[tokio::test]
+    async fn final_validation_rejects_a_hook_rewrite_into_a_protected_input() {
+        let pipeline = test_tool_pipeline();
+        let received_arguments = Arc::new(Mutex::new(None));
+        register_capturing_test_tool(&pipeline, "get_weather", Arc::clone(&received_arguments))
+            .await;
+        let task = test_tool_task_with_arguments(
+            "rewrite-protected-final",
+            "get_weather",
+            json!({ "city": "Paris" }),
+        );
+        let tool_id = pipeline.state_manager.create_task(task.clone()).await;
+
+        assert!(
+            !pipeline
+                .apply_hook_input_rewrite(&task, json!({ "city": "protected" }))
+                .await
+        );
+        assert!(pipeline
+            .state_manager
+            .get_task(&tool_id)
+            .expect("rewritten task")
+            .input_rewrite_rejection
+            .is_none());
+
+        let error = pipeline
+            .execute_single_tool(tool_id)
+            .await
+            .expect_err("protected final input must fail final validation");
+        assert!(matches!(error, OpenBitFunError::Validation(_)));
+        assert!(received_arguments
+            .lock()
+            .expect("capturing tool argument lock")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn hook_rewrite_recomputes_concurrency_from_final_input() {
+        let pipeline = test_tool_pipeline();
+        register_capturing_test_tool(&pipeline, "get_weather", Arc::new(Mutex::new(None))).await;
+        let task = test_tool_task_with_arguments(
+            "rewrite-concurrency",
+            "get_weather",
+            json!({ "city": "Paris" }),
+        );
+        let tool_id = pipeline.state_manager.create_task(task.clone()).await;
+
+        assert!(
+            pipeline
+                .execution_traits_for_final_inputs(
+                    std::slice::from_ref(&tool_id),
+                    0,
+                    SubagentBatchExecutionPolicy::SafeOnly,
+                )
+                .await[0]
+                .0
+        );
+        assert!(
+            !pipeline
+                .apply_hook_input_rewrite(&task, json!({ "city": "unsafe" }))
+                .await
+        );
+        assert!(
+            !pipeline
+                .execution_traits_for_final_inputs(
+                    std::slice::from_ref(&tool_id),
+                    0,
+                    SubagentBatchExecutionPolicy::SafeOnly,
+                )
+                .await[0]
+                .0
+        );
+    }
+
     /// The same approval does waive an interactive prompt when the policy
     /// only asks, so the call proceeds without a permission request.
     #[tokio::test]
@@ -3586,7 +4211,7 @@ mod tests {
         let requests = wait_for_permission_request_count(&manager, 2).await;
         assert_eq!(requests.len(), 2);
         let expected_project_path = std::env::temp_dir()
-            .join("bitfun-permission-test")
+            .join("openbitfun-permission-test")
             .to_string_lossy()
             .to_string();
         assert_eq!(
@@ -3605,7 +4230,7 @@ mod tests {
         .zip(requests.iter())
         {
             match event {
-                bitfun_runtime_ports::PermissionRequestEvent::Asked { request } => {
+                openbitfun_runtime_ports::PermissionRequestEvent::Asked { request } => {
                     assert_eq!(request.request_id, expected_request.request_id);
                 }
                 other => panic!("expected asked event, got {other:?}"),
@@ -3624,7 +4249,7 @@ mod tests {
             .reply(
                 &rejected_request.request_id,
                 PermissionReply::Reject { feedback: None },
-                bitfun_runtime_ports::PermissionReplySource::User,
+                openbitfun_runtime_ports::PermissionReplySource::User,
             )
             .await
             .expect("reject one tool");
@@ -3641,7 +4266,7 @@ mod tests {
             .reply(
                 &sibling_request.request_id,
                 PermissionReply::Once,
-                bitfun_runtime_ports::PermissionReplySource::User,
+                openbitfun_runtime_ports::PermissionReplySource::User,
             )
             .await
             .expect("allow sibling tool");
@@ -3695,7 +4320,7 @@ mod tests {
                 PermissionReply::Reject {
                     feedback: Some("Use a read-only path".to_string()),
                 },
-                bitfun_runtime_ports::PermissionReplySource::User,
+                openbitfun_runtime_ports::PermissionReplySource::User,
             )
             .await
             .expect("reject request with feedback");
@@ -3764,7 +4389,7 @@ mod tests {
             .reply(
                 &request.request_id,
                 PermissionReply::Once,
-                bitfun_runtime_ports::PermissionReplySource::User,
+                openbitfun_runtime_ports::PermissionReplySource::User,
             )
             .await
             .expect("allow child request");
@@ -3794,12 +4419,13 @@ mod tests {
         let mut context = permission_test_context();
         context.session_id = "subagent-session".to_string();
         context.agent_type = "Explore".to_string();
-        context.permission_delegation = Some(bitfun_runtime_ports::PermissionDelegationContext {
-            parent_session_id: "parent-session".to_string(),
-            parent_dialog_turn_id: None,
-            parent_tool_call_id: "parent-task-call".to_string(),
-            subagent_type: "Explore".to_string(),
-        });
+        context.permission_delegation =
+            Some(openbitfun_runtime_ports::PermissionDelegationContext {
+                parent_session_id: "parent-session".to_string(),
+                parent_dialog_turn_id: None,
+                parent_tool_call_id: "parent-task-call".to_string(),
+                subagent_type: "Explore".to_string(),
+            });
 
         let running_pipeline = pipeline.clone();
         let execution = tokio::spawn(async move {
@@ -3825,7 +4451,7 @@ mod tests {
             .reply(
                 &request.request_id,
                 PermissionReply::Once,
-                bitfun_runtime_ports::PermissionReplySource::User,
+                openbitfun_runtime_ports::PermissionReplySource::User,
             )
             .await
             .expect("allow child request");
@@ -3869,7 +4495,7 @@ mod tests {
             .reply(
                 &request.request_id,
                 PermissionReply::Once,
-                bitfun_runtime_ports::PermissionReplySource::User,
+                openbitfun_runtime_ports::PermissionReplySource::User,
             )
             .await
             .expect("once reply");
@@ -3891,7 +4517,7 @@ mod tests {
             .reply(
                 &request.request_id,
                 PermissionReply::Always,
-                bitfun_runtime_ports::PermissionReplySource::User,
+                openbitfun_runtime_ports::PermissionReplySource::User,
             )
             .await
             .expect("always reply");
@@ -3920,7 +4546,7 @@ mod tests {
         let mut other_project_context = permission_test_context();
         other_project_context.workspace = Some(WorkspaceBinding::new(
             None,
-            std::env::temp_dir().join("bitfun-permission-other-project"),
+            std::env::temp_dir().join("openbitfun-permission-other-project"),
         ));
         let other_pipeline = pipeline.clone();
         let other_project = tokio::spawn(async move {
@@ -3946,7 +4572,7 @@ mod tests {
             .reply(
                 &other_request.request_id,
                 PermissionReply::Reject { feedback: None },
-                bitfun_runtime_ports::PermissionReplySource::User,
+                openbitfun_runtime_ports::PermissionReplySource::User,
             )
             .await
             .expect("reject other project request");
@@ -3994,7 +4620,7 @@ mod tests {
             .reply(
                 &remote_request.request_id,
                 PermissionReply::Reject { feedback: None },
-                bitfun_runtime_ports::PermissionReplySource::User,
+                openbitfun_runtime_ports::PermissionReplySource::User,
             )
             .await
             .expect("reject remote project request");
@@ -4074,7 +4700,7 @@ mod tests {
             audit[1].event,
             PermissionAuditEvent::Replied {
                 reply: PermissionReply::Once,
-                source: bitfun_runtime_ports::PermissionReplySource::AutoApprove,
+                source: openbitfun_runtime_ports::PermissionReplySource::AutoApprove,
             }
         ));
         assert!(matches!(
@@ -4386,7 +5012,7 @@ mod tests {
 
     #[test]
     fn error_result_preserves_full_raw_arguments_for_unparseable_calls() {
-        let mut task = test_tool_task("tool_1", "Git");
+        let mut task = test_tool_task("tool_1", "Worktree");
         task.tool_call.arguments = json!({});
         task.tool_call.is_error = true;
         let raw_arguments = format!("{{\"operation\":\"{}", "log".repeat(512));
@@ -4395,7 +5021,7 @@ mod tests {
         let result = build_error_execution_result(
             "tool_1",
             Some(task),
-            &BitFunError::Validation("Arguments are invalid JSON.".to_string()),
+            &OpenBitFunError::Validation("Arguments are invalid JSON.".to_string()),
         );
 
         assert_eq!(
@@ -4418,19 +5044,21 @@ mod tests {
 
     #[test]
     fn error_result_omits_arguments_for_parsed_validation_errors() {
-        let mut task = test_tool_task("tool_1", "Git");
+        let mut task = test_tool_task("tool_1", "Worktree");
         task.tool_call.raw_arguments = Some(r#"{\"operation\":\"log\"}"#.to_string());
 
         let result = build_error_execution_result(
             "tool_1",
             Some(task),
-            &BitFunError::Validation("operation is not supported".to_string()),
+            &OpenBitFunError::Validation("operation is not supported".to_string()),
         );
 
         assert!(result.result.result["provided_arguments"].is_null());
         assert_eq!(
             result.result.result_for_assistant.as_deref(),
-            Some("Tool 'Git' failed (invalid_arguments): Validation error: operation is not supported")
+            Some(
+                "Tool 'Worktree' failed (invalid_arguments): Validation error: operation is not supported"
+            )
         );
     }
 
@@ -4673,6 +5301,62 @@ mod tests {
         assert_eq!(results[0].result.result["category"], json!("cancelled"));
     }
 
+    #[tokio::test]
+    async fn yieldable_tools_end_normally_for_every_non_none_round_injection_policy() {
+        for policy in [
+            RoundInjectionToolPreemption::InterruptAfterCurrentAtomicUnit,
+            RoundInjectionToolPreemption::CancelRunningCooperatively,
+            RoundInjectionToolPreemption::CancelRunningForcefully,
+        ] {
+            let pipeline = test_tool_pipeline();
+            register_yieldable_test_tool(&pipeline, "AgentWait", json!({ "status": "steered" }))
+                .await;
+
+            let buffer = Arc::new(SessionRoundInjectionBuffer::default());
+            let buffer_for_injection = buffer.clone();
+            tokio::spawn(async move {
+                sleep(Duration::from_millis(50)).await;
+                buffer_for_injection.push(
+                    "session_1",
+                    test_round_injection(RoundInjectionKind::UserSteering, policy),
+                );
+            });
+
+            let mut context = test_tool_execution_context();
+            context.steering_interrupt = Some(DialogRoundInjectionInterrupt::new(
+                "session_1".to_string(),
+                "turn_1".to_string(),
+                buffer,
+            ));
+            let results = pipeline
+                .execute_tools(
+                    vec![test_tool_call("agent_wait", "AgentWait")],
+                    context,
+                    ToolExecutionOptions::default(),
+                )
+                .await
+                .expect("yieldable tool should finish normally");
+
+            assert_eq!(results.len(), 1, "policy: {policy:?}");
+            assert!(!results[0].result.is_error, "policy: {policy:?}");
+            assert_eq!(
+                results[0].result.result["status"],
+                json!("steered"),
+                "policy: {policy:?}"
+            );
+            assert!(
+                matches!(
+                    pipeline
+                        .state_manager
+                        .get_task("agent_wait")
+                        .map(|task| task.state),
+                    Some(ToolExecutionState::Completed { .. })
+                ),
+                "policy: {policy:?}"
+            );
+        }
+    }
+
     #[test]
     fn fallback_assistant_text_preserves_full_structured_result() {
         let result = convert_tool_result(
@@ -4687,8 +5371,8 @@ mod tests {
                 image_attachments: None,
             },
             "tool_1",
-            "Bash",
-            "Bash",
+            "ExecCommand",
+            "ExecCommand",
         );
 
         let assistant_text = result.result_for_assistant.unwrap_or_default();
@@ -4696,6 +5380,36 @@ mod tests {
         assert!(assistant_text.contains("\"exit_code\": 1"));
         assert!(assistant_text.contains("\"working_directory\": \"/private/tmp\""));
         assert!(!assistant_text.contains("completed with error"));
+    }
+
+    #[test]
+    fn typed_ok_false_result_is_a_semantic_tool_error() {
+        let result = convert_tool_result(
+            FrameworkToolResult::Result {
+                data: json!({
+                    "ok": false,
+                    "domain": "browser",
+                    "action": "open_builtin",
+                    "error": {
+                        "code": "TIMEOUT",
+                        "message": "target did not become ready",
+                    },
+                }),
+                result_for_assistant: Some("TIMEOUT: target did not become ready".to_string()),
+                image_attachments: None,
+            },
+            "tool_1",
+            "ControlHub",
+            "ControlHub",
+        );
+
+        assert!(result.is_error);
+        assert_eq!(result.result["ok"], false);
+        assert_eq!(result.result["error"]["code"], "TIMEOUT");
+        assert_eq!(
+            result.result_for_assistant.as_deref(),
+            Some("TIMEOUT: target did not become ready")
+        );
     }
 
     #[test]
@@ -4732,9 +5446,10 @@ mod tests {
         task.context.loaded_deferred_tool_specs = vec![loaded_spec("WebFetch", 0)];
         task.context.runtime_tool_restrictions = ToolRuntimeRestrictions {
             allowed_tool_names: ["WebFetch"].into_iter().map(str::to_string).collect(),
-            denied_tool_names: ["Bash"].into_iter().map(str::to_string).collect(),
+            denied_tool_names: ["ExecCommand"].into_iter().map(str::to_string).collect(),
             denied_tool_messages: Default::default(),
             path_policy: Default::default(),
+            miniapp_context_scope: None,
         };
 
         let context = pipeline.build_tool_use_context(&task, CancellationToken::new());
@@ -4751,7 +5466,9 @@ mod tests {
         assert!(context
             .runtime_tool_restrictions
             .is_tool_allowed("WebFetch"));
-        assert!(!context.runtime_tool_restrictions.is_tool_allowed("Bash"));
+        assert!(!context
+            .runtime_tool_restrictions
+            .is_tool_allowed("ExecCommand"));
         assert_eq!(context.custom_data["turn_index"], json!(7));
         assert!(!context.custom_data.contains_key("primary_model_provider"));
         assert!(!context

@@ -12,17 +12,9 @@ export interface ShortcutDef {
   descriptionKey: string;
 }
 
-/**
- * These bindings always use catalog defaults; user overrides in config are ignored
- * and the keyboard settings UI does not allow remapping them.
- */
-export const NON_USER_CUSTOMIZABLE_SHORTCUT_IDS = new Set<string>([
-  'scene.openSession',
-]);
-
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-/** Build a ShortcutConfig using BitFun's logical primary modifier.
+/** Build a ShortcutConfig using OpenBitFun's logical primary modifier.
  * ShortcutManager maps it to Ctrl on Windows/Linux and Command on macOS.
  */
 function mod(
@@ -79,12 +71,6 @@ export const APP_SHORTCUTS: ShortcutDef[] = [
     descriptionKey: 'keyboard.shortcuts.scene.openTerminal',
   },
 
-  // App-level UI
-  {
-    id: 'app.closePreview',
-    config: { key: 'Escape', scope: 'app', allowInInput: true },
-    descriptionKey: 'keyboard.shortcuts.app.closePreview',
-  },
 ];
 
 // ─── Scene-bar navigation (scope: 'app', allowInInput: true) ──────────────
@@ -129,12 +115,6 @@ export const CANVAS_SHORTCUTS: ShortcutDef[] = [
     config: mod('M', { shift: true, scope: 'canvas' }),
     descriptionKey: 'keyboard.shortcuts.canvas.maximize',
   },
-  {
-    id: 'canvas.closePreview',
-    config: { key: 'Escape', scope: 'canvas', allowInInput: true },
-    descriptionKey: 'keyboard.shortcuts.canvas.closePreview',
-  },
-
   // Tab management
   {
     id: 'tab.close',

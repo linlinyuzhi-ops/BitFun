@@ -1,5 +1,6 @@
 use crate::agentic::agents::{
-    get_agent_registry, AgentInfo, SubagentListScope, SubagentQueryContext,
+    get_agent_registry, is_swarm_planner_agent_type, AgentInfo, SubagentListScope,
+    SubagentQueryContext, SWARM_DELEGATE_AGENT_TYPES,
 };
 use crate::agentic::coordination::{get_global_coordinator, SubagentExecutionRequest};
 use crate::agentic::deep_review::task_adapter::{
@@ -25,16 +26,17 @@ use crate::agentic::tools::framework::{
 use crate::agentic::tools::pipeline::SubagentParentInfo;
 use crate::service::config::global::GlobalConfigManager;
 use crate::service::config::types::AIConfig;
-use crate::util::errors::{BitFunError, BitFunResult};
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use crate::util::timing::elapsed_ms_u64;
 use async_trait::async_trait;
-use bitfun_runtime_ports::{PermissionRuntimeCeiling, SubagentContextMode};
 use input::{TaskAction, TaskInvocation};
 use log::{debug, warn};
+use openbitfun_runtime_ports::{PermissionRuntimeCeiling, SubagentContextMode};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::time::Instant;
 
+mod agent_control;
 mod background;
 mod deep_review;
 mod execution;
@@ -46,6 +48,9 @@ mod validation;
 pub use launch_review_agent::LaunchReviewAgentTool;
 
 pub struct TaskTool;
+pub struct AgentSpawnTool;
+pub struct AgentSendInputTool;
+pub struct AgentInterruptTool;
 
 const LARGE_TASK_PROMPT_SOFT_LINE_LIMIT: usize = 180;
 const LARGE_TASK_PROMPT_SOFT_BYTE_LIMIT: usize = 16 * 1024;
@@ -81,6 +86,12 @@ impl TaskTool {
     pub(crate) async fn build_available_agents_context_section(
         context: Option<&ToolUseContext>,
     ) -> Option<String> {
+        if context
+            .and_then(|context| context.agent_type.as_deref())
+            .is_some_and(is_swarm_planner_agent_type)
+        {
+            return None;
+        }
         let agents = Self::get_enabled_agents(context).await;
         let agent_descriptions = Self::format_agent_descriptions(&agents);
         if agent_descriptions.trim().is_empty() {
@@ -93,10 +104,11 @@ impl TaskTool {
     async fn get_enabled_agents(context: Option<&ToolUseContext>) -> Vec<AgentInfo> {
         let registry = get_agent_registry();
         let workspace_root = context.and_then(|ctx| ctx.workspace_root());
+        let parent_agent_type = context.and_then(|ctx| ctx.agent_type.as_deref());
         registry.load_custom_agents(workspace_root).await;
         registry
             .get_subagents_for_query(&SubagentQueryContext {
-                parent_agent_type: context.and_then(|ctx| ctx.agent_type.as_deref()),
+                parent_agent_type,
                 workspace_root,
                 list_scope: SubagentListScope::TaskVisible,
                 include_disabled: false,
@@ -106,6 +118,15 @@ impl TaskTool {
     }
 
     async fn get_agents_types(&self, context: Option<&ToolUseContext>) -> Vec<String> {
+        if context
+            .and_then(|context| context.agent_type.as_deref())
+            .is_some_and(is_swarm_planner_agent_type)
+        {
+            return SWARM_DELEGATE_AGENT_TYPES
+                .iter()
+                .map(|agent_type| (*agent_type).to_string())
+                .collect();
+        }
         let mut agent_types: Vec<String> = Self::get_enabled_agents(context)
             .await
             .into_iter()
@@ -135,7 +156,7 @@ impl Tool for TaskTool {
         true
     }
 
-    async fn description(&self) -> BitFunResult<String> {
+    async fn description(&self) -> OpenBitFunResult<String> {
         Ok(self.render_description())
     }
 
@@ -155,7 +176,7 @@ impl Tool for TaskTool {
     async fn description_with_context(
         &self,
         _context: Option<&ToolUseContext>,
-    ) -> BitFunResult<String> {
+    ) -> OpenBitFunResult<String> {
         Ok(self.render_description())
     }
 
@@ -199,7 +220,7 @@ impl Tool for TaskTool {
         &self,
         input: &Value,
         _context: &ToolUseContext,
-    ) -> BitFunResult<Vec<PermissionIntent>> {
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
         let action = TaskAction::parse(input)?;
         let resource = match action {
             TaskAction::Spawn => input
@@ -215,14 +236,14 @@ impl Tool for TaskTool {
                 .map(str::trim)
                 .filter(|agent_id| !agent_id.is_empty())
                 .map(|agent_id| format!("send_input:{agent_id}"))
-                .ok_or_else(|| BitFunError::validation("agent_id is required".to_string()))?,
+                .ok_or_else(|| OpenBitFunError::validation("agent_id is required".to_string()))?,
             TaskAction::Cancel => input
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|agent_id| !agent_id.is_empty())
                 .map(|agent_id| format!("cancel:{agent_id}"))
-                .ok_or_else(|| BitFunError::validation("agent_id is required".to_string()))?,
+                .ok_or_else(|| OpenBitFunError::validation("agent_id is required".to_string()))?,
         };
         Ok(vec![PermissionIntent::new("task", vec![resource])])
     }
@@ -248,22 +269,22 @@ impl Tool for TaskTool {
                 .map(|agent_id| format!("Cancelling background task: {}", agent_id))
                 .unwrap_or_else(|| "Cancelling background task".to_string()),
             Some(TaskAction::SendInput) => input
-                .get("description")
+                .get("agent_id")
                 .and_then(Value::as_str)
-                .map(|description| {
+                .map(|agent_id| {
                     if options.verbose {
-                        format!("Sending input to task: {}", description)
+                        format!("Sending input to task: {}", agent_id)
                     } else {
-                        format!("Task input: {}", description)
+                        format!("Task input: {}", agent_id)
                     }
                 })
                 .unwrap_or_else(|| "Sending input to task".to_string()),
             Some(TaskAction::Spawn) | None => {
-                if let Some(description) = input.get("description").and_then(|v| v.as_str()) {
+                if let Some(agent_id) = input.get("agent_id").and_then(|v| v.as_str()) {
                     if options.verbose {
-                        format!("Creating task: {}", description)
+                        format!("Creating task: {}", agent_id)
                     } else {
-                        format!("Task: {}", description)
+                        format!("Task: {}", agent_id)
                     }
                 } else {
                     "Creating task".to_string()
@@ -276,7 +297,7 @@ impl Tool for TaskTool {
         &self,
         input: &Value,
         context: &ToolUseContext,
-    ) -> BitFunResult<Vec<ToolResult>> {
+    ) -> OpenBitFunResult<Vec<ToolResult>> {
         self.call_task_impl(input, context).await
     }
 }

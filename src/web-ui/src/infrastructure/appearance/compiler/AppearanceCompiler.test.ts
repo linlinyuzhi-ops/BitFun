@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { bitfunDarkPalette, builtinAppearancePalettes } from '../builtins/palettes';
+import { builtinAppearancePalettes, openBitFunDarkPalette } from '../builtins/palettes';
 import { buildBuiltinAppearance } from '../builtins/buildBuiltinAppearance';
 import { composeAppearancePackage } from '../builtins/composeAppearancePackage';
+import { AppearanceRegistry } from '../registry/AppearanceRegistry';
 import { createDefaultAppearanceRegistry } from '../registry/defaultAppearanceRegistry';
 import { AppearancePackageValidationError } from '../schema/AppearancePackageValidationError';
-import type { AppearancePackage } from '../types';
+import { APPEARANCE_SCHEMA_VERSION, type AppearancePackage } from '../types';
 import { AppearanceCompiler } from './AppearanceCompiler';
 
 describe('AppearanceCompiler', () => {
   it('preserves structured validation diagnostics when compilation is rejected', () => {
     const pkg = {
-      ...buildBuiltinAppearance(bitfunDarkPalette),
+      ...buildBuiltinAppearance(openBitFunDarkPalette),
       components: {
         'toolbar-mode': {
           parts: {
@@ -24,18 +25,267 @@ describe('AppearanceCompiler', () => {
       .toThrow(AppearancePackageValidationError);
   });
 
-  it('compiles a built-in appearance into host-owned component selectors', () => {
+  it('compiles a built-in appearance without retired design-system component selectors', () => {
     const compiler = new AppearanceCompiler(createDefaultAppearanceRegistry());
-    const snapshot = compiler.compile(buildBuiltinAppearance(bitfunDarkPalette), 3);
+    const snapshot = compiler.compile(buildBuiltinAppearance(openBitFunDarkPalette), 3);
 
-    expect(snapshot.id).toBe(bitfunDarkPalette.id);
+    expect(snapshot.id).toBe(openBitFunDarkPalette.id);
     expect(snapshot.revision).toBe(3);
-    expect(snapshot.cssText).toContain('--bf-appearance-colors-bg-primary');
-    expect(snapshot.cssText).toContain('[data-bf-component="button"][data-bf-part="root"]');
-    expect(snapshot.cssText).toContain('[data-bf-variant="primary"]:hover:not(:disabled)');
+    expect(snapshot.cssText).toContain('--openbitfun-appearance-colors-bg-primary');
+    expect(snapshot.cssText).not.toContain('[data-openbitfun-component="card"]');
     expect(snapshot.cssText).not.toContain('@layer');
     expect(snapshot.cssText).not.toContain(' !important;');
     expect(snapshot.cssText).not.toContain('.btn-primary');
+  });
+
+  it('keeps product Appearance selectors distinct from design-system anatomy', () => {
+    const pkg: AppearancePackage = {
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
+      id: 'test.product-surface',
+      name: 'Product Surface',
+      version: '1.0.0',
+      mode: 'dark',
+      components: {
+        'user-message-edit-composer': {
+          parts: {
+            root: { base: { opacity: { kind: 'number', value: 0.9 } } },
+          },
+        },
+      },
+    };
+
+    const snapshot = new AppearanceCompiler(createDefaultAppearanceRegistry()).compile(pkg, 1);
+
+    expect(snapshot.cssText).toContain(
+      '[data-openbitfun-product-component="user-message-edit-composer"]'
+      + '[data-openbitfun-product-part="root"]',
+    );
+    expect(snapshot.cssText).not.toContain(
+      '[data-openbitfun-component="user-message-edit-composer"][data-openbitfun-part="root"]',
+    );
+  });
+
+  it('targets the renamed context picker for legacy file-picker Appearance packages', () => {
+    const pkg: AppearancePackage = {
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
+      id: 'test.legacy-context-picker',
+      name: 'Legacy Context Picker',
+      version: '1.0.0',
+      mode: 'dark',
+      components: {
+        'file-mention-picker': {
+          parts: {
+            root: { base: { opacity: { kind: 'number', value: 0.9 } } },
+          },
+        },
+      },
+    };
+
+    const snapshot = new AppearanceCompiler(createDefaultAppearanceRegistry()).compile(pkg, 1);
+
+    expect(snapshot.cssText).toContain(
+      '[data-openbitfun-component="chat-context-picker"][data-openbitfun-part="root"]',
+    );
+    expect(snapshot.cssText).not.toContain(
+      '[data-openbitfun-component="file-mention-picker"]',
+    );
+  });
+
+  it('rejects retired Settings surface ids without rewriting the package', () => {
+    const pkg: AppearancePackage = {
+      schema: 'openbitfun.appearance',
+      schemaVersion: 2,
+      id: 'test.legacy-settings-surface',
+      name: 'Legacy Settings Surface',
+      version: '1.0.0',
+      mode: 'dark',
+      components: {
+        'session-config': {
+          parts: {
+            petTrigger: {
+              facets: {
+                view: {
+                  personalization: { borderColor: { kind: 'hex', value: '#4488ff' } },
+                },
+              },
+            },
+            content: {
+              facets: {
+                view: {
+                  execution: { color: { kind: 'hex', value: '#4488ff' } },
+                },
+              },
+            },
+            control: {
+              facets: {
+                view: {
+                  'device-control': { color: { kind: 'hex', value: '#4488ff' } },
+                },
+              },
+            },
+            platformNote: {
+              facets: {
+                view: {
+                  'execution-control': { color: { kind: 'hex', value: '#4488ff' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    expect(() => new AppearanceCompiler(createDefaultAppearanceRegistry()).compile(pkg, 1))
+      .toThrow(AppearancePackageValidationError);
+  });
+
+  it('rejects retired split execution facets without rewriting the package', () => {
+    const pkg: AppearancePackage = {
+      schema: 'openbitfun.appearance',
+      schemaVersion: 2,
+      id: 'test.split-execution-settings',
+      name: 'Split Execution Settings',
+      version: '1.0.0',
+      mode: 'dark',
+      components: {
+        'runtime-settings': {
+          parts: {
+            content: {
+              facets: {
+                view: {
+                  'execution-common': { color: { kind: 'hex', value: '#4488ff' } },
+                  'execution-advanced': { color: { kind: 'hex', value: '#8844ff' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    expect(() => new AppearanceCompiler(createDefaultAppearanceRegistry()).compile(pkg, 1))
+      .toThrow(AppearancePackageValidationError);
+  });
+
+  it('rejects retired appearance Settings parts without rewriting the package', () => {
+    const pkg: AppearancePackage = {
+      schema: 'openbitfun.appearance',
+      schemaVersion: 2,
+      id: 'test.legacy-appearance-settings-cards',
+      name: 'Legacy Appearance Settings Cards',
+      version: '1.0.0',
+      mode: 'dark',
+      components: {
+        'appearance-config': {
+          parts: {
+            packageGrid: { base: { opacity: { kind: 'number', value: 0.8 } } },
+            packagePreview: { base: { opacity: { kind: 'number', value: 0.9 } } },
+          },
+        },
+      },
+    };
+
+    expect(() => new AppearanceCompiler(createDefaultAppearanceRegistry()).compile(pkg, 1))
+      .toThrow(AppearancePackageValidationError);
+  });
+
+  it('rejects retired product action parts without rewriting the package', () => {
+    const visible = { kind: 'number', value: 0.9 } as const;
+    const retired = { kind: 'number', value: 0.4 } as const;
+    const pkg: AppearancePackage = {
+      schema: 'openbitfun.appearance',
+      schemaVersion: 2,
+      id: 'test.retired-product-actions',
+      name: 'Retired Product Actions',
+      version: '1.0.0',
+      mode: 'dark',
+      components: {
+        'copy-output-button': {
+          parts: {
+            root: { base: { opacity: visible } },
+            action: { base: { opacity: retired } },
+          },
+        },
+        'sessions-section': {
+          parts: {
+            root: { base: { opacity: visible } },
+            retry: { base: { opacity: retired } },
+          },
+        },
+        'editor-config': {
+          parts: {
+            root: {
+              base: { opacity: visible },
+              states: { saving: { opacity: retired } },
+            },
+            actions: { base: { opacity: retired } },
+            saving: { base: { opacity: retired } },
+          },
+        },
+      },
+      scenes: {
+        skills: {
+          parts: {
+            root: { base: { opacity: visible } },
+            addAction: { base: { opacity: retired } },
+          },
+        },
+      },
+    };
+
+    expect(() => new AppearanceCompiler(createDefaultAppearanceRegistry()).compile(pkg, 1))
+      .toThrow(AppearancePackageValidationError);
+  });
+
+  it('rejects retired component surfaces without rewriting the package', () => {
+    const visible = { kind: 'number', value: 0.9 } as const;
+    const pkg: AppearancePackage = {
+      schema: 'openbitfun.appearance',
+      schemaVersion: 2,
+      id: 'test.retired-component-surfaces',
+      name: 'Retired Component Surfaces',
+      version: '1.0.0',
+      mode: 'dark',
+      components: {
+        button: { parts: { root: { base: { opacity: visible } } } },
+        switch: { parts: { root: { base: { opacity: visible } } } },
+        select: { parts: { dropdown: { base: { opacity: visible } } } },
+        card: { parts: { root: { base: { opacity: visible } } } },
+      },
+    };
+
+    expect(() => new AppearanceCompiler(createDefaultAppearanceRegistry()).compile(pkg, 1))
+      .toThrow(AppearancePackageValidationError);
+  });
+
+  it('compiles canonical Settings surface ids', () => {
+    const accent = { kind: 'hex', value: '#4488ff' } as const;
+    const pkg: AppearancePackage = {
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
+      id: 'test.settings-surfaces',
+      name: 'Settings Surfaces',
+      version: '1.0.0',
+      mode: 'dark',
+      components: {
+        'application-settings': { parts: { notifications: { base: { borderColor: accent } } } },
+        'model-settings': {
+          parts: { root: { facets: { view: { selection: { borderColor: accent } } } } },
+        },
+        'appearance-settings': { parts: { root: { base: { borderColor: accent } } } },
+        'runtime-settings': { parts: { petTrigger: { states: { expanded: { borderColor: accent } } } } },
+        'worktree-settings': { parts: { results: { base: { borderColor: accent } } } },
+      },
+    };
+
+    const snapshot = new AppearanceCompiler(createDefaultAppearanceRegistry()).compile(pkg, 1);
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="application-settings"][data-openbitfun-part="notifications"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="model-settings"][data-openbitfun-part="root"][data-openbitfun-view="selection"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="appearance-settings"][data-openbitfun-part="root"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="runtime-settings"][data-openbitfun-part="petTrigger"][data-openbitfun-state~="expanded"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="worktree-settings"][data-openbitfun-part="results"]');
   });
 
   it('compiles every built-in appearance without raw CSS passthrough', () => {
@@ -60,14 +310,14 @@ describe('AppearanceCompiler', () => {
 
   it('calculates real contrast diagnostics for structured colors', () => {
     const pkg: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
       id: 'test.low-contrast',
       name: 'Low Contrast',
       version: '1.0.0',
       mode: 'light',
       components: {
-        button: {
+        'gallery-layout': {
           parts: {
             root: {
               base: {
@@ -87,14 +337,14 @@ describe('AppearanceCompiler', () => {
 
   it('uses important declarations only for explicitly overriding parts', () => {
     const pkg: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
       id: 'test.cascade-override',
       name: 'Cascade Override',
       version: '1.0.0',
       mode: 'dark',
       components: {
-        button: {
+        'gallery-layout': {
           parts: {
             root: {
               cascade: 'override',
@@ -111,8 +361,8 @@ describe('AppearanceCompiler', () => {
 
   it('keeps non-forceable layout declarations in the normal cascade', () => {
     const pkg: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
       id: 'test.property-level-override',
       name: 'Property Level Override',
       version: '1.0.0',
@@ -143,14 +393,14 @@ describe('AppearanceCompiler', () => {
 
   it('normalizes side borders and outlines into deterministic CSS', () => {
     const pkg: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
       id: 'test.border-normalization',
       name: 'Border Normalization',
       version: '1.0.0',
       mode: 'light',
       components: {
-        button: {
+        'gallery-layout': {
           parts: {
             root: {
               base: {
@@ -176,8 +426,8 @@ describe('AppearanceCompiler', () => {
 
   it('combines materials in declaration order before applying the part base', () => {
     const pkg: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
       id: 'test.material-composition',
       name: 'Material Composition',
       version: '1.0.0',
@@ -199,7 +449,7 @@ describe('AppearanceCompiler', () => {
         },
       },
       components: {
-        button: {
+        'gallery-layout': {
           parts: {
             root: {
               materials: ['surface', 'accent'],
@@ -216,16 +466,16 @@ describe('AppearanceCompiler', () => {
     expect(snapshot.cssText).toContain('border-radius:6px;');
   });
 
-  it('does not promote inherited baseline declarations when an imported part overrides its own fields', () => {
+  it('does not synthesize retired component baselines for an explicit product-surface override', () => {
     const pkg: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
       id: 'test.layered-cascade',
       name: 'Layered Cascade',
       version: '1.0.0',
       mode: 'light',
       components: {
-        button: {
+        'gallery-layout': {
           parts: {
             root: {
               cascade: 'override',
@@ -241,14 +491,13 @@ describe('AppearanceCompiler', () => {
       1,
     );
     expect(snapshot.cssText).toContain('border-radius:2px !important;');
-    expect(snapshot.cssText).toContain('display:flex;');
-    expect(snapshot.cssText).not.toContain('display:flex !important;');
+    expect(snapshot.cssText).not.toContain('display:flex;');
   });
 
   it('compiles structured layout, media, transform, and filter values without CSS passthrough', () => {
     const pkg: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
       id: 'test.structured-style',
       name: 'Structured Style',
       version: '1.0.0',
@@ -299,8 +548,8 @@ describe('AppearanceCompiler', () => {
 
   it('compiles layered package assets into aligned host-owned background declarations', () => {
     const pkg: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
       id: 'test.layered-backgrounds',
       name: 'Layered Backgrounds',
       version: '1.0.0',
@@ -311,7 +560,7 @@ describe('AppearanceCompiler', () => {
         ornament: { kind: 'image', mimeType: 'image/png', source: { kind: 'package', path: 'assets/ornament.png' } },
       },
       components: {
-        card: {
+        'gallery-layout': {
           parts: {
             root: {
               base: {
@@ -341,7 +590,7 @@ describe('AppearanceCompiler', () => {
 
     const snapshot = new AppearanceCompiler(createDefaultAppearanceRegistry()).compile(pkg, 1);
     expect(snapshot.cssText).toContain(
-      'background-image:var(--bf-appearance-asset-ornament, none), var(--bf-appearance-asset-texture, none), var(--bf-appearance-asset-backdrop, none);',
+      'background-image:var(--openbitfun-appearance-asset-ornament, none), var(--openbitfun-appearance-asset-texture, none), var(--openbitfun-appearance-asset-backdrop, none);',
     );
     expect(snapshot.cssText).toContain('background-size:96px auto, 256px auto, cover;');
     expect(snapshot.cssText).toContain('background-position:100% 100%, 0% 0%, 65% 50%;');
@@ -351,9 +600,23 @@ describe('AppearanceCompiler', () => {
   });
 
   it('compiles ancestor-owned state selectors for descendant parts', () => {
+    const registry = new AppearanceRegistry()
+      .registerComponent({
+        id: 'checkbox',
+        parts: [{ id: 'root' }, { id: 'box' }],
+        states: [{
+          id: 'checked',
+          selector: {
+            kind: 'ancestorPart',
+            part: 'root',
+            suffix: ':has(input:checked)',
+          },
+        }],
+      })
+      .freeze();
     const pkg: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
       id: 'test.ancestor-state',
       name: 'Ancestor State',
       version: '1.0.0',
@@ -371,17 +634,17 @@ describe('AppearanceCompiler', () => {
       },
     };
 
-    const snapshot = new AppearanceCompiler(createDefaultAppearanceRegistry()).compile(pkg, 1);
+    const snapshot = new AppearanceCompiler(registry).compile(pkg, 1);
     expect(snapshot.cssText).toContain(
-      '[data-bf-component="checkbox"][data-bf-part="root"]:has(input:checked) [data-bf-component="checkbox"][data-bf-part="box"]',
+      '[data-openbitfun-component="checkbox"][data-openbitfun-part="root"]:has(input:checked) [data-openbitfun-component="checkbox"][data-openbitfun-part="box"]',
     );
   });
 
   it('targets multiple parts, facets, and states across complex product surfaces', () => {
     const accent = { kind: 'hex', value: '#ff3366' } as const;
     const pkg: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
       id: 'test.product-surfaces',
       name: 'Product Surfaces',
       version: '1.0.0',
@@ -398,7 +661,7 @@ describe('AppearanceCompiler', () => {
           parts: {
             topAction: {
               contexts: [{
-                when: { facets: { action: 'assistant' }, states: ['active'] },
+                when: { facets: { action: 'new-session' }, states: ['active'] },
                 style: { backgroundColor: accent },
               }],
             },
@@ -420,18 +683,18 @@ describe('AppearanceCompiler', () => {
     };
 
     const snapshot = new AppearanceCompiler(createDefaultAppearanceRegistry()).compile(pkg, 1);
-    expect(snapshot.cssText).toContain('[data-bf-component="about-dialog"][data-bf-part="hero"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="about-dialog"][data-bf-part="updateCard"][data-bf-state~="downloading"] [data-bf-component="about-dialog"][data-bf-part="progressFill"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="nav-panel"][data-bf-part="topAction"][data-bf-action="assistant"][data-bf-state~="active"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="canvas-editor-area"][data-bf-part="root"][data-bf-layout="grid"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="canvas-tab"][data-bf-part="root"][data-bf-state~="active"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="about-dialog"][data-openbitfun-part="hero"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="about-dialog"][data-openbitfun-part="updateCard"][data-openbitfun-state~="downloading"] [data-openbitfun-component="about-dialog"][data-openbitfun-part="progressFill"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="nav-panel"][data-openbitfun-part="topAction"][data-openbitfun-action="new-session"][data-openbitfun-state~="active"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="canvas-editor-area"][data-openbitfun-part="root"][data-openbitfun-layout="grid"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="canvas-tab"][data-openbitfun-part="root"][data-openbitfun-state~="active"]');
   });
 
   it('compiles dedicated contracts for large interactive owners', () => {
     const accent = { kind: 'hex', value: '#33ffaa' } as const;
     const pkg: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
       id: 'test.large-owners',
       name: 'Large Owners',
       version: '1.0.0',
@@ -454,7 +717,7 @@ describe('AppearanceCompiler', () => {
             },
           },
         },
-        'ai-model-config': {
+        'model-settings': {
           parts: {
             root: {
               facets: { view: { selection: { backgroundColor: accent } } },
@@ -476,9 +739,9 @@ describe('AppearanceCompiler', () => {
             historyOpenIntent: { base: { backgroundColor: accent } },
           },
         },
-        'session-config': {
+        'runtime-settings': {
           parts: {
-            templateCard: { states: { expanded: { borderColor: accent } } },
+            petTrigger: { states: { expanded: { borderColor: accent } } },
           },
         },
         'mcp-tools-config': {
@@ -499,9 +762,10 @@ describe('AppearanceCompiler', () => {
         },
         'remote-connect-dialog': {
           parts: {
-            groupTab: {
+            sidebar: { base: { borderColor: accent } },
+            overviewAction: {
               contexts: [{
-                when: { facets: { group: 'account' }, states: ['active'] },
+                when: { facets: { group: 'account' }, states: ['authenticated'] },
                 style: { backgroundColor: accent },
               }],
             },
@@ -513,16 +777,6 @@ describe('AppearanceCompiler', () => {
               contexts: [{
                 when: { facets: { tab: 'models' }, states: ['active'] },
                 style: { color: accent },
-              }],
-            },
-          },
-        },
-        'file-operation-tool-card': {
-          parts: {
-            root: {
-              contexts: [{
-                when: { facets: { action: 'modify' }, states: ['expanded'] },
-                style: { borderColor: accent },
               }],
             },
           },
@@ -580,11 +834,6 @@ describe('AppearanceCompiler', () => {
             trigger: { states: { open: { borderColor: accent } } },
           },
         },
-        'flow-chat-header': {
-          parts: {
-            turnBadge: { base: { backgroundColor: accent } },
-          },
-        },
         'session-files-badge': {
           parts: {
             file: { facets: { operation: { modify: { borderColor: accent } } } },
@@ -602,7 +851,7 @@ describe('AppearanceCompiler', () => {
         },
         'keyboard-shortcuts': {
           parts: {
-            keyBadge: { states: { recording: { borderColor: accent } } },
+            item: { states: { recording: { borderColor: accent } } },
           },
         },
         'task-tool-display': {
@@ -610,7 +859,7 @@ describe('AppearanceCompiler', () => {
             root: { states: { failed: { borderColor: accent } } },
           },
         },
-        'basics-config': {
+        'application-settings': {
           parts: {
             notifications: { base: { backgroundColor: accent } },
           },
@@ -670,11 +919,6 @@ describe('AppearanceCompiler', () => {
             expanded: { states: { expanded: { backgroundColor: accent } } },
           },
         },
-        'terminal-tool-card': {
-          parts: {
-            root: { facets: { status: { running: { borderColor: accent } } } },
-          },
-        },
         'skills-config': {
           parts: {
             marketItem: { states: { installed: { borderColor: accent } } },
@@ -703,17 +947,8 @@ describe('AppearanceCompiler', () => {
         'session-usage-report-card': {
           parts: { loading: { states: { loading: { backgroundColor: accent } } } },
         },
-        'ask-user-question-card': {
-          parts: { root: { states: { completed: { borderColor: accent } } } },
-        },
         'create-plan-display': {
           parts: { todos: { states: { expanded: { backgroundColor: accent } } } },
-        },
-        'exec-process-tool-card': {
-          parts: { waiting: { states: { waiting: { backgroundColor: accent } } } },
-        },
-        'editor-config': {
-          parts: { saving: { states: { saving: { color: accent } } } },
         },
         'workspace-project-permissions-dialog': {
           parts: { rule: { base: { borderColor: accent } } },
@@ -733,8 +968,8 @@ describe('AppearanceCompiler', () => {
         'chat-input-pixel-pet': {
           parts: { root: { facets: { mood: { working: { backgroundColor: accent } } } } },
         },
-        'file-mention-picker': {
-          parts: { item: { states: { selected: { backgroundColor: accent } } } },
+        'chat-context-picker': {
+          parts: { root: { states: { loading: { backgroundColor: accent } } } },
         },
         'session-file-modifications-bar': {
           parts: { file: { facets: { operation: { edit: { borderColor: accent } } } } },
@@ -746,7 +981,7 @@ describe('AppearanceCompiler', () => {
           parts: { commit: { states: { expanded: { borderColor: accent } } } },
         },
         'git-diff-view': {
-          parts: { typeOption: { states: { active: { backgroundColor: accent } } } },
+          parts: { file: { states: { expanded: { backgroundColor: accent } } } },
         },
         'git-settings-view': {
           parts: { status: { states: { error: { borderColor: accent } } } },
@@ -755,82 +990,77 @@ describe('AppearanceCompiler', () => {
       scenes: {
         agents: {
           parts: {
-            coreGrid: { base: { borderColor: accent } },
+            catalogGrid: { base: { borderColor: accent } },
           },
         },
       },
     };
 
     const snapshot = new AppearanceCompiler(createDefaultAppearanceRegistry()).compile(pkg, 1);
-    expect(snapshot.cssText).toContain('[data-bf-component="chat-input"][data-bf-part="target"][data-bf-target="btw"][data-bf-state~="selected"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="virtual-message-list"][data-bf-part="boundaryStatus"][data-bf-state~="unavailable"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="ai-model-config"][data-bf-part="root"][data-bf-view="selection"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="external-sources-config"][data-bf-part="conflict"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="review-platform"][data-bf-part="listItem"][data-bf-state~="selected"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="modern-flow-chat"][data-bf-part="historyOpenIntent"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="session-config"][data-bf-part="templateCard"][data-bf-state~="expanded"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="mcp-tools-config"][data-bf-part="root"][data-bf-view="json"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="mcp-tools-config"][data-bf-part="authEditor"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="sessions-section"][data-bf-part="row"][data-bf-state~="active"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="files-panel"][data-bf-part="search"][data-bf-search-mode="content"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="remote-connect-dialog"][data-bf-part="groupTab"][data-bf-group="account"][data-bf-state~="active"]');
-    expect(snapshot.cssText).toContain('[data-bf-scene="agents"][data-bf-part="coreGrid"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="session-usage-panel"][data-bf-part="tab"][data-bf-tab="models"][data-bf-state~="active"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="file-operation-tool-card"][data-bf-part="root"][data-bf-action="modify"][data-bf-state~="expanded"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="acp-agents-config"][data-bf-part="root"][data-bf-view="json"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="acp-agents-config"][data-bf-part="remoteServer"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="tiptap-editor"][data-bf-part="inlineAiPanel"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="scheduled-jobs-view"][data-bf-part="root"][data-bf-target="workspace"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="scheduled-jobs-view"][data-bf-part="job"][data-bf-state~="expanded"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="deep-review-action-bar"][data-bf-part="root"][data-bf-phase="review_completed"][data-bf-variant="success"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="rich-text-input"][data-bf-part="contextTag"][data-bf-context-type="widget-reference"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="model-round-item"][data-bf-part="root"][data-bf-status="streaming"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="model-round-item"][data-bf-part="action"][data-bf-state~="copied"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="flexible-panel"][data-bf-part="code"][data-bf-state~="needsFix"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="btw-session-panel"][data-bf-part="root"][data-bf-view="session"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="model-selector"][data-bf-part="trigger"][data-bf-state~="open"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="flow-chat-header"][data-bf-part="turnBadge"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="session-files-badge"][data-bf-part="file"][data-bf-operation="modify"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="code-review-tool-card"][data-bf-part="group"][data-bf-state~="expanded"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="create-agent-page"][data-bf-part="levelOption"][data-bf-state~="active"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="keyboard-shortcuts"][data-bf-part="keyBadge"][data-bf-state~="recording"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="task-tool-display"][data-bf-part="root"][data-bf-state~="failed"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="basics-config"][data-bf-part="notifications"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="markdown-editor"][data-bf-part="root"][data-bf-view="source"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="plan-viewer"][data-bf-part="editorPanel"][data-bf-state~="expanded"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="terminal-tool"][data-bf-part="screen"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="app-layout"][data-bf-part="root"][data-bf-state~="toolbar"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="skill-group-picker"][data-bf-part="token"][data-bf-state~="selected"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="working-copy-view"][data-bf-part="file"][data-bf-state~="selected"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="assistant-config-page"][data-bf-part="persona"][data-bf-state~="selected"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="assistant-defaults-page"][data-bf-part="skill"][data-bf-state~="covered"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="task-detail-panel"][data-bf-part="root"][data-bf-state~="empty"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="toolbar-mode"][data-bf-part="root"][data-bf-state~="expanded"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="mcp-tool-display"][data-bf-part="expanded"][data-bf-state~="expanded"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="terminal-tool-card"][data-bf-part="root"][data-bf-status="running"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="skills-config"][data-bf-part="marketItem"][data-bf-state~="installed"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="diff-editor"][data-bf-part="loading"][data-bf-state~="loading"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="agent-companion-desktop-pet"][data-bf-part="hitbox"][data-bf-state~="attention"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="tool-group-picker"][data-bf-part="token"][data-bf-state~="selected"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="inline-diff-preview"][data-bf-part="root"][data-bf-state~="empty"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="export-image"][data-bf-part="trigger"][data-bf-state~="exporting"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="user-message-item"][data-bf-part="root"][data-bf-state~="failed"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="session-usage-report-card"][data-bf-part="loading"][data-bf-state~="loading"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="ask-user-question-card"][data-bf-part="root"][data-bf-state~="completed"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="create-plan-display"][data-bf-part="todos"][data-bf-state~="expanded"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="exec-process-tool-card"][data-bf-part="waiting"][data-bf-state~="waiting"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="editor-config"][data-bf-part="saving"][data-bf-state~="saving"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="workspace-project-permissions-dialog"][data-bf-part="rule"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="workspace-session-batch-modal"][data-bf-part="row"][data-bf-state~="selected"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="archived-sessions-config"][data-bf-part="group"][data-bf-state~="collapsed"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="settings-nav"][data-bf-part="item"][data-bf-state~="active"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="background-command-output-panel"][data-bf-part="root"][data-bf-state~="error"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="chat-input-pixel-pet"][data-bf-part="root"][data-bf-mood="working"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="file-mention-picker"][data-bf-part="item"][data-bf-state~="selected"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="session-file-modifications-bar"][data-bf-part="file"][data-bf-operation="edit"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="editor-breadcrumb"][data-bf-part="item"][data-bf-state~="active"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="git-branch-history"][data-bf-part="commit"][data-bf-state~="expanded"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="git-diff-view"][data-bf-part="typeOption"][data-bf-state~="active"]');
-    expect(snapshot.cssText).toContain('[data-bf-component="git-settings-view"][data-bf-part="status"][data-bf-state~="error"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="chat-input"][data-openbitfun-part="target"][data-openbitfun-target="btw"][data-openbitfun-state~="selected"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="virtual-message-list"][data-openbitfun-part="boundaryStatus"][data-openbitfun-state~="unavailable"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="model-settings"][data-openbitfun-part="root"][data-openbitfun-view="selection"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="external-sources-config"][data-openbitfun-part="conflict"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="review-platform"][data-openbitfun-part="listItem"][data-openbitfun-state~="selected"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="modern-flow-chat"][data-openbitfun-part="historyOpenIntent"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="runtime-settings"][data-openbitfun-part="petTrigger"][data-openbitfun-state~="expanded"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="mcp-tools-config"][data-openbitfun-part="root"][data-openbitfun-view="json"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="mcp-tools-config"][data-openbitfun-part="authEditor"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="sessions-section"][data-openbitfun-part="row"][data-openbitfun-state~="active"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="files-panel"][data-openbitfun-part="search"][data-openbitfun-search-mode="content"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="remote-connect-dialog"][data-openbitfun-part="sidebar"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="remote-connect-dialog"][data-openbitfun-part="overviewAction"][data-openbitfun-group="account"][data-openbitfun-state~="authenticated"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-scene="agents"][data-openbitfun-part="catalogGrid"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="session-usage-panel"][data-openbitfun-part="tab"][data-openbitfun-tab="models"][data-openbitfun-state~="active"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="acp-agents-config"][data-openbitfun-part="root"][data-openbitfun-view="json"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="acp-agents-config"][data-openbitfun-part="remoteServer"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="tiptap-editor"][data-openbitfun-part="inlineAiPanel"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="scheduled-jobs-view"][data-openbitfun-part="root"][data-openbitfun-target="workspace"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="scheduled-jobs-view"][data-openbitfun-part="job"][data-openbitfun-state~="expanded"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="deep-review-action-bar"][data-openbitfun-part="root"][data-openbitfun-phase="review_completed"][data-openbitfun-variant="success"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="rich-text-input"][data-openbitfun-part="contextTag"][data-openbitfun-context-type="widget-reference"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="model-round-item"][data-openbitfun-part="root"][data-openbitfun-status="streaming"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="model-round-item"][data-openbitfun-part="action"][data-openbitfun-state~="copied"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="flexible-panel"][data-openbitfun-part="code"][data-openbitfun-state~="needsFix"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="btw-session-panel"][data-openbitfun-part="root"][data-openbitfun-view="session"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="model-selector"][data-openbitfun-part="trigger"][data-openbitfun-state~="open"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="session-files-badge"][data-openbitfun-part="file"][data-openbitfun-operation="modify"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="code-review-tool-card"][data-openbitfun-part="group"][data-openbitfun-state~="expanded"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="create-agent-page"][data-openbitfun-part="levelOption"][data-openbitfun-state~="active"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="keyboard-shortcuts"][data-openbitfun-part="item"][data-openbitfun-state~="recording"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="task-tool-display"][data-openbitfun-part="root"][data-openbitfun-state~="failed"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="application-settings"][data-openbitfun-part="notifications"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="markdown-editor"][data-openbitfun-part="root"][data-openbitfun-view="source"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="plan-viewer"][data-openbitfun-part="editorPanel"][data-openbitfun-state~="expanded"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="terminal-tool"][data-openbitfun-part="screen"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="app-layout"][data-openbitfun-part="root"][data-openbitfun-state~="toolbar"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="skill-group-picker"][data-openbitfun-part="token"][data-openbitfun-state~="selected"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="working-copy-view"][data-openbitfun-part="file"][data-openbitfun-state~="selected"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="assistant-config-page"][data-openbitfun-part="persona"][data-openbitfun-state~="selected"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="assistant-defaults-page"][data-openbitfun-part="skill"][data-openbitfun-state~="covered"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="task-detail-panel"][data-openbitfun-part="root"][data-openbitfun-state~="empty"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="toolbar-mode"][data-openbitfun-part="root"][data-openbitfun-state~="expanded"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="mcp-tool-display"][data-openbitfun-part="expanded"][data-openbitfun-state~="expanded"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="skills-config"][data-openbitfun-part="marketItem"][data-openbitfun-state~="installed"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="diff-editor"][data-openbitfun-part="loading"][data-openbitfun-state~="loading"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="agent-companion-desktop-pet"][data-openbitfun-part="hitbox"][data-openbitfun-state~="attention"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="tool-group-picker"][data-openbitfun-part="token"][data-openbitfun-state~="selected"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="inline-diff-preview"][data-openbitfun-part="root"][data-openbitfun-state~="empty"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="export-image"][data-openbitfun-part="trigger"][data-openbitfun-state~="exporting"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="user-message-item"][data-openbitfun-part="root"][data-openbitfun-state~="failed"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="session-usage-report-card"][data-openbitfun-part="loading"][data-openbitfun-state~="loading"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="create-plan-display"][data-openbitfun-part="todos"][data-openbitfun-state~="expanded"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="workspace-project-permissions-dialog"][data-openbitfun-part="rule"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="workspace-session-batch-modal"][data-openbitfun-part="row"][data-openbitfun-state~="selected"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="archived-sessions-config"][data-openbitfun-part="group"][data-openbitfun-state~="collapsed"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="settings-nav"][data-openbitfun-part="item"][data-openbitfun-state~="active"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="background-command-output-panel"][data-openbitfun-part="root"][data-openbitfun-state~="error"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="chat-input-pixel-pet"][data-openbitfun-part="root"][data-openbitfun-mood="working"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="chat-context-picker"][data-openbitfun-part="root"][data-openbitfun-state~="loading"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="session-file-modifications-bar"][data-openbitfun-part="file"][data-openbitfun-operation="edit"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-product-component="editor-breadcrumb"][data-openbitfun-product-part="item"][data-openbitfun-state~="active"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="git-branch-history"][data-openbitfun-part="commit"][data-openbitfun-state~="expanded"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="git-diff-view"][data-openbitfun-part="file"][data-openbitfun-state~="expanded"]');
+    expect(snapshot.cssText).toContain('[data-openbitfun-component="git-settings-view"][data-openbitfun-part="status"][data-openbitfun-state~="error"]');
   });
 });

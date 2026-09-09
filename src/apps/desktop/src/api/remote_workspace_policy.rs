@@ -1,40 +1,20 @@
-//! Remote workspace command policy registry.
+//! Desktop closure test for the Product Operation Registry.
 //!
 //! Every Tauri command registered in `lib.rs` (`tauri::generate_handler!`)
-//! must declare how it behaves when the active workspace is a remote SSH
-//! workspace (`WorkspaceKind::Remote`). This registry exists because remote
-//! SSH workspaces have no central command router: each handler adapts itself
+//! must have exactly one row in
+//! `openbitfun_product_domains::remote_surface`, which declares how the command
+//! behaves for remote SSH/Docker workspaces and in Peer Device Mode. Remote SSH
+//! workspaces have no central command router: each handler adapts itself
 //! (usually through `resolve_desktop_path_target` / `lookup_remote_connection`
-//! / `is_remote_path`), so nothing else forces a new command to consider
-//! remote workspaces at all. Historically that produced silent local/remote
-//! feature gaps (for example the PR reviewer opening to a blank panel in
-//! remote workspaces).
+//! / `is_remote_path`), so the registry is what forces a new command to declare
+//! its remote behavior at all. Historically the lack of that declaration
+//! produced silent local/remote feature gaps (for example the PR reviewer
+//! opening to a blank panel in remote workspaces).
 //!
-//! Rules enforced by the contract tests in this module:
-//!
-//! - Every registered command has exactly one policy entry, and every entry
-//!   matches a registered command.
-//! - `LegacyUnaudited` is a frozen backlog: entries may leave it after their
-//!   remote behavior has been audited, but no command may enter it. New
-//!   commands must ship with an explicit policy.
-//!
-//! Policy semantics:
-//!
-//! - `RemoteRouted`: the handler detects remote workspace paths/sessions and
-//!   executes on the remote host (or is itself part of the remote SSH
-//!   machinery). This is the target state for workspace-facing features.
-//! - `RemoteUnsupported`: the handler explicitly rejects remote workspaces
-//!   with a clear, user-visible error or gated UI state. Silent fake-success
-//!   or empty payloads do not qualify.
-//! - `LocalOnly`: the command intentionally operates on the local host
-//!   regardless of workspace (windowing, tray, local browser, devtools, OS
-//!   automation).
-//! - `WorkspaceAgnostic`: behavior does not depend on where the workspace
-//!   filesystem lives (accounts, i18n, SSH connection management, Remote
-//!   Connect, announcements, app lifecycle metadata).
-//! - `LegacyUnaudited`: pre-existing command whose remote behavior has not
-//!   been audited yet. Auditing one means reading the handler, fixing or
-//!   gating remote behavior if needed, and moving it to a real policy.
+//! The registry owns the stances, the frozen `Unaudited` backlog, and the
+//! ratchet tests; this module only proves the desktop registration set and the
+//! registry's `TauriCommand` rows are the same set. See
+//! `docs/architecture/remote-surface-contract.md`.
 
 /// How a Tauri command behaves for remote SSH workspaces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2067,20 +2047,19 @@ pub const REMOTE_WORKSPACE_COMMAND_POLICIES: &[(&str, RemoteWorkspacePolicy)] = 
     ("write_file_content", RemoteWorkspacePolicy::LegacyUnaudited),
 ];
 
+/// The declared remote-workspace stance of a registered Tauri command.
 pub fn remote_workspace_policy(command: &str) -> Option<RemoteWorkspacePolicy> {
-    REMOTE_WORKSPACE_COMMAND_POLICIES
-        .iter()
-        .find(|(name, _)| *name == command)
-        .map(|(_, policy)| *policy)
+    openbitfun_product_domains::remote_surface::operation(command).map(|op| op.remote_workspace)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use openbitfun_product_domains::remote_surface::{operations, OperationSurface};
     use std::collections::BTreeSet;
 
     /// Extracts the command names registered in `tauri::generate_handler!`.
-    fn registered_commands() -> BTreeSet<String> {
+    pub(crate) fn registered_commands() -> BTreeSet<String> {
         let source = include_str!("../lib.rs");
         let start = source
             .find("generate_handler![")
@@ -2106,7 +2085,7 @@ mod tests {
     }
 
     #[test]
-    fn every_registered_command_declares_a_remote_workspace_policy() {
+    fn every_registered_command_has_exactly_one_registry_row() {
         let registered = registered_commands();
         assert!(
             registered.len() > 400,
@@ -2114,28 +2093,25 @@ mod tests {
             registered.len()
         );
 
-        let declared: BTreeSet<String> = REMOTE_WORKSPACE_COMMAND_POLICIES
+        let declared: BTreeSet<String> = operations()
             .iter()
-            .map(|(name, _)| (*name).to_string())
+            .filter(|op| op.surface == OperationSurface::TauriCommand)
+            .map(|op| op.id.to_string())
             .collect();
-        assert_eq!(
-            declared.len(),
-            REMOTE_WORKSPACE_COMMAND_POLICIES.len(),
-            "remote workspace policy registry contains duplicate command entries"
-        );
 
         let missing: Vec<_> = registered.difference(&declared).cloned().collect();
         assert!(
             missing.is_empty(),
-            "commands registered in generate_handler! without a remote workspace policy \
-             (declare one in REMOTE_WORKSPACE_COMMAND_POLICIES; new commands must not use \
-             LegacyUnaudited): {missing:?}"
+            "commands registered in generate_handler! without a Product Operation Registry row \
+             (add one `op(...)` row in src/crates/contracts/product-domains/src/remote_surface/table.rs; \
+             new commands must not use Unaudited): {missing:?}"
         );
 
         let stale: Vec<_> = declared.difference(&registered).cloned().collect();
         assert!(
             stale.is_empty(),
-            "remote workspace policies declared for commands that are no longer registered: {stale:?}"
+            "registry rows declared as Tauri commands that are no longer registered \
+             (delete the row, or mark it HostInvokeOnly if a peer alias must survive): {stale:?}"
         );
     }
 
@@ -2156,7 +2132,7 @@ mod tests {
         ] {
             assert_eq!(
                 remote_workspace_policy(command),
-                Some(RemoteWorkspacePolicy::RemoteUnsupported),
+                Some(RemoteWorkspacePolicy::Unsupported),
                 "{command} must never fall back to the controller's local MCP config"
             );
         }
@@ -2166,7 +2142,7 @@ mod tests {
     fn workspace_reference_snapshot_explicitly_rejects_remote_workspaces() {
         assert_eq!(
             remote_workspace_policy("get_workspace_reference_snapshot"),
-            Some(RemoteWorkspacePolicy::RemoteUnsupported),
+            Some(RemoteWorkspacePolicy::Unsupported),
             "workspace references must never scan controller-local OpenCode config for a remote workspace"
         );
     }
@@ -2181,7 +2157,7 @@ mod tests {
         ] {
             assert_eq!(
                 remote_workspace_policy(command),
-                Some(RemoteWorkspacePolicy::RemoteUnsupported),
+                Some(RemoteWorkspacePolicy::Unsupported),
                 "{command} must never use local imported Hooks for a remote workspace"
             );
         }
@@ -2192,7 +2168,7 @@ mod tests {
         for command in ["rollback_session", "rollback_session_to_turn"] {
             assert_eq!(
                 remote_workspace_policy(command),
-                Some(RemoteWorkspacePolicy::RemoteUnsupported),
+                Some(RemoteWorkspacePolicy::Unsupported),
                 "{command} must not offer message-only rollback without remote file snapshots"
             );
         }
@@ -2206,384 +2182,4 @@ mod tests {
             "Desktop must register the external-source control command"
         );
     }
-
-    /// `LegacyUnaudited` is a frozen backlog: commands may graduate out of it
-    /// once their remote workspace behavior is audited, but no command may be
-    /// added to it. Do not append to this list; give new commands a real
-    /// policy instead.
-    #[test]
-    fn legacy_unaudited_backlog_must_not_grow() {
-        let unaudited: BTreeSet<&str> = REMOTE_WORKSPACE_COMMAND_POLICIES
-            .iter()
-            .filter(|(_, policy)| *policy == RemoteWorkspacePolicy::LegacyUnaudited)
-            .map(|(name, _)| *name)
-            .collect();
-        let frozen: BTreeSet<&str> = LEGACY_UNAUDITED_BASELINE.iter().copied().collect();
-
-        let added: Vec<_> = unaudited.difference(&frozen).collect();
-        assert!(
-            added.is_empty(),
-            "new commands must declare an explicit remote workspace policy instead of \
-             LegacyUnaudited: {added:?}"
-        );
-    }
-
-    /// The no-growth check above only compares against the baseline, so a
-    /// command that has already graduated keeps a reserved slot in it. That
-    /// slack lets an audited command silently regress back to
-    /// `LegacyUnaudited` without failing any test. Requiring graduated
-    /// commands to leave the baseline makes the ratchet monotonic: the backlog
-    /// can only shrink, and a regression has to re-add the entry explicitly.
-    #[test]
-    fn legacy_unaudited_baseline_must_not_retain_graduated_commands() {
-        let unaudited: BTreeSet<&str> = REMOTE_WORKSPACE_COMMAND_POLICIES
-            .iter()
-            .filter(|(_, policy)| *policy == RemoteWorkspacePolicy::LegacyUnaudited)
-            .map(|(name, _)| *name)
-            .collect();
-        let frozen: BTreeSet<&str> = LEGACY_UNAUDITED_BASELINE.iter().copied().collect();
-
-        let stale: Vec<_> = frozen.difference(&unaudited).collect();
-        assert!(
-            stale.is_empty(),
-            "these commands no longer use LegacyUnaudited; remove them from \
-             LEGACY_UNAUDITED_BASELINE so the backlog ratchet stays tight: {stale:?}"
-        );
-    }
-
-    /// Frozen at introduction time. Only removals are allowed.
-    const LEGACY_UNAUDITED_BASELINE: &[&str] = &[
-        "accept_file",
-        "accept_operation",
-        "accept_session",
-        "activate_session_goal",
-        "add_skill",
-        "apply_patch",
-        "archive_all_sessions",
-        "archive_session",
-        "cancel_acp_dialog_turn",
-        "cancel_dialog_turn",
-        "cancel_mcp_remote_oauth",
-        "cancel_search",
-        "cancel_session",
-        "cancel_tool",
-        "cancel_transfer",
-        "canonicalize_agent_profile_configs",
-        "check_command_exists",
-        "check_commands_exist",
-        "check_git_isolation",
-        "check_path_exists",
-        "cleanup_invalid_workspaces",
-        "cleanup_storage",
-        "cleanup_storage_with_policy",
-        "clear_mcp_remote_auth",
-        "clear_session_thread_goal",
-        "close_workspace",
-        "compact_session",
-        "compute_diff",
-        "control_background_command",
-        "control_deep_review_queue",
-        "create_acp_flow_session",
-        "create_assistant_workspace",
-        "create_cron_job",
-        "create_custom_agent",
-        "create_directory",
-        "create_file",
-        "create_miniapp",
-        "create_session",
-        "create_subagent",
-        "delete_agent_companion_pet_package",
-        "delete_all_archived_sessions",
-        "delete_assistant_workspace",
-        "delete_cron_job",
-        "delete_custom_agent",
-        "delete_directory",
-        "delete_file",
-        "delete_mcp_server",
-        "delete_miniapp",
-        "delete_persisted_session",
-        "delete_session",
-        "delete_skill",
-        "delete_subagent",
-        "download_skill_market",
-        "editor_ai_cancel",
-        "editor_ai_stream",
-        "ensure_coordinator_session",
-        "execute_tool",
-        "explorer_get_file_tree",
-        "export_config",
-        "export_diagnostics_bundle",
-        "export_local_file_to_path",
-        "export_session_transcript",
-        "fetch_mcp_app_resource",
-        "fork_session",
-        "generate_commit_message",
-        "generate_session_title",
-        "get_acp_clients",
-        "get_acp_session_commands",
-        "get_acp_session_options",
-        "get_agent_profile_config",
-        "get_agent_profile_configs",
-        "get_all_modified_files",
-        "get_all_tools_info",
-        "get_available_modes",
-        "get_available_tools",
-        "get_baseline_snapshot_diff",
-        "get_clipboard_files",
-        "get_config",
-        "get_configs",
-        "get_current_workspace",
-        "get_custom_agent_detail",
-        "get_default_review_team_definition",
-        "get_file_change_history",
-        "get_file_diff",
-        "get_file_editor_sync_hash",
-        "get_file_metadata",
-        "get_file_tree",
-        "get_global_config_health",
-        "get_global_config_status",
-        "get_mcp_prompt",
-        "get_mcp_remote_oauth_session",
-        "get_mcp_server_status",
-        "get_mcp_servers",
-        "get_mcp_tool_ui_uri",
-        "get_memory_paths",
-        "get_miniapp",
-        "get_miniapp_draft_storage",
-        "get_miniapp_storage",
-        "get_miniapp_versions",
-        "get_mode_skill_configs",
-        "get_model_configs",
-        "get_opened_workspaces",
-        "get_operation_diff",
-        "get_operation_summary",
-        "get_project_storage_paths",
-        "get_readonly_tools_info",
-        "get_recent_workspaces",
-        "get_runtime_capabilities",
-        "get_runtime_logging_info",
-        "get_session_file_diff_stats",
-        "get_session_files",
-        "get_session_operations",
-        "get_session_stats",
-        "get_session_thread_goal",
-        "get_session_turns",
-        "get_session_usage_report",
-        "get_skill_configs",
-        "get_snapshot_sessions",
-        "get_snapshot_system_stats",
-        "get_statistics",
-        "get_storage_paths",
-        "get_storage_statistics",
-        "get_subagent_detail",
-        "get_tool_info",
-        "get_turn_files",
-        "get_watched_paths",
-        "grant_miniapp_path",
-        "grant_miniapp_workspace",
-        "import_agent_companion_pet_package",
-        "import_config",
-        "initialize_acp_clients",
-        "initialize_ai",
-        "initialize_mcp_servers",
-        "initialize_mcp_servers_non_destructive",
-        "initialize_project_storage",
-        "initialize_snapshot",
-        "initialize_workspace_startup_state",
-        "install_acp_client_cli",
-        "list_agent_companion_pets",
-        "list_agent_tool_names",
-        "list_ai_models_by_config",
-        "list_archived_sessions",
-        "list_background_command_activities",
-        "list_cron_jobs",
-        "list_directory_files",
-        "list_mcp_prompts",
-        "list_mcp_resources",
-        "list_miniapps",
-        "list_persisted_sessions",
-        "list_persisted_sessions_page",
-        "list_sessions",
-        "list_skill_market",
-        "load_acp_json_config",
-        "load_canvas_artifact",
-        "load_canvas_state",
-        "load_git_repo_history",
-        "load_mcp_json_config",
-        "load_persisted_session_metadata",
-        "load_session_turns",
-        "lsp_change_document",
-        "lsp_close_document",
-        "lsp_close_workspace",
-        "lsp_detect_project",
-        "lsp_did_change",
-        "lsp_did_close",
-        "lsp_did_open",
-        "lsp_did_save",
-        "lsp_find_references",
-        "lsp_find_references_workspace",
-        "lsp_format_document",
-        "lsp_format_document_workspace",
-        "lsp_get_all_server_states",
-        "lsp_get_code_actions_workspace",
-        "lsp_get_completions",
-        "lsp_get_completions_workspace",
-        "lsp_get_document_highlight_workspace",
-        "lsp_get_document_symbols_workspace",
-        "lsp_get_hover",
-        "lsp_get_hover_workspace",
-        "lsp_get_inlay_hints_workspace",
-        "lsp_get_plugin",
-        "lsp_get_semantic_tokens_range_workspace",
-        "lsp_get_semantic_tokens_workspace",
-        "lsp_get_server_capabilities",
-        "lsp_get_server_state",
-        "lsp_get_supported_extensions",
-        "lsp_goto_definition",
-        "lsp_goto_definition_workspace",
-        "lsp_initialize",
-        "lsp_install_plugin",
-        "lsp_list_plugins",
-        "lsp_list_workspaces",
-        "lsp_open_document",
-        "lsp_open_workspace",
-        "lsp_prestart_server",
-        "lsp_rename_workspace",
-        "lsp_save_document",
-        "lsp_start_server_for_file",
-        "lsp_stop_all_servers",
-        "lsp_stop_server",
-        "lsp_stop_server_workspace",
-        "lsp_uninstall_plugin",
-        "miniapp_agent_cancel",
-        "miniapp_agent_cancel_stale_runs",
-        "miniapp_agent_run",
-        "miniapp_agent_turn_text",
-        "miniapp_ai_cancel",
-        "miniapp_ai_chat",
-        "miniapp_ai_complete",
-        "miniapp_ai_list_models",
-        "miniapp_apply_draft",
-        "miniapp_create_draft",
-        "miniapp_decline_builtin_update",
-        "miniapp_dialog_message",
-        "miniapp_discard_draft",
-        "miniapp_draft_host_call",
-        "miniapp_draft_worker_call",
-        "miniapp_draft_worker_stop",
-        "miniapp_get_customization_metadata",
-        "miniapp_get_draft",
-        "miniapp_host_call",
-        "miniapp_import_from_path",
-        "miniapp_install_deps",
-        "miniapp_permission_diff_for_draft",
-        "miniapp_recompile",
-        "miniapp_render_slide_page",
-        "miniapp_runtime_status",
-        "miniapp_set_draft_permissions",
-        "miniapp_sync_draft_from_fs",
-        "miniapp_sync_from_fs",
-        "miniapp_worker_call",
-        "miniapp_worker_list_running",
-        "miniapp_worker_stop",
-        "notify_cron_host_ready",
-        "open_workspace",
-        "paste_files",
-        "predownload_acp_client_adapter",
-        "preview_commit_message",
-        "probe_acp_client_requirements",
-        "quick_commit_message",
-        "read_background_command_output",
-        "read_file_content",
-        "read_mcp_resource",
-        "record_file_change",
-        "refresh_model_client",
-        "reject_file",
-        "reject_operation",
-        "reload_config",
-        "reload_custom_agents",
-        "reload_global_config",
-        "reload_subagents",
-        "remove_recent_workspace",
-        "rename_file",
-        "reorder_opened_workspaces",
-        "replace_mode_skill_selection",
-        "report_canvas_runtime_error",
-        "report_ide_control_result",
-        "reset_agent_profile_config",
-        "reset_assistant_workspace",
-        "reset_config",
-        "reset_memory",
-        "reset_mode_skill_selection",
-        "reset_workspace_persona_files",
-        "restart_mcp_server",
-        "restore_session",
-        "restore_session_view",
-        "restore_session_with_turns",
-        "rollback_miniapp",
-        "run_init_agents_md",
-        "run_system_command",
-        "save_acp_json_config",
-        "save_canvas_state",
-        "save_git_repo_history",
-        "save_mcp_json_config",
-        "save_merged_diff_content",
-        "save_session_metadata",
-        "save_session_turn",
-        "scan_workspace_info",
-        "search_file_contents",
-        "search_files",
-        "search_skill_market",
-        "send_background_command_input",
-        "send_mcp_app_message",
-        "set_acp_session_model",
-        "set_active_workspace",
-        "set_agent_profile_config",
-        "set_config",
-        "set_miniapp_draft_storage",
-        "set_miniapp_storage",
-        "set_mode_skill_disabled",
-        "set_session_memory_mode",
-        "set_session_thread_goal_status",
-        "set_subagent_timeout",
-        "start_acp_dialog_turn",
-        "start_dialog_turn",
-        "start_file_watch",
-        "start_mcp_remote_oauth",
-        "start_mcp_server",
-        "start_search_file_contents_stream",
-        "steer_dialog_turn",
-        "stop_acp_client",
-        "stop_file_watch",
-        "stop_mcp_server",
-        "submit_acp_permission_response",
-        "submit_mcp_interaction_response",
-        "submit_user_answers",
-        "subscribe_config_updates",
-        "sync_config_to_global",
-        "terminal_get",
-        "terminal_get_shells",
-        "terminal_list",
-        "terminal_shutdown_all",
-        "test_ai_config_connection",
-        "test_ai_connection",
-        "touch_session_activity",
-        "unarchive_session",
-        "update_cron_job",
-        "update_custom_agent",
-        "update_mcp_remote_auth",
-        "update_miniapp",
-        "update_session_model",
-        "update_session_thread_goal_objective",
-        "update_session_title",
-        "update_subagent",
-        "update_subagent_config",
-        "update_workspace_info",
-        "upload_image_contexts",
-        "validate_config",
-        "validate_skill_path",
-        "validate_tool_input",
-        "webdriver_bridge_result",
-        "write_file_content",
-    ];
 }

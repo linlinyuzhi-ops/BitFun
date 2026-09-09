@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   gitRepositoryUntrustedPath,
   isGitRepositoryUntrustedError,
+  isNotAvailableError,
   isOutcomeUnknownError,
   isSessionInUseError,
   TauriCommandError,
@@ -63,13 +64,27 @@ describe('isOutcomeUnknownError', () => {
   });
 });
 
+describe('isNotAvailableError', () => {
+  it('recognizes a stable unsupported capability prefix through wrappers', () => {
+    expect(
+      isNotAvailableError({
+        context: { originalError: 'not_available: future profile is unsupported' },
+      }),
+    ).toBe(true);
+  });
+
+  it('does not infer unsupported state from prose', () => {
+    expect(isNotAvailableError(new Error('This feature is unavailable'))).toBe(false);
+  });
+});
+
 describe('isGitRepositoryUntrustedError', () => {
   it('recognizes the ownership rejection through Tauri and Peer wrappers', () => {
     expect(
       isGitRepositoryUntrustedError(
         new TauriCommandError('Command failed', {
           command: 'git_get_status',
-          originalError: 'git_repository_untrusted: D:/workspace/project/BitFun',
+          originalError: 'git_repository_untrusted: D:/workspace/project/OpenBitFun',
         }),
       ),
     ).toBe(true);
@@ -102,10 +117,10 @@ describe('isGitRepositoryUntrustedError', () => {
   it('carries the repository path Git rejected', () => {
     const error = new TauriCommandError('Command failed', {
       command: 'git_get_status',
-      originalError: 'git_repository_untrusted: D:/workspace/project/BitFun',
+      originalError: 'git_repository_untrusted: D:/workspace/project/OpenBitFun',
     });
 
-    expect(gitRepositoryUntrustedPath(error)).toBe('D:/workspace/project/BitFun');
+    expect(gitRepositoryUntrustedPath(error)).toBe('D:/workspace/project/OpenBitFun');
     expect(gitRepositoryUntrustedPath(new Error('unrelated'))).toBeUndefined();
   });
 

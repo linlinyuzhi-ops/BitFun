@@ -55,6 +55,9 @@ pub struct SkillInfo {
     /// Stable product name supplied by the source definition.
     #[serde(default)]
     pub source_label: String,
+    /// Repository recorded by the installer, distinct from the discovery ecosystem.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installation_source: Option<String>,
     pub dir_name: String,
     #[serde(default)]
     pub is_builtin: bool,
@@ -115,6 +118,8 @@ pub struct SkillData {
     pub location: SkillLocation,
     pub path: String,
     pub source_slot: String,
+    pub source_id: String,
+    pub source_label: String,
     pub dir_name: String,
     pub allow_implicit_invocation: bool,
     pub allow_user_invocation: bool,
@@ -431,6 +436,8 @@ impl SkillData {
             location,
             path,
             source_slot: String::new(),
+            source_id: String::new(),
+            source_label: String::new(),
             dir_name,
             allow_implicit_invocation,
             allow_user_invocation,

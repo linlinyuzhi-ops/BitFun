@@ -18,16 +18,25 @@ use std::sync::Arc;
 const TOKEN_USAGE_DIR: &str = "token_usage";
 
 pub struct TokenUsageService {
-    inner: bitfun_services_core::token_usage::TokenUsageService,
+    inner: openbitfun_services_core::token_usage::TokenUsageService,
 }
 
 impl TokenUsageService {
+    /// Query a target's existing usage ledger without runtime initialization.
+    pub fn for_queries(path_manager: &PathManager) -> Self {
+        Self {
+            inner: openbitfun_services_core::token_usage::TokenUsageService::for_queries(
+                path_manager.user_data_dir().join(TOKEN_USAGE_DIR),
+            ),
+        }
+    }
+
     pub async fn new(path_manager: Arc<PathManager>) -> Result<Self> {
         Self::new_in_base_dir(path_manager.user_data_dir().join(TOKEN_USAGE_DIR)).await
     }
 
     pub async fn new_in_base_dir(base_dir: PathBuf) -> Result<Self> {
-        let inner = bitfun_services_core::token_usage::TokenUsageService::new(base_dir)
+        let inner = openbitfun_services_core::token_usage::TokenUsageService::new(base_dir)
             .await
             .map_err(anyhow::Error::msg)?;
         Ok(Self { inner })

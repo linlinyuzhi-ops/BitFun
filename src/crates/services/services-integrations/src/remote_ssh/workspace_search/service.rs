@@ -41,7 +41,7 @@ use tokio::time::{sleep, timeout};
 const REMOTE_STDIO_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const REMOTE_STDIO_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const REMOTE_STDIO_SESSION_IDLE_GRACE: Duration = Duration::from_secs(45);
-const CLIENT_NAME: &str = "bitfun-remote-workspace-search";
+const CLIENT_NAME: &str = "openbitfun-remote-workspace-search";
 
 static REMOTE_STDIO_SESSIONS: LazyLock<RwLock<HashMap<String, RemoteStdioSessionEntry>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));

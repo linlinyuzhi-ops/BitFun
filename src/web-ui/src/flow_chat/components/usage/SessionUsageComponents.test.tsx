@@ -95,8 +95,10 @@ vi.mock('react-i18next', async (importOriginal) => ({
         'usage.card.calls': '{{count}} calls',
         'usage.card.operations': '{{count}} ops',
         'usage.card.tokens': '{{value}} tokens',
+        'usage.card.tokenUsage': 'Tokens usage',
+        'usage.card.dataDelayDisclaimer': 'Usage statistics may be delayed. System records are authoritative.',
         'usage.loading.title': 'Generating usage report',
-        'usage.loading.description': 'Reading local session records and preparing a privacy-safe summary.',
+        'usage.loading.description': 'Reading session records and preparing a privacy-safe summary.',
         'usage.loading.steps.collecting': 'Reading session records',
         'usage.loading.steps.tokens': 'Summarizing token and tool activity',
         'usage.loading.steps.safety': 'Checking privacy-safe display fields',
@@ -131,7 +133,7 @@ vi.mock('react-i18next', async (importOriginal) => ({
         'usage.help.legacyModel': 'Older sessions did not store per-round model names.',
         'usage.help.inferredModel': 'Inferred from the session model setting.',
         'usage.help.filesUnavailable': 'No file snapshot or file-edit tool record was found for this session.',
-        'usage.help.filesNoRecordedChanges': 'BitFun did not detect file changes in this session. This is expected when the agent did not edit files.',
+        'usage.help.filesNoRecordedChanges': 'OpenBitFun did not detect file changes in this session. This is expected when the agent did not edit files.',
         'usage.help.filesRemoteUnavailable': 'No remote snapshot summary was found for this session. File rows can still appear from recognized file-edit tool records.',
         'usage.help.filesNotTracked': 'No local snapshot or identifiable file-edit tool record was found for this session.',
         'usage.help.fileDiffUnavailable': 'Diff links require a snapshot-backed file row and a visible file path.',
@@ -223,23 +225,25 @@ vi.mock('react-i18next', async (importOriginal) => ({
   }),
 }));
 
-vi.mock('@/component-library', () => ({
+vi.mock('@openbitfun/ui', async importOriginal => ({
+  ...await importOriginal<typeof import('@openbitfun/ui')>(),
   IconButton: React.forwardRef<
     HTMLButtonElement,
-    React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; size?: string }
+    React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ReactNode; variant?: string; size?: string }
   >(function MockIconButton({
     children,
+    icon,
     variant: _variant,
     size: _size,
     ...props
   }, ref) {
     return (
       <button ref={ref} type="button" {...props}>
+        {icon}
         {children}
       </button>
     );
   }),
-  MarkdownRenderer: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div>,
   Tooltip: ({ children, content }: { children: React.ReactNode; content?: React.ReactNode }) => {
     const tooltipContent = typeof content === 'string' ? content : undefined;
     let trigger = children;
@@ -255,6 +259,13 @@ vi.mock('@/component-library', () => ({
     }
     return <span data-tooltip={tooltipContent}>{trigger}</span>;
   },
+}));
+
+vi.mock('@/infrastructure/markdown', () => ({
+  MarkdownRenderer: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div>,
+}));
+
+vi.mock('@openbitfun/ui/flow-chat', () => ({
   ToolProcessingDots: ({ className }: { className?: string }) => <span className={className}>...</span>,
 }));
 
@@ -268,6 +279,8 @@ const USAGE_LOCALE_REQUIRED_KEYS = [
   'usage.actions.jumpToTurn',
   'usage.actions.viewDetails',
   'usage.actions.viewAllSection',
+  'usage.card.dataDelayDisclaimer',
+  'usage.card.tokenUsage',
   'usage.card.tokens',
   'usage.status.modelNotRecorded',
   'usage.status.legacyModel',
@@ -350,7 +363,7 @@ function usageReport(overrides: Partial<SessionUsageReport> = {}): SessionUsageR
     generatedAt: Date.UTC(2026, 4, 10, 8, 0),
     workspace: {
       kind: 'local',
-      pathLabel: 'D:/workspace/bitfun',
+      pathLabel: 'D:/workspace/openbitfun',
     },
     scope: {
       kind: 'entire_session',
@@ -540,12 +553,89 @@ describe('Session usage report UI components', () => {
 
     const openButton = container.querySelector('button[aria-label="Open details"]');
     expect(openButton?.textContent).toBe('Details');
-    expect(openButton?.className).toContain('session-usage-report-card__details-button');
+    expect(openButton?.getAttribute('data-openbitfun-component')).toBe('button');
+    expect(openButton?.getAttribute('data-openbitfun-variant')).toBe('outline');
     expect(container.querySelector('.session-usage-report-card__action-group')).toBeNull();
     act(() => {
       openButton?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     });
     expect(onOpenDetails).toHaveBeenCalledWith(report);
+  });
+
+  it('renders the focused compact summary used by the usage modal', () => {
+    const onOpenDetails = vi.fn();
+    const report = usageReport({
+      scope: {
+        kind: 'entire_session',
+        turnCount: 4,
+        includesSubagents: false,
+      },
+      time: {
+        accounting: 'approximate',
+        denominator: 'session_wall_time',
+        wallTimeMs: 820_000,
+        activeTurnMs: 588_000,
+      },
+      tokens: {
+        source: 'token_usage_records',
+        inputTokens: 5_126_217,
+        outputTokens: 270_000,
+        totalTokens: 5_396_217,
+        cachedTokens: 5_274_240,
+        cacheCoverage: 'available',
+        cacheHitRate: 0.99,
+      },
+      models: [{
+        modelId: 'deepseek-v4-flash',
+        callCount: 68,
+        inputTokens: 5_126_217,
+        outputTokens: 270_000,
+        totalTokens: 5_396_217,
+      }],
+      tools: [
+        { toolName: 'ExecCommand', category: 'shell', callCount: 9, successCount: 9, errorCount: 0, durationMs: 9000, redacted: false },
+        { toolName: 'Grep', category: 'file', callCount: 19, successCount: 19, errorCount: 0, durationMs: 8000, redacted: false },
+        { toolName: 'Edit', category: 'file', callCount: 19, successCount: 19, errorCount: 0, durationMs: 7000, redacted: false },
+        { toolName: 'Read', category: 'file', callCount: 2, successCount: 2, errorCount: 0, durationMs: 1000, redacted: false },
+      ],
+      errors: {
+        totalErrors: 3,
+        toolErrors: 3,
+        modelErrors: 0,
+        examples: [],
+      },
+    });
+
+    render(
+      <SessionUsageReportCard
+        compact
+        report={report}
+        markdown="## Session Usage"
+        onOpenDetails={onOpenDetails}
+      />
+    );
+
+    expect(container.querySelector('.session-usage-report-card--compact')).not.toBeNull();
+    expect(container.querySelector('.session-usage-report-card__compact-token-value')?.textContent)
+      .toContain('5.4M');
+    expect(container.textContent).toContain('Tokens usage');
+    expect(container.textContent).toContain('deepseek-v4-flash');
+    expect(container.textContent).toContain('68 calls');
+    expect(container.textContent).toContain('View all 4');
+    expect(container.textContent).toContain('ExecCommand');
+    expect(container.textContent).toContain('Grep');
+    expect(container.textContent).toContain('Edit');
+    expect(container.textContent).not.toContain('Read2 calls');
+    expect(container.querySelectorAll('.session-usage-report-card__compact-tool-row')).toHaveLength(3);
+    expect(container.querySelector('.session-usage-report-card__coverage')).toBeNull();
+    expect(container.querySelector('input[aria-label="Redact paths"]')).toBeNull();
+    expect(container.textContent).toContain('Usage statistics may be delayed');
+
+    const toolsButton = container.querySelector('button[aria-label="Open Tools details"]');
+    act(() => {
+      toolsButton?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+    expect(onOpenDetails).toHaveBeenCalledWith(report, 'tools');
   });
 
   it('appends a hit-rate suffix to the cached cell when cache is reported', () => {
@@ -571,9 +661,9 @@ describe('Session usage report UI components', () => {
 
     const cachedMetric = Array.from(container.querySelectorAll('.session-usage-report-card__metric'))
       .find(metric => metric.textContent?.includes('Cached'));
-    // Cached number AND inline (NN%) hit rate must both appear.
-    expect(cachedMetric?.textContent).toMatch(/1,?200/);
-    expect(cachedMetric?.textContent).toContain('(80%)');
+    // Cached number AND inline two-decimal hit rate must both appear.
+    expect(cachedMetric?.textContent).toContain('1.2K');
+    expect(cachedMetric?.textContent).toContain('(80.00%)');
     expect(cachedMetric?.textContent).not.toContain('Cache not reported');
   });
 
@@ -748,7 +838,7 @@ describe('Session usage report UI components', () => {
     expect(container.textContent).not.toContain('src/features');
     expect(container.textContent).not.toContain('/.../');
     expect(container.querySelector(`[data-tooltip="${longPath}"]`)).not.toBeNull();
-    expect(container.textContent).toContain('1,500 tokens');
+    expect(container.textContent).toContain('1.5K tokens');
     expect(refWarnings).toEqual([]);
   });
 
@@ -756,7 +846,7 @@ describe('Session usage report UI components', () => {
     const report = usageReport({
       workspace: {
         kind: 'local',
-        pathLabel: 'D:/workspace/bitfun',
+        pathLabel: 'D:/workspace/openbitfun',
       },
       files: {
         scope: 'snapshot_summary',
@@ -784,7 +874,7 @@ describe('Session usage report UI components', () => {
           report={report}
           markdown="## Session Usage"
           sessionId="session-1"
-          workspacePath="D:/workspace/bitfun"
+          workspacePath="D:/workspace/openbitfun"
           initialTab="files"
         />
       </>
@@ -797,7 +887,7 @@ describe('Session usage report UI components', () => {
     expect(redactionInputs.every(input => input.checked)).toBe(true);
     expect(container.textContent).toContain('[redacted path]');
     expect(container.textContent).toContain('secret.ts');
-    expect(container.textContent).not.toContain('D:/workspace/bitfun');
+    expect(container.textContent).not.toContain('D:/workspace/openbitfun');
     expect(container.textContent).not.toContain('src/private/secret.ts');
     expect(container.querySelector('[data-tooltip="[redacted path]/secret.ts"]')).not.toBeNull();
 
@@ -809,7 +899,7 @@ describe('Session usage report UI components', () => {
       `input[aria-label="Redact paths"]`
     ));
     expect(updatedInputs.every(input => input.checked)).toBe(false);
-    expect(container.textContent).toContain('D:/workspace/bitfun');
+    expect(container.textContent).toContain('D:/workspace/openbitfun');
     expect(container.querySelector('[data-tooltip="src/private/secret.ts"]')).not.toBeNull();
   });
 
@@ -884,7 +974,7 @@ describe('Session usage report UI components', () => {
 
     expect(container.querySelector('.session-usage-report-card--loading')).not.toBeNull();
     expect(container.textContent).toContain('Generating usage report');
-    expect(container.textContent).toContain('Reading local session records');
+    expect(container.textContent).toContain('Reading session records');
     expect(container.textContent).not.toContain('Unknown values are not counted as zero');
   });
 
@@ -1273,7 +1363,7 @@ describe('Session usage report UI components', () => {
         report={report}
         markdown="## Session Usage"
         sessionId="session-1"
-        workspacePath="D:/workspace/bitfun"
+        workspacePath="D:/workspace/openbitfun"
       />
     );
 
@@ -1309,7 +1399,7 @@ describe('Session usage report UI components', () => {
 
   it('keeps file diff actions visible and exposes full paths for long file rows', () => {
     dom.window.localStorage.setItem(USAGE_EXPORT_REDACT_PATHS_STORAGE_KEY, 'false');
-    const longPath = 'src/web-ui/src/component-library/components/Markdown/Markdown.tsx';
+    const longPath = 'src/web-ui/src/infrastructure/markdown/MarkdownRenderer.tsx';
     const report = usageReport({
       files: {
         scope: 'snapshot_summary',
@@ -1335,7 +1425,7 @@ describe('Session usage report UI components', () => {
         report={report}
         markdown="## Session Usage"
         sessionId="session-1"
-        workspacePath="D:/workspace/bitfun"
+        workspacePath="D:/workspace/openbitfun"
       />
     );
 
@@ -1348,8 +1438,8 @@ describe('Session usage report UI components', () => {
     expect(container.querySelector('.session-usage-panel__table--files')).not.toBeNull();
     expect(container.querySelector(`[data-tooltip="${longPath}"]`)).not.toBeNull();
     const pathCell = container.querySelector('.session-usage-panel__file-path-cell');
-    expect(pathCell?.textContent).toBe('.../Markdown/Markdown.tsx');
-    expect(pathCell?.textContent).not.toContain('component-library/components');
+    expect(pathCell?.textContent).toBe('.../markdown/MarkdownRenderer.tsx');
+    expect(pathCell?.textContent).not.toContain('src/web-ui/src/infrastructure');
     expect(pathCell?.textContent).not.toBe(longPath);
     expect(container.textContent).not.toContain('Operation IDs');
     expect(container.textContent).not.toContain('operation-1');
@@ -1359,7 +1449,7 @@ describe('Session usage report UI components', () => {
 
   it('opens snapshot-backed file diffs from the detail panel', async () => {
     snapshotApiMocks.getOperationDiff.mockResolvedValue({
-      filePath: 'D:/workspace/bitfun/src/main.rs',
+      filePath: 'D:/workspace/openbitfun/src/main.rs',
       originalContent: 'before',
       modifiedContent: 'after',
       anchorLine: 42,
@@ -1389,7 +1479,7 @@ describe('Session usage report UI components', () => {
         report={report}
         markdown="## Session Usage"
         sessionId="session-1"
-        workspacePath="D:/workspace/bitfun"
+        workspacePath="D:/workspace/openbitfun"
       />
     );
 
@@ -1408,18 +1498,18 @@ describe('Session usage report UI components', () => {
 
     expect(snapshotApiMocks.getOperationDiff).toHaveBeenCalledWith(
       'session-1',
-      'D:/workspace/bitfun/src/main.rs',
+      'D:/workspace/openbitfun/src/main.rs',
       'operation-1',
-      'D:/workspace/bitfun',
+      'D:/workspace/openbitfun',
     );
     expect(tabUtilsMocks.createDiffEditorTab).toHaveBeenCalledWith(
-      'D:/workspace/bitfun/src/main.rs',
+      'D:/workspace/openbitfun/src/main.rs',
       'main.rs',
       'before',
       'after',
       true,
       'agent',
-      'D:/workspace/bitfun',
+      'D:/workspace/openbitfun',
       42,
       undefined,
       {
@@ -1493,7 +1583,7 @@ describe('Session usage report UI components', () => {
     const report = usageReport({
       slowest: [
         {
-          label: 'Bash',
+          label: 'ExecCommand',
           kind: 'tool',
           durationMs: 95_000,
           redacted: false,
@@ -1524,7 +1614,7 @@ describe('Session usage report UI components', () => {
       slowestTab?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     });
 
-    expect(container.textContent).toContain('Bash');
+    expect(container.textContent).toContain('ExecCommand');
     expect(container.textContent).toContain('Input');
     expect(container.textContent).toContain('curl https://api.example.test/slow');
     expect(container.textContent).toContain('Status');
@@ -1663,14 +1753,14 @@ describe('Session usage report i18n and theme guards', () => {
       .map(stylePath => fs.readFileSync(path.resolve(stylePath), 'utf8'))
       .join('\n');
 
-    expect(styleText).toContain('var(--bf-appearance-token-color-text-primary)');
+    expect(styleText).toContain('var(--openbitfun-color-content-primary)');
     expect(styleText).toContain('width: auto;');
     expect(styleText).toContain('margin: 0.12rem 3rem');
-    expect(styleText).toContain('border: 1px solid color-mix(in srgb, var(--bf-appearance-token-border-base)');
+    expect(styleText).toContain('border: 1px solid color-mix(in srgb, var(--openbitfun-color-border-default)');
     expect(styleText).toContain('grid-template-columns: repeat(3, minmax(116px, 1fr));');
     expect(styleText).toContain('width: clamp(180px, 26vw, 280px);');
     expect(styleText).toContain('max-width: 280px;');
-    expect(styleText).toContain('text-overflow: ellipsis;');
+    expect(styleText).not.toContain('text-overflow: ellipsis;');
     expect(styleText).not.toContain('grid-template-columns: repeat(4, minmax(116px, 1fr));');
     expect(styleText).not.toContain('grid-template-columns: minmax(0, 1fr) auto max-content;');
     expect(styleText).not.toContain('max-width: 72%;');

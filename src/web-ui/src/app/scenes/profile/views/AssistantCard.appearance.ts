@@ -5,11 +5,11 @@ export const assistantCardAppearanceDescriptor: AppearanceSurfaceDescriptor = {
   parts: [
     { id: 'root' }, { id: 'main' }, { id: 'header' }, { id: 'avatar' },
     { id: 'headerInfo' }, { id: 'name' }, { id: 'primaryBadge' }, { id: 'badges' },
-    { id: 'body' }, { id: 'vibe' }, { id: 'configure' }, { id: 'footer' },
-    { id: 'newSession' }, { id: 'setPrimary' }, { id: 'delete' }, { id: 'chevron' },
+    { id: 'vibe' }, { id: 'footer' }, { id: 'setPrimary' }, { id: 'delete' },
+    { id: 'chevron' },
   ],
-  facets: [{ id: 'primary', attribute: 'data-bf-primary', values: ['true', 'false'] }],
+  facets: [{ id: 'primary', attribute: 'data-openbitfun-primary', values: ['true', 'false'] }],
   states: [
-    { id: 'busy', selector: { kind: 'ancestorPart', part: 'root', suffix: '[data-bf-state~="busy"]' } },
+    { id: 'busy', selector: { kind: 'ancestorPart', part: 'root', suffix: '[data-openbitfun-state~="busy"]' } },
   ],
 };

@@ -12,7 +12,7 @@
  * so the decision belongs to the user, not to the surface that tripped over it.
  */
 
-import { confirmWarning } from '@/component-library/components/ConfirmDialog/confirmService';
+import { confirmWarning } from '@/infrastructure/confirm-dialog';
 import { gitAPI } from '@/infrastructure/api';
 import type { GitTrustReport } from '@/infrastructure/api/service-api/GitAPI';
 import {
@@ -48,6 +48,14 @@ const promptQuietUntil = new Map<string, number>();
  * folder is one entry on both sides of the boundary.
  */
 const promptKey = repositoryPathKey;
+
+/** Names an ownership rejection with localized, actionable copy. */
+export function describeGitTrustFailure(failure: unknown): string | undefined {
+  const repositoryPath = gitRepositoryUntrustedPath(failure);
+  return repositoryPath
+    ? i18nService.t('panels/git:trust.required', { path: repositoryPath })
+    : undefined;
+}
 
 /** Test seam: forgets in-flight prompts and remembered decisions. */
 export function resetGitTrustDecisions(): void {

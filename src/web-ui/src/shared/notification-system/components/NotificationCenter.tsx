@@ -1,489 +1,324 @@
- 
-
-import React, { useState, useMemo } from 'react';
-import { X, CheckCheck, Trash2, XCircle, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
-import { Search, Modal } from '@/component-library';
+import React, { useMemo, useState } from 'react';
+import { AlertTriangle, Ban, CheckCheck, Loader2, XCircle } from 'lucide-react';
+import {
+  Card,
+  CardBody,
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogHeader,
+  DialogHeaderActions,
+  DialogHeading,
+  DialogTitle,
+  Disclosure,
+  Icon,
+  IconButton,
+  OverflowText,
+  ScrollArea,
+  SearchField,
+} from '@openbitfun/ui';
 import { useI18n } from '@/infrastructure/i18n';
-import { useNotificationHistory, useCenterOpen, useAllProgressNotifications, useAllLoadingNotifications } from '../hooks/useNotificationState';
+import { useNotificationState } from '../hooks/useNotificationState';
 import { notificationService } from '../services/NotificationService';
-import { NotificationFilter, NotificationRecord, Notification } from '../types';
+import type { Notification } from '../types';
 import './NotificationCenter.scss';
+
 export const NotificationCenter: React.FC = () => {
-  const isOpen = useCenterOpen();
-  const history = useNotificationHistory();
-  const allProgressNotifications = useAllProgressNotifications();
-  const allLoadingNotifications = useAllLoadingNotifications();
-  const { t, formatDate } = useI18n(['components', 'common', 'errors']);
-  const [filter, setFilter] = useState<NotificationFilter>('all');
+  const { centerOpen: isOpen, notificationHistory: history, activeNotifications } = useNotificationState();
+  const { t, formatDate, formatNumber } = useI18n(['components', 'common', 'errors']);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const activeTaskNotifications = useMemo(() => {
-    return [...allProgressNotifications, ...allLoadingNotifications];
-  }, [allProgressNotifications, allLoadingNotifications]);
+  const defaultTitles = {
+    success: t('common:status.success'),
+    error: t('common:status.error'),
+    warning: t('common:status.warning'),
+    info: t('common:status.info'),
+  };
 
-  
-  const handleClose = React.useCallback(() => {
+  const notifications = useMemo(() => {
+    const activeTasks = activeNotifications.filter(isActiveTask);
+    const activeTaskIds = new Set(activeTasks.map(notification => notification.id));
+    const completedHistory = history.filter(notification => {
+      if (activeTaskIds.has(notification.id)) return false;
+      if (notification.variant === 'progress' || notification.variant === 'loading') {
+        return notification.status === 'completed'
+          || notification.status === 'failed'
+          || notification.status === 'cancelled';
+      }
+      return true;
+    });
+    const query = searchQuery.trim().toLowerCase();
+
+    return [...activeTasks, ...completedHistory]
+      .filter(notification => !query
+        || notification.title.toLowerCase().includes(query)
+        || notification.message.toLowerCase().includes(query)
+        || notification.progressText?.toLowerCase().includes(query))
+      .sort((left, right) => right.timestamp - left.timestamp);
+  }, [activeNotifications, history, searchQuery]);
+
+  const handleClose = () => {
     notificationService.toggleCenter(false);
-  }, []);
-
-  
-  const handleMarkAllRead = () => {
-    notificationService.markAllAsRead();
   };
 
-  
-  const handleClearAll = () => {
-    notificationService.clearHistory();
-  };
-
-  
-  const handleDeleteNotification = (e: React.MouseEvent, notificationId: string) => {
-    e.stopPropagation(); 
-    notificationService.deleteFromHistory(notificationId);
-  };
-
-  
-  const handleNotificationClick = (notification: NotificationRecord) => {
-    
-    setExpandedIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(notification.id)) {
-        newSet.delete(notification.id);
-      } else {
-        newSet.add(notification.id);
-      }
-      return newSet;
+  const handleNotificationOpenChange = (notification: Notification, open: boolean) => {
+    setExpandedIds(previous => {
+      const next = new Set(previous);
+      if (open) next.add(notification.id);
+      else next.delete(notification.id);
+      return next;
     });
 
-    
-    if (!notification.read) {
-      notificationService.markAsRead(notification.id);
-    }
-    
-    
-    if (notification.metadata?.onClick) {
-      notification.metadata.onClick();
+    if (!isActiveTask(notification)) {
+      if (!notification.read) notificationService.markAsRead(notification.id);
+      notification.metadata?.onClick?.();
     }
   };
 
-  
-  const filteredHistory = useMemo(() => {
-    let filtered = history;
-
-    
-    
-    filtered = filtered.filter(n => {
-      if (n.variant === 'progress' || n.variant === 'loading') {
-        
-        return n.status === 'completed' || n.status === 'failed' || n.status === 'cancelled';
-      }
-      return true; 
-    });
-
-    
-    if (filter !== 'all') {
-      filtered = filtered.filter(n => n.type === filter);
-    }
-
-    
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(n =>
-        n.title.toLowerCase().includes(query) ||
-        n.message.toLowerCase().includes(query)
-      );
-    }
-
-    return filtered;
-  }, [history, filter, searchQuery]);
-
-  
-  const groupedHistory = useMemo(() => {
-    const now = Date.now();
-    const today = new Date(now).setHours(0, 0, 0, 0);
-    const yesterday = today - 86400000;
-
-    const groups = {
-      today: [] as NotificationRecord[],
-      yesterday: [] as NotificationRecord[],
-      earlier: [] as NotificationRecord[]
-    };
-
-    filteredHistory.forEach(notification => {
-      const notificationDate = new Date(notification.timestamp).setHours(0, 0, 0, 0);
-      
-      if (notificationDate === today) {
-        groups.today.push(notification);
-      } else if (notificationDate === yesterday) {
-        groups.yesterday.push(notification);
-      } else {
-        groups.earlier.push(notification);
-      }
-    });
-
-    return groups;
-  }, [filteredHistory]);
-
-  
   const formatTime = (timestamp: number) => {
-    return formatDate(timestamp, { hour: '2-digit', minute: '2-digit' });
+    const now = new Date();
+    const date = new Date(timestamp);
+    const isToday = date.getFullYear() === now.getFullYear()
+      && date.getMonth() === now.getMonth()
+      && date.getDate() === now.getDate();
+
+    return formatDate(timestamp, {
+      ...(isToday ? {} : { month: '2-digit', day: '2-digit' }),
+      ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
-  
-  const getIcon = (type: string, status?: string) => {
-    
-    if (status === 'completed') {
-      return '✓';
-    }
-    if (status === 'failed') {
-      return '✕';
-    }
-    if (status === 'cancelled') {
-      return '⊘';
-    }
-    
-    
-    switch (type) {
-      case 'success':
-        return '✓';
-      case 'error':
-        return '✕';
-      case 'warning':
-        return '⚠';
-      case 'info':
-      default:
-        return 'ℹ';
-    }
-  };
-
-  const getTechnicalDetails = (notification: NotificationRecord | Notification): string | null => {
-    const metadata = notification.metadata;
-    const aiError = metadata?.aiError;
-    const diagnostics = normalizeMetadataString(aiError?.diagnostics ?? metadata?.diagnostics);
-    const rawError = normalizeMetadataString(aiError?.rawError ?? metadata?.rawError);
-
-    if (diagnostics && rawError && !diagnostics.includes(rawError)) {
-      return `${diagnostics}\nraw_error=${rawError}`;
-    }
-
-    return diagnostics || (rawError ? `raw_error=${rawError}` : null);
-  };
-
-  
-  const renderActiveTaskItem = (notification: Notification) => {
+  const renderNotificationItem = (notification: Notification) => {
     const isProgress = notification.variant === 'progress';
-    const isLoading = notification.variant === 'loading';
-    
-    
-    const getProgressInfo = () => {
-      if (isLoading) {
-        return null;  
-      }
-      
-      if (isProgress) {
-        const mode = notification.progressMode || (notification.textOnly ? 'text-only' : 'percentage');
-        if (mode === 'text-only') return null;
-        
-        if (mode === 'fraction' && notification.current !== undefined && notification.total !== undefined) {
-          return `${notification.current}/${notification.total}`;
-        }
-        
-        if (mode === 'percentage' && notification.progress !== undefined) {
-          return `${Math.round(notification.progress)}%`;
-        }
-      }
-      
-      return null;
-    };
-    
-    const progressInfo = getProgressInfo();
-    
-    return (
-      <div
-        key={notification.id}
-        className="notification-center__active-task-item"
-        data-bf-component="notification"
-        data-bf-part="centerItem"
-      >
-        <div className="notification-center__active-task-icon">
-          <Loader2 size={16} className="notification-center__spinner" />
-        </div>
-        <div className="notification-center__active-task-content">
-          <div className="notification-center__active-task-header">
-            <div className="notification-center__active-task-title">{notification.title}</div>
-            {progressInfo && (
-              <div className="notification-center__active-task-progress-text">{progressInfo}</div>
-            )}
-          </div>
-          <div className="notification-center__active-task-message">
-            {isProgress && notification.progressText ? notification.progressText : (notification.messageNode ?? notification.message)}
-          </div>
-          
-          {isProgress && (() => {
-            const mode = notification.progressMode || (notification.textOnly ? 'text-only' : 'percentage');
-            if (mode === 'text-only') return null;
-            
-            return (
-              <div className="notification-center__active-task-progress-bar">
-                <div
-                  className="notification-center__active-task-progress-fill"
-                  style={{ transform: `scaleX(${Math.max(0, Math.min(100, notification.progress || 0)) / 100})` }}
-                />
-              </div>
-            );
-          })()}
-        </div>
-      </div>
-    );
-  };
-
-  
-  const renderNotificationItem = (notification: NotificationRecord) => {
-    const isProgress = notification.variant === 'progress';
-    const isLoading = notification.variant === 'loading';
-    const iconClass = (isProgress || isLoading) && notification.status 
-      ? `notification-center__item-icon--${notification.status}` 
-      : `notification-center__item-icon--${notification.type}`;
-
-    
-    const now = Date.now();
-    const today = new Date(now).setHours(0, 0, 0, 0);
-    const yesterday = today - 86400000;
-    const notificationDate = new Date(notification.timestamp).setHours(0, 0, 0, 0);
-    
-    const timeDisplay = notificationDate < yesterday
-      ? formatDate(notification.timestamp, {
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit'
-        })
-      : formatTime(notification.timestamp);
-
+    const isTask = isProgress || notification.variant === 'loading';
+    const isActive = isActiveTask(notification);
+    const isUnread = !isActive && !notification.read;
     const isExpanded = expandedIds.has(notification.id);
+    const status = isTask && notification.status ? notification.status : notification.type;
     const technicalDetails = getTechnicalDetails(notification);
+    const usesMessageAsTitle = !isTask
+      && notification.messageNode == null
+      && Boolean(notification.message.trim())
+      && notification.title.trim() === defaultTitles[notification.type];
+    const title = usesMessageAsTitle ? notification.message : notification.title;
+    const messageText = isProgress && notification.progressText
+      ? notification.progressText
+      : notification.message;
+    const message = isProgress && notification.progressText
+      ? notification.progressText
+      : (notification.messageNode ?? notification.message);
+    const mode = notification.progressMode || (notification.textOnly ? 'text-only' : 'percentage');
+    const showProgress = isProgress && mode !== 'text-only';
+    const progress = Math.max(0, Math.min(100, notification.progress || 0));
+    const progressInfo = !showProgress ? null
+      : mode === 'fraction' && notification.current !== undefined && notification.total !== undefined
+        ? formatNumber(notification.current) + '/' + formatNumber(notification.total)
+        : notification.progress !== undefined
+          ? formatNumber(progress / 100, { style: 'percent', maximumFractionDigits: 0 })
+          : null;
 
     return (
-      <div
+      <li
         key={notification.id}
-        className={`notification-center__item ${!notification.read ? 'is-unread' : ''} ${isProgress ? 'is-progress' : ''} ${isLoading ? 'is-loading' : ''} ${isExpanded ? 'is-expanded' : ''}`}
-        onClick={() => handleNotificationClick(notification)}
+        className="notification-center__item"
         data-notification-id={notification.id}
         data-notification-title={notification.title}
         data-notification-message={notification.message}
         data-notification-diagnostics={technicalDetails ?? undefined}
-        data-context-type="notification"
-        data-bf-component="notification"
-        data-bf-part="centerItem"
-        data-bf-state={`${!notification.read ? 'unread ' : ''}${isExpanded ? 'expanded' : ''}`.trim() || undefined}
+        data-context-type={isActive ? undefined : 'notification'}
+        data-openbitfun-component="notification"
+        data-openbitfun-part="centerItem"
+        data-openbitfun-state={[isUnread && 'unread', isExpanded && 'expanded'].filter(Boolean).join(' ') || undefined}
       >
-        <div className={`notification-center__item-icon ${iconClass}`}>
-          {getIcon(notification.type, notification.status)}
-        </div>
-        <div className="notification-center__item-content">
-          <div className="notification-center__item-header">
-            <div className="notification-center__item-title">{notification.title}</div>
-            
-            {isProgress && (() => {
-              const mode = notification.progressMode || (notification.textOnly ? 'text-only' : 'percentage');
-              if (mode === 'text-only') return null;
-              
-              if (mode === 'fraction' && notification.current !== undefined && notification.total !== undefined) {
-                return <div className="notification-center__item-percentage">{notification.current}/{notification.total}</div>;
-              }
-              
-              if (mode === 'percentage' && notification.progress !== undefined) {
-                return <div className="notification-center__item-percentage">{Math.round(notification.progress)}%</div>;
-              }
-              
-              return null;
-            })()}
-          </div>
-          <div className="notification-center__item-message">
-            {(isProgress && notification.progressText) ? notification.progressText : (notification.messageNode ?? notification.message)}
-          </div>
-          
-          {isProgress && (() => {
-            const mode = notification.progressMode || (notification.textOnly ? 'text-only' : 'percentage');
-            if (mode === 'text-only') return null;
-            
-            return (
-              <div className="notification-center__item-progress-bar">
+        <Card className="notification-center__item-card" appearance="neutral">
+          <Disclosure
+            className="notification-center__item-disclosure"
+            open={isExpanded}
+            onOpenChange={open => handleNotificationOpenChange(notification, open)}
+            summary={<span title={title}>{title}</span>}
+            description={!isExpanded && !usesMessageAsTitle && messageText
+              ? <OverflowText>{messageText}</OverflowText>
+              : undefined}
+            leading={
+              <span className={'notification-center__item-status notification-center__item-status--' + status} title={notification.title}>
+                {getNotificationIcon(notification)}
+              </span>
+            }
+            actions={
+              <>
+                {isUnread && <span className="notification-center__item-badge" aria-hidden="true" />}
+                <time
+                  className="notification-center__item-time"
+                  dateTime={new Date(notification.timestamp).toISOString()}
+                  title={formatDate(notification.timestamp, { dateStyle: 'full', timeStyle: 'short' })}
+                >
+                  {formatTime(notification.timestamp)}
+                </time>
+                {!isActive && (
+                  <span className="notification-center__item-action">
+                    <IconButton
+                      icon={<Icon name="xmark" size="sm" />}
+                      size="xs"
+                      onClick={() => notificationService.deleteFromHistory(notification.id)}
+                      title={t('common:actions.delete')}
+                      aria-label={t('common:actions.delete')}
+                    />
+                  </span>
+                )}
+              </>
+            }
+          >
+            <CardBody className="notification-center__item-details">
+              {message && <div className="notification-center__item-detail-message">{message}</div>}
+              {technicalDetails && (
+                <div className="notification-center__item-technical-details">
+                  <div className="notification-center__item-technical-title">
+                    {t('errors:boundary.technicalDetails')}
+                  </div>
+                  <ScrollArea className="notification-center__item-technical-body">
+                    <pre>{technicalDetails}</pre>
+                  </ScrollArea>
+                </div>
+              )}
+            </CardBody>
+          </Disclosure>
+          {showProgress && (
+            <div className="notification-center__item-progress">
+              <div
+                className="notification-center__item-progress-bar"
+                role="progressbar"
+                aria-label={notification.title}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progress}
+                aria-valuetext={progressInfo ?? undefined}
+              >
                 <div
-                  className={`notification-center__item-progress-fill ${notification.status ? `is-${notification.status}` : ''}`}
-                  style={{ transform: `scaleX(${Math.max(0, Math.min(100, notification.progress || 0)) / 100})` }}
+                  className={'notification-center__item-progress-fill is-' + status}
+                  style={{ transform: 'scaleX(' + progress / 100 + ')' }}
                 />
               </div>
-            );
-          })()}
-          <div className="notification-center__item-time">{timeDisplay}</div>
-          {isExpanded && technicalDetails && (
-            <div
-              className="notification-center__item-technical-details"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="notification-center__item-technical-title">
-                {t('errors:boundary.technicalDetails')}
-              </div>
-              <pre className="notification-center__item-technical-body">
-                {technicalDetails}
-              </pre>
+              {progressInfo && <span className="notification-center__item-percentage">{progressInfo}</span>}
             </div>
           )}
-        </div>
-        {!notification.read && <div className="notification-center__item-badge" />}
-        <div className="notification-center__item-actions">
-          <button
-            className="notification-center__item-expand"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleNotificationClick(notification);
-            }}
-            title={isExpanded ? t('common:actions.collapse') : t('common:actions.expand')}
-          >
-            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </button>
-          <button
-            className="notification-center__item-delete"
-            onClick={(e) => handleDeleteNotification(e, notification.id)}
-            title={t('common:actions.delete')}
-          >
-            <XCircle size={16} />
-          </button>
-        </div>
-      </div>
+        </Card>
+      </li>
     );
   };
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={handleClose}
-      showCloseButton={false}
-      size="large"
+    <Dialog
+      open={isOpen}
+      onOpenChange={(nextOpen) => { if (!nextOpen) handleClose(); }}
+      size="md"
+      aria-label={t('components:notificationCenter.title')}
     >
-      <div className="notification-center" data-testid="notification-center" data-bf-component="notification" data-bf-part="centerRoot">
-        
-        <div className="notification-center__header" data-bf-component="notification" data-bf-part="centerHeader">
-          <h2 className="notification-center__title">{t('components:notificationCenter.title')}</h2>
-          <div className="notification-center__header-actions">
-            <button
-              className="notification-center__header-button"
-              onClick={handleMarkAllRead}
-              title={t('components:notificationCenter.actions.markAllRead')}
-            >
-              <CheckCheck size={16} />
-            </button>
-            <button
-              className="notification-center__header-button"
-              onClick={handleClearAll}
-              title={t('components:notificationCenter.actions.clearAll')}
-            >
-              <Trash2 size={16} />
-            </button>
-            <button
-              className="notification-center__header-button"
-              onClick={handleClose}
-              title={t('common:actions.close')}
-              data-testid="notification-center-close-btn"
-            >
-              <X size={16} />
-            </button>
+      <div
+        className="notification-center"
+        data-testid="notification-center"
+        data-openbitfun-component="notification"
+        data-openbitfun-part="centerRoot"
+      >
+        <div className="notification-center__header" data-openbitfun-component="notification" data-openbitfun-part="centerHeader">
+          <DialogHeader className="notification-center__dialog-header">
+            <DialogHeading>
+              <DialogTitle>{t('components:notificationCenter.title')}</DialogTitle>
+            </DialogHeading>
+            <DialogHeaderActions>
+              <IconButton
+                icon={<CheckCheck size={16} />}
+                onClick={() => notificationService.markAllAsRead()}
+                disabled={!history.some(notification => !notification.read)}
+                title={t('components:notificationCenter.actions.markAllRead')}
+                aria-label={t('components:notificationCenter.actions.markAllRead')}
+              />
+              <IconButton
+                icon={<Icon name="delete" size="md" />}
+                onClick={() => notificationService.clearHistory()}
+                disabled={history.length === 0}
+                title={t('components:notificationCenter.actions.clearAll')}
+                aria-label={t('components:notificationCenter.actions.clearAll')}
+              />
+              <span className="notification-center__close" data-openbitfun-component="notification" data-openbitfun-part="centerClose">
+                <DialogClose
+                  title={t('common:actions.close')}
+                  aria-label={t('common:actions.close')}
+                  data-testid="notification-center-close-btn"
+                />
+              </span>
+            </DialogHeaderActions>
+          </DialogHeader>
+        </div>
+        <DialogBody className="notification-center__body" inset="none">
+          <div className="notification-center__search">
+            <SearchField
+              placeholder={t('components:notificationCenter.searchPlaceholder')}
+              aria-label={t('components:notificationCenter.searchPlaceholder')}
+              leadingIcon={<Icon name="search" size="md" aria-hidden />}
+              value={searchQuery}
+              onValueChange={setSearchQuery}
+              clearLabel={t('components:search.clear')}
+              onClear={searchQuery ? () => setSearchQuery('') : undefined}
+              size="md"
+            />
           </div>
-        </div>
-
-        
-        <div className="notification-center__search">
-          <Search
-            placeholder={t('components:notificationCenter.searchPlaceholder')}
-            value={searchQuery}
-            onChange={(val) => setSearchQuery(val)}
-            clearable
-            size="medium"
-          />
-        </div>
-
-        
-        <div className="notification-center__filters">
-          <button
-            className={`notification-center__filter ${filter === 'all' ? 'is-active' : ''}`}
-            onClick={() => setFilter('all')}
-          >
-            {t('components:notificationCenter.filters.all', { count: history.length })}
-          </button>
-          <button
-            className={`notification-center__filter ${filter === 'error' ? 'is-active' : ''}`}
-            onClick={() => setFilter('error')}
-          >
-            {t('common:status.error')}
-          </button>
-          <button
-            className={`notification-center__filter ${filter === 'warning' ? 'is-active' : ''}`}
-            onClick={() => setFilter('warning')}
-          >
-            {t('common:status.warning')}
-          </button>
-          <button
-            className={`notification-center__filter ${filter === 'info' ? 'is-active' : ''}`}
-            onClick={() => setFilter('info')}
-          >
-            {t('common:status.info')}
-          </button>
-        </div>
-
-        
-        <div className="notification-center__content" data-bf-component="notification" data-bf-part="centerList">
-          
-          {activeTaskNotifications.length > 0 && (
-            <div className="notification-center__active-section" data-testid="notification-center-active-section">
-              <div className="notification-center__active-section-title">
-                {t('components:notificationCenter.activeTasks.title', { count: activeTaskNotifications.length })}
-              </div>
-              <div className="notification-center__active-section-list">
-                {activeTaskNotifications.map(renderActiveTaskItem)}
-              </div>
-            </div>
-          )}
-
-          {filteredHistory.length === 0 && activeTaskNotifications.length === 0 ? (
-            <div className="notification-center__empty">
-              <div className="notification-center__empty-icon" />
-              <div className="notification-center__empty-text">
-                {searchQuery ? t('components:notificationCenter.empty.noMatches') : t('components:notificationCenter.empty.noNotifications')}
-              </div>
-            </div>
-          ) : (
-            <>
-              
-              {groupedHistory.today.length > 0 && (
-                <div className="notification-center__group">
-                  <div className="notification-center__group-title">{t('common:time.today')}</div>
-                  {groupedHistory.today.map(renderNotificationItem)}
+          <ScrollArea className="notification-center__content" data-openbitfun-component="notification" data-openbitfun-part="centerList">
+            {notifications.length === 0 ? (
+              <div className="notification-center__empty" role="status">
+                <div className="notification-center__empty-icon" aria-hidden="true">
+                  <Icon name={searchQuery.trim() ? 'search' : 'bell'} size="lg" />
                 </div>
-              )}
-
-              
-              {groupedHistory.yesterday.length > 0 && (
-                <div className="notification-center__group">
-                  <div className="notification-center__group-title">{t('common:time.yesterday')}</div>
-                  {groupedHistory.yesterday.map(renderNotificationItem)}
+                <div className="notification-center__empty-text">
+                  {searchQuery.trim()
+                    ? t('components:notificationCenter.empty.noMatches')
+                    : t('components:notificationCenter.empty.noNotifications')}
                 </div>
-              )}
-
-              
-              {groupedHistory.earlier.length > 0 && (
-                <div className="notification-center__group">
-                  <div className="notification-center__group-title">{t('components:notificationCenter.groups.earlier')}</div>
-                  {groupedHistory.earlier.map(renderNotificationItem)}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+              </div>
+            ) : (
+              <ul className="notification-center__list" aria-label={t('components:notificationCenter.title')}>
+                {notifications.map(renderNotificationItem)}
+              </ul>
+            )}
+          </ScrollArea>
+        </DialogBody>
       </div>
-    </Modal>
+    </Dialog>
   );
 };
+
+function isActiveTask(notification: Notification): boolean {
+  return (notification.variant === 'progress' || notification.variant === 'loading')
+    && notification.status === 'active';
+}
+
+function getNotificationIcon(notification: Notification) {
+  if (isActiveTask(notification)) return <Loader2 size={14} className="notification-center__spinner" />;
+  if (notification.status === 'completed') return <Icon name="check-circle" size="sm" />;
+  if (notification.status === 'failed') return <XCircle size={14} />;
+  if (notification.status === 'cancelled') return <Ban size={14} />;
+
+  switch (notification.type) {
+    case 'success': return <Icon name="check-circle" size="sm" />;
+    case 'error': return <XCircle size={14} />;
+    case 'warning': return <AlertTriangle size={14} />;
+    default: return <Icon name="info" size="sm" />;
+  }
+}
+
+function getTechnicalDetails(notification: Notification): string | null {
+  const metadata = notification.metadata;
+  const aiError = metadata?.aiError;
+  const diagnostics = normalizeMetadataString(aiError?.diagnostics ?? metadata?.diagnostics);
+  const rawError = normalizeMetadataString(aiError?.rawError ?? metadata?.rawError);
+
+  if (diagnostics && rawError && !diagnostics.includes(rawError)) {
+    return diagnostics + '\nraw_error=' + rawError;
+  }
+
+  return diagnostics || (rawError ? 'raw_error=' + rawError : null);
+}
 
 function normalizeMetadataString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;

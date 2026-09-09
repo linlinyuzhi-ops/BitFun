@@ -1,0 +1,288 @@
+# @openbitfun/ui
+
+Theme-independent React primitives and components.
+
+```tsx
+import "@openbitfun/theme-openbitfun/default.css";
+import "@openbitfun/ui/styles.css";
+import { Button, ThemeRoot } from "@openbitfun/ui";
+
+export function Example() {
+  return (
+    <ThemeRoot colorScheme="light" density="comfortable">
+      <Button>Continue</Button>
+    </ThemeRoot>
+  );
+}
+```
+
+The package owns component anatomy, behavior, accessibility, and stable variants. It does not own theme selection persistence, product state, routes, locale resources, or platform APIs.
+
+## Text overflow
+
+Use `OverflowText` for single-line, non-editable labels instead of local
+`text-overflow: ellipsis` rules or shortening the underlying string. Plain text
+defaults to **fade-out truncation with an interaction marquee**: a background-independent
+gradient mask at the inline end, followed by scrolling on hover or keyboard focus.
+Both effects apply only when the text actually overflows. Short labels remain untouched.
+Standard button, menu, navigation, card, selection, and disclosure text slots
+already use this primitive; consumers should not wrap those slots a second time.
+
+```tsx
+import { OverflowText } from "@openbitfun/ui";
+
+// The surrounding layout owns the available width.
+<OverflowText>{description}</OverflowText>
+
+// Mark the owning control so its whole hit target and keyboard focus reveal text.
+<button data-overflow-trigger style={{ maxInlineSize: 220 }}>
+  <OverflowText behavior="marquee">{workspaceName}</OverflowText>
+</button>
+```
+
+String, number, and plain-text array children use marquee automatically.
+Use `behavior="fade"` for a deliberate static label, and `behavior="marquee"`
+for text-only rich markup such as search highlights. Standard interactive controls
+already own the hover/focus trigger. Put
+`data-overflow-trigger` on one control or row, never the entire list. Virtual
+selection may use `marqueeActive` on the label or `data-overflow-active="true"`
+on its owning trigger, without adding another tab stop. `ListboxOption` forwards
+its virtual active state through this contract. Selected
+tabs do not animate automatically. Motion respects `prefers-reduced-motion`;
+reduced-motion users keep the static fade. Text and movement follow RTL direction.
+
+Rich children default to fade to preserve the label's existing inline composition.
+Composite containers keep their icons/actions fixed and give each text slot its
+own `OverflowText`. Marquee measures and
+translates one inline text span; keep icons, badges, and action buttons outside
+it. Complete text stays in the accessibility tree. Clipped string/number labels
+get a native title unless the caller supplies one; rich content should use its
+own full-text tooltip or detail view. Do not use marquee as the sole way to
+access information on touch surfaces.
+
+Multi-line descriptions should normally wrap. Editable fields, source code,
+structured paths that need to preserve their suffix, and native controls keep
+their appropriate text treatment instead of receiving a blanket fade rule.
+Mobile sheet/page titles and row descriptions wrap for touch access. Tooltips
+also wrap: a full-text fallback must not truncate its own content.
+
+The Web UI uses this contract in shell/navigation and search, workspace/session
+lists, model and context pickers, file/Git lists, settings, tool-card summaries,
+usage reports, and the Canvas SDK's truncating text/file labels. Remaining local
+ellipsis rules are intentional source-code excerpts, contenteditable reference
+chips/placeholders, and multiline message previews. Diagnostic/payload size caps
+and persisted Appearance `textOverflow` values are data contracts, not layout rules.
+
+## Mobile controls
+
+Touch-first controls use the isolated mobile entry so compact and foldable
+surfaces do not inherit desktop component geometry or ship desktop component
+styles:
+
+```tsx
+import "@openbitfun/ui/mobile.css";
+import {
+  MobileActionSheet,
+  MobileBadge,
+  MobileBanner,
+  MobileButton,
+  MobileCard,
+  MobileChoiceSheet,
+  MobileConfirmSheet,
+  MobileComposer,
+  MobileDisclosure,
+  MobileFileButton,
+  MobileFloatingActions,
+  MobileIconButton,
+  MobileLink,
+  MobileListRow,
+  MobileMessage,
+  MobilePageHeader,
+  MobileScrim,
+  MobileSection,
+  MobileSegmentedControl,
+  MobileSheet,
+  MobileStatus,
+  MobileTextField,
+  MobileTextarea,
+} from "@openbitfun/ui/mobile";
+```
+
+These components own mobile touch targets, pressed/focus/disabled states,
+surface elevation, responsive inline sizing, composer geometry, transparent
+floating action layout, and sheet accessibility. Product state, localized copy,
+routing, and device or session operations stay in the consuming application.
+
+`Disclosure` is the shared expandable-content primitive. It owns controlled or
+uncontrolled open state, trigger/region accessibility wiring, focus exclusion
+while collapsed, reduced-motion behavior, and independent header actions.
+Product copy and the revealed content remain consumer-owned.
+
+Sized icon slots in buttons, tabs, menu items and fields own their glyph geometry.
+Pass catalog `Icon` nodes through `leadingIcon`, `trailingIcon`, `icon` or the
+matching component slot, just as for SVG icons. These slots constrain catalog
+icons to the component's size; a standalone `Icon` retains its explicit size
+(24px by default). Do not shrink the catalog globally to correct a slot mismatch.
+
+`IconButton` defaults to `quiet`: its resting surface is transparent, hover and
+pressed states use shared action feedback, and keyboard focus keeps a visible
+focus ring. Use it for toolbar, dialog, and row utilities. `fill` and `primary`
+keep an opaque backing surface for persistent emphasis. Disabled quiet actions
+remain transparent and do not show hover or pressed feedback.
+
+The catalog uses exported vectors, including their view boxes and per-path
+opacity. Theme colors remain caller-owned through `currentColor`. Asset
+fingerprints are reviewed with intentional resource updates so replacing a
+glyph with a similarly named substitute cannot pass unnoticed.
+
+Prefer a catalog `name` whenever it is an exact semantic match. When the
+catalog has no matching symbol, pass the Lucide component through `glyph` so
+the shared boundary applies the standard 1.6 line weight, semantic sizing,
+tone and accessibility behavior:
+
+```tsx
+import { Icon } from "@openbitfun/ui";
+import { Network } from "lucide-react";
+
+<Icon glyph={Network} size="sm" />
+```
+
+Do not set `strokeWidth` at product call sites. Let a button, menu, tab or
+navigation slot own the final glyph geometry; use `size` only for standalone
+icons. Raw Lucide rendering remains appropriate for intentionally filled
+marks, progress indicators, illustrations, or a reviewed optical exception.
+
+Use `canonicalIconNames` for galleries and pickers. `iconNames` also keeps the
+legacy `download`, `circle` and `turn` entries for compatibility; prefer
+`arrow-down`, `unselected` and `<NumberBadge value={18} />` respectively.
+`turn` is only the old empty background, not a complete numbered marker.
+`NumberBadge` owns a 24px slot, a 20px surface and 11px medium text; longer
+values grow horizontally. Callers supply formatted values and contextual
+accessible labels. `ToolbarBadge` delegates to the same anatomy.
+
+Use `Icon name="session"` in new consumers. `SessionIcon` retains its SVG
+interface for existing integrations, with geometry checked against the same
+catalog asset.
+
+## Advanced selection and menus
+
+Use `Select` for simple options; its hidden native control preserves form
+participation. `Combobox` adds searchable single
+selection, grouped options, explicit custom-value creation and async loading
+states. `MultiSelect` owns multiple selection, removable tags and select-all.
+Controlled values are authoritative; option discovery remains host-owned.
+Wrap the product once in `DesignSystemProvider` to supply translated messages,
+the portal host, theme facts and the shared overlay layer stack.
+The Web UI's legacy Select implementation is retired. Like retired Button and
+Switch overrides, legacy `components.select` Appearance rules are ignored at
+the existing read-only migration boundary; original packages are not rewritten.
+Selection visuals now come from the public field/menu semantic tokens.
+Choose `size` explicitly when composing form rows: selectors default to `md`,
+while `Input` defaults to `sm`. The shared `control.height.sm/md/lg` tokens and
+active density own the actual heights; consumers must not replace them with
+page-level heights or padding overrides. Picker bodies stay single-line and
+token-sized, with labels and validation messages outside that height. Select
+keeps its in-flow anchor mounted when the unified popup covers it, so opening
+does not change the surrounding layout.
+
+`Combobox` and `MultiSelect` use the same joined-surface pattern: the portalled
+search header covers the closed trigger, with a divider and scrollable options
+inside one border and shadow. Flipping above the field keeps the search header
+beside the anchor. Labels, validation, and the field id follow the active input;
+Escape or selection restores the trigger, and Tab continues from its position
+in the form. Search, typed values, and multiple selection remain component-owned.
+`SearchField variant="embedded"` removes its standalone pill surface for these
+compositions; its container must supply padding, height, and visible focus
+treatment. The default SearchField appearance is unchanged.
+
+`SearchField variant="panel"` provides a joined frosted surface with a rounded
+input row and an optional `footer` slot for result status and actions. It reuses
+the same input node when switching from the default pill, preserves input-row
+height, and provides a divider, metadata typography, and a single focus outline.
+The surface uses semantic tint and blur tokens, with an opaque fallback for
+unsupported blur or reduced transparency. Callers own the query, localized
+counts, navigation callbacks, and disabled action states; use `IconButton` for
+the actions. The panel stays in normal flow by default. A toolbar that needs
+downward expansion without reflow should reserve the input height and position
+the SearchField over that anchor.
+
+`FieldGroup fieldSurface="ambient"` keeps text and picker field borders while
+letting their shells reuse the grouped surface. The default field surface stays
+theme-owned, and portalled menus remain on the opaque panel surface.
+
+`Menu` remains composable inline anatomy. `MenuPopover` composes it into a
+controlled anchored or coordinate popup. Pass `items`, `open`, `onClose` and
+either `anchorRef` or `position`. Entries can include `submenu`, `shortcut`,
+`disabled`, `checked`/`role`, and `onSelect`. Activation closes the tree and
+restores focus before dispatching `onSelect`; the host owns asynchronous work
+and error handling. The popup flips and clamps to the viewport, keeps keyboard
+navigation in the active menu, and supports safe pointer travel to either side.
+
+Portals resolve through `DesignSystemProvider.portalHost`, then fall back to the
+nearest design-system root. Stable `parts` wrappers preserve host data hooks;
+they must forward all props and refs and retain public component ownership.
+`useSubmenuIntent` is available for product popovers that need the same pointer
+corridor behavior.
+
+## FlowChat tool cards
+
+
+FlowChat frameworks use an attention model rather than a size or border model:
+
+- `AmbientToolCard` keeps routine tool traces lightweight and glanceable.
+- `ProminentToolCard` gives attention-worthy results a framed summary, a stable
+  left content region, hover/focus-revealed right actions, and controlled detail
+  disclosure.
+
+Import these components from the dedicated product-surface entry:
+
+```tsx
+import {
+  AmbientToolCard,
+  AmbientToolCardHeader,
+  AskUser,
+  ChatComposer,
+  ChatComposerContent,
+  ChatComposerEndActions,
+  ChatComposerStartActions,
+  CommandToolCard,
+  ContextCompressionToolCard,
+  FileOperationToolCard,
+  ProminentToolCard,
+  ProminentToolCardSummary,
+  ReadFileToolCard,
+  ToolCardCopyButton,
+  ToolCardChangeSummary,
+} from "@openbitfun/ui/flow-chat";
+```
+
+`ChatComposer` owns the reusable 32px context band and the compact/expanded
+40px/120px input-surface anatomy. Product consumers keep their editor, menus,
+model selection, voice input, sending, stores, and localized copy, and supply
+them through `contextBar`, `startActions`, `endActions`, or the equivalent
+compound slot components. The compound form is useful when a complex consumer
+needs to keep those sections adjacent in source while the package still owns
+the final DOM layout.
+
+`AskUser` is the controlled question-and-answer interaction for FlowChat. It
+owns native single- and multi-selection semantics, responsive option anatomy,
+custom text input, submission feedback, and the answered disclosure summary.
+Consumers keep question parsing, localized copy, draft persistence, and answer
+submission outside the package and provide them through typed props.
+
+Prominent headers keep information roles stable: `action` is the static primary
+label, `content` is the secondary flexible subject, `extra` is right-aligned
+dynamic metadata, and `actions` contains controls revealed on hover or keyboard
+focus. Use `ToolCardChangeSummary` for added/removed counts; domain icons and
+interaction affordances belong in `actions`, not in the summary.
+
+Concrete tool-card views compose those frameworks without importing product
+state. The published families cover file and command execution, search and web
+results, agent and session activity, Git and review summaries, page lifecycle,
+code execution, todos, images, and other routine tool traces. Each view owns its
+card anatomy, status presentation, disclosure behavior, and action placement.
+
+Tool-specific data shaping, localization, host actions, stores, and heavy
+renderers remain in the consuming product and enter through semantic props,
+callbacks, and slots. Bespoke product workflows remain product-owned rather
+than being forced into a standard package view.

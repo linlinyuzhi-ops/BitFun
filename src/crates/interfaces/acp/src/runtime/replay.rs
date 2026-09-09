@@ -10,7 +10,7 @@ use agent_client_protocol::schema::{
     ContentBlock, ContentChunk, ImageContent, SessionUpdate, TextContent,
 };
 use agent_client_protocol::{Client, ConnectionTo, Result};
-use bitfun_core::service::session::{
+use openbitfun_core::service::session::{
     DialogTurnData, ModelRoundData, TextItemData, ThinkingItemData, ToolItemData, UserMessageData,
 };
 
@@ -250,7 +250,7 @@ fn strip_remote_user_input_tags(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitfun_core::service::session::{
+    use openbitfun_core::service::session::{
         DialogTurnData, DialogTurnKind, ModelRoundData, TextItemData, ThinkingItemData,
         ToolCallData, ToolItemData, UserMessageData,
     };
@@ -277,6 +277,7 @@ mod tests {
         ThinkingItemData {
             id: id.to_string(),
             content: content.to_string(),
+            reasoning_kind: None,
             is_streaming: false,
             is_collapsed: false,
             timestamp: 0,

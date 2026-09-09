@@ -1,9 +1,10 @@
 //! OpenCode account login, catalog discovery, and credential resolution.
 //!
 //! Uses the OAuth 2.0 Device Authorization Grant against
-//! `console.opencode.ai`, aligned with OpenCode's `provider/opencode.ts`.
+//! `opencode.ai/console`, aligned with OpenCode's `provider/opencode.ts`.
 //! One OAuth identity can authenticate both the Zen and Go API products.
 
+use super::device_flow::{poll_device_code, DevicePoll};
 use super::store::{self, StoredCredential};
 use super::{
     OpenCodePlan, ResolvedCredential, StartedLogin, SubscriptionApiOffering,
@@ -15,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-const SERVER: &str = "https://console.opencode.ai";
+const SERVER: &str = "https://opencode.ai/console";
 const CLIENT_ID: &str = "opencode-cli";
 const DEVICE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const ZEN_BASE_URL: &str = "https://opencode.ai/zen/v1";
@@ -32,11 +33,19 @@ const STORE_KEY: &str = "opencode";
 const OFFERINGS_METADATA_KEY: &str = "api_offerings";
 const SUPPORTED_FORMATS: [&str; 3] = ["openai", "responses", "anthropic"];
 
+struct FreshCredential {
+    access: String,
+    expires_at_ms: Option<i64>,
+    metadata: Option<serde_json::Value>,
+}
+
 #[derive(Debug, Deserialize)]
 struct DeviceCodeResponse {
     device_code: String,
     user_code: String,
     verification_uri_complete: String,
+    #[serde(default)]
+    expires_in: Option<u64>,
     #[serde(default)]
     interval: Option<u64>,
 }
@@ -51,6 +60,8 @@ struct TokenResponse {
 #[derive(Debug, Deserialize)]
 struct PendingResponse {
     error: String,
+    #[serde(default)]
+    error_description: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,15 +154,35 @@ async fn request_device_code(options: &SubscriptionHttpOptions) -> Result<Device
     resp.json().await.context("parse opencode device response")
 }
 
-/// Outcome of a single device-token poll.
-enum DevicePoll {
-    Authorized(TokenResponse),
-    Pending,
-    SlowDown,
+fn classify_device_poll_error(
+    status: reqwest::StatusCode,
+    pending: &PendingResponse,
+) -> Result<DevicePoll<TokenResponse>> {
+    match pending.error.as_str() {
+        "authorization_pending" => Ok(DevicePoll::Pending),
+        "slow_down" => Ok(DevicePoll::SlowDown),
+        "expired_token" => Err(anyhow!("opencode device authorization code expired")),
+        "access_denied" | "authorization_denied" => {
+            Err(anyhow!("opencode device authorization was denied"))
+        }
+        other => {
+            let detail = pending
+                .error_description
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(other);
+            Err(anyhow!(
+                "opencode device authorization failed: HTTP {status}: {detail}"
+            ))
+        }
+    }
 }
 
 /// One poll attempt against the device-token endpoint.
-async fn poll_once(device_code: &str, options: &SubscriptionHttpOptions) -> Result<DevicePoll> {
+async fn poll_once(
+    device_code: &str,
+    options: &SubscriptionHttpOptions,
+) -> Result<DevicePoll<TokenResponse>> {
     let client = http_client(options)?;
     let resp = client
         .post(format!("{SERVER}/auth/device/token"))
@@ -163,19 +194,18 @@ async fn poll_once(device_code: &str, options: &SubscriptionHttpOptions) -> Resu
         .send()
         .await
         .context("call opencode device token endpoint")?;
+    let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    if let Ok(tokens) = serde_json::from_str::<TokenResponse>(&body) {
+    if status.is_success() {
+        let tokens = serde_json::from_str::<TokenResponse>(&body)
+            .context("parse opencode device token response")?;
         return Ok(DevicePoll::Authorized(tokens));
     }
     if let Ok(pending) = serde_json::from_str::<PendingResponse>(&body) {
-        match pending.error.as_str() {
-            "authorization_pending" => return Ok(DevicePoll::Pending),
-            "slow_down" => return Ok(DevicePoll::SlowDown),
-            other => return Err(anyhow!("opencode device authorization failed: {other}")),
-        }
+        return classify_device_poll_error(status, &pending);
     }
     Err(anyhow!(
-        "opencode device token response unrecognized: {body}"
+        "opencode device token response unrecognized: HTTP {status}: {body}"
     ))
 }
 
@@ -221,7 +251,7 @@ fn route_for(plan: OpenCodePlan, format: &str) -> Result<OpenCodeRoute> {
         },
         _ => {
             return Err(anyhow!(
-                "OpenCode {:?} does not support BitFun request format '{}'",
+                "OpenCode {:?} does not support OpenBitFun request format '{}'",
                 plan,
                 format.trim()
             ));
@@ -356,7 +386,7 @@ fn offerings_from_remote_config(config: RemoteConfig) -> Vec<SubscriptionApiOffe
                 .and_then(|item| item.api.as_deref())
                 .or(provider.api.as_deref());
             let Some(format) = format_for_remote_model(npm, api) else {
-                // BitFun does not currently have a compatible adapter for
+                // OpenBitFun does not currently have a compatible adapter for
                 // every AI SDK package returned by OpenCode (for example its
                 // Google-native gateway shape). Do not offer a model with an
                 // endpoint we cannot faithfully reproduce.
@@ -398,47 +428,42 @@ async fn fetch_remote_offerings(
     client: &reqwest::Client,
     access: &str,
     org_id: Option<&str>,
-) -> Option<Vec<SubscriptionApiOffering>> {
+) -> Result<Option<Vec<SubscriptionApiOffering>>> {
     let mut request = client
         .get(format!("{SERVER}/api/config"))
         .bearer_auth(access);
     if let Some(org_id) = org_id {
         request = request.header("x-org-id", org_id);
     }
-    let response = match request.send().await {
-        Ok(response) => response,
-        Err(error) => {
-            log::warn!("fetch OpenCode provider catalog failed: {error}");
-            return None;
-        }
-    };
+    let response = request
+        .send()
+        .await
+        .context("fetch OpenCode provider catalog")?;
     // OpenCode treats 404 as "no remote provider override" rather than an
-    // authentication or transport failure. Keep the existing catalog/fallback
-    // without emitting a misleading warning.
+    // authentication or transport failure. Let the caller clear stale catalog
+    // metadata without emitting a misleading warning.
     if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return None;
+        return Ok(None);
     }
     if !response.status().is_success() {
-        log::warn!(
-            "fetch OpenCode provider catalog failed: status={}",
+        return Err(anyhow!(
+            "OpenCode provider catalog failed: HTTP {}",
             response.status()
-        );
-        return None;
+        ));
     }
-    match response.json::<RemoteConfigResponse>().await {
-        Ok(remote) => Some(offerings_from_remote_config(remote.config)),
-        Err(error) => {
-            log::warn!("parse OpenCode provider catalog failed: {error}");
-            None
-        }
-    }
+    let remote = response
+        .json::<RemoteConfigResponse>()
+        .await
+        .context("parse OpenCode provider catalog")?;
+    Ok(Some(offerings_from_remote_config(remote.config)))
 }
 
 async fn fetch_metadata(
     access: &str,
     existing: Option<&serde_json::Value>,
     options: &SubscriptionHttpOptions,
-) -> serde_json::Value {
+    require_catalog: bool,
+) -> Result<serde_json::Value> {
     let mut metadata = existing
         .and_then(serde_json::Value::as_object)
         .cloned()
@@ -447,10 +472,7 @@ async fn fetch_metadata(
         "server".to_string(),
         serde_json::Value::String(SERVER.to_string()),
     );
-    let client = match http_client(options) {
-        Ok(client) => client,
-        Err(_) => return serde_json::Value::Object(metadata),
-    };
+    let client = http_client(options)?;
 
     if let Ok(resp) = client
         .get(format!("{SERVER}/api/user"))
@@ -498,13 +520,20 @@ async fn fetch_metadata(
     }
 
     let org_id = metadata.get("org_id").and_then(serde_json::Value::as_str);
-    if let Some(offerings) = fetch_remote_offerings(&client, access, org_id).await {
-        if let Ok(value) = serde_json::to_value(offerings) {
-            metadata.insert(OFFERINGS_METADATA_KEY.to_string(), value);
+    match fetch_remote_offerings(&client, access, org_id).await {
+        Ok(offerings) => {
+            // 404 means no override. Do not continue advertising a removed
+            // remote catalog from a prior account/profile snapshot.
+            metadata.insert(
+                OFFERINGS_METADATA_KEY.to_string(),
+                serde_json::to_value(offerings.unwrap_or_else(fallback_offerings))?,
+            );
         }
+        Err(error) if require_catalog => return Err(error),
+        Err(error) => log::warn!("OpenCode signed in without a refreshed model catalog: {error:#}"),
     }
 
-    serde_json::Value::Object(metadata)
+    Ok(serde_json::Value::Object(metadata))
 }
 
 async fn persist_tokens(
@@ -561,8 +590,14 @@ async fn refresh(refresh_token: &str, options: &SubscriptionHttpOptions) -> Resu
 /// as `/device?user_code=...` pass through unchanged.
 fn absolute_verification_url(uri: &str) -> String {
     let trimmed = uri.trim();
-    if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
-        return trimmed.to_string();
+    if trimmed.is_empty()
+        || trimmed
+            .chars()
+            .any(|character| character.is_ascii_control())
+    {
+        return Err(anyhow!(
+            "OpenCode returned an invalid device verification URL"
+        ));
     }
     let path = trimmed.strip_prefix("/console").unwrap_or(trimmed);
     if path.starts_with('/') {
@@ -580,39 +615,32 @@ pub(crate) async fn begin_login(
 ) -> Result<StartedLogin> {
     let device = request_device_code(&options).await?;
     let interval = device.interval.unwrap_or(5).max(1);
+    let expires_in = device
+        .expires_in
+        .unwrap_or(super::LOGIN_TIMEOUT.as_secs())
+        .max(1)
+        .min(super::LOGIN_TIMEOUT.as_secs());
     let device_code = device.device_code.clone();
     let user_code = device.user_code.clone();
-    let authorization_url = absolute_verification_url(&device.verification_uri_complete);
+    let authorization_url = absolute_verification_url(&device.verification_uri_complete)?;
 
     let runner = async move {
         super::authorize_then_persist(
             super::SubscriptionProvider::Opencode,
             cancel,
             async {
-                let mut wait = interval;
-                loop {
-                    tokio::time::sleep(Duration::from_secs(wait)).await;
-                    match poll_once(&device_code, &options).await? {
-                        DevicePoll::Authorized(tokens) => {
-                            // Optional profile/org network calls belong to the
-                            // cancellable authorization phase. The provider
-                            // commit lock should cover only the credential
-                            // store transaction, never up to 60 seconds of
-                            // metadata fetching.
-                            let metadata =
-                                fetch_metadata(&tokens.access_token, None, &options).await;
-                            return Ok((tokens, metadata));
-                        }
-                        DevicePoll::Pending => {
-                            wait = interval;
-                        }
-                        // RFC 8628: on slow_down, increase the poll interval
-                        // by 5 seconds.
-                        DevicePoll::SlowDown => {
-                            wait += 5;
-                        }
-                    }
-                }
+                let tokens = poll_device_code(
+                    Duration::from_secs(interval),
+                    Duration::from_secs(expires_in),
+                    Duration::ZERO,
+                    false,
+                    || poll_once(&device_code, &options),
+                )
+                .await
+                .context("complete OpenCode device authorization")?;
+                // Keep optional profile/catalog IO outside the credential commit lock.
+                let metadata = fetch_metadata(&tokens.access_token, None, &options, false).await?;
+                Ok((tokens, metadata))
             },
             move |(tokens, metadata)| persist_tokens(tokens, metadata, expected_revision),
         )
@@ -620,21 +648,27 @@ pub(crate) async fn begin_login(
     };
 
     Ok(StartedLogin {
+        method: super::SubscriptionLoginMethod::Device,
         authorization_url,
         user_code: Some(user_code),
-        instructions: "Open the verification link and enter the code, then return to BitFun."
+        instructions: "Open the verification link and enter the code, then return to OpenBitFun."
             .to_string(),
         runner: Box::pin(runner),
     })
 }
 
-async fn ensure_fresh(options: &SubscriptionHttpOptions) -> Result<String> {
+async fn ensure_fresh(options: &SubscriptionHttpOptions) -> Result<FreshCredential> {
+    let _refresh_lease = store::acquire_provider_refresh_lease(STORE_KEY).await?;
     let snapshot = store::load_entry_with_revision(STORE_KEY).await?;
     let entry = snapshot
         .credential
         .ok_or_else(|| anyhow!("OpenCode is not connected; sign in first"))?;
     match entry {
-        StoredCredential::Api { key, .. } => Ok(key),
+        StoredCredential::Api { key, metadata } => Ok(FreshCredential {
+            access: key,
+            expires_at_ms: None,
+            metadata,
+        }),
         StoredCredential::Oauth {
             refresh: refresh_token,
             access,
@@ -643,16 +677,22 @@ async fn ensure_fresh(options: &SubscriptionHttpOptions) -> Result<String> {
             metadata,
         } => {
             if expires > now_ms() + REFRESH_LEEWAY_MS {
-                return Ok(access);
+                return Ok(FreshCredential {
+                    access,
+                    expires_at_ms: Some(expires),
+                    metadata,
+                });
             }
             let refreshed = refresh(&refresh_token, options).await?;
             let new_expires = now_ms() + refreshed.expires_in * 1000;
+            let refreshed_access = refreshed.access_token.clone();
+            let refreshed_metadata = metadata.clone();
             let outcome = store::upsert_if_revision(
                 STORE_KEY,
                 snapshot.revision,
                 StoredCredential::Oauth {
                     refresh: refreshed.refresh_token,
-                    access: refreshed.access_token.clone(),
+                    access: refreshed_access.clone(),
                     expires: new_expires,
                     account_id,
                     metadata,
@@ -662,7 +702,11 @@ async fn ensure_fresh(options: &SubscriptionHttpOptions) -> Result<String> {
             match outcome {
                 store::ConditionalCommitOutcome::Committed { .. } => {
                     log::info!("opencode subscription tokens refreshed");
-                    Ok(refreshed.access_token)
+                    Ok(FreshCredential {
+                        access: refreshed_access,
+                        expires_at_ms: Some(new_expires),
+                        metadata: refreshed_metadata,
+                    })
                 }
                 store::ConditionalCommitOutcome::Conflict { current_revision } => {
                     let current = super::load_current_store_after_conflict(
@@ -671,19 +715,30 @@ async fn ensure_fresh(options: &SubscriptionHttpOptions) -> Result<String> {
                     )
                     .await?;
                     match current.credential {
-                        Some(StoredCredential::Api { key, .. }) => {
+                        Some(StoredCredential::Api { key, metadata }) => {
                             log::info!(
                                 "opencode refresh reused the current API credential after a concurrent update"
                             );
-                            Ok(key)
+                            Ok(FreshCredential {
+                                access: key,
+                                expires_at_ms: None,
+                                metadata,
+                            })
                         }
                         Some(StoredCredential::Oauth {
-                            access, expires, ..
+                            access,
+                            expires,
+                            metadata,
+                            ..
                         }) if expires > now_ms() => {
                             log::info!(
                                 "opencode refresh reused tokens committed by a concurrent refresh"
                             );
-                            Ok(access)
+                            Ok(FreshCredential {
+                                access,
+                                expires_at_ms: Some(expires),
+                                metadata,
+                            })
                         }
                         _ => Err(super::store_revision_conflict(
                             super::SubscriptionProvider::Opencode,
@@ -698,17 +753,21 @@ async fn ensure_fresh(options: &SubscriptionHttpOptions) -> Result<String> {
 
 /// Refreshes account/org/catalog metadata using a fresh credential.
 pub(crate) async fn refresh_profile(options: &SubscriptionHttpOptions) -> Result<()> {
-    let access = ensure_fresh(options).await?;
+    ensure_fresh(options).await?;
     let snapshot = store::load_entry_with_revision(STORE_KEY).await?;
     let entry = snapshot
         .credential
         .ok_or_else(|| anyhow!("OpenCode is not connected; sign in first"))?;
-    let existing_metadata = match &entry {
-        StoredCredential::Oauth { metadata, .. } | StoredCredential::Api { metadata, .. } => {
-            metadata.as_ref()
-        }
+    // Bind the network credential to the same snapshot that is updated by CAS.
+    // A sign-in between refresh and snapshot load must not attach the old
+    // account's profile/catalog to the new account's credential.
+    let (access, existing_metadata) = match &entry {
+        StoredCredential::Oauth {
+            access, metadata, ..
+        } => (access, metadata.as_ref()),
+        StoredCredential::Api { key, metadata } => (key, metadata.as_ref()),
     };
-    let metadata = fetch_metadata(&access, existing_metadata, options).await;
+    let metadata = fetch_metadata(access, existing_metadata, options, true).await?;
     if existing_metadata == Some(&metadata) {
         return Ok(());
     }
@@ -763,7 +822,7 @@ async fn resolve_route(
     let api_key = ensure_fresh(options).await?;
     let (extra_headers, custom_headers_mode) = credential_headers(&route.format, &api_key);
     Ok(ResolvedCredential {
-        api_key,
+        api_key: credential.access,
         base_url: Some(route.base_url.to_string()),
         request_url: Some(route.request_url.to_string()),
         format: Some(route.format.to_string()),
@@ -806,8 +865,13 @@ mod tests {
     #[test]
     fn prefixes_relative_device_verification_path() {
         assert_eq!(
-            absolute_verification_url("/device?user_code=FBPH-VLFC&client_id=opencode-cli"),
-            "https://console.opencode.ai/device?user_code=FBPH-VLFC&client_id=opencode-cli"
+            absolute_verification_url("/device?user_code=FBPH-VLFC&client_id=opencode-cli")
+                .unwrap(),
+            "https://opencode.ai/device?user_code=FBPH-VLFC&client_id=opencode-cli"
+        );
+        assert_eq!(
+            absolute_verification_url("device?user_code=FBPH-VLFC").unwrap(),
+            "https://opencode.ai/console/device?user_code=FBPH-VLFC"
         );
     }
 
@@ -825,10 +889,34 @@ mod tests {
     fn keeps_absolute_verification_url() {
         assert_eq!(
             absolute_verification_url(
-                "https://console.opencode.ai/device?user_code=ABCD-1234&client_id=opencode-cli"
-            ),
-            "https://console.opencode.ai/device?user_code=ABCD-1234&client_id=opencode-cli"
+                "https://opencode.ai/console/device?user_code=ABCD-1234&client_id=opencode-cli"
+            )
+            .unwrap(),
+            "https://opencode.ai/console/device?user_code=ABCD-1234&client_id=opencode-cli"
         );
+        assert!(absolute_verification_url("javascript:alert(1)").is_err());
+    }
+
+    #[test]
+    fn device_poll_errors_distinguish_pending_and_terminal_outcomes() {
+        let pending = PendingResponse {
+            error: "authorization_pending".to_string(),
+            error_description: None,
+        };
+        assert!(matches!(
+            classify_device_poll_error(reqwest::StatusCode::BAD_REQUEST, &pending).unwrap(),
+            DevicePoll::Pending
+        ));
+
+        for error in ["expired_token", "access_denied"] {
+            let terminal = PendingResponse {
+                error: error.to_string(),
+                error_description: Some("terminal".to_string()),
+            };
+            assert!(
+                classify_device_poll_error(reqwest::StatusCode::BAD_REQUEST, &terminal).is_err()
+            );
+        }
     }
 
     #[test]
@@ -971,5 +1059,61 @@ mod tests {
         assert_eq!(offerings.len(), 6);
         assert!(offerings.iter().any(|item| item.plan == OpenCodePlan::Zen));
         assert!(offerings.iter().any(|item| item.plan == OpenCodePlan::Go));
+    }
+
+    #[test]
+    fn account_catalog_selects_the_wire_without_user_protocol_configuration() {
+        let metadata = serde_json::json!({ "api_offerings": [
+            {"plan": "go", "format": "anthropic", "base_url": "https://ignored.invalid", "suggested_model": "", "models": [{"id": "claude-fixture"}]},
+            {"plan": "zen", "format": "responses", "base_url": "https://ignored.invalid", "suggested_model": "", "models": [{"id": "gpt-fixture"}]},
+            {"plan": "zen", "format": "openai", "base_url": "https://ignored.invalid", "suggested_model": "", "models": [{"id": "chat-fixture"}]}
+        ]});
+        let route = super::route_for_model(
+            Some(OpenCodePlan::Go),
+            "openai",
+            "claude-fixture",
+            Some(&metadata),
+        )
+        .unwrap();
+        assert_eq!(route.format, "anthropic");
+        assert_eq!(route.request_url, "https://opencode.ai/zen/go/v1/messages");
+        // Old configs omitted plan and recorded the generic chat wire.
+        let route = super::route_for_model(None, "openai", "gpt-fixture", Some(&metadata)).unwrap();
+        assert_eq!(route.format, "responses");
+        assert_eq!(route.request_url, "https://opencode.ai/zen/v1/responses");
+        let unknown =
+            super::route_for_model(None, "anthropic", "legacy-manual-model", None).unwrap();
+        assert_eq!(unknown.format, "openai");
+        let wrong_plan = super::route_for_model(
+            Some(OpenCodePlan::Go),
+            "openai",
+            "gpt-fixture",
+            Some(&metadata),
+        )
+        .unwrap();
+        assert_eq!(wrong_plan.format, "openai");
+        assert!(wrong_plan
+            .request_url
+            .starts_with("https://opencode.ai/zen/go/"));
+    }
+
+    #[test]
+    fn forwards_current_and_legacy_org_ids_to_subscription_inference() {
+        for metadata in [
+            serde_json::json!({ "org_id": "org-current" }),
+            serde_json::json!({ "orgID": "org-legacy" }),
+        ] {
+            let headers = inference_headers(Some(&metadata));
+            assert_eq!(headers["x-opencode-client"], "openbitfun");
+            assert!(headers["User-Agent"].starts_with("OpenBitFun/"));
+            assert!(headers
+                .get("x-org-id")
+                .is_some_and(|value| value.starts_with("org-")));
+        }
+        assert!(
+            !inference_headers(Some(&serde_json::json!({ "org_id": " " })))
+                .contains_key("x-org-id")
+        );
+        assert!(!inference_headers(None).contains_key("x-org-id"));
     }
 }

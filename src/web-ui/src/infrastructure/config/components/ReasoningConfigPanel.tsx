@@ -1,3 +1,4 @@
+import { Button, ScrollArea } from '@openbitfun/ui';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -37,11 +38,18 @@ export const ReasoningConfigPanel: React.FC<ReasoningConfigPanelProps> = ({
   requestFormatLabel,
   onCancel,
   onApply,
+  onDraftChange,
 }) => {
-  const { t } = useTranslation('settings/ai-model');
+  const { t } = useTranslation('settings/models');
   const [draft, setDraft] = useState(() => cloneReasoningConfig(value));
   const [editorInvalid, setEditorInvalid] = useState(false);
   const projectionRequestId = useRef(0);
+  const onDraftChangeRef = useRef(onDraftChange);
+  onDraftChangeRef.current = onDraftChange;
+  const projectionRequestRef = useRef(projectionRequest);
+  projectionRequestRef.current = projectionRequest;
+  const projectionRequestKey = JSON.stringify(projectionRequest);
+  const fallbackGeneratedProjection = projectionRequest ? undefined : generatedProjection;
   const projectionBindingKey = JSON.stringify({
     projectionRequest,
     catalog: draft.catalog,
@@ -58,17 +66,26 @@ export const ReasoningConfigPanel: React.FC<ReasoningConfigPanelProps> = ({
     : undefined;
 
   useEffect(() => {
-    if (!projectionRequest) {
+    onDraftChangeRef.current?.({
+      reasoning: draft,
+      projectionCatalog: draft.catalog ?? { source: 'auto' },
+      projection: activeGeneratedProjection,
+    });
+  }, [activeGeneratedProjection, draft]);
+
+  useEffect(() => {
+    const currentProjectionRequest = projectionRequestRef.current;
+    if (!currentProjectionRequest) {
       setResolvedProjection({
         bindingKey: projectionBindingKey,
-        projection: generatedProjection,
+        projection: fallbackGeneratedProjection,
       });
       return;
     }
 
     const requestId = ++projectionRequestId.current;
     void aiApi.projectReasoningCatalog({
-      ...projectionRequest,
+      ...currentProjectionRequest,
       reasoning: draft,
     }).then((projection) => {
       if (projectionRequestId.current !== requestId) return;
@@ -83,7 +100,7 @@ export const ReasoningConfigPanel: React.FC<ReasoningConfigPanelProps> = ({
         projectionRequestId.current += 1;
       }
     };
-  }, [draft, generatedProjection, projectionBindingKey, projectionRequest]);
+  }, [draft, fallbackGeneratedProjection, projectionBindingKey, projectionRequestKey]);
 
   const generatedPresetIds = useMemo(() => (
     activeGeneratedProjection?.presets
@@ -98,14 +115,14 @@ export const ReasoningConfigPanel: React.FC<ReasoningConfigPanelProps> = ({
 
   return (
     <div
-      className="bitfun-reasoning-config-panel"
-      data-bf-component="reasoning-config-panel"
-      data-bf-part="root"
+      className="openbitfun-reasoning-config-panel"
+      data-openbitfun-component="reasoning-config-panel"
+      data-openbitfun-part="root"
     >
-      <div
-        className="bitfun-reasoning-config-panel__body"
-        data-bf-component="reasoning-config-panel"
-        data-bf-part="body"
+      <ScrollArea
+        className="openbitfun-reasoning-config-panel__body"
+        data-openbitfun-component="reasoning-config-panel"
+        data-openbitfun-part="body"
       >
         <ReasoningPresetEditor
           value={draft}
@@ -115,17 +132,17 @@ export const ReasoningConfigPanel: React.FC<ReasoningConfigPanelProps> = ({
           onChange={setDraft}
           onValidationChange={setEditorInvalid}
         />
-      </div>
+      </ScrollArea>
       <div
-        className="bitfun-reasoning-config-panel__footer"
-        data-bf-component="reasoning-config-panel"
-        data-bf-part="footer"
+        className="openbitfun-reasoning-config-panel__footer"
+        data-openbitfun-component="reasoning-config-panel"
+        data-openbitfun-part="footer"
       >
         {invalid && (
           <div
-            className="bitfun-reasoning-config-panel__error"
-            data-bf-component="reasoning-config-panel"
-            data-bf-part="error"
+            className="openbitfun-reasoning-config-panel__error"
+            data-openbitfun-component="reasoning-config-panel"
+            data-openbitfun-part="error"
             role="alert"
           >
             <AlertTriangle size={14} aria-hidden="true" />
@@ -133,11 +150,11 @@ export const ReasoningConfigPanel: React.FC<ReasoningConfigPanelProps> = ({
           </div>
         )}
         <div
-          className="bitfun-reasoning-config-panel__actions"
-          data-bf-component="reasoning-config-panel"
-          data-bf-part="actions"
+          className="openbitfun-reasoning-config-panel__actions"
+          data-openbitfun-component="reasoning-config-panel"
+          data-openbitfun-part="actions"
         >
-          <Button variant="secondary" onClick={onCancel}>
+          <Button variant="outline" onClick={onCancel}>
             {t('actions.cancel')}
           </Button>
           <Button

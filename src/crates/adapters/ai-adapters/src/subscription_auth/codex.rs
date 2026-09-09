@@ -11,20 +11,22 @@ use super::{
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use uuid::Uuid;
 
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const ISSUER: &str = "https://auth.openai.com";
 const CALLBACK_PATH: &str = "/auth/callback";
 const CALLBACK_PORT: u16 = 1455;
-// Keep in sync with the Codex CLI OAuth redirect URI allow-list.
-const CALLBACK_FALLBACK_PORT: u16 = 1457;
-const CALLBACK_PORTS: &[u16] = &[CALLBACK_PORT, CALLBACK_FALLBACK_PORT];
+const DEVICE_USER_CODE_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/usercode";
+const DEVICE_TOKEN_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/token";
+const DEVICE_AUTHORIZATION_URL: &str = "https://auth.openai.com/codex/device";
+const DEVICE_REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/callback";
+const OAUTH_POLLING_SAFETY_MARGIN_SECS: u64 = 3;
 const SCOPE: &str = "openid profile email offline_access";
 const CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const CHATGPT_REQUEST_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
-const DEFAULT_MODEL: &str = "gpt-5-codex";
+const DEFAULT_MODEL: &str = "gpt-5.5";
 const REFRESH_LEEWAY_MS: i64 = 5 * 60 * 1000;
 const STORE_KEY: &str = "codex";
 
@@ -44,6 +46,32 @@ struct TokenResponse {
     expires_in: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+struct DeviceCodeResponse {
+    device_auth_id: String,
+    user_code: String,
+    interval: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeviceAuthorizationResponse {
+    authorization_code: String,
+    code_verifier: String,
+}
+
+fn user_agent() -> String {
+    crate::providers::shared::product_user_agent()
+}
+
+fn device_poll_interval(value: &serde_json::Value) -> u64 {
+    value
+        .as_str()
+        .and_then(|value| value.parse::<u64>().ok())
+        .or_else(|| value.as_u64())
+        .filter(|value| *value > 0)
+        .unwrap_or(5)
+}
+
 fn build_authorize_url(pkce: &Pkce, state: &str, redirect_uri: &str) -> String {
     let params = [
         ("response_type", "code"),
@@ -55,7 +83,7 @@ fn build_authorize_url(pkce: &Pkce, state: &str, redirect_uri: &str) -> String {
         ("id_token_add_organizations", "true"),
         ("codex_cli_simplified_flow", "true"),
         ("state", state),
-        ("originator", "opencode"),
+        ("originator", "openbitfun"),
     ];
     let query = params
         .iter()
@@ -85,6 +113,8 @@ async fn exchange_code(
     ];
     let resp = client
         .post(format!("{ISSUER}/oauth/token"))
+        .header(reqwest::header::USER_AGENT, user_agent())
+        .header(reqwest::header::ACCEPT, "application/json")
         .form(&params)
         .send()
         .await
@@ -108,6 +138,8 @@ async fn refresh(refresh_token: &str, options: &SubscriptionHttpOptions) -> Resu
     ];
     let resp = client
         .post(format!("{ISSUER}/oauth/token"))
+        .header(reqwest::header::USER_AGENT, user_agent())
+        .header(reqwest::header::ACCEPT, "application/json")
         .form(&params)
         .send()
         .await
@@ -118,6 +150,70 @@ async fn refresh(refresh_token: &str, options: &SubscriptionHttpOptions) -> Resu
         return Err(anyhow!("codex token refresh failed: HTTP {status}: {body}"));
     }
     resp.json().await.context("parse codex token response")
+}
+
+async fn request_device_code(options: &SubscriptionHttpOptions) -> Result<DeviceCodeResponse> {
+    let response = http_client(options)?
+        .post(DEVICE_USER_CODE_URL)
+        .header(reqwest::header::USER_AGENT, user_agent())
+        .json(&serde_json::json!({ "client_id": CLIENT_ID }))
+        .send()
+        .await
+        .context("call codex device authorization endpoint")?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow!(
+            "codex device authorization failed: HTTP {status}: {body}"
+        ));
+    }
+    let device = response
+        .json::<DeviceCodeResponse>()
+        .await
+        .context("parse codex device authorization response")?;
+    if device.device_auth_id.trim().is_empty() || device.user_code.trim().is_empty() {
+        return Err(anyhow!(
+            "codex device authorization response is missing an id or user code"
+        ));
+    }
+    Ok(device)
+}
+
+async fn poll_device_authorization(
+    device: &DeviceCodeResponse,
+    options: &SubscriptionHttpOptions,
+) -> Result<DeviceAuthorizationResponse> {
+    let interval =
+        device_poll_interval(&device.interval).saturating_add(OAUTH_POLLING_SAFETY_MARGIN_SECS);
+    loop {
+        let response = http_client(options)?
+            .post(DEVICE_TOKEN_URL)
+            .header(reqwest::header::USER_AGENT, user_agent())
+            .json(&serde_json::json!({
+                "device_auth_id": device.device_auth_id,
+                "user_code": device.user_code,
+            }))
+            .send()
+            .await
+            .context("poll codex device authorization endpoint")?;
+        if response.status().is_success() {
+            return response
+                .json::<DeviceAuthorizationResponse>()
+                .await
+                .context("parse codex device authorization token response");
+        }
+        if !matches!(
+            response.status(),
+            reqwest::StatusCode::FORBIDDEN | reqwest::StatusCode::NOT_FOUND
+        ) {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "codex device authorization failed: HTTP {status}: {body}"
+            ));
+        }
+        tokio::time::sleep(Duration::from_secs(interval)).await;
+    }
 }
 
 fn now_ms() -> i64 {
@@ -152,6 +248,7 @@ async fn persist_tokens(tokens: TokenResponse, expected_revision: u64) -> Result
         .clone()
         .ok_or_else(|| anyhow!("codex token response missing refresh_token"))?;
     let expires = now_ms() + tokens.expires_in.unwrap_or(3600) * 1000;
+    let expires = jwt::effective_expiry_ms(&access, expires);
     let account_id = account_id_from(&tokens);
     let metadata = metadata_from(&tokens);
     let outcome = store::upsert_if_revision(
@@ -171,15 +268,14 @@ async fn persist_tokens(tokens: TokenResponse, expected_revision: u64) -> Result
     Ok(())
 }
 
-/// Starts the browser PKCE login flow, binding the loopback callback server.
-pub(crate) async fn begin_login(
+async fn begin_browser_login(
     cancel: CancellationToken,
     expected_revision: u64,
     options: SubscriptionHttpOptions,
 ) -> Result<StartedLogin> {
     let pkce = Pkce::generate();
     let state = super::pkce::random_state();
-    let (listener, callback_port) = oauth_server::bind_loopback_ports(CALLBACK_PORTS).await?;
+    let (listener, callback_port) = oauth_server::bind_loopback_ports(&[CALLBACK_PORT]).await?;
     let redirect_uri = redirect_uri(callback_port);
     let authorization_url = build_authorize_url(&pkce, &state, &redirect_uri);
     let verifier = pkce.verifier.clone();
@@ -203,16 +299,89 @@ pub(crate) async fn begin_login(
     };
 
     Ok(StartedLogin {
+        method: super::SubscriptionLoginMethod::Browser,
         authorization_url,
         user_code: None,
-        instructions: "Complete authorization in your browser, then return to BitFun.".to_string(),
+        instructions: "Complete authorization in your browser, then return to OpenBitFun."
+            .to_string(),
         runner: Box::pin(runner),
     })
+}
+
+async fn begin_device_login(
+    cancel: CancellationToken,
+    expected_revision: u64,
+    options: SubscriptionHttpOptions,
+) -> Result<StartedLogin> {
+    let device = request_device_code(&options).await?;
+    let user_code = device.user_code.clone();
+    let runner = async move {
+        super::authorize_then_persist(
+            super::SubscriptionProvider::Codex,
+            cancel,
+            async {
+                let authorization = poll_device_authorization(&device, &options).await?;
+                exchange_code(
+                    &authorization.authorization_code,
+                    &authorization.code_verifier,
+                    DEVICE_REDIRECT_URI,
+                    &options,
+                )
+                .await
+            },
+            move |tokens| persist_tokens(tokens, expected_revision),
+        )
+        .await
+    };
+
+    Ok(StartedLogin {
+        method: super::SubscriptionLoginMethod::Device,
+        authorization_url: DEVICE_AUTHORIZATION_URL.to_string(),
+        user_code: Some(user_code.clone()),
+        instructions: format!("Open the verification link and enter code: {user_code}"),
+        runner: Box::pin(runner),
+    })
+}
+
+/// Starts the selected OpenCode-compatible Codex authorization flow. Legacy
+/// callers that do not select a method keep browser-first behavior, with a
+/// device-flow fallback when the registered loopback callback is unavailable.
+pub(crate) async fn begin_login(
+    cancel: CancellationToken,
+    expected_revision: u64,
+    method: Option<super::SubscriptionLoginMethod>,
+    options: SubscriptionHttpOptions,
+) -> Result<StartedLogin> {
+    match method {
+        Some(super::SubscriptionLoginMethod::Browser) => {
+            begin_browser_login(cancel, expected_revision, options).await
+        }
+        Some(super::SubscriptionLoginMethod::Device) => {
+            begin_device_login(cancel, expected_revision, options).await
+        }
+        None => match begin_browser_login(cancel.clone(), expected_revision, options.clone()).await
+        {
+            Ok(started) => Ok(started),
+            Err(browser_error) => {
+                log::info!(
+                "Codex browser login unavailable; using device authorization: {browser_error:#}"
+            );
+                begin_device_login(cancel, expected_revision, options)
+                .await
+                .with_context(|| {
+                    format!(
+                        "start Codex device authorization after browser login was unavailable: {browser_error:#}"
+                    )
+                })
+            }
+        },
+    }
 }
 
 /// Ensures the stored access token is fresh, refreshing it when needed. Returns
 /// the current `(access, account_id, expires_ms)`.
 async fn ensure_fresh(options: &SubscriptionHttpOptions) -> Result<(String, Option<String>, i64)> {
+    let _refresh_lease = store::acquire_provider_refresh_lease(STORE_KEY).await?;
     let snapshot = store::load_entry_with_revision(STORE_KEY).await?;
     let entry = snapshot
         .credential
@@ -228,6 +397,7 @@ async fn ensure_fresh(options: &SubscriptionHttpOptions) -> Result<(String, Opti
         return Err(anyhow!("Codex credential is not an OAuth login"));
     };
 
+    let expires = jwt::effective_expiry_ms(&access, expires);
     if expires > now_ms() + REFRESH_LEEWAY_MS {
         return Ok((access, account_id, expires));
     }
@@ -239,6 +409,7 @@ async fn ensure_fresh(options: &SubscriptionHttpOptions) -> Result<(String, Opti
         .ok_or_else(|| anyhow!("codex refresh response missing access_token"))?;
     let new_refresh = refreshed.refresh_token.clone().unwrap_or(refresh_token);
     let new_expires = now_ms() + refreshed.expires_in.unwrap_or(3600) * 1000;
+    let new_expires = jwt::effective_expiry_ms(&new_access, new_expires);
     let new_account_id = account_id_from(&refreshed).or(account_id);
     let new_metadata = metadata_from(&refreshed).or(metadata);
     let outcome = store::upsert_if_revision(
@@ -270,8 +441,9 @@ async fn ensure_fresh(options: &SubscriptionHttpOptions) -> Result<(String, Opti
                     expires,
                     account_id,
                     ..
-                }) if expires > now_ms() => {
+                }) if jwt::effective_expiry_ms(&access, expires) > now_ms() => {
                     log::info!("codex refresh reused tokens committed by a concurrent refresh");
+                    let expires = jwt::effective_expiry_ms(&access, expires);
                     Ok((access, account_id, expires))
                 }
                 _ => Err(super::store_revision_conflict(
@@ -283,61 +455,18 @@ async fn ensure_fresh(options: &SubscriptionHttpOptions) -> Result<(String, Opti
     }
 }
 
-async fn resolve_codex_cli_version() -> Option<String> {
-    let check = bitfun_services_core::system::check_command("codex");
-    let command = check.path.as_deref()?;
-    let args = vec!["--version".to_string()];
-    let output = bitfun_services_core::system::run_command(command, &args, None, None)
-        .await
-        .ok()?;
-    if !output.success {
-        return None;
-    }
-    parse_codex_cli_version(&output.stdout).or_else(|| parse_codex_cli_version(&output.stderr))
-}
-
-fn parse_codex_cli_version(output: &str) -> Option<String> {
-    output.split_whitespace().find_map(|token| {
-        let version = token
-            .trim()
-            .trim_start_matches('v')
-            .trim_matches(|ch: char| matches!(ch, ',' | ';' | ')' | '('));
-        if version.chars().next().is_some_and(|ch| ch.is_ascii_digit())
-            && version.contains('.')
-            && version
-                .chars()
-                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '+'))
-        {
-            Some(version.to_string())
-        } else {
-            None
-        }
-    })
-}
-
 /// Resolves the runtime credential (refreshing tokens if required).
 pub(crate) async fn resolve(options: &SubscriptionHttpOptions) -> Result<ResolvedCredential> {
     let (access, account_id, expires) = ensure_fresh(options).await?;
     let mut headers = HashMap::new();
-    if let Some(account) = account_id {
+    if let Some(account) = account_id.or_else(|| jwt::chatgpt_account_id(&access)) {
         headers.insert("ChatGPT-Account-ID".to_string(), account);
     }
-    headers.insert("originator".to_string(), "codex_cli_rs".to_string());
-    headers.insert(
-        "OpenAI-Beta".to_string(),
-        "responses=experimental".to_string(),
-    );
-    headers.insert("session_id".to_string(), Uuid::new_v4().to_string());
-    let user_agent = resolve_codex_cli_version()
-        .await
-        .map(|version| format!("codex_cli_rs/{version}"))
-        .unwrap_or_else(|| {
-            log::warn!(
-                "Unable to detect codex CLI version; using codex-compatible user agent for Codex backend requests"
-            );
-            "codex_cli_rs/0.0.0".to_string()
-        });
-    headers.insert("User-Agent".to_string(), user_agent);
+    headers.insert("originator".to_string(), "openbitfun".to_string());
+    headers.insert("User-Agent".to_string(), user_agent());
+    if let Some(residency) = jwt::chatgpt_compute_residency(&access) {
+        headers.insert("x-openai-internal-codex-residency".to_string(), residency);
+    }
 
     Ok(ResolvedCredential {
         api_key: access,
@@ -358,8 +487,8 @@ pub(crate) fn suggested() -> (&'static str, &'static str, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_authorize_url, parse_codex_cli_version, redirect_uri, CALLBACK_FALLBACK_PORT,
-        CALLBACK_PORT,
+        build_authorize_url, device_poll_interval, redirect_uri, user_agent, CALLBACK_PORT,
+        DEFAULT_MODEL,
     };
     use crate::subscription_auth::pkce::Pkce;
 
@@ -367,10 +496,6 @@ mod tests {
     fn uses_registered_localhost_redirect_uri() {
         let primary_redirect_uri = redirect_uri(CALLBACK_PORT);
         assert_eq!(primary_redirect_uri, "http://localhost:1455/auth/callback");
-        assert_eq!(
-            redirect_uri(CALLBACK_FALLBACK_PORT),
-            "http://localhost:1457/auth/callback"
-        );
 
         let authorize_url = build_authorize_url(&Pkce::generate(), "state", &primary_redirect_uri);
         assert!(
@@ -379,10 +504,15 @@ mod tests {
     }
 
     #[test]
-    fn parses_codex_cli_version_output() {
-        assert_eq!(
-            parse_codex_cli_version("codex-cli 0.124.0\n").as_deref(),
-            Some("0.124.0")
+    fn matches_opencode_device_polling_and_current_default_model() {
+        assert_eq!(device_poll_interval(&serde_json::json!("5")), 5);
+        assert_eq!(device_poll_interval(&serde_json::json!(2)), 2);
+        assert_eq!(device_poll_interval(&serde_json::json!(0)), 5);
+        assert_eq!(DEFAULT_MODEL, "gpt-5.5");
+        assert!(
+            build_authorize_url(&Pkce::generate(), "state", &redirect_uri(CALLBACK_PORT))
+                .contains("originator=openbitfun")
         );
+        assert!(user_agent().starts_with("OpenBitFun/"));
     }
 }

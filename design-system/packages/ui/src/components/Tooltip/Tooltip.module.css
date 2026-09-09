@@ -1,0 +1,167 @@
+@layer openbitfun.components {
+  .root,
+  .arrow,
+  .content,
+  .body {
+    box-sizing: border-box;
+  }
+
+  .root {
+    --_enter-x: 0px;
+    --_enter-y: 0px;
+
+    position: fixed;
+    z-index: var(--openbitfun-layer-tooltip);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(var(--_enter-x), var(--_enter-y), 0) scale(0.98);
+    transition:
+      opacity var(--openbitfun-motion-duration-fast) ease,
+      transform var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
+  }
+
+  .root[data-openbitfun-state="visible"] {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  .root[data-openbitfun-interactive="true"][data-openbitfun-state="visible"] {
+    pointer-events: auto;
+  }
+
+  .content {
+    position: relative;
+    z-index: 1;
+    max-inline-size: var(--openbitfun-overlay-tooltip-max-inline-size);
+    max-block-size: min(var(--openbitfun-overlay-tooltip-max-block-size), calc(100vh - 24px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--openbitfun-overlay-tooltip-padding-block) var(--openbitfun-overlay-tooltip-padding-inline);
+    border: var(--openbitfun-border-width-default) solid var(--openbitfun-color-border-subtle);
+    border-radius: var(--openbitfun-overlay-tooltip-surface-radius);
+    background: color-mix(in srgb, var(--openbitfun-color-surface-raised) 96%, transparent);
+    color: var(--openbitfun-color-content-primary);
+    font-family: var(--openbitfun-type-support-font-family);
+    font-size: var(--openbitfun-type-support-font-size);
+    font-weight: var(--openbitfun-type-support-font-weight);
+    line-height: var(--openbitfun-type-support-line-height);
+    letter-spacing: var(--openbitfun-type-support-letter-spacing);
+    overflow-wrap: break-word;
+    user-select: text;
+    box-shadow: var(--openbitfun-shadow-sm);
+    backdrop-filter: var(--openbitfun-effect-blur-base);
+    -webkit-backdrop-filter: var(--openbitfun-effect-blur-base);
+  }
+
+  .content::-webkit-scrollbar {
+    inline-size: 4px;
+  }
+
+  .content::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .content::-webkit-scrollbar-thumb {
+    background: var(--openbitfun-color-border-default);
+    border-radius: 2px;
+  }
+
+  .arrow {
+    position: absolute;
+    z-index: 0;
+    inline-size: var(--openbitfun-overlay-tooltip-arrow-size);
+    block-size: var(--openbitfun-overlay-tooltip-arrow-size);
+    border: var(--openbitfun-border-width-default) solid var(--openbitfun-color-border-subtle);
+    background: color-mix(in srgb, var(--openbitfun-color-surface-raised) 96%, transparent);
+    transform: rotate(45deg);
+  }
+
+  .root[data-openbitfun-placement="top"] .arrow,
+  .root[data-openbitfun-placement="bottom"] .arrow {
+    left: calc(50% - var(--openbitfun-overlay-tooltip-arrow-size) / 2);
+  }
+
+  .root[data-openbitfun-placement="left"] .arrow,
+  .root[data-openbitfun-placement="right"] .arrow {
+    top: calc(50% - var(--openbitfun-overlay-tooltip-arrow-size) / 2);
+  }
+
+  .root[data-openbitfun-placement="top"] .arrow {
+    bottom: -3px;
+    border-top: 0;
+    border-left: 0;
+  }
+
+  .root[data-openbitfun-placement="bottom"] .arrow {
+    top: -3px;
+    border-right: 0;
+    border-bottom: 0;
+  }
+
+  .root[data-openbitfun-placement="left"] .arrow {
+    right: -3px;
+    border-bottom: 0;
+    border-left: 0;
+  }
+
+  .root[data-openbitfun-placement="right"] .arrow {
+    left: -3px;
+    border-top: 0;
+    border-right: 0;
+  }
+
+  .root[data-openbitfun-placement="top"] {
+    --_enter-y: 3px;
+    transform-origin: center bottom;
+  }
+
+  .root[data-openbitfun-placement="bottom"] {
+    --_enter-y: -3px;
+    transform-origin: center top;
+  }
+
+  .root[data-openbitfun-placement="left"] {
+    --_enter-x: 3px;
+    transform-origin: right center;
+  }
+
+  .root[data-openbitfun-placement="right"] {
+    --_enter-x: -3px;
+    transform-origin: left center;
+  }
+
+  .root[data-instant="true"] {
+    transition-duration: 0ms;
+  }
+
+  @media (prefers-contrast: more) {
+    .content,
+    .arrow {
+      border-color: var(--openbitfun-color-border-strong);
+    }
+  }
+
+  @media (forced-colors: active) {
+    .content,
+    .arrow {
+      border-color: CanvasText;
+      background: Canvas;
+      box-shadow: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .root {
+      transition: opacity 80ms ease;
+      transform: none;
+    }
+
+    .root[data-openbitfun-state="visible"] {
+      transform: none;
+    }
+
+    .root[data-instant="true"] {
+      transition-duration: 0ms;
+    }
+  }
+}

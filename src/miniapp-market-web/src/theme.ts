@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
+import { themes } from '@openbitfun/theme-openbitfun';
 
 export type Theme = 'light' | 'dark';
 
-export const THEME_STORAGE_KEY = 'bitfun-market-theme';
+export const THEME_STORAGE_KEY = 'openbitfun-market-theme';
 
 export function isTheme(value: string | null): value is Theme {
   return value === 'light' || value === 'dark';
@@ -21,11 +22,16 @@ function readStoredTheme(): string | null {
 }
 
 function applyTheme(theme: Theme) {
-  document.documentElement.dataset.theme = theme;
-  document.documentElement.style.colorScheme = theme;
+  const root = document.documentElement;
+  root.setAttribute('data-openbitfun-design-system-root', '');
+  root.dataset.colorScheme = theme;
+  root.dataset.contrast = 'standard';
+  root.dataset.density = 'comfortable';
+  root.dataset.theme = theme;
+  root.style.colorScheme = theme;
   document
     .querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', theme === 'dark' ? '#0e0e10' : '#f7f8fa');
+    ?.setAttribute('content', String(themes[theme]['color.surface.canvas']));
 }
 
 function initialTheme(): Theme {

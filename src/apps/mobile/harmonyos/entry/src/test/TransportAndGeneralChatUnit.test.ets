@@ -71,9 +71,10 @@ import {
   RemoteModelPreferenceStore
 } from '../main/ets/services/RemoteModelController';
 import { RemotePairingPolicy } from '../main/ets/services/RemotePairingPolicy';
+import { PairIdentity, RelayHttpClient } from '../main/ets/services/RelayHttpClient';
 import { RemoteResponseMapper } from '../main/ets/services/RemoteResponseMapper';
 import { RemoteSessionClient, RemoteSessionController } from '../main/ets/services/RemoteSessionController';
-import { RemoteSessionManager } from '../main/ets/services/RemoteSessionManager';
+import { DelegatedAccountSession, RemoteSessionManager } from '../main/ets/services/RemoteSessionManager';
 import { RemoteWorkspaceCoordinator } from '../main/ets/services/RemoteWorkspaceCoordinator';
 import { RemoteWorkspaceDataSource } from '../main/ets/services/RemoteWorkspaceRepository';
 import { RemoteToolActionClient, RemoteToolActionController } from '../main/ets/services/RemoteToolActionController';
@@ -119,6 +120,7 @@ import { TimeFormat } from '../main/ets/services/TimeFormat';
 import { X25519 } from '../main/ets/services/X25519';
 import {
   ChatMessage,
+  CommandStatusResponse,
   FileInfo,
   ImageAttachment,
   PollSessionResult,
@@ -130,8 +132,10 @@ import {
   InitialSyncResult,
   RemoteModelCatalog,
   ReadFileResult,
+  RemoteCommand,
   RemoteSession,
   SelectedImageAttachment,
+  SessionItemResponse,
   SessionListResult,
   SessionMessagesResult,
   SessionSummary,
@@ -463,6 +467,125 @@ export default function transportAndGeneralChatUnitTest() {
       }
       expect(didThrow).assertEqual(true);
     });
+
+    it('accepts legacy links as v1 and rejects unsupported QR protocol versions', 0, () => {
+      const legacy = RemoteDescriptorParser.parse(
+        'https://relay.example.com/#/pair?room=legacy-room&pk=legacy-key'
+      );
+      expect(legacy.roomId).assertEqual('legacy-room');
+      let didThrow = false;
+      try {
+        RemoteDescriptorParser.parse(
+          'https://relay.example.com/#/pair?room=future-room&pk=future-key&v=2'
+        );
+      } catch (_err) {
+        didThrow = true;
+      }
+      expect(didThrow).assertTrue();
+    });
+  });
+
+  describe('RemoteSessionManager room reconnect', () => {
+    it('keeps the newly scanned descriptor and its initial sessions after a prior room transport', 0, async () => {
+      const roomClient = new RecordingRoomClient();
+      const manager = new RemoteSessionManager(() => roomClient, () => new RemoteCrypto({
+        cipher: new FakeRemoteCryptoCipher(),
+        keyPair: {
+          privateKey: new Uint8Array(32),
+          publicKey: new Uint8Array(32)
+        },
+        randomBytes: fixedRandomBytes
+      }));
+      const identity: PairIdentity = { userId: 'harmony-device' };
+      const first: RemoteDescriptor = {
+        relayUrl: 'https://relay.example.com',
+        roomId: 'expired-room',
+        publicKey: 'expired-key',
+        accountAuth: false,
+        accountUsername: ''
+      };
+      const replacement: RemoteDescriptor = {
+        relayUrl: 'https://relay.example.com',
+        roomId: 'fresh-room',
+        publicKey: 'fresh-key',
+        accountAuth: false,
+        accountUsername: ''
+      };
+
+      await manager.connect(first, identity, 'harmony-device');
+      const result = await manager.connect(replacement, identity, 'harmony-device');
+
+      expect(roomClient.events.join(','))
+        .assertEqual('bind:expired-room,pair,reset,bind:fresh-room,pair');
+      expect(result.sessions.length).assertEqual(1);
+      expect(result.sessions[0].id).assertEqual('session-after-retry');
+    });
+
+    it('replaces room state and loads sessions when switching to an account device', 0, async () => {
+      const roomClient = new RecordingRoomClient();
+      const manager = new RemoteSessionManager(() => roomClient, () => new RemoteCrypto({
+        cipher: new FakeRemoteCryptoCipher(),
+        keyPair: {
+          privateKey: new Uint8Array(32),
+          publicKey: new Uint8Array(32)
+        },
+        randomBytes: fixedRandomBytes
+      }));
+      await manager.connect({
+        relayUrl: 'https://relay.example.com',
+        roomId: 'room-before-account',
+        publicKey: 'room-key',
+        accountAuth: false,
+        accountUsername: ''
+      }, { userId: 'harmony-device' }, 'harmony-device');
+
+      const result = await manager.connectAccountDevice(
+        new RecordingAccountDeviceClient(),
+        'https://relay.example.com',
+        { token: 'token', userId: 'account-user', masterKey: new Uint8Array(32) },
+        'desktop-device'
+      );
+
+      expect(manager.hasRoomChannel()).assertFalse();
+      expect(result.workspace.path).assertEqual('/account-workspace');
+      expect(result.sessions.length).assertEqual(1);
+      expect(result.sessions[0].id).assertEqual('account-device-session');
+    });
+
+    it('does not let a slower old QR handshake replace a newer room', 0, async () => {
+      const slow = new GatedRoomClient('old-session', true);
+      const fast = new GatedRoomClient('new-session', false);
+      const clients: GatedRoomClient[] = [slow, fast];
+      let clientIndex = 0;
+      const manager = new RemoteSessionManager(
+        (): RelayHttpClient => clients[clientIndex++],
+        () => new RemoteCrypto({
+          cipher: new FakeRemoteCryptoCipher(),
+          keyPair: { privateKey: new Uint8Array(32), publicKey: new Uint8Array(32) },
+          randomBytes: fixedRandomBytes
+        })
+      );
+      const identity: PairIdentity = { userId: 'harmony-device' };
+      const oldConnect = manager.connect({
+        relayUrl: 'https://relay.example.com', roomId: 'old-room', publicKey: 'old-key',
+        accountAuth: false, accountUsername: ''
+      }, identity, 'harmony-device');
+      await slow.pairingStarted;
+      const newResult = await manager.connect({
+        relayUrl: 'https://relay.example.com', roomId: 'new-room', publicKey: 'new-key',
+        accountAuth: false, accountUsername: ''
+      }, identity, 'harmony-device');
+      slow.release();
+      let oldRejected = false;
+      try {
+        await oldConnect;
+      } catch (_err) {
+        oldRejected = true;
+      }
+
+      expect(oldRejected).assertTrue();
+      expect(newResult.sessions[0].id).assertEqual('new-session');
+    });
   });
 
   describe('RemotePairingPolicy', () => {
@@ -514,8 +637,8 @@ export default function transportAndGeneralChatUnitTest() {
       );
 
       expect(policy.shouldPromptForAccount(descriptor)).assertTrue();
-      expect(policy.shouldPromptForAccount(descriptor, true, 'alice')).assertFalse();
-      expect(policy.shouldPromptForAccount(descriptor, true, 'bob')).assertTrue();
+      expect(policy.shouldPromptForAccount(descriptor, true, 'alice', descriptor.relayUrl)).assertFalse();
+      expect(policy.shouldPromptForAccount(descriptor, true, 'bob', descriptor.relayUrl)).assertFalse();
     });
   });
 
@@ -750,6 +873,29 @@ export default function transportAndGeneralChatUnitTest() {
       expect(messages[0].status).assertEqual('sent');
     });
 
+    it('removes only the latest matching failed user message for retry', 0, async () => {
+      const localStore = new FakeGeneralChatLocalStore();
+      const session = remoteSession('chat-retry-repeat', '重复失败');
+      session.agentType = 'chat';
+      const first = chatMessage('failed-user-1', 'user', '再试一次', 'failed');
+      const second = chatMessage('failed-user-2', 'user', '再试一次', 'failed');
+      localStore.sessions = [session];
+      localStore.messagesBySession.set(session.id, [
+        first,
+        chatMessage('assistant-between', 'assistant', '中间回复'),
+        second
+      ]);
+      const repository = new GeneralChatRepository(new MockGeneralChatAdapter(), localStore);
+      await repository.restoreFromLocal();
+
+      await repository.removeFailedUserMessage(session.id, '再试一次');
+
+      const messages = await repository.messages(session.id);
+      expect(messages.length).assertEqual(2);
+      expect(messages[0].id).assertEqual('failed-user-1');
+      expect(messages[1].id).assertEqual('assistant-between');
+    });
+
     it('does not persist assistant retry detail after an interrupted turn', 0, async () => {
       const localStore = new FakeGeneralChatLocalStore();
       const repository = new GeneralChatRepository(new MockGeneralChatAdapter(), localStore);
@@ -784,8 +930,27 @@ export default function transportAndGeneralChatUnitTest() {
         failedAssistant
       ]);
 
-      expect(markdown).assertEqual('# 发布计划\n\n## 用户\n\n帮我整理发布计划\n\n## BitFun\n\n先检查发布清单。\n');
+      expect(markdown).assertEqual('# 发布计划\n\n## 用户\n\n帮我整理发布计划\n\n## OpenBitFun\n\n先检查发布清单。\n');
       expect(markdown.indexOf('secret retry context')).assertEqual(-1);
+    });
+
+    it('omits a generated heading that repeats the first user message', 0, () => {
+      const session: RemoteSession = {
+        id: 'chat-duplicate-title',
+        title: '你好你好',
+        agentType: 'chat',
+        status: 'ready',
+        updatedAt: '2026-07-20T10:00:00.000Z',
+        createdAt: '2026-07-20T09:00:00.000Z',
+        messageCount: 2,
+        titleGenerated: true
+      };
+      const markdown = GeneralChatExportFormatter.markdown(session, [
+        chatMessage('user-1', 'user', '你好你好。'),
+        chatMessage('assistant-1', 'assistant', '你好！有什么我可以帮你的吗？')
+      ]);
+
+      expect(markdown).assertEqual('## 用户\n\n你好你好。\n\n## OpenBitFun\n\n你好！有什么我可以帮你的吗？\n');
     });
   });
 
@@ -997,6 +1162,154 @@ export default function transportAndGeneralChatUnitTest() {
   });
 
   describe('SettingsController', () => {
+    it('migrates a legacy account QR on the same relay to a stable device target', 0, async () => {
+      const harness = new AccountDeviceSwitchHarness();
+
+      const target = await harness.controller.migrateLegacyPairingTarget(
+        'https://relay.example.com/#/pair?room=old-room&pk=old-key&auth=account&user=someone',
+        'desk-a',
+        'Desktop A'
+      );
+
+      expect(target?.deviceId).assertEqual('desk-a');
+      expect(harness.remoteState.controlTargetType).assertEqual('account_device');
+      expect(harness.sessionStore.saved[0].targetDeviceId).assertEqual('desk-a');
+    });
+
+    it('migrates an ordinary QR only when the same desktop is visible in the account', 0, async () => {
+      const harness = new AccountDeviceSwitchHarness(new OfflineAccountClient());
+      await harness.controller.listCloudAccountDevices();
+
+      const target = await harness.controller.migrateLegacyPairingTarget(
+        'https://relay.example.com/#/pair?room=old-room&pk=old-key',
+        'desk-a',
+        'QR name'
+      );
+
+      expect(target?.deviceId).assertEqual('desk-a');
+      expect(target?.deviceName).assertEqual('Desktop A');
+      expect(harness.sessionStore.saved[0].targetDeviceId).assertEqual('desk-a');
+    });
+
+    it('does not migrate an ordinary QR to an unknown account device', 0, async () => {
+      const harness = new AccountDeviceSwitchHarness();
+
+      const target = await harness.controller.migrateLegacyPairingTarget(
+        'https://relay.example.com/#/pair?room=old-room&pk=old-key',
+        'desk-unknown',
+        'Unknown desktop'
+      );
+
+      expect(target === undefined).assertTrue();
+      expect(harness.sessionStore.saved.length).assertEqual(0);
+    });
+
+    it('does not migrate a legacy QR from another relay', 0, async () => {
+      const harness = new AccountDeviceSwitchHarness();
+
+      const target = await harness.controller.migrateLegacyPairingTarget(
+        'https://other-relay.example.com/#/pair?room=old-room&pk=old-key&auth=account&user=someone',
+        'desk-a',
+        'Desktop A'
+      );
+
+      expect(target === undefined).assertTrue();
+      expect(harness.sessionStore.saved.length).assertEqual(0);
+    });
+
+    it('keeps an offline account target resumable for the heartbeat', 0, async () => {
+      const harness = new AccountDeviceSwitchHarness(new OfflineAccountClient());
+
+      await harness.controller.restoreCloudTarget('desk-a', 'Desktop A', false);
+
+      expect(harness.remoteState.controlTargetDeviceId).assertEqual('desk-a');
+      expect(harness.remoteState.connectionState).assertEqual('reconnecting');
+      expect(harness.heartbeatStarts).assertEqual(1);
+    });
+
+    it('keeps a connected device usable when target persistence fails', 0, async () => {
+      const harness = new AccountDeviceSwitchHarness();
+      harness.sessionStore.failSaves = true;
+
+      await harness.controller.selectCloudAccountDevice(harness.device('desk-a'), false);
+
+      expect(harness.remoteState.connectionState).assertEqual('connected');
+      expect(harness.controller.preferredCloudTarget()?.deviceId).assertEqual('desk-a');
+      expect(harness.heartbeatStarts).assertEqual(1);
+    });
+
+    it('does not erase the encrypted account record when restore temporarily fails', 0, async () => {
+      const harness = new AccountDeviceSwitchHarness(new CloudAccountClient(), new ScriptedAccountSessionManager(), false);
+      harness.sessionStore.failLoads = true;
+
+      await harness.controller.initializeCloudAccount({} as Context);
+
+      expect(harness.sessionStore.clears).assertEqual(0);
+    });
+
+    it('asks for account confirmation when a legacy relay has no provisioning route', 0, async () => {
+      const harness = new AccountDeviceSwitchHarness(new ProvisioningFailureAccountClient(404));
+
+      const outcome = await harness.controller.provisionWatchCredential(
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'HarmonyOS Watch',
+        '12345678-1234-4234-8234-123456789abc'
+      );
+
+      expect(outcome !== undefined).assertTrue();
+      expect(outcome?.passwordRequired).assertTrue();
+    });
+
+    it('asks for account confirmation when the watch is already registered', 0, async () => {
+      const harness = new AccountDeviceSwitchHarness(new ProvisioningFailureAccountClient(409));
+      // An expired QR pairing projects an empty username into the shared page
+      // state during startup. The cloud account identity must survive that UI
+      // projection because its encrypted session is still valid.
+      harness.remoteState.setAccountPairing(false, '');
+
+      const outcome = await harness.controller.provisionWatchCredential(
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'HarmonyOS Watch',
+        '12345678-1234-4234-8234-123456789abc'
+      );
+
+      expect(outcome !== undefined).assertTrue();
+      expect(outcome?.passwordRequired).assertTrue();
+    });
+
+    it('does not treat an authorization refusal as a legacy relay', 0, async () => {
+      const harness = new AccountDeviceSwitchHarness(new ProvisioningFailureAccountClient(403));
+
+      const outcome = await harness.controller.provisionWatchCredential(
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'HarmonyOS Watch',
+        '12345678-1234-4234-8234-123456789abc'
+      );
+
+      expect(outcome === undefined).assertTrue();
+    });
+
+    it('reports a rejected compatibility login instead of deferring to the desktop', 0, async () => {
+      const harness = new AccountDeviceSwitchHarness(new WatchLoginFailureAccountClient());
+      harness.remoteState.setAccountPairing(false, '');
+      let statusCode = 0;
+
+      try {
+        await harness.controller.provisionWatchCredential(
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          'HarmonyOS Watch',
+          '12345678-1234-4234-8234-123456789abc',
+          'wrong-password'
+        );
+      } catch (err) {
+        if (err instanceof CloudAccountRequestError) {
+          statusCode = err.statusCode;
+        }
+      }
+
+      expect(statusCode).assertEqual(401);
+    });
+
     it('tests model configuration with the stored key when the form keeps it unchanged', 0, async () => {
       const store = new InMemorySettingsConfigStore();
       store.snapshotResult = {
@@ -1267,8 +1580,8 @@ export default function transportAndGeneralChatUnitTest() {
       expect(openAiText).assertEqual('Hello');
     });
 
-    it('places the BitFun system prompt in both request formats', 0, () => {
-      const messages: ModelProviderMessage[] = [{ role: 'user', content: 'BitFun 是什么？' }];
+    it('places the OpenBitFun system prompt in both request formats', 0, () => {
+      const messages: ModelProviderMessage[] = [{ role: 'user', content: 'OpenBitFun 是什么？' }];
       const anthropicBody = ModelProviderGeneralChatAdapter.buildRequestBody(
         'model-a',
         messages,
@@ -1483,6 +1796,29 @@ export default function transportAndGeneralChatUnitTest() {
       expect(projection.tools.length).assertEqual(1);
     });
 
+    it('keeps Task input metadata when a completion event only carries the result', 0, () => {
+      let projection = GeneralChatEventMapper.emptyProjection('chat-1', 'turn-1');
+      projection = GeneralChatEventMapper.apply(projection, {
+        event_id: 'task-started', version: 1, session_id: 'chat-1', turn_id: 'turn-1',
+        type: 'tool.started',
+        tool: {
+          id: 'task-1', name: 'Task', status: 'running',
+          input_preview: '{"description":"Inspect the workspace"}'
+        }
+      });
+      projection = GeneralChatEventMapper.apply(projection, {
+        event_id: 'task-completed', version: 2, session_id: 'chat-1', turn_id: 'turn-1',
+        type: 'tool.completed',
+        tool: { id: 'task-1', name: 'Task', status: 'completed', result_preview: 'Done' }
+      });
+
+      expect(projection.tools[0].input_preview || '')
+        .assertEqual('{"description":"Inspect the workspace"}');
+      expect(projection.items[0].tool?.input_preview || '')
+        .assertEqual('{"description":"Inspect the workspace"}');
+      expect(projection.items[0].tool?.result_preview || '').assertEqual('Done');
+    });
+
     it('projects permission and capability states and ignores late terminal events', 0, () => {
       let projection = GeneralChatEventMapper.emptyProjection('chat-1', 'turn-1');
       projection = GeneralChatEventMapper.apply(projection, {
@@ -1535,15 +1871,37 @@ export default function transportAndGeneralChatUnitTest() {
       }, '/repo');
       expectCommandJson(createCommand, '{"cmd":"create_session","agent_type":"cowork","session_name":"Remote Cowork Session","workspace_path":"/repo"}');
       expect(JSON.stringify(createCommand).indexOf('run_mode')).assertEqual(-1);
+
+      const minimal = RemoteCommandFactory.createSession({
+        agentType: 'minimal', title: '', instruction: 'lean'
+      }, '/repo');
+      const ultimate = RemoteCommandFactory.createSession({
+        agentType: 'Ultra', title: '', instruction: 'deep'
+      }, '/repo');
+      expect(minimal.agent_type || '').assertEqual('minimal');
+      expect(ultimate.agent_type || '').assertEqual('Ultra');
     });
 
     it('builds message and polling commands', 0, () => {
       expectCommandJson(RemoteCommandFactory.sendMessage('s1', 'hello', 'code'), '{"cmd":"send_message","session_id":"s1","content":"hello","agent_type":"code"}');
+      expectCommandJson(
+        RemoteCommandFactory.sendMessage('s1', 'hello', 'code', undefined, 'harmony-turn-1'),
+        '{"cmd":"send_message","session_id":"s1","content":"hello","agent_type":"code","turn_id":"harmony-turn-1"}'
+      );
       expectCommandJson(RemoteCommandFactory.sendMessage('s1', 'look', 'code', [{
         id: 'img1',
         data_url: 'data:image/png;base64,abc',
         mime_type: 'image/png'
       }]), '{"cmd":"send_message","session_id":"s1","content":"look","agent_type":"code","image_contexts":[{"id":"img1","data_url":"data:image/png;base64,abc","mime_type":"image/png"}]}');
+      expectCommandJson(RemoteCommandFactory.steerTurn('s1', 'turn-1', 'continue', 'continue', [{
+        id: 'img1',
+        data_url: 'data:image/png;base64,abc',
+        mime_type: 'image/png'
+      }]), '{"cmd":"steer_turn","session_id":"s1","turn_id":"turn-1","content":"continue","display_content":"continue","image_contexts":[{"id":"img1","data_url":"data:image/png;base64,abc","mime_type":"image/png"}]}');
+      expectCommandJson(
+        RemoteCommandFactory.buildPlan('s1', '/repo/.openbitfun/plans/mobile.plan.md', 'Mobile plan', 'code'),
+        '{"cmd":"build_plan","session_id":"s1","plan_file_path":"/repo/.openbitfun/plans/mobile.plan.md","plan_name":"Mobile plan","agent_type":"code"}'
+      );
       expectCommandJson(RemoteCommandFactory.getSessionMessages('s1'), '{"cmd":"get_session_messages","session_id":"s1"}');
       expectCommandJson(RemoteCommandFactory.pollSession('s1', 7, 3, 2), '{"cmd":"poll_session","session_id":"s1","since_version":7,"known_msg_count":3,"known_model_catalog_version":2}');
     });
@@ -1602,6 +1960,29 @@ export default function transportAndGeneralChatUnitTest() {
       expect(sessions[0].workspaceName).assertEqual('Repo');
     });
 
+    it('hides ACP sessions while preserving raw pages for pagination', 0, () => {
+      const items: SessionItemResponse[] = [{
+        session_id: 'native-session',
+        name: 'Native',
+        agent_type: 'agentic'
+      }, {
+        session_id: 'acp-session',
+        name: 'ACP',
+        agent_type: 'acp:codex'
+      }, {
+        session_id: 'future-acp-session',
+        name: 'Future ACP',
+        agent_type: ' ACP:gemini '
+      }];
+
+      const visible = RemoteResponseMapper.sessions(items);
+      const raw = RemoteResponseMapper.allSessions(items);
+
+      expect(visible.length).assertEqual(1);
+      expect(visible[0].id).assertEqual('native-session');
+      expect(raw.length).assertEqual(3);
+    });
+
     it('maps alternate session time fields', 0, () => {
       const sessions = RemoteResponseMapper.sessions([{
         session_id: 'session-time',
@@ -1645,6 +2026,32 @@ export default function transportAndGeneralChatUnitTest() {
       expect(message.status).assertEqual('done');
       expect(message.detail).assertEqual('shell · pending\nedit · done');
       expect(message.tools ? message.tools.length : 0).assertEqual(2);
+    });
+
+    it('maps persisted remote turn failures', 0, () => {
+      const message = RemoteResponseMapper.chatMessage({
+        id: 'turn-failed-1_assistant',
+        turn_id: 'turn-failed-1',
+        role: 'assistant',
+        content: '',
+        status: 'failed',
+        error: 'AI client could not reach the configured proxy'
+      });
+
+      expect(message.turnId || '').assertEqual('turn-failed-1');
+      expect(message.status).assertEqual('failed');
+      expect(message.error || '').assertEqual('AI client could not reach the configured proxy');
+    });
+
+    it('maps live remote turn failures before history persistence', 0, () => {
+      const message = RemoteResponseMapper.activeTurnToMessage({
+        turn_id: 'turn-failed-live',
+        status: 'failed',
+        error: 'AI client could not reach the configured proxy'
+      });
+
+      expect(message.status).assertEqual('failed');
+      expect(message.error || '').assertEqual('AI client could not reach the configured proxy');
     });
 
     it('uses fallback ids for message rendering keys', 0, () => {

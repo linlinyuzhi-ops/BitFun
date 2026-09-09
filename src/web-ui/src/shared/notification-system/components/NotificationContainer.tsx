@@ -1,5 +1,6 @@
  
 
+import { ScrollArea } from '@openbitfun/ui';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Notification } from '../types';
 import { useActiveNotifications } from '../hooks/useNotificationState';
@@ -118,7 +119,15 @@ export const NotificationContainer: React.FC = () => {
   }
 
   return (
-    <div className="notification-container" data-bf-component="notification" data-bf-part="container">
+    <div
+      className="notification-container"
+      data-openbitfun-component="notification"
+      data-openbitfun-part="container"
+    >
+    <ScrollArea
+      className="notification-container__viewport"
+      scrollbarVisibility="hidden"
+    >
       {presentedNotifications.map((notification) => {
         const isExiting = !visibleIds.has(notification.id);
 
@@ -149,6 +158,7 @@ export const NotificationContainer: React.FC = () => {
           />
         );
       })}
+    </ScrollArea>
     </div>
   );
 };

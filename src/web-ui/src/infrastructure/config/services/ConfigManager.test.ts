@@ -38,7 +38,52 @@ describe('ConfigManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     configManager.clearCache();
-    delete globalThis.__BITFUN_BOOTSTRAP_KEYBINDINGS__;
+    delete globalThis.__OPENBITFUN_BOOTSTRAP_KEYBINDINGS__;
+  });
+
+  it('does not let a late legacy-model read overwrite an explicit save', async () => {
+    const read = createDeferred<unknown[]>();
+    configApiMocks.getConfig.mockReturnValueOnce(read.promise);
+    configApiMocks.setConfig.mockResolvedValueOnce(undefined);
+    const pendingRead = configManager.getConfig('ai.models');
+    const saved = [{ id: 'saved', name: 'Saved', api_key: 'fixture-key', metadata: { provider_instance_id: 'saved-provider' } }];
+
+    await configManager.setConfig('ai.models', saved);
+    read.resolve([{ id: 'old', name: 'Old', base_url: 'https://example.com/v1' }]);
+
+    await expect(pendingRead).resolves.toEqual(saved);
+    expect(configApiMocks.setConfig).toHaveBeenCalledTimes(1);
+    expect(configApiMocks.setConfig).toHaveBeenCalledWith('ai.models', saved);
+  });
+
+  it('calculates queued model edits from fresh host state without losing other credentials', async () => {
+    type Model = { id: string; name: string; api_key: string; metadata: { provider_instance_id: string } };
+    const fixture = (id: string): Model => ({ id, name: id, api_key: `${id}-fixture-key`, metadata: { provider_instance_id: id } });
+    let persisted = [fixture('existing')];
+    const firstSave = createDeferred<void>();
+    configApiMocks.getConfig.mockImplementation(async () => structuredClone(persisted));
+    configApiMocks.setConfig.mockImplementation(async (_path: string, value: Model[]) => {
+      await firstSave.promise;
+      persisted = structuredClone(value);
+    });
+
+    const first = configManager.updateConfig<Model[]>('ai.models', models => [...models, fixture('first')]);
+    const second = configManager.updateConfig<Model[]>('ai.models', models => [...models, fixture('second')]);
+    await vi.waitFor(() => expect(configApiMocks.setConfig).toHaveBeenCalledTimes(1));
+    expect(configApiMocks.getConfig).toHaveBeenCalledTimes(1);
+    firstSave.resolve();
+    await Promise.all([first, second]);
+
+    expect(persisted).toEqual([fixture('existing'), fixture('first'), fixture('second')]);
+    expect(configApiMocks.getConfig).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses a model edit when the host read fails instead of saving an empty-list fallback', async () => {
+    configApiMocks.getConfig.mockRejectedValueOnce(new Error('Host disconnected'));
+
+    await expect(configManager.updateConfig<unknown[]>('ai.models', models => models.filter(Boolean)))
+      .rejects.toThrow('Host disconnected');
+    expect(configApiMocks.setConfig).not.toHaveBeenCalled();
   });
 
   it('deduplicates concurrent reads for the same config path', async () => {
@@ -82,12 +127,12 @@ describe('ConfigManager', () => {
         'session.new': 'Ctrl+Shift+N',
       },
     };
-    globalThis.__BITFUN_BOOTSTRAP_KEYBINDINGS__ = storedKeybindings;
+    globalThis.__OPENBITFUN_BOOTSTRAP_KEYBINDINGS__ = storedKeybindings;
     configApiMocks.getConfig.mockResolvedValueOnce({ version: 1, bindings: {} });
 
     await expect(configManager.getOptionalConfig('app.keybindings')).resolves.toEqual(storedKeybindings);
     expect(configApiMocks.getConfig).not.toHaveBeenCalled();
-    expect(Object.prototype.hasOwnProperty.call(globalThis, '__BITFUN_BOOTSTRAP_KEYBINDINGS__')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(globalThis, '__OPENBITFUN_BOOTSTRAP_KEYBINDINGS__')).toBe(false);
 
     await expect(configManager.getOptionalConfig('app.keybindings')).resolves.toEqual({ version: 1, bindings: {} });
     expect(configApiMocks.getConfig).toHaveBeenCalledTimes(1);
@@ -98,7 +143,7 @@ describe('ConfigManager', () => {
   });
 
   it('does not reuse bootstrap keybindings after the config path is updated', async () => {
-    globalThis.__BITFUN_BOOTSTRAP_KEYBINDINGS__ = {
+    globalThis.__OPENBITFUN_BOOTSTRAP_KEYBINDINGS__ = {
       version: 1,
       bindings: {
         'session.new': 'Ctrl+Shift+N',
@@ -134,7 +179,7 @@ describe('ConfigManager', () => {
   });
 
   it('clears bootstrap keybindings with the config cache', async () => {
-    globalThis.__BITFUN_BOOTSTRAP_KEYBINDINGS__ = {
+    globalThis.__OPENBITFUN_BOOTSTRAP_KEYBINDINGS__ = {
       version: 1,
       bindings: {
         'session.new': 'Ctrl+Shift+N',
@@ -367,7 +412,7 @@ describe('ConfigManager', () => {
       'ai.models': [],
       'ai.default_models': {},
       'ai.agent_model_defaults': {
-        mode: 'auto',
+        mode: 'primary',
         subagents: {
           default: { kind: 'fixed', model_id: 'fast' },
           builtin: {
@@ -387,7 +432,7 @@ describe('ConfigManager', () => {
     configApiMocks.getConfig.mockRejectedValueOnce(new Error('read failed'));
 
     await expect(configManager.getConfig('ai.agent_model_defaults')).resolves.toEqual({
-      mode: 'auto',
+      mode: 'primary',
       subagents: {
         default: { kind: 'fixed', model_id: 'fast' },
         builtin: {
@@ -402,7 +447,7 @@ describe('ConfigManager', () => {
     configApiMocks.getConfigs.mockResolvedValueOnce({
       'ai.models': [],
       'ai.agent_model_defaults': {
-        mode: 'auto',
+        mode: 'primary',
         subagents: {
           default: { kind: 'fixed', model_id: 'fast' },
           builtin: {
@@ -431,7 +476,7 @@ describe('ConfigManager', () => {
     expect(configManager.get('ai.default_models')).toEqual({ chat: 'gpt-5' });
   });
 
-  it('migrates legacy models with the same base URL into one provider instance', async () => {
+  it('resolves legacy provider instances without writing during a read', async () => {
     const legacyModels = [
       {
         id: 'model-a',
@@ -460,7 +505,7 @@ describe('ConfigManager', () => {
     expect(firstProviderId).toMatch(/^provider_legacy_/);
     expect(migrated[1].metadata.provider_instance_id).toBe(firstProviderId);
     expect(migrated[2].metadata.provider_instance_id).not.toBe(firstProviderId);
-    expect(configApiMocks.setConfig).toHaveBeenCalledWith('ai.models', migrated);
+    expect(configApiMocks.setConfig).not.toHaveBeenCalled();
   });
 
   it('applyExternalReload notifies listeners only for paths whose value changed', async () => {
@@ -471,6 +516,7 @@ describe('ConfigManager', () => {
     });
     await configManager.getConfig('editor');
     await configManager.getConfig('app.window.mode');
+    await configManager.getConfig('app.keybindings');
 
     const changes: Array<{ path: string; oldValue: unknown; newValue: unknown }> = [];
     const unsubscribe = configManager.onConfigChange((path, oldValue, newValue) => {
@@ -526,5 +572,20 @@ describe('ConfigManager', () => {
     expect(configApiMocks.getConfig).toHaveBeenCalledWith('editor');
 
     unsubscribe();
+  });
+
+  it('notifies an uncached keybinding watcher when cloud sync removes bootstrap overrides', async () => {
+    const stored = {
+      version: 1, overrides: { 'session.new': { key: 'n', alt: true } },
+    };
+    globalThis.__OPENBITFUN_BOOTSTRAP_KEYBINDINGS__ = stored;
+    await expect(configManager.getOptionalConfig('app.keybindings')).resolves.toEqual(stored);
+    const watcher = vi.fn();
+    const unwatch = configManager.watch('app.keybindings', watcher);
+    configApiMocks.getConfigs.mockResolvedValueOnce({ 'app.keybindings': undefined });
+    await configManager.applyExternalReload();
+    expect(watcher).toHaveBeenCalledTimes(1);
+    await expect(configManager.getOptionalConfig('app.keybindings')).resolves.toBeUndefined();
+    unwatch();
   });
 });

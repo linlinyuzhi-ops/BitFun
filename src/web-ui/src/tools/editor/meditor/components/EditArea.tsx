@@ -24,7 +24,7 @@ export const EditArea = forwardRef<HTMLTextAreaElement, EditAreaProps>(
     }
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Tab') {
+      if (!readonly && e.key === 'Tab') {
         e.preventDefault()
         const textarea = e.currentTarget
         const start = textarea.selectionStart
@@ -42,8 +42,8 @@ export const EditArea = forwardRef<HTMLTextAreaElement, EditAreaProps>(
       <textarea
         ref={ref}
         className="m-editor-textarea"
-        data-bf-component="editor-tool"
-        data-bf-part="meditorEditArea"
+        data-openbitfun-component="editor-tool"
+        data-openbitfun-part="meditorEditArea"
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}

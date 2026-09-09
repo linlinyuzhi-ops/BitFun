@@ -1,21 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  Plus,
-  ChevronDown,
-  RefreshCw,
-  Play,
-  Pencil,
-  Square,
-  Trash2,
-} from 'lucide-react';
+import { Play, Square } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n';
 import { configManager } from '@/infrastructure/config/services/ConfigManager';
 import type { TerminalConfig } from '@/infrastructure/config/types';
 import TerminalEditModal from '@/app/components/panels/TerminalEditModal';
 import { useContextMenuStore } from '@/shared/context-menu-system/store/ContextMenuStore';
 import { ContextType } from '@/shared/context-menu-system/types/context.types';
-import type { MenuItem } from '@/shared/context-menu-system/types/menu.types';
+import type { MenuItem as ContextMenuItem } from '@/shared/context-menu-system/types/menu.types';
 import { useSceneStore } from '@/app/stores/sceneStore';
 import { useTerminalSceneStore } from '@/app/stores/terminalSceneStore';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
@@ -24,8 +16,18 @@ import type { ShellInfo } from '@/tools/terminal/types/session';
 import { useShellEntries } from './hooks';
 import type { ShellEntry } from './hooks/shellEntryTypes';
 import { useShellNavMenuState } from './hooks/useShellNavMenuState';
-import { Button } from '@/component-library/components/Button';
-import { Tooltip } from '@/component-library/components/Tooltip';
+import {
+  Button,
+  Icon,
+  Menu,
+  MenuItem,
+  MenuSeparator,
+  NavigationPanel,
+  NavigationPanelBody,
+  NavigationPanelContent,
+  NavigationPanelHeader,
+  Tooltip,
+} from '@openbitfun/ui';
 import ShellNavEntryItem from './components/ShellNavEntryItem';
 import ShellNavWorkspaceSwitcher from './components/ShellNavWorkspaceSwitcher';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
@@ -157,7 +159,7 @@ const ShellNav: React.FC = () => {
 
   const openContextMenu = useCallback((
     event: React.MouseEvent<HTMLElement>,
-    items: MenuItem[],
+    items: ContextMenuItem[],
     data: Record<string, unknown>,
   ) => {
     event.preventDefault();
@@ -178,7 +180,7 @@ const ShellNav: React.FC = () => {
     );
   }, [showMenu]);
 
-  const getEntryMenuItems = useCallback((entry: ShellEntry): MenuItem[] => {
+  const getEntryMenuItems = useCallback((entry: ShellEntry): ContextMenuItem[] => {
     if (entry.kind === 'manual-profile') {
       return [
         !entry.isRunning
@@ -201,7 +203,7 @@ const ShellNav: React.FC = () => {
         {
           id: `edit-${entry.sessionId}`,
           label: t('nav.shell.context.editConfig'),
-          icon: <Pencil size={14} />,
+          icon: <Icon name="edit" size="sm" />,
           onClick: () => {
             openEditModal(entry);
           },
@@ -209,7 +211,7 @@ const ShellNav: React.FC = () => {
         {
           id: `delete-${entry.sessionId}`,
           label: t('nav.shell.context.deleteSavedTerminal'),
-          icon: <Trash2 size={14} />,
+          icon: <Icon name="delete" size="sm" />,
           onClick: async () => {
             await deleteEntry(entry);
           },
@@ -224,7 +226,7 @@ const ShellNav: React.FC = () => {
     return [{
         id: `config-${entry.sessionId}`,
         label: t('nav.shell.context.saveConfig'),
-        icon: <Pencil size={14} />,
+        icon: <Icon name="edit" size="sm" />,
         onClick: () => {
           openEditModal(entry);
         },
@@ -234,7 +236,7 @@ const ShellNav: React.FC = () => {
   const getQuickAction = useCallback((entry: ShellEntry) => {
     if (entry.isRunning) {
       return {
-        icon: <Trash2 size={12} />,
+        icon: <Icon name="delete" size="xs" />,
         title: t('nav.shell.context.close'),
         onClick: () => { void deleteEntry(entry); },
       };
@@ -242,24 +244,25 @@ const ShellNav: React.FC = () => {
 
     if (entry.isPersisted) {
       return {
-        icon: <Trash2 size={12} />,
+        icon: <Icon name="delete" size="xs" />,
         title: t('nav.shell.context.deleteSavedTerminal'),
         onClick: () => { void deleteEntry(entry); },
       };
     }
 
     return {
-      icon: <Trash2 size={12} />,
+      icon: <Icon name="delete" size="xs" />,
       title: t('nav.shell.context.close'),
       onClick: () => { void deleteEntry(entry); },
     };
   }, [deleteEntry, t]);
 
   return (
-    <div data-bf-component="shell-nav" data-bf-part="root" className="bitfun-shell-nav" data-testid="shell-panel">
-      <div data-bf-component="shell-nav" data-bf-part="header" className="bitfun-shell-nav__header">
-        <div className="bitfun-shell-nav__title-group">
-          <span data-bf-component="shell-nav" data-bf-part="title" className="bitfun-shell-nav__title" data-testid="shell-panel-title">{t('nav.shell.title')}</span>
+    <NavigationPanel data-openbitfun-component="shell-nav" data-openbitfun-part="root" className="openbitfun-shell-nav" data-testid="shell-panel">
+      <NavigationPanelHeader className="openbitfun-shell-nav__panel-header">
+        <div data-openbitfun-component="shell-nav" data-openbitfun-part="header" className="openbitfun-shell-nav__header">
+        <div className="openbitfun-shell-nav__title-group">
+          <span data-openbitfun-component="shell-nav" data-openbitfun-part="title" className="openbitfun-shell-nav__title" data-testid="shell-panel-title">{t('nav.shell.title')}</span>
           <ShellNavWorkspaceSwitcher
             workspaceName={workspaceName}
             hasMultipleWorkspaces={hasMultipleWorkspaces}
@@ -274,38 +277,37 @@ const ShellNav: React.FC = () => {
             onSelectWorkspace={handleSelectWorkspace}
           />
         </div>
-        <div data-bf-component="shell-nav" data-bf-part="headerActions" className="bitfun-shell-nav__header-actions" ref={menuRef}>
-          <div data-bf-component="shell-nav" data-bf-part="splitButton" data-bf-state={menuOpen ? 'active' : undefined} className={`bitfun-shell-nav__split-button${menuOpen ? ' is-active' : ''}`}>
+        <div data-openbitfun-component="shell-nav" data-openbitfun-part="headerActions" className="openbitfun-shell-nav__header-actions" ref={menuRef}>
+          <div data-openbitfun-component="shell-nav" data-openbitfun-part="splitButton" data-openbitfun-state={menuOpen ? 'active' : undefined} className={`openbitfun-shell-nav__split-button${menuOpen ? ' is-active' : ''}`}>
             <Tooltip content={t('nav.shell.actions.newTerminal')} placement="bottom">
               <button
                 type="button"
-                className="bitfun-shell-nav__split-button-main"
+                className="openbitfun-shell-nav__split-button-main"
                 onClick={() => { void handleCreateManualTerminal(); }}
               >
-                <Plus size={14} />
+                <Icon name="plus" size="sm" />
               </button>
             </Tooltip>
             <Tooltip content={t('actions.more')} placement="bottom">
               <button
                 type="button"
-                className="bitfun-shell-nav__split-button-toggle"
+                className="openbitfun-shell-nav__split-button-toggle"
                 onClick={handleToggleCreateMenu}
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
               >
-                <ChevronDown size={12} />
+                <Icon name="chevron-down" size="xs" />
               </button>
             </Tooltip>
           </div>
 
           {menuOpen ? createPortal(
-            <div
+            <Menu
               ref={menuPopoverRef}
-              data-bf-component="shell-nav"
-              data-bf-part="menu"
-              data-bf-placement={createMenuLayout?.placement ?? 'bottom'}
-              className="bitfun-shell-nav__dropdown-menu"
-              role="menu"
+              data-openbitfun-component="shell-nav"
+              data-openbitfun-part="menu"
+              data-openbitfun-placement={createMenuLayout?.placement ?? 'bottom'}
+              className="openbitfun-shell-nav__dropdown-menu"
               style={{
                 top: `${createMenuLayout?.top ?? 0}px`,
                 left: `${createMenuLayout?.left ?? 0}px`,
@@ -313,37 +315,31 @@ const ShellNav: React.FC = () => {
               }}
             >
               {shellMenuItems.map((shell) => (
-                <button
-                  data-bf-component="shell-nav"
-                  data-bf-part="menuItem"
+                <MenuItem
+                  data-openbitfun-component="shell-nav"
+                  data-openbitfun-part="menuItem"
                   key={shell.key}
                   type="button"
-                  className="bitfun-shell-nav__dropdown-item"
-                  role="menuitem"
+                  leading={<Icon name="plus" size="sm" />}
                   onClick={() => { void handleCreateManualTerminal(shell.shellType); }}
                 >
-                  <Plus size={14} />
                   <span>{shell.label}</span>
-                </button>
+                </MenuItem>
               ))}
-              {shellMenuItems.length > 0 ? <div className="bitfun-shell-nav__dropdown-separator" /> : null}
-              <button type="button" data-bf-component="shell-nav" data-bf-part="menuItem" className="bitfun-shell-nav__dropdown-item" role="menuitem" onClick={() => { setMenuOpen(false); void handleRefresh(); }}>
-                <RefreshCw size={14} />
+              {shellMenuItems.length > 0 ? <MenuSeparator /> : null}
+              <MenuItem type="button" data-openbitfun-component="shell-nav" data-openbitfun-part="menuItem" leading={<Icon name="refresh" size="sm" />} onClick={() => { setMenuOpen(false); void handleRefresh(); }}>
                 <span>{t('nav.shell.actions.refresh')}</span>
-              </button>
-            </div>,
+              </MenuItem>
+            </Menu>,
             getAppearanceOverlayHost(),
           ) : null}
         </div>
-      </div>
-
-      <div
-        data-bf-component="shell-nav"
-        data-bf-part="content"
-        className={`bitfun-shell-nav__sections${!hasVisibleContent ? ' bitfun-shell-nav__sections--empty' : ''}`}
-      >
+        </div>
+      </NavigationPanelHeader>
+      <NavigationPanelBody className={`openbitfun-shell-nav__sections${!hasVisibleContent ? ' openbitfun-shell-nav__sections--empty' : ''}`}>
+        <NavigationPanelContent className="openbitfun-shell-nav__panel-content">
         {hasVisibleContent ? (
-          <div data-bf-component="shell-nav" data-bf-part="list" className="bitfun-shell-nav__terminal-list" data-testid="shell-command-list">
+          <div data-openbitfun-component="shell-nav" data-openbitfun-part="list" className="openbitfun-shell-nav__terminal-list" data-testid="shell-command-list">
             {entries.map((entry) => (
               <ShellNavEntryItem
                 key={entry.sessionId}
@@ -360,23 +356,24 @@ const ShellNav: React.FC = () => {
             ))}
           </div>
         ) : (
-          <div data-bf-component="shell-nav" data-bf-part="empty" className="bitfun-shell-nav__empty">
-            <p className="bitfun-shell-nav__empty-message">
+          <div data-openbitfun-component="shell-nav" data-openbitfun-part="empty" className="openbitfun-shell-nav__empty">
+            <p className="openbitfun-shell-nav__empty-message">
               {t('nav.shell.empty.all')}
             </p>
             <Button
               type="button"
-              variant="secondary"
-              size="small"
+              variant="outline"
+              size="sm"
               onClick={() => { void handleCreateManualTerminal(); }}
+              leadingIcon={<Icon name="plus" size="sm" aria-hidden />}
             >
-              <Plus size={14} aria-hidden />
+
               {t('nav.shell.empty.quickNew')}
             </Button>
           </div>
         )}
-      </div>
-
+        </NavigationPanelContent>
+      </NavigationPanelBody>
       {editingTerminal ? (
         <TerminalEditModal
           isOpen={editModalOpen}
@@ -389,7 +386,7 @@ const ShellNav: React.FC = () => {
           showStartupCommand
         />
       ) : null}
-    </div>
+    </NavigationPanel>
   );
 };
 

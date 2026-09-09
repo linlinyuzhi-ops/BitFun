@@ -1,10 +1,15 @@
 use crate::agentic::tools::framework::{Tool, ToolResult, ToolUseContext};
+#[cfg(feature = "tools-miniapp")]
+use crate::agentic::tools::miniapp_context_runtime::{
+    is_virtual_context_path, requires_virtual_context_path, virtual_context_files_for_search,
+};
+use crate::agentic::tools::ToolPathOperation;
 use crate::service::search::{
     get_global_workspace_search_service, remote_workspace_search_service_for_path,
     workspace_search_feature_enabled, workspace_search_runtime_available, ContentSearchOutputMode,
     ContentSearchRequest, WorkspaceSearchHit, WorkspaceSearchLine,
 };
-use crate::util::errors::{BitFunError, BitFunResult};
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::HashSet;
@@ -12,10 +17,11 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
+#[cfg(feature = "tools-miniapp")]
+use tool_runtime::search::grep_search::grep_search_virtual_files;
 use tool_runtime::search::grep_search::{
-    apply_offset_and_limit, build_remote_grep_command, count_remote_grep_matches, grep_search,
-    relativize_result_text, render_remote_grep_result_text, GrepOptions, GrepSearchResult,
-    OutputMode, ProgressCallback, RemoteGrepCommandRequest,
+    apply_offset_and_limit, grep_search, grep_search_workspace, relativize_result_text,
+    GrepOptions, GrepSearchResult, OutputMode, ProgressCallback,
 };
 
 const DEFAULT_HEAD_LIMIT: usize = 250;
@@ -118,85 +124,53 @@ impl GrepTool {
             .map(|workspace| workspace.root_path_string())
     }
 
-    async fn call_remote(
+    async fn call_workspace_io(
         &self,
         input: &Value,
         context: &ToolUseContext,
-    ) -> BitFunResult<Vec<ToolResult>> {
-        let ws_shell = context
-            .ws_shell()
-            .ok_or_else(|| BitFunError::tool("Workspace shell not available".to_string()))?;
-
-        let pattern = input
-            .get("pattern")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| BitFunError::tool("pattern is required".to_string()))?;
-
-        let search_path = input.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-        let resolved = context.resolve_tool_path(search_path)?;
-        let resolved_path = resolved.resolved_path.clone();
-
-        let case_insensitive = input.get("-i").and_then(|v| v.as_bool()).unwrap_or(false);
-        let head_limit = Self::resolve_head_limit(input);
-        let offset = Self::resolve_offset(input);
-        let output_mode = input
-            .get("output_mode")
-            .and_then(|v| v.as_str())
-            .unwrap_or("files_with_matches");
-        let output_mode_enum =
-            OutputMode::from_str(output_mode).map_err(|e| BitFunError::tool(e.to_string()))?;
-        let show_line_numbers = input
-            .get("-n")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(output_mode == "content");
-        let context_c = input
-            .get("context")
-            .or_else(|| input.get("-C"))
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize);
-        let before_context = input.get("-B").and_then(|v| v.as_u64()).map(|v| v as usize);
-        let after_context = input.get("-A").and_then(|v| v.as_u64()).map(|v| v as usize);
-        let glob_patterns = Self::parse_glob_patterns(input.get("glob").and_then(|v| v.as_str()));
-        let file_type = input
-            .get("type")
-            .and_then(|v| v.as_str())
-            .map(|value| value.to_string());
-
-        let full_cmd = build_remote_grep_command(&RemoteGrepCommandRequest {
-            pattern: pattern.to_string(),
-            path: resolved_path,
-            case_insensitive,
-            output_mode: output_mode_enum,
-            show_line_numbers,
-            context: context_c,
-            before_context,
-            after_context,
-            glob_patterns,
-            file_type,
-            head_limit,
-            offset,
-        });
-
-        let (stdout, _stderr, _exit_code) = ws_shell
-            .exec(&full_cmd, Some(30_000))
-            .await
-            .map_err(|e| BitFunError::tool(format!("Remote grep failed: {}", e)))?;
-
-        let total_matches = count_remote_grep_matches(&stdout);
-        let display_base = Self::display_base(context);
-        let result_text = render_remote_grep_result_text(&stdout, pattern, display_base.as_deref());
-
+    ) -> OpenBitFunResult<Vec<ToolResult>> {
+        let resolved =
+            context.resolve_tool_path(input.get("path").and_then(Value::as_str).unwrap_or("."))?;
+        let fs = context.file_system_for_path(&resolved)?;
+        let options = self.build_grep_options(input, context)?;
+        let pattern = options.pattern.clone();
+        let output_mode = options.output_mode.to_string();
+        let search = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            grep_search_workspace(options, fs.as_ref(), context.ws_shell()),
+        )
+        .await
+        .map_err(|_| {
+            OpenBitFunError::tool(
+                "Workspace search timed out after 30000ms; narrow the search path".to_string(),
+            )
+        })?
+        .map_err(OpenBitFunError::tool)?;
+        let result = search.result;
+        let mut assistant_text = result.result_text.clone();
+        if !search.used_rg_candidates && !search.used_grep_candidates {
+            assistant_text.push_str(&format!(
+                "\nSearch used workspace file streams without a compatible target prefilter ({} files, {} bytes read).",
+                search.scanned_file_count, search.scanned_bytes,
+            ));
+        }
+        assistant_text.push_str("\nIgnore rules are limited to .gitignore/.ignore files under the search path; other target Git/global excludes are not applied.");
         Ok(vec![ToolResult::Result {
             data: json!({
                 "pattern": pattern,
                 "path": resolved.logical_path,
                 "output_mode": output_mode,
-                "total_matches": total_matches,
-                "applied_limit": head_limit,
-                "applied_offset": if offset > 0 { Some(offset) } else { None::<usize> },
-                "result": result_text,
+                "file_count": result.file_count,
+                "total_matches": result.total_matches,
+                "applied_limit": result.applied_limit,
+                "applied_offset": result.applied_offset,
+                "result": result.result_text,
+                "search_backend": if search.used_rg_candidates { "rg_candidates_workspace_io" } else if search.used_grep_candidates { "grep_candidates_workspace_io" } else { "workspace_io" },
+                "scanned_file_count": search.scanned_file_count,
+                "scanned_bytes": search.scanned_bytes,
+                "ignore_scope": "search_path",
             }),
-            result_for_assistant: Some(result_text),
+            result_for_assistant: Some(assistant_text),
             image_attachments: None,
         }])
     }
@@ -205,11 +179,11 @@ impl GrepTool {
         &self,
         input: &Value,
         context: &ToolUseContext,
-    ) -> BitFunResult<GrepOptions> {
+    ) -> OpenBitFunResult<GrepOptions> {
         let pattern = input
             .get("pattern")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| BitFunError::tool("pattern is required".to_string()))?;
+            .ok_or_else(|| OpenBitFunError::tool("pattern is required".to_string()))?;
 
         let search_path = input.get("path").and_then(|v| v.as_str()).unwrap_or(".");
         let resolved = context.resolve_tool_path(search_path)?;
@@ -224,8 +198,8 @@ impl GrepTool {
             .get("output_mode")
             .and_then(|v| v.as_str())
             .unwrap_or("files_with_matches");
-        let output_mode =
-            OutputMode::from_str(output_mode_str).map_err(|e| BitFunError::tool(e.to_string()))?;
+        let output_mode = OutputMode::from_str(output_mode_str)
+            .map_err(|e| OpenBitFunError::tool(e.to_string()))?;
         let show_line_numbers = input
             .get("-n")
             .and_then(|v| v.as_bool())
@@ -300,17 +274,17 @@ impl GrepTool {
         &self,
         input: &Value,
         context: &ToolUseContext,
-    ) -> BitFunResult<(ContentSearchRequest, String, bool, usize, Option<usize>)> {
+    ) -> OpenBitFunResult<(ContentSearchRequest, String, bool, usize, Option<usize>)> {
         let workspace_root = context
             .workspace
             .as_ref()
             .map(|workspace| PathBuf::from(workspace.root_path_string()))
-            .ok_or_else(|| BitFunError::tool("Workspace is required for Grep".to_string()))?;
+            .ok_or_else(|| OpenBitFunError::tool("Workspace is required for Grep".to_string()))?;
 
         let pattern = input
             .get("pattern")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| BitFunError::tool("pattern is required".to_string()))?;
+            .ok_or_else(|| OpenBitFunError::tool("pattern is required".to_string()))?;
         let search_path = input.get("path").and_then(|v| v.as_str()).unwrap_or(".");
         let resolved_path = context.resolve_workspace_tool_path(search_path)?;
         let resolved_path_buf = PathBuf::from(&resolved_path);
@@ -506,26 +480,27 @@ impl Tool for GrepTool {
         "Grep"
     }
 
-    async fn description(&self) -> BitFunResult<String> {
-        Ok(r#"A powerful search tool built on ripgrep
+    async fn description(&self) -> OpenBitFunResult<String> {
+        Ok(r#"Search file contents in the active workspace with OpenBitFun's built-in structured search.
 
 Usage:
-- Use Grep by default for codebase content search because it preserves workspace-aware permissions and consistent output. Shell out to `grep` or `rg` only when this tool cannot meet the requirement, and prefer explaining why when doing so.
+- Use Grep by default for codebase content search because it preserves workspace-aware permissions and consistent output.
+- Grep is a tool API, not the shell command `grep` or `rg`. It does not require `rg` to be installed on the workspace host. Use ExecCommand for shell-specific workflows or an explicitly requested shell command.
 - For simple literal names or symbols, start with the literal text before trying broad regexes.
 - Narrow searches with `path`, `glob`, or `type` when you know the likely area or language, and use `head_limit` to keep exploratory searches readable.
 - A common workflow is `output_mode: "files_with_matches"` to locate candidate files, followed by `output_mode: "content"` with `-n` and small context when exact lines are needed.
-- Supports full regex syntax (e.g., "log.*Error", "function\s+\w+")
+- Uses Rust regex syntax (e.g., "log.*Error", "function\s+\w+"); look-around and backreferences are not supported.
 - Filter files with glob parameter (e.g., "*.js", "**/*.tsx") or type parameter (e.g., "js", "py", "rust")
-- The path parameter may be workspace-relative, an absolute path inside the current workspace, or an exact `bitfun://...` URI returned by another tool
+- The path parameter may be workspace-relative, an absolute path inside the current workspace, or an exact `openbitfun://...` URI returned by another tool
 - Omit path to search the current workspace. Do not search host roots or placeholder paths such as `/workspace`.
 - Output modes: "content" shows matching lines, "files_with_matches" shows only file paths (default), "count" shows match counts
 - Use Task tool for open-ended searches requiring multiple rounds
-- Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use `interface\{\}` to find `interface{}` in Go code)
+- Escape regex metacharacters when matching literal text (use `interface\{\}` to find `interface{}` in Go code).
 - Multiline matching: By default patterns match within single lines only. For cross-line patterns like `struct \{[\s\S]*?field`, use `multiline: true`"#.to_string())
     }
 
     fn short_description(&self) -> String {
-        "Search file contents with ripgrep-powered pattern matching.".to_string()
+        "Search workspace file contents with built-in structured pattern matching.".to_string()
     }
 
     fn input_schema(&self) -> Value {
@@ -534,31 +509,31 @@ Usage:
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "The regular expression pattern to search for in file contents"
+                    "description": "Rust regular expression to search for in file contents. Escape literal regex metacharacters. Look-around and backreferences are not supported."
                 },
                 "path": {
                     "type": "string",
-                    "description": "File or directory to search in. Omit to search the current workspace. If provided, use a workspace-relative path, an absolute path inside the current workspace, or an exact bitfun:// URI."
+                    "description": "File or directory to search in. Omit to search the current workspace. If provided, use a workspace-relative path, an absolute path inside the current workspace, or an exact openbitfun:// URI."
                 },
                 "glob": {
                     "type": "string",
-                    "description": "Glob pattern to filter files (e.g. \"*.js\", \"*.{ts,tsx}\") - maps to rg --glob"
+                    "description": "Glob pattern to filter files (e.g. \"*.js\", \"*.{ts,tsx}\")."
                 },
                 "output_mode": {
                     "type": "string",
                     "enum": ["content", "files_with_matches", "count"],
                     "description": "Output mode: \"content\" shows matching lines (supports -A/-B/-C context, -n line numbers, head_limit), \"files_with_matches\" shows file paths (supports head_limit), \"count\" shows match counts (supports head_limit). Defaults to \"files_with_matches\"."
                 },
-                "-B": { "type": "number", "description": "Number of lines to show before each match (rg -B). Requires output_mode: \"content\", ignored otherwise." },
-                "-A": { "type": "number", "description": "Number of lines to show after each match (rg -A). Requires output_mode: \"content\", ignored otherwise." },
-                "-C": { "type": "number", "description": "Number of lines to show before and after each match (rg -C). Requires output_mode: \"content\", ignored otherwise." },
+                "-B": { "type": "number", "description": "Number of lines to show before each match. Requires output_mode: \"content\", ignored otherwise." },
+                "-A": { "type": "number", "description": "Number of lines to show after each match. Requires output_mode: \"content\", ignored otherwise." },
+                "-C": { "type": "number", "description": "Number of lines to show before and after each match. Requires output_mode: \"content\", ignored otherwise." },
                 "context": { "type": "number", "description": "Alias for -C. Number of lines to show before and after each match." },
-                "-n": { "type": "boolean", "description": "Show line numbers in output (rg -n). Requires output_mode: \"content\", ignored otherwise." },
-                "-i": { "type": "boolean", "description": "Case insensitive search (rg -i)" },
-                "type": { "type": "string", "description": "File type to search (rg --type). Common types: js, py, rust, go, java, etc." },
+                "-n": { "type": "boolean", "description": "Show line numbers in output. Requires output_mode: \"content\", ignored otherwise." },
+                "-i": { "type": "boolean", "description": "Case insensitive search." },
+                "type": { "type": "string", "description": "File-type filter. Common types: js, py, rust, go, java, etc." },
                 "head_limit": { "type": "number", "description": "Limit output to first N lines/entries." },
                 "offset": { "type": "number", "description": "Skip the first N lines/entries before applying head_limit." },
-                "multiline": { "type": "boolean", "description": "Enable multiline mode where . matches newlines and patterns can span lines (rg -U --multiline-dotall). Default: false." }
+                "multiline": { "type": "boolean", "description": "Enable multiline mode where . matches newlines and patterns can span lines. Default: false." }
             },
             "required": ["pattern"],
             "additionalProperties": false,
@@ -615,10 +590,53 @@ Usage:
         &self,
         input: &Value,
         context: &ToolUseContext,
-    ) -> BitFunResult<Vec<ToolResult>> {
-        // Remote workspace: use shell-based grep/rg
+    ) -> OpenBitFunResult<Vec<ToolResult>> {
+        // Resolve and authorize the workspace path before selecting IO.
         let search_path = input.get("path").and_then(|v| v.as_str()).unwrap_or(".");
         let resolved = context.resolve_tool_path(search_path)?;
+        context.enforce_path_operation(ToolPathOperation::Read, &resolved)?;
+        #[cfg(feature = "tools-miniapp")]
+        if is_virtual_context_path(context, &resolved) {
+            let files = virtual_context_files_for_search(context, &resolved).ok_or_else(|| {
+                OpenBitFunError::tool(format!(
+                    "MiniApp context path is unavailable: {}",
+                    resolved.logical_path
+                ))
+            })?;
+            let options = self.build_grep_options(input, context)?;
+            let pattern = options.pattern.clone();
+            let path = resolved.logical_path.clone();
+            let output_mode = options.output_mode.to_string();
+            let result =
+                tokio::task::spawn_blocking(move || grep_search_virtual_files(options, &files))
+                    .await
+                    .map_err(|error| {
+                        OpenBitFunError::tool(format!("virtual grep task failed: {error}"))
+                    })?
+                    .map_err(OpenBitFunError::tool)?;
+            return Ok(vec![ToolResult::Result {
+                data: json!({
+                    "pattern": pattern,
+                    "path": path,
+                    "output_mode": output_mode,
+                    "file_count": result.file_count,
+                    "total_matches": result.total_matches,
+                    "applied_limit": result.applied_limit,
+                    "applied_offset": result.applied_offset,
+                    "result": result.result_text,
+                    "representation": "miniapp_context"
+                }),
+                result_for_assistant: Some(result.result_text),
+                image_attachments: None,
+            }]);
+        }
+        #[cfg(feature = "tools-miniapp")]
+        if requires_virtual_context_path(context) {
+            return Err(OpenBitFunError::tool(format!(
+                "MiniApp context path is unavailable: {}",
+                resolved.logical_path
+            )));
+        }
         crate::agentic::deep_review::scope::ensure_focused_review_resolved_path_allowed(
             context,
             &resolved.resolved_path,
@@ -650,12 +668,12 @@ Usage:
                     let search_service =
                         remote_workspace_search_service_for_path(&repo_root, preferred_connection_id)
                             .await
-                            .map_err(BitFunError::tool)?;
+                            .map_err(OpenBitFunError::tool)?;
                     let search_started_at = Instant::now();
                     let search_result = search_service
                         .search_content(request)
                         .await
-                        .map_err(BitFunError::tool)?;
+                        .map_err(OpenBitFunError::tool)?;
                     let display_base = Self::display_base(context);
                     let (result_text, file_count, total_matches) =
                         self.format_workspace_search_output(
@@ -687,7 +705,7 @@ Usage:
                         workspace_search_elapsed_ms,
                     );
 
-                    Ok::<Vec<ToolResult>, BitFunError>(vec![ToolResult::Result {
+                    Ok::<Vec<ToolResult>, OpenBitFunError>(vec![ToolResult::Result {
                         data: json!({
                             "pattern": pattern,
                             "path": path,
@@ -715,13 +733,13 @@ Usage:
                     Ok(results) => return Ok(results),
                     Err(error) => {
                         log::warn!(
-                            "Grep tool remote workspace-search failed; falling back to shell grep: {}",
+                            "Grep tool remote workspace-search failed; falling back to workspace IO: {}",
                             error
                         );
                     }
                 }
             }
-            return self.call_remote(input, context).await;
+            return self.call_workspace_io(input, context).await;
         }
 
         if focused_excluded_paths.is_none()
@@ -871,8 +889,8 @@ Usage:
             cancelled: _,
         } = match search_result {
             Ok(Ok(result)) => result,
-            Ok(Err(e)) => return Err(BitFunError::tool(e)),
-            Err(e) => return Err(BitFunError::tool(format!("grep search failed: {}", e))),
+            Ok(Err(e)) => return Err(OpenBitFunError::tool(e)),
+            Err(e) => return Err(OpenBitFunError::tool(format!("grep search failed: {}", e))),
         };
 
         Ok(vec![ToolResult::Result {
@@ -899,14 +917,196 @@ mod tests {
         render_workspace_search_result_lines, GrepTool, DEFAULT_HEAD_LIMIT,
         WORKSPACE_PROBE_PENDING_NOTE,
     };
+    #[cfg(feature = "tools-miniapp")]
+    use crate::agentic::tools::framework::ToolResult;
+    use crate::agentic::tools::framework::{Tool, ToolUseContext};
+    use crate::agentic::tools::{ToolPathPolicy, ToolRuntimeRestrictions};
+    use crate::agentic::WorkspaceBinding;
     use crate::infrastructure::{FileSearchOutcome, FileSearchResult, SearchMatchType};
+    #[cfg(feature = "tools-miniapp")]
+    use crate::miniapp::agent_context::{
+        publish_agent_context_snapshot, remove_agent_context_snapshot, MiniAppAgentContextInput,
+    };
     use crate::service::search::{
         ContentSearchResult, WorkspaceSearchBackend, WorkspaceSearchHit, WorkspaceSearchLine,
         WorkspaceSearchMatch, WorkspaceSearchMatchLocation, WorkspaceSearchRepoPhase,
         WorkspaceSearchRepoStatus,
     };
+    use openbitfun_runtime_ports::ToolRuntimeHandles;
     use serde_json::json;
+    use std::collections::HashMap;
     use tool_runtime::search::grep_search::relativize_result_text;
+
+    #[tokio::test]
+    async fn grep_tool_enforces_runtime_read_roots() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let scope = "0123456789abcdef0123456789abcdef";
+        let allowed_root = dir.path().join(".miniapp-context").join(scope);
+        std::fs::create_dir_all(&allowed_root).expect("create context root");
+        std::fs::write(allowed_root.join("stocks.ndjson"), "allowed market row")
+            .expect("write allowed file");
+        std::fs::write(dir.path().join("storage.json"), "blocked").expect("write blocked file");
+        let context = ToolUseContext {
+            tool_call_id: None,
+            agent_type: Some("Agent".to_string()),
+            session_id: None,
+            dialog_turn_id: Some("turn-1".to_string()),
+            workspace: Some(WorkspaceBinding::new(
+                Some("grep-context-workspace".to_string()),
+                dir.path().to_path_buf(),
+            )),
+            loaded_deferred_tool_specs: Vec::new(),
+            primary_model_facts: tool_runtime::context::PrimaryModelFacts::default(),
+            custom_data: HashMap::new(),
+            computer_use_host: None,
+            runtime_tool_restrictions: ToolRuntimeRestrictions {
+                path_policy: ToolPathPolicy {
+                    read_roots: vec![format!(".miniapp-context/{scope}")],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            runtime_handles: ToolRuntimeHandles::default(),
+        };
+
+        GrepTool::new()
+            .call_impl(
+                &json!({
+                    "pattern": "allowed market row",
+                    "path": format!(".miniapp-context/{scope}")
+                }),
+                &context,
+            )
+            .await
+            .expect("Grep should search the exact context snapshot root");
+        let error = GrepTool::new()
+            .call_impl(
+                &json!({ "pattern": "blocked", "path": "storage.json" }),
+                &context,
+            )
+            .await
+            .expect_err("Grep must not search app storage outside reserved context");
+        assert!(error.to_string().contains("is not allowed for read"));
+    }
+
+    #[cfg(feature = "tools-miniapp")]
+    #[tokio::test]
+    async fn grep_tool_searches_virtual_context_without_filesystem_fallback() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let snapshot = publish_agent_context_snapshot(
+            "grep-virtual-app",
+            "grep-virtual-session",
+            "grep-virtual-turn",
+            vec![MiniAppAgentContextInput {
+                name: "stocks.ndjson".to_string(),
+                content: format!(
+                    "{}host-owned market sentinel row",
+                    "summary-only row\n".repeat(2_000)
+                ),
+            }],
+        )
+        .unwrap()
+        .unwrap();
+        let physical_root = dir.path().join(&snapshot.relative_root);
+        std::fs::create_dir_all(&physical_root).unwrap();
+        std::fs::write(physical_root.join("stocks.ndjson"), "attacker market row").unwrap();
+        std::fs::create_dir_all(physical_root.join("nested")).unwrap();
+        std::fs::write(
+            physical_root.join("nested/stocks.ndjson"),
+            "nested attacker market row",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&physical_root, dir.path().join("context-alias")).unwrap();
+        let context = ToolUseContext {
+            tool_call_id: None,
+            agent_type: Some("Agent".to_string()),
+            session_id: Some("grep-virtual-session".to_string()),
+            dialog_turn_id: Some("grep-virtual-turn".to_string()),
+            workspace: Some(WorkspaceBinding::new(
+                Some("grep-virtual-workspace".to_string()),
+                dir.path().to_path_buf(),
+            )),
+            loaded_deferred_tool_specs: Vec::new(),
+            primary_model_facts: tool_runtime::context::PrimaryModelFacts::default(),
+            custom_data: HashMap::new(),
+            computer_use_host: None,
+            runtime_tool_restrictions: ToolRuntimeRestrictions {
+                path_policy: ToolPathPolicy {
+                    read_roots: vec![snapshot.relative_root.clone()],
+                    ..Default::default()
+                },
+                miniapp_context_scope: Some(snapshot.scope.clone()),
+                ..Default::default()
+            },
+            runtime_handles: ToolRuntimeHandles::default(),
+        };
+
+        let results = GrepTool::new()
+            .call_impl(
+                &json!({
+                    "pattern": "host-owned market sentinel",
+                    "path": snapshot.relative_root,
+                    "output_mode": "content"
+                }),
+                &context,
+            )
+            .await
+            .unwrap();
+        let ToolResult::Result {
+            result_for_assistant: Some(result),
+            ..
+        } = &results[0]
+        else {
+            panic!("Grep should return an assistant result");
+        };
+        assert!(result.contains("host-owned market sentinel row"));
+        assert!(!result.contains("attacker market row"));
+
+        let nested_error = GrepTool::new()
+            .call_impl(
+                &json!({
+                    "pattern": "attacker",
+                    "path": format!("{}/nested", snapshot.relative_root)
+                }),
+                &context,
+            )
+            .await
+            .expect_err("the entire virtual scope must reject nested physical paths");
+        assert!(nested_error
+            .to_string()
+            .contains("context path is unavailable"));
+
+        #[cfg(unix)]
+        {
+            let alias_error = GrepTool::new()
+                .call_impl(
+                    &json!({ "pattern": "attacker", "path": "context-alias" }),
+                    &context,
+                )
+                .await
+                .expect_err("a physical alias into the virtual root must fail closed");
+            assert!(alias_error
+                .to_string()
+                .contains("context path is unavailable"));
+        }
+
+        assert!(remove_agent_context_snapshot(
+            "grep-virtual-session",
+            "grep-virtual-turn"
+        ));
+        let error = GrepTool::new()
+            .call_impl(
+                &json!({
+                    "pattern": "attacker",
+                    "path": format!(".miniapp-context/{}", snapshot.scope)
+                }),
+                &context,
+            )
+            .await
+            .expect_err("expired virtual context must not fall back to the physical tree");
+        assert!(error.to_string().contains("context path is unavailable"));
+    }
 
     #[test]
     fn head_limit_defaults_and_zero_escape_hatch() {
@@ -1075,11 +1275,11 @@ mod tests {
             repo_status: WorkspaceSearchRepoStatus {
                 repo_id: "repo".to_string(),
                 repo_path: "/repo".to_string(),
-                storage_root: "/repo/.bitfun/search/flashgrep-index".to_string(),
-                base_snapshot_root: "/repo/.bitfun/search/flashgrep-index/base-snapshot"
+                storage_root: "/repo/.openbitfun/search/flashgrep-index".to_string(),
+                base_snapshot_root: "/repo/.openbitfun/search/flashgrep-index/base-snapshot"
                     .to_string(),
-                workspace_overlay_root: "/repo/.bitfun/search/flashgrep-index/workspace-overlay"
-                    .to_string(),
+                workspace_overlay_root:
+                    "/repo/.openbitfun/search/flashgrep-index/workspace-overlay".to_string(),
                 phase: WorkspaceSearchRepoPhase::Ready,
                 snapshot_key: None,
                 base_head_commit: None,
@@ -1155,11 +1355,11 @@ mod tests {
             repo_status: WorkspaceSearchRepoStatus {
                 repo_id: "repo".to_string(),
                 repo_path: "/repo".to_string(),
-                storage_root: "/repo/.bitfun/search/flashgrep-index".to_string(),
-                base_snapshot_root: "/repo/.bitfun/search/flashgrep-index/base-snapshot"
+                storage_root: "/repo/.openbitfun/search/flashgrep-index".to_string(),
+                base_snapshot_root: "/repo/.openbitfun/search/flashgrep-index/base-snapshot"
                     .to_string(),
-                workspace_overlay_root: "/repo/.bitfun/search/flashgrep-index/workspace-overlay"
-                    .to_string(),
+                workspace_overlay_root:
+                    "/repo/.openbitfun/search/flashgrep-index/workspace-overlay".to_string(),
                 phase: WorkspaceSearchRepoPhase::Ready,
                 snapshot_key: None,
                 base_head_commit: None,

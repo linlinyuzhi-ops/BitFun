@@ -1,0 +1,132 @@
+{
+  "title": "Memory",
+  "subtitle": "Control automatic memory generation, usage, and consolidation scope.",
+  "scopeNotice": "These settings, session candidates, and memory files belong to the host currently running OpenBitFun. Another device or peer host may have different memory data and settings.",
+  "sections": {
+    "basic": {
+      "title": "Basics",
+      "description": "Control whether new memories are generated and whether consolidated memories are used in sessions."
+    },
+    "models": {
+      "title": "Models",
+      "description": "Choose the models used to extract and consolidate memories."
+    },
+    "advanced": {
+      "title": "Advanced settings",
+      "description": "Tune memory extraction and consolidation limits. These settings are optional."
+    },
+    "extraction": {
+      "title": "Extraction",
+      "description": "Control which completed sessions are eligible for memory extraction."
+    },
+    "consolidation": {
+      "title": "Consolidation",
+      "description": "Control how extracted results are prepared before becoming long-term memory."
+    }
+  },
+  "fields": {
+    "memoryEnabled": {
+      "label": "Memory",
+      "description": "When enabled, memories are generated automatically and used in sessions."
+    },
+    "memoryActions": {
+      "label": "Memory actions",
+      "description": "Open the memory folder, restore default settings, or permanently clear memory data on the current execution host."
+    },
+    "generateMemories": {
+      "label": "Generate memories automatically",
+      "description": "Extract and consolidate reusable memory from completed local sessions in the background."
+    },
+    "useMemories": {
+      "label": "Use memories in sessions",
+      "description": "New sessions can read the consolidated memory summary as context."
+    },
+    "generateForBtwSessions": {
+      "label": "Generate memories from BTW sessions",
+      "description": "Allow BTW sessions to contribute to global memory."
+    },
+    "externalContextPolicy": {
+      "label": "External context handling",
+      "description": "Choose how memory extraction handles sessions that used web search, web page reading, or similar tools."
+    },
+    "minRolloutIdleHours": {
+      "label": "Minimum idle time",
+      "description": "How long a completed session must sit idle before extraction."
+    },
+    "maxRolloutAgeDays": {
+      "label": "Maximum session age",
+      "description": "Sessions older than this many days are no longer considered for extraction. This cannot exceed candidate retention."
+    },
+    "maxRolloutsPerStartup": {
+      "label": "Extraction limit per run",
+      "description": "Maximum number of sessions claimed for memory extraction each time the memory task starts."
+    },
+    "maxRolloutsScanLimit": {
+      "label": "Scan limit per run",
+      "description": "Maximum number of completed sessions checked while looking for extraction candidates."
+    },
+    "phase1MaxConcurrency": {
+      "label": "Extraction concurrency",
+      "description": "Maximum number of eligible sessions extracted at the same time."
+    },
+    "extractModel": {
+      "label": "Extraction model",
+      "description": "Model used to distill candidate memories from session transcripts."
+    },
+    "maxRawMemories": {
+      "label": "Consolidation candidate limit",
+      "description": "Maximum extracted results used in each long-term memory consolidation pass."
+    },
+    "maxUnusedDays": {
+      "label": "Candidate retention",
+      "description": "Unused extracted results older than this many days are no longer consolidated. This must be at least the maximum session age."
+    },
+    "consolidationModel": {
+      "label": "Consolidation model",
+      "description": "Model used to merge candidates and update long-term memory files."
+    }
+  },
+  "models": {
+    "primary": "Primary model",
+    "fast": "Fast model",
+    "followPrimary": "Follow primary model",
+    "followExtraction": "Follow extraction model",
+    "unavailable": "{{id}} (disabled or missing)"
+  },
+  "externalContextPolicy": {
+    "clearToolResults": "Clear external tool results",
+    "allow": "Allow external tool results",
+    "skipSession": "Skip the session"
+  },
+  "actions": {
+    "manage": "Manage",
+    "expandAdvanced": "Expand advanced settings",
+    "collapseAdvanced": "Collapse advanced settings",
+    "resetSettings": "Reset Memory Settings",
+    "resetSettingsConfirmTitle": "Reset memory settings?",
+    "resetSettingsConfirm": "This restores the memory switches, models, and advanced parameters on the current execution host to their defaults. Existing memory data is not deleted.",
+    "resetSettingsConfirmAction": "Restore defaults",
+    "openDirectory": "Open Memory Folder",
+    "resetMemory": "Permanently clear memory",
+    "resetMemoryConfirm": "This permanently deletes all memory data and memory workspace files on the current execution host. This cannot be undone.",
+    "resetMemoryConfirmAction": "Permanently clear"
+  },
+  "units": {
+    "hours": "h",
+    "days": "d"
+  },
+  "messages": {
+    "loading": "Loading memory settings…",
+    "loadFailed": "Failed to load memory settings",
+    "loadFailedLocked": "Memory settings could not be read. This page is locked to avoid overwriting the configuration on the current execution host.",
+    "retry": "Reload",
+    "saved": "Memory settings saved",
+    "saveFailed": "Failed to save memory settings",
+    "rolloutAgeExceedsRetention": "Maximum session age cannot exceed candidate retention",
+    "settingsReset": "Memory settings reset",
+    "settingsResetFailed": "Failed to reset memory settings",
+    "openDirectoryFailed": "Failed to open memory folder",
+    "memoryReset": "Memory permanently cleared",
+    "memoryResetFailed": "Failed to permanently clear memory"
+  }
+}

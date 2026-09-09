@@ -1,21 +1,23 @@
 [package]
-name = "bitfun-services-core"
+name = "openbitfun-services-core"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "BitFun core service owner crate"
+description = "OpenBitFun core service owner crate"
 autotests = false
 
 [lib]
-name = "bitfun_services_core"
+name = "openbitfun_services_core"
 crate-type = ["rlib"]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
+aes-gcm = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
-bitfun-core-types = { path = "../../contracts/core-types", optional = true }
-bitfun-events = { path = "../../contracts/events", optional = true }
-bitfun-runtime-ports = { path = "../../contracts/runtime-ports", optional = true }
+openbitfun-core-types = { path = "../../contracts/core-types", optional = true }
+openbitfun-events = { path = "../../contracts/events", optional = true }
+openbitfun-runtime-ports = { path = "../../contracts/runtime-ports", optional = true }
+openbitfun-product-domains = { path = "../../contracts/product-domains", optional = true }
 tokio = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -25,11 +27,11 @@ chrono = { workspace = true, optional = true }
 chrono-tz = { workspace = true, optional = true }
 git2 = { workspace = true, optional = true }
 dunce = { workspace = true, optional = true }
-zip = { workspace = true, optional = true }
 thiserror = { workspace = true }
 log = { workspace = true }
 fs2 = { workspace = true, optional = true }
-notify = { workspace = true, optional = true }
+filetime = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
 ignore = { workspace = true, optional = true }
 globset = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
@@ -37,6 +39,7 @@ which = { workspace = true, optional = true }
 similar = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
 rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+rustls = { workspace = true, features = ["ring", "std", "tls12"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 win32job = { workspace = true, optional = true }
@@ -47,12 +50,29 @@ libc = { workspace = true, optional = true }
 
 [features]
 default = []
+workspace-persistence = ["workspace-identity", "dep:openbitfun-core-types", "dep:openbitfun-runtime-ports", "dep:chrono"]
+coordination-store = ["dep:rusqlite"]
+session-event-format = ["dep:openbitfun-events"]
+tls-provider = ["dep:rustls"]
+credential-vault = [
+    "dep:aes-gcm",
+    "dep:anyhow",
+    "dep:base64",
+    "dep:fs2",
+    "dep:libc",
+    "dep:rand",
+    "dep:tokio",
+    "tokio/fs",
+    "tokio/io-util",
+    "tokio/rt",
+]
 diagnostics = ["dep:regex"]
 diff = ["dep:similar", "dep:tokio", "tokio/rt", "tokio/time"]
 filesystem = [
     "dep:base64",
     "dep:chrono",
     "dep:ignore",
+    "dep:openbitfun-core-types",
     "dep:regex",
     "dep:sha2",
     "dep:tokio",
@@ -71,8 +91,8 @@ json-io = [
     "windows/Win32_Storage_FileSystem",
 ]
 local-storage = [
-    "dep:bitfun-core-types",
-    "dep:bitfun-events",
+    "dep:openbitfun-core-types",
+    "dep:openbitfun-events",
     "dep:chrono",
     "dep:fs2",
     "dep:libc",
@@ -101,6 +121,7 @@ process-runtime = [
     "tokio/time",
     "windows/Win32_Foundation",
     "windows/Win32_System_Diagnostics_ToolHelp",
+    "windows/Win32_System_JobObjects",
     "windows/Win32_System_Threading",
 ]
 workspace-instructions = [
@@ -112,24 +133,15 @@ workspace-instructions = [
     "tokio/io-util",
     "tokio/rt",
 ]
-lsp = [
-    "dep:anyhow",
-    "dep:bitfun-core-types",
-    "dep:notify",
-    "dep:zip",
-    "process-runtime",
-    "tokio/fs",
-    "tokio/io-util",
-    "tokio/sync",
-]
 markdown = ["dep:regex", "dep:serde_yaml"]
 workspace-runtime = [
     "dep:anyhow",
     "dep:async-trait",
-    "dep:bitfun-runtime-ports",
-    "bitfun-runtime-ports/runtime-event-port",
-    "bitfun-runtime-ports/workspace-ports",
+    "dep:openbitfun-runtime-ports",
+    "openbitfun-runtime-ports/runtime-event-port",
+    "openbitfun-runtime-ports/workspace-ports",
     "dep:dunce",
+    "dep:filetime",
     "process-runtime",
     "tokio/fs",
     "tokio/io-util",
@@ -139,10 +151,16 @@ workspace-identity = ["dep:dunce", "dep:sha2"]
 runtime-ownership = ["dep:dunce", "dep:fs2", "dep:sha2"]
 permission = [
     "dep:async-trait",
-    "dep:bitfun-runtime-ports",
+    "dep:openbitfun-runtime-ports",
     "dep:rusqlite",
     "dep:tokio",
-    "bitfun-runtime-ports/permission",
+    "openbitfun-runtime-ports/permission",
+    "tokio/rt",
+]
+session-search = [
+    "dep:openbitfun-product-domains",
+    "dep:rusqlite",
+    "dep:tokio",
     "tokio/rt",
 ]
 dispatch-workspace = ["dep:anyhow", "dep:sha2"]
@@ -163,11 +181,6 @@ required-features = ["markdown"]
 name = "declarative_workspace_instruction_contracts"
 path = "tests/declarative_workspace_instruction_contracts.rs"
 required-features = ["workspace-instructions"]
-
-[[test]]
-name = "lsp_plugin_registry_contracts"
-path = "tests/lsp_plugin_registry_contracts.rs"
-required-features = ["lsp"]
 
 [[test]]
 name = "runtime_ownership_contracts"

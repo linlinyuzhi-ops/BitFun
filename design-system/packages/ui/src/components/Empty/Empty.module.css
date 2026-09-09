@@ -1,0 +1,66 @@
+@layer openbitfun.components {
+  .root {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--openbitfun-space-3);
+    min-inline-size: 0;
+    padding: var(--openbitfun-space-8) var(--openbitfun-space-5);
+    color: var(--openbitfun-color-content-secondary);
+    text-align: center;
+  }
+
+  .media {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: var(--openbitfun-control-height-lg);
+    block-size: var(--openbitfun-control-height-lg);
+    color: var(--openbitfun-color-content-muted);
+  }
+
+  .media[data-size="sm"] {
+    inline-size: var(--openbitfun-control-height-md);
+    block-size: var(--openbitfun-control-height-md);
+  }
+
+  .media[data-size="lg"] {
+    inline-size: calc(var(--openbitfun-control-height-lg) + var(--openbitfun-space-4));
+    block-size: calc(var(--openbitfun-control-height-lg) + var(--openbitfun-space-4));
+  }
+
+  .media > :where(svg, img),
+  .media > [data-openbitfun-component="icon"] {
+    display: block;
+    max-inline-size: 100%;
+    max-block-size: 100%;
+  }
+
+  .title {
+    color: var(--openbitfun-color-content-primary);
+    font-family: var(--openbitfun-type-heading-card-font-family);
+    font-size: var(--openbitfun-type-heading-card-font-size);
+    font-weight: var(--openbitfun-type-heading-card-font-weight);
+    line-height: var(--openbitfun-type-heading-card-line-height);
+    letter-spacing: var(--openbitfun-type-heading-card-letter-spacing);
+  }
+
+  .description {
+    max-inline-size: 42ch;
+    color: var(--openbitfun-color-content-muted);
+    font-family: var(--openbitfun-type-body-sm-font-family);
+    font-size: var(--openbitfun-type-body-sm-font-size);
+    font-weight: var(--openbitfun-type-body-sm-font-weight);
+    line-height: var(--openbitfun-type-body-sm-line-height);
+    letter-spacing: var(--openbitfun-type-body-sm-letter-spacing);
+  }
+
+  .actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--openbitfun-space-2);
+    margin-block-start: var(--openbitfun-space-1);
+  }
+}

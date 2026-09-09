@@ -34,7 +34,7 @@ fn doctor_reports_the_validated_cli_runtime_assembly() {
         "{stdout}"
     );
     assert!(
-        stdout.contains("[info] Execution owner: bitfun-core compatibility"),
+        stdout.contains("[info] Execution owner: openbitfun-core compatibility"),
         "{stdout}"
     );
     assert!(
@@ -83,7 +83,7 @@ fn health_reports_assembly_and_compatibility_boundaries() {
         "{stdout}"
     );
     assert!(
-        stdout.contains("Execution owner: bitfun-core compatibility"),
+        stdout.contains("Execution owner: openbitfun-core compatibility"),
         "{stdout}"
     );
     assert!(
@@ -109,28 +109,28 @@ fn doctor_rejects_incomplete_e2e_storage_roots() {
         command
             .arg("doctor")
             .current_dir(&workspace)
-            .env_remove("BITFUN_USER_ROOT")
-            .env_remove("BITFUN_E2E_USER_ROOT")
-            .env_remove("BITFUN_HOME")
-            .env_remove("BITFUN_E2E_HOME")
-            .env("BITFUN_E2E_STORAGE_GUARD", "1")
+            .env_remove("OPENBITFUN_USER_ROOT")
+            .env_remove("OPENBITFUN_E2E_USER_ROOT")
+            .env_remove("OPENBITFUN_HOME")
+            .env_remove("OPENBITFUN_E2E_HOME")
+            .env("OPENBITFUN_E2E_STORAGE_GUARD", "1")
             .env("APPDATA", &config_root)
             .env("XDG_CONFIG_HOME", &config_root)
             .env("HOME", &home_root);
         if provide_user_root {
-            command.env("BITFUN_E2E_USER_ROOT", &user_root);
+            command.env("OPENBITFUN_E2E_USER_ROOT", &user_root);
         }
         if provide_home_root {
-            command.env("BITFUN_E2E_HOME", &home_root);
+            command.env("OPENBITFUN_E2E_HOME", &home_root);
         }
 
-        let output = command.output().expect("run bitfun doctor");
+        let output = command.output().expect("run openbitfun doctor");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(!output.status.success(), "{case_name}: {stderr}");
         assert!(
-            stderr.contains("BITFUN_E2E_STORAGE_GUARD requires isolated")
-                && stderr.contains("BITFUN_E2E_USER_ROOT")
-                && stderr.contains("BITFUN_E2E_HOME"),
+            stderr.contains("OPENBITFUN_E2E_STORAGE_GUARD requires isolated")
+                && stderr.contains("OPENBITFUN_E2E_USER_ROOT")
+                && stderr.contains("OPENBITFUN_E2E_HOME"),
             "{case_name}: {stderr}"
         );
         assert!(
@@ -404,7 +404,7 @@ fn interactive_tui_operations_use_runtime_and_domain_services() {
     const CLI_CARGO: &str = include_str!("../../Cargo.toml");
 
     assert!(
-        !STARTUP_PAGE.contains("bitfun_agent_runtime::sdk::AgentRuntime"),
+        !STARTUP_PAGE.contains("openbitfun_agent_runtime::sdk::AgentRuntime"),
         "the startup controller must use the existing CLI runtime client instead of AgentRuntime"
     );
     assert!(
@@ -429,7 +429,8 @@ fn interactive_tui_operations_use_runtime_and_domain_services() {
         "interactive chat and startup must use Runtime plus existing owners without service wrappers"
     );
     assert!(
-        !CLI_CARGO.contains("bitfun-sdk-host") && CLI_CARGO.contains("bitfun-agent-runtime-ipc"),
+        !CLI_CARGO.contains("openbitfun-sdk-host")
+            && CLI_CARGO.contains("openbitfun-agent-runtime-ipc"),
         "Shared TUI must use the private Runtime IPC adapter without making CLI depend on SDK Host"
     );
     assert!(
@@ -455,7 +456,7 @@ fn interactive_tui_operations_use_runtime_and_domain_services() {
         CHAT_EXTERNAL_SOURCES.contains("apply_external_source_control_action")
             && CHAT_EXTERNAL_SOURCES.contains("set_external_tool_target_decision")
             && CHAT_RUN.contains("subscribe_external_source_updates")
-            && CHAT_COMMANDS.contains("bitfun_core::external_sources")
+            && CHAT_COMMANDS.contains("openbitfun_core::external_sources")
             && !CHAT_COMMANDS.contains("external_source_service"),
         "TUI external-source controllers must call the existing owner API directly"
     );

@@ -4,7 +4,6 @@ import { AppearancePalette } from './AppearancePalette';
 import {
   createAccentScale,
   createCompactRadius,
-  createExpressiveTypography,
   createGitColors,
   createSemanticColors,
   createSecondaryAccentScale,
@@ -24,21 +23,19 @@ const CYBER_ACCENT = '#00e6ff';
 const CYBER_ACCENT_HOVER = '#00ccff';
 const CYBER_PURPLE = '#8a2be2';
 const CYBER_PURPLE_HOVER = '#7928ca';
-const CYBER_SUCCESS = '#00ff9f';
-const CYBER_WARNING = '#ffcc00';
-const CYBER_ERROR = '#ff0055';
 const CYBER_SURFACE_SECONDARY = '#1c1c1f';
+const CYBER_SURFACE_RAISED = '#2b2d30';
 
 const cyberAccent = (alpha: number | string) => rgbaFromHex(CYBER_ACCENT, alpha);
 
-export const bitfunCyberPalette: AppearancePalette = {
+export const openBitFunCyberPalette: AppearancePalette = {
 
-  id: 'bitfun-cyber',
+  id: 'openbitfun-cyber',
   name: 'Cyber',
   type: 'dark',
   description: 'Tech-style appearance - Deep black hole, neon future, ultimate tech aesthetics',
-  author: 'BitFun Team',
-  version: '1.0.0',
+  author: 'OpenBitFun Team',
+  version: '1.1.0',
 
 
   colors: {
@@ -46,7 +43,7 @@ export const bitfunCyberPalette: AppearancePalette = {
       primary: CYBER_BACKGROUND,
       secondary: CYBER_SURFACE_SECONDARY,
       tertiary: CYBER_SURFACE_SECONDARY,
-      elevated: CYBER_BACKGROUND,
+      elevated: CYBER_SURFACE_RAISED,
       workbench: CYBER_BACKGROUND,
       scene: CYBER_SURFACE_SECONDARY,
     },
@@ -70,14 +67,7 @@ export const bitfunCyberPalette: AppearancePalette = {
       alpha: { 100: 0.1, 200: 0.18 },
     }),
 
-    semantic: createSemanticColors({
-      success: CYBER_SUCCESS,
-      warning: CYBER_WARNING,
-      error: CYBER_ERROR,
-      info: CYBER_ACCENT,
-      bgAlpha: 0.12,
-      borderAlpha: 0.35,
-    }),
+    semantic: createSemanticColors('dark'),
 
     border: {
       subtle: cyberAccent(0.14),
@@ -95,12 +85,9 @@ export const bitfunCyberPalette: AppearancePalette = {
       strong: cyberAccent(0.22),
     },
 
-    git: createGitColors({
+    git: createGitColors('dark', {
       branch: rgbFromHex(CYBER_ACCENT),
       branchBg: cyberAccent(0.12),
-      changes: rgbFromHex(CYBER_WARNING),
-      added: rgbFromHex(CYBER_SUCCESS),
-      deleted: rgbFromHex(CYBER_ERROR),
     }),
   },
 
@@ -142,8 +129,6 @@ export const bitfunCyberPalette: AppearancePalette = {
     easing: createStandardEasing(),
   },
 
-
-  typography: createExpressiveTypography(),
 
 
   components: {

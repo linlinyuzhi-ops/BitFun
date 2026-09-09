@@ -20,7 +20,11 @@ import type { EditorGroupId, PanelContent, CreateTabEventDetail } from '../types
 import { TAB_EVENTS } from '../types';
 import { useI18n } from '@/infrastructure/i18n';
 import { drainPendingTabs } from '@/shared/services/pendingTabQueue';
-import { confirmDialog } from '@/component-library/components/ConfirmDialog/confirmService';
+import { confirmDialog } from '@/infrastructure/confirm-dialog';
+import { createLogger } from '@/shared/utils/logger';
+import { destroyTerminalSession } from '@/shared/services/destroyTerminalSession';
+
+const log = createLogger('useTabLifecycle');
 interface UseTabLifecycleOptions {
   /** App mode / target canvas */
   mode?: 'agent' | 'project' | 'git' | 'bottom-terminal';
@@ -82,6 +86,24 @@ export const useTabLifecycle = (options: UseTabLifecycleOptions = {}): UseTabLif
     layout,
     setSplitMode,
   } = useCanvasStore();
+
+  const closeTerminalSession = useCallback(async (tab: { content: PanelContent }): Promise<boolean> => {
+    if (tab.content.type !== 'terminal') return true;
+    // Workspace terminals outlive their views. Older/specialized tabs retain
+    // their explicit process-lifecycle contract.
+    if (tab.content.metadata?.terminalCloseBehavior === 'detach') return true;
+
+    const sessionId = tab.content.data?.sessionId;
+    if (!sessionId) return true;
+
+    try {
+      await destroyTerminalSession(sessionId);
+      return true;
+    } catch (error) {
+      log.error('Failed to close terminal session from tab', { sessionId, error });
+      return false;
+    }
+  }, []);
 
   /**
    * Open in preview mode (replaces current preview tab).
@@ -173,9 +195,13 @@ export const useTabLifecycle = (options: UseTabLifecycleOptions = {}): UseTabLif
       }
     }
 
-    closeTab(tabId, groupId);
+    if (!await closeTerminalSession(tab)) {
+      return false;
+    }
+
+    closeTab(tabId, groupId, { forceRemove: tab.content.type === 'terminal' });
     return true;
-  }, [canvasStoreApi, closeTab, t]);
+  }, [canvasStoreApi, closeTab, closeTerminalSession, t]);
 
   /**
    * Dirty check before closing all tabs.
@@ -195,6 +221,11 @@ export const useTabLifecycle = (options: UseTabLifecycleOptions = {}): UseTabLif
     const dirtyTabs = closableTabs.filter(t => t.isDirty);
 
     if (closableTabs.length === 0 || dirtyTabs.length === 0) {
+      for (const tab of closableTabs) {
+        if (!await closeTerminalSession(tab)) {
+          return false;
+        }
+      }
       closeAllTabs(groupId);
       return true;
     }
@@ -212,12 +243,18 @@ export const useTabLifecycle = (options: UseTabLifecycleOptions = {}): UseTabLif
       return false;
     }
 
+    for (const tab of closableTabs) {
+      if (!await closeTerminalSession(tab)) {
+        return false;
+      }
+    }
+
     closeAllTabs(groupId);
     return true;
-  }, [canvasStoreApi, closeAllTabs, t]);
+  }, [canvasStoreApi, closeAllTabs, closeTerminalSession, t]);
 
   /**
-   * Listen for left-panel terminal close events to sync right-panel tabs.
+   * Remove tabs when their terminal session is destroyed by any surface.
    */
   useEffect(() => {
     const store = mode === 'project' ? useProjectCanvasStore
@@ -238,7 +275,7 @@ export const useTabLifecycle = (options: UseTabLifecycleOptions = {}): UseTabLif
   }, [mode]);
 
   /**
-   * Listen for left-panel terminal rename events to sync right-panel tabs.
+   * Keep terminal tab titles synchronized with session renames.
    */
   useEffect(() => {
     const store = mode === 'project' ? useProjectCanvasStore

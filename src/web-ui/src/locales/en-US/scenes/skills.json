@@ -28,7 +28,9 @@
   },
   "installed": {
     "titleAll": "Installed Skills",
+    "titleListAll": "All Skills",
     "subtitleAll": "Manage all installed user-level and project-level skills",
+    "titleBuiltin": "Built-in Skills",
     "titleUser": "User Skills",
     "subtitleUser": "Globally installed user-level skills",
     "titleProject": "Project Skills",
@@ -37,7 +39,7 @@
   "toolbar": {
     "searchPlaceholder": "Search skills...",
     "addTooltip": "Add Skill",
-    "hideDuplicates": "Duplicates"
+    "hideDuplicates": "Hide duplicates"
   },
   "filters": {
     "all": "All",
@@ -114,6 +116,9 @@
       "meta": "Meta",
       "miniapp": "MiniApp",
       "canvas": "Canvas",
+      "debugging": "Debugging",
+      "coordination": "Coordination",
+      "planning": "Planning",
       "gstack": "gstack",
       "other": "Other"
     },
@@ -125,14 +130,12 @@
     "manageGroups": "Manage Skill groups",
     "modes": {
       "agentic": "agentic",
-      "cowork": "Cowork",
-      "team": "Team"
+      "cowork": "Cowork"
     },
     "modeDescriptions": {
       "agentic": "Coding-first default profile",
       "cowork": "Office workflow profile",
-      "claw": "Assistant mode",
-      "team": "Team mode"
+      "claw": "Assistant mode"
     },
     "modeActions": {
       "reset": "Reset {{mode}}",
@@ -204,6 +207,12 @@
     "retry": "Retry",
     "desktopUnavailable": "Manage skills in Desktop.",
     "remoteUnavailable": "Skill management is unavailable during a remote connection.",
+    "columns": {
+      "source": "Source",
+      "level": "Level",
+      "status": "Status",
+      "actions": "Actions"
+    },
     "empty": {
       "noMatch": "No matching skills found",
       "noSkills": "No skills configured yet"

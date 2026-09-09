@@ -1,5 +1,5 @@
 use super::unified::{UnifiedResponse, UnifiedTokenUsage, UnifiedToolCall};
-use bitfun_agent_stream::ToolCallCompletion;
+use openbitfun_agent_stream::ToolCallCompletion;
 use serde::Deserialize;
 
 pub(crate) fn map_openai_finish_reason(reason: &str) -> ToolCallCompletion {
@@ -215,6 +215,7 @@ impl OpenAISSEData {
             responses.push(UnifiedResponse {
                 text: content,
                 reasoning_content,
+                reasoning_content_kind: None,
                 thinking_signature: None,
                 tool_call: None,
                 usage: usage.take(),
@@ -231,6 +232,7 @@ impl OpenAISSEData {
                 responses.push(UnifiedResponse {
                     text: None,
                     reasoning_content: None,
+                    reasoning_content_kind: None,
                     thinking_signature: None,
                     tool_call: Some(UnifiedToolCall::from(tool_call)),
                     usage: if is_first_event { usage.take() } else { None },
@@ -252,6 +254,7 @@ impl OpenAISSEData {
             responses.push(UnifiedResponse {
                 text: None,
                 reasoning_content: None,
+                reasoning_content_kind: None,
                 thinking_signature: None,
                 tool_call: None,
                 usage,
@@ -267,6 +270,7 @@ impl OpenAISSEData {
             responses.push(UnifiedResponse {
                 text: None,
                 reasoning_content: None,
+                reasoning_content_kind: None,
                 thinking_signature: None,
                 tool_call: None,
                 usage,
@@ -293,7 +297,7 @@ impl From<OpenAISSEData> for UnifiedResponse {
 #[cfg(test)]
 mod tests {
     use super::{map_openai_finish_reason, OpenAISSEData};
-    use bitfun_agent_stream::ToolCallCompletion;
+    use openbitfun_agent_stream::ToolCallCompletion;
 
     #[test]
     fn maps_documented_openai_chat_finish_reasons_conservatively() {

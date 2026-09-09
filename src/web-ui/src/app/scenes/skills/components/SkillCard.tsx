@@ -1,6 +1,6 @@
 import React from 'react';
-import { Package, Puzzle } from 'lucide-react';
-import { getCardGradient } from '@/shared/utils/cardGradients';
+import { Button, Icon, OverflowText } from '@openbitfun/ui';
+import { Package } from 'lucide-react';
 import './SkillCard.scss';
 
 type SkillCardActionTone = 'primary' | 'danger' | 'success' | 'muted';
@@ -9,6 +9,8 @@ export interface SkillCardAction {
   id: string;
   icon: React.ReactNode;
   ariaLabel: string;
+  label?: string;
+  loading?: boolean;
   title?: string;
   disabled?: boolean;
   tone?: SkillCardActionTone;
@@ -31,7 +33,7 @@ const SkillCard: React.FC<SkillCardProps> = ({
   name,
   description,
   index = 0,
-  accentSeed,
+  accentSeed: _accentSeed,
   iconKind = 'skill',
   badges,
   meta,
@@ -41,85 +43,82 @@ const SkillCard: React.FC<SkillCardProps> = ({
   style,
   ...rootProps
 }) => {
-  const Icon = iconKind === 'market' ? Package : Puzzle;
-  const openDetails = () => onOpenDetails?.();
+  const glyph = iconKind === 'market'
+    ? <Icon glyph={Package} size="lg" />
+    : <Icon name="extension" size="lg" />;
 
   return (
-    <div data-bf-component="skill-card" data-bf-part="root"
+    <div data-openbitfun-component="skill-card" data-openbitfun-part="root"
       {...rootProps}
       className={['skill-card', className].filter(Boolean).join(' ')}
       style={{
         ...style,
         '--surface-stagger-index': index,
-        '--skill-card-gradient': getCardGradient(accentSeed ?? name),
       } as React.CSSProperties}
-      data-bf-variant={iconKind}
-      onClick={openDetails}
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          openDetails();
-        }
-      }}
-      aria-label={name}
+      data-openbitfun-variant={iconKind}
+      data-overflow-trigger
     >
-      {/* Header: icon + badges */}
-      <div className="skill-card__header" data-bf-component="skill-card" data-bf-part="header">
-        <div className="skill-card__icon-area" data-bf-component="skill-card" data-bf-part="iconArea">
-          <div className="skill-card__icon" data-bf-component="skill-card" data-bf-part="icon">
-            <Icon size={20} strokeWidth={1.6} />
+      {onOpenDetails && (
+        <button
+          type="button"
+          className="skill-card__open"
+          aria-label={name}
+          onClick={onOpenDetails}
+        />
+      )}
+      <div className="skill-card__header" data-openbitfun-component="skill-card" data-openbitfun-part="header">
+        <div className="skill-card__icon-area" data-openbitfun-component="skill-card" data-openbitfun-part="iconArea">
+          <div className="skill-card__icon" data-openbitfun-component="skill-card" data-openbitfun-part="icon">
+            {glyph}
           </div>
         </div>
-        {badges && <div className="skill-card__badges" data-bf-component="skill-card" data-bf-part="badges">{badges}</div>}
+        {badges && <div className="skill-card__badges" data-openbitfun-component="skill-card" data-openbitfun-part="badges">{badges}</div>}
       </div>
 
-      {/* Body: name + trend (meta) on one row, then description */}
-      <div className="skill-card__body" data-bf-component="skill-card" data-bf-part="body">
-        <div className="skill-card__title-row" data-bf-component="skill-card" data-bf-part="titleRow">
-          <span className="skill-card__name" data-bf-component="skill-card" data-bf-part="name">{name}</span>
-          {meta ? (
-            <div
-              className="skill-card__meta"
-              data-bf-component="skill-card"
-              data-bf-part="meta"
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
-            >
-              {meta}
-            </div>
-          ) : null}
+      <div className="skill-card__body" data-openbitfun-component="skill-card" data-openbitfun-part="body">
+        <div className="skill-card__title-row" data-openbitfun-component="skill-card" data-openbitfun-part="titleRow">
+          <span className="skill-card__name" data-openbitfun-component="skill-card" data-openbitfun-part="name">
+            <OverflowText behavior="marquee">{name}</OverflowText>
+          </span>
         </div>
         {description?.trim() && (
-          <p className="skill-card__desc" data-bf-component="skill-card" data-bf-part="description">{description.trim()}</p>
+          <p className="skill-card__desc" data-openbitfun-component="skill-card" data-openbitfun-part="description">{description.trim()}</p>
         )}
       </div>
 
-      {/* Footer: action buttons */}
-      {actions.length > 0 && (
-      <div className="skill-card__footer" data-bf-component="skill-card" data-bf-part="footer">
-        <div className="skill-card__actions" data-bf-component="skill-card" data-bf-part="actions" onClick={(e) => e.stopPropagation()}>
+      {(meta || actions.length > 0) && (
+        <div className="skill-card__footer" data-openbitfun-component="skill-card" data-openbitfun-part="footer">
+          {meta && (
+            <div className="skill-card__meta" data-openbitfun-component="skill-card" data-openbitfun-part="meta">
+              {meta}
+            </div>
+          )}
+          <div className="skill-card__actions" data-openbitfun-component="skill-card" data-openbitfun-part="actions">
             {actions.map((action) => (
-              <button
+              <span
                 key={action.id}
-                type="button"
-                className={[
-                  'skill-card__action-btn',
-                  action.tone && `skill-card__action-btn--${action.tone}`,
-                ].filter(Boolean).join(' ')}
-                onClick={action.onClick}
-                disabled={action.disabled}
-                aria-label={action.ariaLabel}
-                title={action.title ?? action.ariaLabel}
-                data-testid="skills-card-action"
-                data-skill-action={action.id}
-                data-bf-component="skill-card"
-                data-bf-part="action"
-                data-bf-tone={action.tone}
-                data-bf-state={action.disabled ? 'disabled' : undefined}
+                className="skill-card__action"
+                data-openbitfun-component="skill-card"
+                data-openbitfun-part="action"
+                data-openbitfun-tone={action.tone}
+                data-openbitfun-state={action.disabled || action.loading ? 'disabled' : undefined}
               >
-                {action.icon}
-              </button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  tone={action.tone === 'danger' ? 'danger' : 'neutral'}
+                  leadingIcon={action.icon}
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  loading={action.loading}
+                  aria-label={action.ariaLabel}
+                  title={action.title ?? action.ariaLabel}
+                  data-testid="skills-card-action"
+                  data-skill-action={action.id}
+                >
+                  {action.label ?? action.ariaLabel}
+                </Button>
+              </span>
             ))}
           </div>
         </div>

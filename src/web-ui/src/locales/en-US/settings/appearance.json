@@ -1,17 +1,9 @@
 {
   "title": "Appearance",
-  "subtitle": "Interface language, appearance packages, and global font size",
-  "effects": {
-    "title": "Visual effects",
-    "hint": "Control visual feedback across the interface.",
-    "mouseGlow": {
-      "label": "Pointer-follow glow",
-      "description": "Show a soft spotlight that follows the pointer along card edges. It pauses automatically when reduced motion is enabled."
-    }
-  },
+  "subtitle": "Interface language, appearance, and global font size",
   "package": {
-    "title": "Appearance packages",
-    "description": "Import declarative BitFun appearance packages stored on this device.",
+    "title": "Appearance",
+    "description": "Choose a built-in theme or an installed appearance package. Hover over a thumbnail to preview; assets stay on this device.",
     "import": "Import package",
     "importSuccess": "Imported {{name}}",
     "importFailed": "Could not import the appearance package. Review the issue details.",
@@ -23,13 +15,14 @@
     "deleteMessage": "Delete {{name}} from this device?",
     "deleteSuccess": "Deleted {{name}}",
     "deleteFailed": "Could not delete appearance package: {{error}}",
-    "nativeName": "BitFun default",
-    "nativeDescription": "Use the selected built-in appearance.",
+    "nativeName": "OpenBitFun default",
+    "nativeDescription": "Choose a built-in theme",
+    "builtinTheme": "Built-in theme",
     "unknownAuthor": "Unknown author",
     "empty": "No imported appearance packages yet.",
     "missingSelection": "The selected appearance {{id}} is not installed on this device. Install it from Skin Market to restore your shared selection.",
     "market": {
-      "open": "Browse Skin Market",
+      "open": "Browse market",
       "title": "Skin Market",
       "search": "Search appearance packages",
       "modeFilter": "Filter by appearance mode",
@@ -44,7 +37,7 @@
         "downloads": "Most downloaded"
       },
       "back": "Back to Skin Market",
-      "minimumVersion": "Minimum BitFun version",
+      "minimumVersion": "Minimum OpenBitFun version",
       "license": "License",
       "customLicense": "Custom license",
       "capabilities": "Required capabilities",
@@ -55,8 +48,8 @@
       "yanked": "This release was withdrawn and can no longer be installed.",
       "yankedBadge": "Withdrawn",
       "installedReleaseYanked": "Your installed release was withdrawn. Update to a reviewed release when one is available.",
-      "incompatibleVersion": "This package requires BitFun {{version}} or newer.",
-      "unsupportedCapabilities": "This package requires Appearance capabilities that this BitFun version does not support.",
+      "incompatibleVersion": "This package requires OpenBitFun {{version}} or newer.",
+      "unsupportedCapabilities": "This package requires Appearance capabilities that this OpenBitFun version does not support.",
       "listingConflict": "A package with this id is already linked to a different Skin Market listing.",
       "localOverride": "This package was modified locally. Updating it will replace those local changes.",
       "replaceTitle": "Replace local appearance package?",
@@ -87,7 +80,7 @@
       },
       "submissions": {
         "title": "My submissions",
-        "hint": "Upload an appearance package directly or track submissions created by BitFun Agent.",
+        "hint": "Upload an appearance package directly or track submissions created by OpenBitFun Agent.",
         "refresh": "Refresh",
         "loading": "Loading your submissions…",
         "empty": "You have not submitted an appearance package yet.",
@@ -100,9 +93,9 @@
         "manual": {
           "open": "Upload package",
           "title": "Manual submission",
-          "hint": "Choose a local .bitfun-appearance archive. BitFun validates it before upload; the Skin server validates it again before review.",
+          "hint": "Choose a local .openbitfun-appearance archive. OpenBitFun validates it before upload; the Skin server validates it again before review.",
           "package": "Appearance package",
-          "packagePlaceholder": "Choose a .bitfun-appearance file",
+          "packagePlaceholder": "Choose a .openbitfun-appearance file",
           "choose": "Choose file",
           "chooseTitle": "Choose an Appearance package to submit",
           "slug": "Market slug (optional)",
@@ -112,7 +105,7 @@
           "custom": "Custom license URL",
           "spdxExpression": "SPDX expression",
           "customLicenseUrl": "Custom license URL",
-          "minVersion": "Minimum BitFun version",
+          "minVersion": "Minimum OpenBitFun version",
           "repository": "Source repository (optional)",
           "changelog": "Release notes (optional)",
           "changelogHint": "A default is added automatically when left empty.",

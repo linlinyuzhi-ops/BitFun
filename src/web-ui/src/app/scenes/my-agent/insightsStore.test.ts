@@ -88,7 +88,7 @@ function report(generatedAt: number): InsightsReport {
     friction_intro: '',
     friction_categories: [],
     suggestions: {
-      bitfun_md_additions: [],
+      openbitfun_md_additions: [],
       features_to_try: [],
       usage_patterns: [],
     },
@@ -113,7 +113,7 @@ describe('insightsStore generation lifecycle', () => {
       activeGenerationRunId: null,
       progress: { stage: '', message: '', current: 0, total: 0, isRetrying: false },
       selectedDays: 30,
-      selectedModel: 'auto',
+      selectedModel: 'primary',
       error: '',
       loadingMetas: false,
     });

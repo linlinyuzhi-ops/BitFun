@@ -1,7 +1,8 @@
 import React, { useCallback, memo } from 'react';
-import { Download, Copy, X, AlertCircle } from 'lucide-react';
-import { IconButton } from '@/component-library';
-import { Markdown as MarkdownRenderer } from '@/component-library/components/Markdown/Markdown';
+import { OverflowText, Icon, IconButton, Tooltip } from '@openbitfun/ui';
+import { AlertCircle } from 'lucide-react';
+
+import { MarkdownRenderer } from '@/infrastructure/markdown';
 import { useI18n } from '@/infrastructure/i18n';
 import { createLogger } from '@/shared/utils/logger';
 import { globalEventBus } from '@/infrastructure/event-bus';
@@ -64,6 +65,12 @@ const ImageViewer = React.lazy(() =>
   }))
 );
 
+const PdfViewer = React.lazy(() =>
+  import('@/tools/editor/components/PdfViewer').then(module => ({
+    default: module.default,
+  }))
+);
+
 const DiffEditor = React.lazy(() =>
   import('@/tools/editor/components/DiffEditor').then(module => ({
     default: module.default,
@@ -103,13 +110,16 @@ const TerminalTabPanel = React.lazy(() =>
 const BrowserPanel = React.lazy(() =>
   import('@/app/scenes/browser/BrowserPanel')
 );
+const HtmlPreviewPanel = React.lazy(() =>
+  import('@/app/scenes/browser/HtmlPreviewPanel')
+);
 
 const GenerativeWidgetPanel = React.lazy(() =>
   import('@/tools/generative-widget/GenerativeWidgetPanel')
 );
 
-const BitfunCanvasPanel = React.lazy(() =>
-  import('@/tools/bitfun-canvas/BitfunCanvasPanel')
+const OpenBitFunCanvasPanel = React.lazy(() =>
+  import('@/tools/openbitfun-canvas/OpenBitFunCanvasPanel')
 );
 
 const TaskDetailPanel = React.lazy(() => 
@@ -253,7 +263,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
   }, [content]);
 
   const renderEditorLoading = () => (
-    <div className="bitfun-flexible-panel__loading" data-bf-component="flexible-panel" data-bf-part="loading" data-bf-state="loading">
+    <div className="openbitfun-flexible-panel__loading" data-openbitfun-component="flexible-panel" data-openbitfun-part="loading" data-openbitfun-state="loading">
       {t('select.loading')}
     </div>
   );
@@ -267,8 +277,8 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
   const renderContent = () => {
     if (!content || content.type === 'empty') {
       return (
-        <div className="bitfun-flexible-panel__empty-content" data-bf-component="flexible-panel" data-bf-part="empty">
-          <div className="bitfun-flexible-panel__empty-icon">
+        <div className="openbitfun-flexible-panel__empty-content" data-openbitfun-component="flexible-panel" data-openbitfun-part="empty">
+          <div className="openbitfun-flexible-panel__empty-icon">
             {getContentIcon('empty')}
           </div>
           <h3>{t('flexiblePanel.empty.title')}</h3>
@@ -284,10 +294,10 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
         
         return (
           <div
-            className={`bitfun-flexible-panel__code-content ${hasFixNeeded ? 'needs-fix' : ''}`}
-            data-bf-component="flexible-panel"
-            data-bf-part="code"
-            data-bf-state={hasFixNeeded ? 'needsFix' : undefined}
+            className={`openbitfun-flexible-panel__code-content ${hasFixNeeded ? 'needs-fix' : ''}`}
+            data-openbitfun-component="flexible-panel"
+            data-openbitfun-part="code"
+            data-openbitfun-state={hasFixNeeded ? 'needsFix' : undefined}
           >
             <pre><code>{typeof content.data === 'string' ? content.data : t('flexiblePanel.fallback.noCodeContent')}</code></pre>
           </div>
@@ -296,7 +306,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
 
       case 'markdown-viewer':
         return (
-          <div className="bitfun-flexible-panel__markdown-content" data-bf-component="flexible-panel" data-bf-part="markdown">
+          <div className="openbitfun-flexible-panel__markdown-content" data-openbitfun-component="flexible-panel" data-openbitfun-part="markdown">
             <MarkdownRenderer content={typeof content.data === 'string' ? content.data : ''} />
           </div>
         );
@@ -311,7 +321,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
         const markdownJumpToColumn = markdownEditorData.jumpToColumn;
 
         return (
-          <div className="bitfun-flexible-panel__markdown-editor" data-bf-component="flexible-panel" data-bf-part="markdownEditor">
+          <div className="openbitfun-flexible-panel__markdown-editor" data-openbitfun-component="flexible-panel" data-openbitfun-part="markdownEditor">
             {markdownFilePath || markdownInitialContent !== undefined ? (
               renderLazyEditor(
                 <MarkdownEditor
@@ -337,7 +347,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
                 />
               )
             ) : (
-              <div className="bitfun-flexible-panel__error-message" data-bf-component="flexible-panel" data-bf-part="error">
+              <div className="openbitfun-flexible-panel__error-message" data-openbitfun-component="flexible-panel" data-openbitfun-part="error">
                 <AlertCircle size={20} />
                 <p>{t('flexiblePanel.errors.markdownEditorMissingPath')}</p>
               </div>
@@ -349,7 +359,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
 
       case 'text-viewer':
         return (
-          <div className="bitfun-flexible-panel__text-content" data-bf-component="flexible-panel" data-bf-part="text">
+          <div className="openbitfun-flexible-panel__text-content" data-openbitfun-component="flexible-panel" data-openbitfun-part="text">
             <pre>{typeof content.data === 'string' ? content.data : 'No text content available'}</pre>
           </div>
         );
@@ -357,10 +367,10 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
       case 'file-viewer': {
         const fileViewerData = content.data || {};
         const fileNeedsFix = fileViewerData.migrationContext?.hasUpgradePoints || fileViewerData.needsFix || false;
-        const fileViewerClass = `bitfun-flexible-panel__panel-code-viewer ${fileNeedsFix ? 'needs-fix' : ''}`;
+        const fileViewerClass = `openbitfun-flexible-panel__panel-code-viewer ${fileNeedsFix ? 'needs-fix' : ''}`;
         
         return (
-          <div className="bitfun-flexible-panel__code-viewer-container" data-bf-component="flexible-panel" data-bf-part="viewer">
+          <div className="openbitfun-flexible-panel__code-viewer-container" data-openbitfun-component="flexible-panel" data-openbitfun-part="viewer">
             {renderLazyEditor(
               <CodeEditor
                 filePath={fileViewerData.filePath || ''}
@@ -381,13 +391,29 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
         const imageViewerData = content.data || {};
         
         return (
-          <div className="bitfun-flexible-panel__image-viewer-container" data-bf-component="flexible-panel" data-bf-part="image">
+          <div className="openbitfun-flexible-panel__image-viewer-container" data-openbitfun-component="flexible-panel" data-openbitfun-part="image">
             {renderLazyEditor(
               <ImageViewer
                 filePath={imageViewerData.filePath || ''}
                 fileName={content.title}
                 workspacePath={workspacePath}
-                className="bitfun-flexible-panel__image-viewer"
+                className="openbitfun-flexible-panel__image-viewer"
+              />
+            )}
+          </div>
+        );
+      }
+
+      case 'pdf-viewer': {
+        const pdfViewerData = content.data || {};
+
+        return (
+          <div className="openbitfun-flexible-panel__pdf-viewer-container" data-openbitfun-component="flexible-panel" data-openbitfun-part="pdf">
+            {renderLazyEditor(
+              <PdfViewer
+                filePath={pdfViewerData.filePath || ''}
+                fileName={content.title}
+                className="openbitfun-flexible-panel__pdf-viewer"
               />
             )}
           </div>
@@ -400,12 +426,12 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
         const needsFix = migrationContext.hasUpgradePoints || codeData.needsFix || false;
         
         return (
-          <div className="bitfun-flexible-panel__code-viewer-container" data-bf-component="flexible-panel" data-bf-part="viewer">
+          <div className="openbitfun-flexible-panel__code-viewer-container" data-openbitfun-component="flexible-panel" data-openbitfun-part="viewer">
             <div
-              className={`bitfun-flexible-panel__code-content ${needsFix ? 'needs-fix' : ''}`}
-              data-bf-component="flexible-panel"
-              data-bf-part="code"
-              data-bf-state={needsFix ? 'needsFix' : undefined}
+              className={`openbitfun-flexible-panel__code-content ${needsFix ? 'needs-fix' : ''}`}
+              data-openbitfun-component="flexible-panel"
+              data-openbitfun-part="code"
+              data-openbitfun-state={needsFix ? 'needsFix' : undefined}
             >
               {renderLazyEditor(
                 <CodeEditor
@@ -500,6 +526,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
             workspacePath={editorWorkspacePath}
             fileName={fileName}
             language={editorLanguage}
+            initialContent={typeof editorData.initialContent === 'string' ? editorData.initialContent : undefined}
             readOnly={editorData.readOnly || false}
             autoSave={editorData.autoSave === true}
             autoSaveDelayMs={typeof editorData.autoSaveDelayMs === 'number' ? editorData.autoSaveDelayMs : undefined}
@@ -595,11 +622,9 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
             originalContent={originalCode}
             modifiedContent={modifiedCode}
             filePath={diffFilePath}
-            workspacePath={workspacePath || diffMigrationContext?.workspacePath}
             revealLine={diffData.revealLine}
             readOnly={false}
             renderSideBySide={true}
-            enableLsp={true}
             onSave={async (content) => {
               try {
                 const targetWorkspacePath = workspacePath || diffMigrationContext?.workspacePath;
@@ -661,15 +686,15 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
 
       case 'ai-session':
         return (
-          <div className="ai-session-content" data-bf-component="flexible-panel" data-bf-part="aiSession">
-            <div className="session-header" data-bf-component="flexible-panel" data-bf-part="sessionHeader">
+          <div className="ai-session-content" data-openbitfun-component="flexible-panel" data-openbitfun-part="aiSession">
+            <div className="session-header" data-openbitfun-component="flexible-panel" data-openbitfun-part="sessionHeader">
               <h3>{t('flexiblePanel.aiSession.title', { sessionId: content.data?.sessionId?.slice(0, 8) || t('flexiblePanel.aiSession.unknown') })}</h3>
               <div className="session-info">
                 <span className="agent-type">{content.data?.agent_info?.agent_type || t('flexiblePanel.aiSession.unknown')}</span>
                 <span className="model-name">({content.data?.agent_info?.model_name || t('flexiblePanel.aiSession.unknown')})</span>
               </div>
             </div>
-            <div className="session-details" data-bf-component="flexible-panel" data-bf-part="sessionDetails">
+            <div className="session-details" data-openbitfun-component="flexible-panel" data-openbitfun-part="sessionDetails">
               <div className="detail-item">
                 <span className="label">{t('flexiblePanel.aiSession.sessionStatus')}</span>
                 <span className={`status status-${content.data?.status?.toLowerCase() || 'unknown'}`}>
@@ -693,10 +718,10 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
               </div>
             </div>
             {content.data?.operations && content.data.operations.length > 0 && (
-              <div className="operations-list" data-bf-component="flexible-panel" data-bf-part="operations">
+              <div className="operations-list" data-openbitfun-component="flexible-panel" data-openbitfun-part="operations">
                 <h4>{t('flexiblePanel.aiSession.fileOperations')}</h4>
                 {content.data.operations.map((operation: any, index: number) => (
-                  <div key={operation.operation_id || index} className="operation-item" data-bf-component="flexible-panel" data-bf-part="operation">
+                  <div key={operation.operation_id || index} className="operation-item" data-openbitfun-component="flexible-panel" data-openbitfun-part="operation">
                     <div className="operation-header">
                       <span className={`operation-type type-${operation.operation_type?.toLowerCase() || 'unknown'}`}>
                         {operation.operation_type || t('flexiblePanel.aiSession.unknown')}
@@ -728,7 +753,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
       case 'task-detail': {
         const taskDetailData = content.data || {};
         return (
-          <React.Suspense fallback={<div className="bitfun-flexible-panel__loading" data-bf-component="flexible-panel" data-bf-part="loading" data-bf-state="loading">{t('flexiblePanel.loading.taskDetail')}</div>}>
+          <React.Suspense fallback={<div className="openbitfun-flexible-panel__loading" data-openbitfun-component="flexible-panel" data-openbitfun-part="loading" data-openbitfun-state="loading">{t('flexiblePanel.loading.taskDetail')}</div>}>
             <TaskDetailPanel data={taskDetailData} />
           </React.Suspense>
         );
@@ -744,7 +769,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
         
         if (!planFilePath) {
           return (
-            <div className="bitfun-flexible-panel__error-message" data-bf-component="flexible-panel" data-bf-part="error">
+            <div className="openbitfun-flexible-panel__error-message" data-openbitfun-component="flexible-panel" data-openbitfun-part="error">
               <AlertCircle size={20} />
               <p>{t('flexiblePanel.errors.planViewerMissingPath')}</p>
             </div>
@@ -752,7 +777,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
         }
         
         return (
-          <React.Suspense fallback={<div className="bitfun-flexible-panel__loading" data-bf-component="flexible-panel" data-bf-part="loading" data-bf-state="loading">{t('flexiblePanel.loading.planViewer')}</div>}>
+          <React.Suspense fallback={<div className="openbitfun-flexible-panel__loading" data-openbitfun-component="flexible-panel" data-openbitfun-part="loading" data-openbitfun-state="loading">{t('flexiblePanel.loading.planViewer')}</div>}>
             <PlanViewer
               filePath={planFilePath}
               fileName={planFileName}
@@ -771,7 +796,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
         
         if (!sessionId) {
           return (
-            <div className="bitfun-flexible-panel__error-message" data-bf-component="flexible-panel" data-bf-part="error">
+            <div className="openbitfun-flexible-panel__error-message" data-openbitfun-component="flexible-panel" data-openbitfun-part="error">
               <AlertCircle size={20} />
               <p>{t('flexiblePanel.errors.terminalMissingSessionId')}</p>
             </div>
@@ -779,8 +804,8 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
         }
         
         return (
-          <React.Suspense fallback={<div className="bitfun-flexible-panel__loading" data-bf-component="flexible-panel" data-bf-part="loading" data-bf-state="loading">{t('flexiblePanel.loading.terminal')}</div>}>
-            <div className="bitfun-flexible-panel__terminal-container" data-bf-component="flexible-panel" data-bf-part="terminal">
+          <React.Suspense fallback={<div className="openbitfun-flexible-panel__loading" data-openbitfun-component="flexible-panel" data-openbitfun-part="loading" data-openbitfun-state="loading">{t('flexiblePanel.loading.terminal')}</div>}>
+            <div className="openbitfun-flexible-panel__terminal-container" data-openbitfun-component="flexible-panel" data-openbitfun-part="terminal">
               <TerminalTabPanel
                 key={sessionId}
                 sessionId={sessionId}
@@ -794,7 +819,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
 
       case 'btw-session':
         return (
-          <React.Suspense fallback={<div className="bitfun-flexible-panel__loading" data-bf-component="flexible-panel" data-bf-part="loading" data-bf-state="loading">{t('flexiblePanel.loading.taskDetail')}</div>}>
+          <React.Suspense fallback={<div className="openbitfun-flexible-panel__loading" data-openbitfun-component="flexible-panel" data-openbitfun-part="loading" data-openbitfun-state="loading">{t('flexiblePanel.loading.taskDetail')}</div>}>
             <BtwSessionPanel
               childSessionId={content.data?.childSessionId}
               parentSessionId={content.data?.parentSessionId}
@@ -807,7 +832,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
 
       case 'session-usage':
         return (
-          <React.Suspense fallback={<div className="bitfun-flexible-panel__loading" data-bf-component="flexible-panel" data-bf-part="loading" data-bf-state="loading">{t('flexiblePanel.loading.taskDetail')}</div>}>
+          <React.Suspense fallback={<div className="openbitfun-flexible-panel__loading" data-openbitfun-component="flexible-panel" data-openbitfun-part="loading" data-openbitfun-state="loading">{t('flexiblePanel.loading.taskDetail')}</div>}>
             <SessionUsagePanel
               report={content.data?.report}
               markdown={content.data?.markdown}
@@ -820,21 +845,21 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
 
       case 'background-command-output':
         return (
-          <React.Suspense fallback={<div className="bitfun-flexible-panel__loading" data-bf-component="flexible-panel" data-bf-part="loading" data-bf-state="loading">{t('flexiblePanel.loading.terminal')}</div>}>
+          <React.Suspense fallback={<div className="openbitfun-flexible-panel__loading" data-openbitfun-component="flexible-panel" data-openbitfun-part="loading" data-openbitfun-state="loading">{t('flexiblePanel.loading.terminal')}</div>}>
             <BackgroundCommandOutputPanel data={content.data} />
           </React.Suspense>
         );
 
       case 'review-platform':
         return (
-          <React.Suspense fallback={<div className="bitfun-flexible-panel__loading" data-bf-component="flexible-panel" data-bf-part="loading" data-bf-state="loading">Loading pull requests...</div>}>
+          <React.Suspense fallback={<div className="openbitfun-flexible-panel__loading" data-openbitfun-component="flexible-panel" data-openbitfun-part="loading" data-openbitfun-state="loading">Loading pull requests...</div>}>
             <ReviewPlatformPanel workspacePath={content.data?.workspacePath || workspacePath} />
           </React.Suspense>
         );
 
       case 'review-platform-pr-detail':
         return (
-          <React.Suspense fallback={<div className="bitfun-flexible-panel__loading" data-bf-component="flexible-panel" data-bf-part="loading" data-bf-state="loading">Loading pull request...</div>}>
+          <React.Suspense fallback={<div className="openbitfun-flexible-panel__loading" data-openbitfun-component="flexible-panel" data-openbitfun-part="loading" data-openbitfun-state="loading">Loading pull request...</div>}>
             <ReviewPlatformPanel
               workspacePath={content.data?.workspacePath || workspacePath}
               initialRemoteId={content.data?.remoteId}
@@ -847,17 +872,31 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
 
       case 'browser':
         return (
-          <React.Suspense fallback={<div className="bitfun-flexible-panel__loading" data-bf-component="flexible-panel" data-bf-part="loading" data-bf-state="loading">{t('flexiblePanel.loading.terminal')}</div>}>
+          <React.Suspense fallback={<div className="openbitfun-flexible-panel__loading" data-openbitfun-component="flexible-panel" data-openbitfun-part="loading" data-openbitfun-state="loading">{t('flexiblePanel.loading.terminal')}</div>}>
             <BrowserPanel
+              key={content.data?.openRequestId ?? 'browser-panel'}
               isActive={isActive}
               initialUrl={content.data?.url}
+              openRequestId={content.data?.openRequestId}
+            />
+          </React.Suspense>
+        );
+
+      case 'html-preview':
+        return (
+          <React.Suspense fallback={renderEditorLoading()}>
+            <HtmlPreviewPanel
+              isActive={isActive}
+              filePath={content.data?.filePath || ''}
+              workspacePath={content.data?.workspacePath || workspacePath || ''}
+              remoteConnectionId={content.data?.remoteConnectionId}
             />
           </React.Suspense>
         );
 
       case 'generative-widget':
         return (
-          <React.Suspense fallback={<div className="bitfun-flexible-panel__loading" data-bf-component="flexible-panel" data-bf-part="loading" data-bf-state="loading">Loading widget preview...</div>}>
+          <React.Suspense fallback={<div className="openbitfun-flexible-panel__loading" data-openbitfun-component="flexible-panel" data-openbitfun-part="loading" data-openbitfun-state="loading">Loading widget preview...</div>}>
             <GenerativeWidgetPanel
               title={content.title}
               widgetId={content.data?.widgetId}
@@ -936,10 +975,10 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
           </React.Suspense>
         );
 
-      case 'bitfun-canvas':
+      case 'openbitfun-canvas':
         return (
-          <React.Suspense fallback={<div className="bitfun-flexible-panel__loading" data-bf-component="flexible-panel" data-bf-part="loading" data-bf-state="loading">Loading Canvas preview...</div>}>
-            <BitfunCanvasPanel
+          <React.Suspense fallback={<div className="openbitfun-flexible-panel__loading" data-openbitfun-component="flexible-panel" data-openbitfun-part="loading" data-openbitfun-state="loading">Loading Canvas preview...</div>}>
+            <OpenBitFunCanvasPanel
               title={content.title}
               artifactReference={content.data?.artifactReference}
               html={content.data?.html}
@@ -955,13 +994,13 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
 
       default:
         return (
-          <div className="bitfun-flexible-panel__unknown-content" data-bf-component="flexible-panel" data-bf-part="unknown">
-            <div className="bitfun-flexible-panel__unknown-icon">
+          <div className="openbitfun-flexible-panel__unknown-content" data-openbitfun-component="flexible-panel" data-openbitfun-part="unknown">
+            <div className="openbitfun-flexible-panel__unknown-icon">
               <AlertCircle size={48} />
             </div>
             <h3>{t('flexiblePanel.unknownContent.title')}</h3>
             <p>{t('flexiblePanel.unknownContent.description')}</p>
-            <div className="bitfun-flexible-panel__unknown-meta">
+            <div className="openbitfun-flexible-panel__unknown-meta">
               <code>{t('flexiblePanel.unknownContent.contentType', { type: content.type })}</code>
             </div>
           </div>
@@ -972,57 +1011,60 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
   const showHeader = content && shouldShowHeader(content.type);
 
   return (
-    <div className={`bitfun-flexible-panel ${className}`} data-bf-component="flexible-panel" data-bf-part="root">
+    <div className={`openbitfun-flexible-panel ${className}`} data-openbitfun-component="flexible-panel" data-openbitfun-part="root">
       {showHeader && (
-        <div className="bitfun-flexible-panel__header" data-bf-component="flexible-panel" data-bf-part="header">
-          <div className="bitfun-flexible-panel__header-left" data-bf-component="flexible-panel" data-bf-part="headerMain">
-            <div className="bitfun-flexible-panel__content-icon">
+        <div className="openbitfun-flexible-panel__header" data-openbitfun-component="flexible-panel" data-openbitfun-part="header">
+          <div className="openbitfun-flexible-panel__header-left" data-openbitfun-component="flexible-panel" data-openbitfun-part="headerMain">
+            <div className="openbitfun-flexible-panel__content-icon">
               {getContentIcon(content.type)}
             </div>
-            <div className="bitfun-flexible-panel__content-info">
-              <span className="bitfun-flexible-panel__content-title">
+            <div className="openbitfun-flexible-panel__content-info">
+              <OverflowText className="openbitfun-flexible-panel__content-title">
                 {content.title || getContentTypeName(content.type)}
-              </span>
-              <span className="bitfun-flexible-panel__content-type">
+              </OverflowText>
+              <OverflowText className="openbitfun-flexible-panel__content-type">
                 {getContentTypeName(content.type)}
-              </span>
+              </OverflowText>
             </div>
           </div>
 
-          <div className="bitfun-flexible-panel__header-right" data-bf-component="flexible-panel" data-bf-part="headerActions">
+          <div className="openbitfun-flexible-panel__header-right" data-openbitfun-component="flexible-panel" data-openbitfun-part="headerActions">
             {content && content.type !== 'empty' && (
               <>
-                <IconButton
-                  size="xs"
-                  onClick={handleCopy}
-                  tooltip={t('flexiblePanel.actions.copyContent')}
-                >
-                  <Copy size={14} />
-                </IconButton>
+                <Tooltip content={t('flexiblePanel.actions.copyContent')}>
+                  <IconButton
+                    size="sm"
+                    aria-label={t('flexiblePanel.actions.copyContent')}
+                    icon={<Icon name="duplicate" size="lg" />}
+                    onClick={handleCopy}
+                  />
+                </Tooltip>
 
-                <IconButton
-                  size="xs"
-                  onClick={handleDownload}
-                  tooltip={t('flexiblePanel.actions.downloadContent')}
-                >
-                  <Download size={14} />
-                </IconButton>
+                <Tooltip content={t('flexiblePanel.actions.downloadContent')}>
+                  <IconButton
+                    size="sm"
+                    aria-label={t('flexiblePanel.actions.downloadContent')}
+                    icon={<Icon name="arrow-down" size="lg" />}
+                    onClick={handleDownload}
+                  />
+                </Tooltip>
               </>
             )}
-            
-            <IconButton
-              size="xs"
-              variant="danger"
-              onClick={handleClose}
-              tooltip={t('flexiblePanel.actions.close')}
-            >
-              <X size={14} />
-            </IconButton>
+
+            <Tooltip content={t('flexiblePanel.actions.close')}>
+              <IconButton
+                size="sm"
+                tone="danger"
+                aria-label={t('flexiblePanel.actions.close')}
+                icon={<Icon name="xmark" size="lg" />}
+                onClick={handleClose}
+              />
+            </Tooltip>
           </div>
         </div>
       )}
 
-      <div className="bitfun-flexible-panel__content" data-bf-component="flexible-panel" data-bf-part="content">
+      <div className="openbitfun-flexible-panel__content" data-openbitfun-component="flexible-panel" data-openbitfun-part="content">
         {renderContent()}
       </div>
     </div>

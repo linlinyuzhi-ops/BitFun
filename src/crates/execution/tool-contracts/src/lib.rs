@@ -12,7 +12,6 @@ pub mod deferred_tool;
 pub mod element_token;
 pub mod execution_gate;
 pub mod file_guidance;
-pub mod file_read_freshness;
 pub mod framework;
 pub mod input_validator;
 #[cfg(feature = "mcp-bridge")]
@@ -32,10 +31,6 @@ pub use acp_tool_bridge::{
     AcpExternalAgentToolDefinition, AcpExternalAgentToolDefinitionInput, ACP_TOOL_PREFIX,
     ACP_TOOL_SUFFIX,
 };
-pub use bitfun_core_types::ToolImageAttachment;
-pub use bitfun_runtime_ports::{
-    DynamicToolDescriptor, DynamicToolProvider, PortError, PortErrorKind, PortResult, ToolDecorator,
-};
 pub use deferred_tool::{
     call_deferred_tool_description, call_deferred_tool_input_schema,
     call_deferred_tool_short_description, effective_tool_invocation,
@@ -49,22 +44,18 @@ pub use execution_gate::{
 pub use file_guidance::{
     file_tool_guidance_message, is_file_tool_guidance_message, FILE_TOOL_GUIDANCE_PREFIX,
 };
-pub use file_read_freshness::{
-    file_read_facts_are_fresh, file_read_facts_content_matches, normalize_tool_file_content,
-    FileReadFreshnessFacts,
-};
 pub use framework::{
-    build_bitfun_current_session_uri, build_bitfun_runtime_uri,
     build_get_tool_spec_assistant_detail, build_get_tool_spec_catalog_description,
     build_get_tool_spec_catalog_description_from_provider, build_get_tool_spec_description,
     build_get_tool_spec_detail_result, build_get_tool_spec_duplicate_load_hint,
-    build_get_tool_spec_duplicate_load_result, build_prompt_visible_tool_manifest_definitions,
+    build_get_tool_spec_duplicate_load_result, build_openbitfun_current_session_uri,
+    build_openbitfun_runtime_uri, build_prompt_visible_tool_manifest_definitions,
     build_tool_manifest_policy_tools, build_tool_path_policy_denial_message,
     build_tool_runtime_artifact_reference, build_tool_session_runtime_artifact_reference,
     collect_loaded_deferred_tool_specs, get_tool_spec_input_schema,
     get_tool_spec_is_concurrency_safe, get_tool_spec_is_readonly, get_tool_spec_short_description,
-    is_bitfun_current_session_uri, is_bitfun_runtime_uri, is_bitfun_tool_uri,
     is_miniapp_headless_agent_run, is_miniapp_market_strict_agent_run,
+    is_openbitfun_current_session_uri, is_openbitfun_runtime_uri, is_openbitfun_tool_uri,
     is_remote_posix_path_within_root, is_tool_path_allowed_by_resolved_roots,
     materialize_static_tool_provider_groups, miniapp_agent_run_tool_restrictions,
     miniapp_headless_agent_tool_restrictions, miniapp_market_strict_agent_tool_restrictions,
@@ -107,6 +98,10 @@ pub use mcp_tool_bridge::{
     render_mcp_tool_bridge_use_message, validate_mcp_tool_bridge_input, McpToolBridgeBehaviorHints,
     McpToolBridgeDefinition, McpToolBridgeDefinitionInput, McpToolBridgeToolInfo,
     MCP_TOOL_DELIMITER, MCP_TOOL_PREFIX,
+};
+pub use openbitfun_core_types::ToolImageAttachment;
+pub use openbitfun_runtime_ports::{
+    DynamicToolDescriptor, DynamicToolProvider, PortError, PortErrorKind, PortResult, ToolDecorator,
 };
 pub use permission_intent::PermissionIntent;
 pub use tool_execution_presentation::{

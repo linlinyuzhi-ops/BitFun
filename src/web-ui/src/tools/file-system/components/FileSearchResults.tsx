@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, startTransition, memo, useEffect, useRef } from 'react';
-import { File, FileText, Folder, ChevronRight, ChevronDown } from 'lucide-react';
+import { OverflowText, Icon, ScrollArea } from '@openbitfun/ui';
+import { FileText } from 'lucide-react';
 import type {
   FileSearchResult,
   FileSearchResultGroup,
@@ -136,7 +137,7 @@ const HighlightedText = memo<HighlightedTextProps>(({ text, query }) => {
       parts.push(<span key={keyIndex++}>{text.substring(lastIndex, matchIndex)}</span>);
     }
     parts.push(
-      <mark key={keyIndex++} className="bitfun-search-results__highlight">
+      <mark key={keyIndex++} className="openbitfun-search-results__highlight">
         {text.substring(matchIndex, matchIndex + query.length)}
       </mark>
     );
@@ -172,26 +173,26 @@ const MatchItem = memo<MatchItemProps>(({ match, target, searchQuery, onLineClic
   return (
     <button
       type="button"
-      className="bitfun-search-results__match"
+      className="openbitfun-search-results__match"
       onClick={() => onLineClick(target, match.lineNumber)}
-      data-bf-component="file-system"
-      data-bf-part="match"
+      data-openbitfun-component="file-system"
+      data-openbitfun-part="match"
     >
       <span 
-        className="bitfun-search-results__match-content"
+        className="openbitfun-search-results__match-content"
         title={match.matchedContent || ''}
       >
         <code>
           {preview.before && (
-            <span className="bitfun-search-results__match-before">{preview.before}</span>
+            <span className="openbitfun-search-results__match-before">{preview.before}</span>
           )}
           {preview.inside ? (
-            <mark className="bitfun-search-results__highlight bitfun-search-results__match-highlight">
+            <mark className="openbitfun-search-results__highlight openbitfun-search-results__match-highlight">
               {preview.inside}
             </mark>
           ) : null}
           {preview.after && (
-            <span className="bitfun-search-results__match-after">{preview.after}</span>
+            <span className="openbitfun-search-results__match-after">{preview.after}</span>
           )}
         </code>
       </span>
@@ -229,39 +230,39 @@ const FileGroup = memo<FileGroupProps>(({
   }), [group.isDirectory, group.name, group.path]);
 
   return (
-    <div className="bitfun-search-results__group">
-      <div className="bitfun-search-results__file">
-        <button
+    <div className="openbitfun-search-results__group">
+      <div className="openbitfun-search-results__file">
+        <button data-overflow-trigger
           type="button"
-          className="bitfun-search-results__file-main"
+          className="openbitfun-search-results__file-main"
           onClick={() => onFileClick(target)}
           onContextMenu={(event) => onFileContextMenu(event, target)}
         >
           <span
-            className={`bitfun-search-results__file-icon${
-              group.isDirectory ? ' bitfun-search-results__file-icon--directory' : ''
+            className={`openbitfun-search-results__file-icon${
+              group.isDirectory ? ' openbitfun-search-results__file-icon--directory' : ''
             }`}
           >
             {group.isDirectory ? (
-              <Folder size={16} />
+              <Icon name="folder" size="md" />
             ) : (
-              <File size={16} />
+              <Icon name="files" size="md" />
             )}
           </span>
-          <span className="bitfun-search-results__file-info">
-            <span className="bitfun-search-results__file-name">
-              <HighlightedText text={group.name} query={searchQuery} />
+          <span className="openbitfun-search-results__file-info">
+            <span className="openbitfun-search-results__file-name">
+                <OverflowText behavior="marquee" title=""><HighlightedText text={group.name} query={searchQuery} /></OverflowText>
             </span>
-            <span className="bitfun-search-results__file-path">
+            <OverflowText className="openbitfun-search-results__file-path">
               {group.path}
-            </span>
+            </OverflowText>
           </span>
         </button>
 
         {hasContentMatches && (
           <button
             type="button"
-            className="bitfun-search-results__file-toggle"
+            className="openbitfun-search-results__file-toggle"
             onClick={(e) => {
               e.stopPropagation();
               onToggleExpand(group.path);
@@ -269,11 +270,11 @@ const FileGroup = memo<FileGroupProps>(({
             title={isExpanded ? t('search.collapse') : t('search.expand')}
           >
             {isExpanded ? (
-              <ChevronDown size={12} />
+              <Icon name="chevron-down" size="xs" />
             ) : (
-              <ChevronRight size={12} />
+              <Icon name="chevron-right" size="xs" />
             )}
-            <span className="bitfun-search-results__file-toggle-count">
+            <span className="openbitfun-search-results__file-toggle-count">
               {group.contentMatches.length}
             </span>
           </button>
@@ -281,7 +282,7 @@ const FileGroup = memo<FileGroupProps>(({
       </div>
 
       {hasContentMatches && isExpanded && (
-        <div className="bitfun-search-results__matches">
+        <div className="openbitfun-search-results__matches">
           {group.contentMatches.map((match, matchIndex) => (
             <MatchItem
               key={`${group.path}-${matchIndex}`}
@@ -493,13 +494,13 @@ export const FileSearchResults: React.FC<FileSearchResultsProps> = ({
 
   if (results.length === 0) {
     return (
-      <div className={`bitfun-search-results bitfun-search-results--empty ${className}`} data-bf-component="file-system" data-bf-part="searchResults" data-bf-state="empty">
-        <div className="bitfun-search-results__empty" data-bf-component="file-system" data-bf-part="empty">
-          <div className="bitfun-search-results__empty-icon">
+      <div className={`openbitfun-search-results openbitfun-search-results--empty ${className}`} data-openbitfun-component="file-system" data-openbitfun-part="searchResults" data-openbitfun-state="empty">
+        <div className="openbitfun-search-results__empty" data-openbitfun-component="file-system" data-openbitfun-part="empty">
+          <div className="openbitfun-search-results__empty-icon">
             <FileText size={48} />
           </div>
           <p>{t('search.noResults')}</p>
-          <p className="bitfun-search-results__empty-hint">
+          <p className="openbitfun-search-results__empty-hint">
             {t('search.noResultsHint')}
           </p>
         </div>
@@ -508,20 +509,20 @@ export const FileSearchResults: React.FC<FileSearchResultsProps> = ({
   }
 
   return (
-    <div className={`bitfun-search-results ${className}`} data-bf-component="file-system" data-bf-part="searchResults">
-      <div className="bitfun-search-results__header" data-bf-component="file-system" data-bf-part="header">
-        <span className="bitfun-search-results__count">
+    <div className={`openbitfun-search-results ${className}`} data-openbitfun-component="file-system" data-openbitfun-part="searchResults">
+      <div className="openbitfun-search-results__header" data-openbitfun-component="file-system" data-openbitfun-part="header">
+        <span className="openbitfun-search-results__count">
           {t('search.resultsSummary', { files: results.length, matches: totalMatches })}
-          {hasMore && <span className="bitfun-search-results__showing">{t('search.resultsShowing', { count: displayCount })}</span>}
+          {hasMore && <span className="openbitfun-search-results__showing">{t('search.resultsShowing', { count: displayCount })}</span>}
         </span>
       </div>
 
-      <div
+      <ScrollArea
         ref={listRef}
-        className="bitfun-search-results__list"
+        className="openbitfun-search-results__list"
         onScroll={maybeAutoLoadMore}
-        data-bf-component="file-system"
-        data-bf-part="list"
+        data-openbitfun-component="file-system"
+        data-openbitfun-part="list"
       >
         {visibleGroups.map((group, index) => (
           <FileGroup
@@ -535,7 +536,7 @@ export const FileSearchResults: React.FC<FileSearchResultsProps> = ({
             onLineClick={handleLineClick}
           />
         ))}
-      </div>
+      </ScrollArea>
     </div>
   );
 };

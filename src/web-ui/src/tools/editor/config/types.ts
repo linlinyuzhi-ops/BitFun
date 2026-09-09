@@ -70,6 +70,7 @@ export interface EditorConfig {
   // Behavior
   tabSize: number;
   insertSpaces: boolean;
+  detectIndentation: boolean;
   wordWrap: 'off' | 'on' | 'wordWrapColumn' | 'bounded';
   autoSave: 'off' | 'afterDelay' | 'onFocusChange' | 'onWindowChange';
   autoSaveDelay: number;
@@ -110,7 +111,6 @@ export type EditorPresetName = 'readonly' | 'minimal' | 'standard' | 'full' | 'd
 /** Preset config including runtime properties */
 export interface EditorPresetConfig extends EditorConfigPartial {
   readOnly?: boolean;
-  enableLsp?: boolean;
   contextmenu?: boolean;
   links?: boolean;
   folding?: boolean;

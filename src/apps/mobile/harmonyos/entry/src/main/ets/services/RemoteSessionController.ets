@@ -11,7 +11,10 @@ import { RemoteUiState } from './RemoteUiState';
 
 export interface RemoteSessionClient {
   listSessions(limit: number, offset: number, query: string, agentType: string): Promise<SessionListResult>;
-  createSession(options: CreateSessionOptions): Promise<SessionSummary>;
+  createSession(
+    options: CreateSessionOptions,
+    onAllocated?: (session: SessionSummary) => Promise<void>
+  ): Promise<SessionSummary>;
   deleteSession(sessionId: string): Promise<void>;
 }
 
@@ -149,6 +152,13 @@ export class RemoteSessionController {
     try {
       this.callbacks.onBusy(true);
       this.callbacks.onStatusText(RemoteI18n.t('status.createSession'));
+      let allocationHandled = false;
+      const handleAllocated = async (session: SessionSummary): Promise<void> => {
+        allocationHandled = true;
+        this.callbacks.onActiveSession(session);
+        this.callbacks.onStatusText(RemoteI18n.t('status.sessionCreated'));
+        await onCreated(session);
+      };
       const session = await this.client.createSession({
         agentType,
         title: '',

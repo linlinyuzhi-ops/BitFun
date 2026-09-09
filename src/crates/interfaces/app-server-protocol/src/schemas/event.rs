@@ -2,8 +2,8 @@
 
 #[cfg(feature = "rpc")]
 use agent_client_protocol::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
-use bitfun_events::AgenticEventEnvelope;
-use bitfun_product_domains::tool_permissions::{PermissionRequest, PermissionRequestEvent};
+use openbitfun_events::AgenticEventEnvelope;
+use openbitfun_product_domains::tool_permissions::{PermissionRequest, PermissionRequestEvent};
 use serde::{Deserialize, Serialize};
 
 /// Browser-facing projected runtime or permission event.
@@ -136,10 +136,6 @@ pub enum ConfigUpdate {
     AppUpdated,
     ConfigReloaded,
     ReasoningCatalogUpdated,
-    DebugModeConfigUpdated {
-        new_port: u16,
-        new_log_path: String,
-    },
     LogLevelUpdated {
         new_level: String,
     },

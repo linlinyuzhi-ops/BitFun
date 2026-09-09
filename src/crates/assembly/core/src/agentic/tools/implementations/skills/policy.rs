@@ -1,8 +1,8 @@
 //! Compatibility re-export for mode-aware built-in skill policy.
 //!
-//! The provider-neutral owner lives in `bitfun-agent-runtime`.
+//! The provider-neutral owner lives in `openbitfun-agent-runtime`.
 
-pub use bitfun_agent_runtime::skills::resolve_builtin_default_enabled;
+pub use openbitfun_agent_runtime::skills::resolve_builtin_default_enabled;
 
 #[cfg(test)]
 mod tests {
@@ -24,18 +24,6 @@ mod tests {
         );
         assert_eq!(
             resolve_builtin_default_enabled("agent-browser", "Cowork"),
-            Some(false)
-        );
-        assert_eq!(
-            resolve_builtin_default_enabled("gstack-review", "Team"),
-            Some(true)
-        );
-        assert_eq!(
-            resolve_builtin_default_enabled("ppt-design", "Team"),
-            Some(false)
-        );
-        assert_eq!(
-            resolve_builtin_default_enabled("miniapp-dev", "Team"),
             Some(false)
         );
         assert_eq!(
@@ -66,6 +54,30 @@ mod tests {
             resolve_builtin_default_enabled("ppt-design", "Other"),
             Some(false)
         );
+        assert_eq!(
+            resolve_builtin_default_enabled("agent-browser", "Ultra"),
+            Some(true)
+        );
+        assert_eq!(resolve_builtin_default_enabled("plan", "Ultra"), Some(true));
+        assert_eq!(
+            resolve_builtin_default_enabled("find-skills", "Ultra"),
+            Some(false)
+        );
+        assert_eq!(
+            resolve_builtin_default_enabled("agent-browser", "SwarmWorker"),
+            Some(true)
+        );
+        assert_eq!(
+            resolve_builtin_default_enabled("plan", "SwarmWorker"),
+            Some(false)
+        );
+        for mode_id in ["agentic", "Claw", "Creative", "Cowork", "DeepResearch"] {
+            assert_eq!(
+                resolve_builtin_default_enabled("openbitfun-canvas", mode_id),
+                Some(false),
+                "Canvas skills must stay opt-in for mode {mode_id}"
+            );
+        }
     }
 
     #[test]

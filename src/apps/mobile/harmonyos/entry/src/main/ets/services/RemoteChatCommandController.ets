@@ -2,6 +2,7 @@ import {
   ChatMessage,
   RemoteImageContext,
   SelectedImageAttachment,
+  SteerTurnResult,
   SessionMessagesResult,
   SessionSummary
 } from '../model/RemoteModels';
@@ -13,13 +14,22 @@ import { TranscriptIntegrityPolicy } from './TranscriptIntegrityPolicy';
 
 export interface RemoteChatCommandClient {
   getSessionMessages(sessionId: string): Promise<SessionMessagesResult>;
-  sendMessage(sessionId: string, text: string, agentType?: string): Promise<string>;
+  sendMessage(sessionId: string, text: string, agentType?: string, turnId?: string): Promise<string>;
   sendMessageWithImages(
     sessionId: string,
     text: string,
     agentType: string,
-    imageContexts: RemoteImageContext[]
+    imageContexts: RemoteImageContext[],
+    turnId?: string
   ): Promise<string>;
+  steerTurn(
+    sessionId: string,
+    turnId: string,
+    text: string,
+    displayContent: string,
+    imageContexts: RemoteImageContext[]
+  ): Promise<SteerTurnResult>;
+  buildPlan(sessionId: string, planFilePath: string, planName: string, agentType: string): Promise<string>;
   cancelTask(sessionId: string, turnId?: string): Promise<void>;
   renameSession(sessionId: string, title: string): Promise<void>;
 }
@@ -31,7 +41,13 @@ export interface RemoteChatCommandCallbacks {
   // before any request has been sent. Without it the loading skeleton would
   // outlive the messages it is standing in for.
   onTimelineReady: () => void;
-  onSendSucceeded: (turnId: string, pendingActiveId: string) => void;
+  onSendSucceeded: (turnId: string, pendingActiveId: string, localMessageId: string) => void;
+  onSteerSucceeded?: (
+    steeringId: string,
+    turnId: string,
+    displayText: string,
+    images: SelectedImageAttachment[]
+  ) => void;
   onSendFailed: (
     rawText: string,
     images: SelectedImageAttachment[],
@@ -52,6 +68,13 @@ export class RemoteChatCommandController {
   private readonly client: RemoteChatCommandClient;
   private readonly callbacks: RemoteChatCommandCallbacks;
   private readonly cache: RemoteChatCache;
+  // A transcript RPC already accepted by the desktop cannot be cancelled, and
+  // device RPCs are handled one at a time. Keep at most that one unavoidable
+  // request in flight; callers waiting behind it re-check the generation and
+  // only the latest selected session is allowed to send the next request.
+  private initialLoadGeneration: number = 0;
+  private initialLoadInFlight?: Promise<void>;
+  private initialLoadSessionId: string = '';
 
   constructor(
     client: RemoteChatCommandClient,
@@ -88,7 +111,14 @@ export class RemoteChatCommandController {
     if (sessionId.length === 0) {
       return;
     }
+    const generation = ++this.initialLoadGeneration;
     const cached = await this.cache.load(sessionId);
+    if (generation !== this.initialLoadGeneration) {
+      RemoteLogger.info(
+        `message load superseded after cache session=${RemoteChatCommandController.shortId(sessionId)}`
+      );
+      return;
+    }
     if (cached.length > 0) {
       if (!canApply(sessionId)) {
         return;
@@ -107,7 +137,59 @@ export class RemoteChatCommandController {
       this.callbacks.onStatusText(RemoteI18n.t('status.messagesRestored'));
       return;
     }
-    await this.reloadMessages(sessionId, canApply);
+    await this.loadLatestMessages(sessionId, canApply, generation);
+  }
+
+  /**
+   * Serializes initial transcript misses without turning every rapid tap into a
+   * desktop RPC. The request already on the wire is still cached when it lands;
+   * all selections made while it is running race only in memory, and the last
+   * one wins the right to issue the next request.
+   */
+  private async loadLatestMessages(
+    sessionId: string,
+    canApply: (sessionId: string) => boolean,
+    generation: number
+  ): Promise<void> {
+    while (this.initialLoadInFlight !== undefined) {
+      const inFlight = this.initialLoadInFlight;
+      if (this.initialLoadSessionId === sessionId) {
+        RemoteLogger.info(
+          `message load joined session=${RemoteChatCommandController.shortId(sessionId)}`
+        );
+        await inFlight;
+        return;
+      }
+      RemoteLogger.info(
+        `message load waiting session=${RemoteChatCommandController.shortId(sessionId)} ` +
+          `behind=${RemoteChatCommandController.shortId(this.initialLoadSessionId)}`
+      );
+      await inFlight;
+      if (generation !== this.initialLoadGeneration) {
+        RemoteLogger.info(
+          `message load superseded before request session=${RemoteChatCommandController.shortId(sessionId)}`
+        );
+        return;
+      }
+    }
+    if (generation !== this.initialLoadGeneration) {
+      RemoteLogger.info(
+        `message load superseded before start session=${RemoteChatCommandController.shortId(sessionId)}`
+      );
+      return;
+    }
+
+    const request = this.reloadMessages(sessionId, canApply);
+    this.initialLoadInFlight = request;
+    this.initialLoadSessionId = sessionId;
+    try {
+      await request;
+    } finally {
+      if (this.initialLoadInFlight === request) {
+        this.initialLoadInFlight = undefined;
+        this.initialLoadSessionId = '';
+      }
+    }
   }
 
   /**
@@ -151,7 +233,7 @@ export class RemoteChatCommandController {
       // Writing another session's transcript moves the cache's append cursor
       // off the visible one, which costs that session a single full rewrite on
       // its next sync before appends resume.
-      await this.cache.sync(sessionId, result.messages);
+      await this.cache.replaceSnapshot(sessionId, result.messages);
     } catch (err) {
       // A failure belongs to the session it was fetched for. Unguarded, a slow
       // fetch the user switched away from would land its error text and its
@@ -221,7 +303,7 @@ export class RemoteChatCommandController {
       this.callbacks.onMessagesLoaded(result.messages, false);
       this.callbacks.onMessageCountKnown(currentPollVersion, result.messages.length);
       this.callbacks.onStatusText(RemoteI18n.t('status.messagesSynced'));
-      await this.cache.sync(sessionId, result.messages);
+      await this.cache.replaceSnapshot(sessionId, result.messages);
     } catch (err) {
       this.callbacks.onStatusText(ConnectionErrorPolicy.errorText(err));
     } finally {
@@ -239,7 +321,8 @@ export class RemoteChatCommandController {
     localMessageId: string,
     pendingActiveId: string,
     isBusy: boolean,
-    remoteAvailable: boolean
+    remoteAvailable: boolean,
+    clientTurnId: string = ''
   ): Promise<void> {
     if ((text.length === 0 && images.length === 0) || sessionId.length === 0 || isBusy || !remoteAvailable) {
       return;
@@ -247,14 +330,82 @@ export class RemoteChatCommandController {
     try {
       this.callbacks.onBusy(true);
       this.callbacks.onStatusText(images.length > 0 ? RemoteI18n.t('status.sendImage') : RemoteI18n.t('status.sendCommand'));
+      const requestedTurnId = clientTurnId.trim().length > 0 ? clientTurnId : localMessageId;
       const turnId = images.length > 0 ?
-        await this.client.sendMessageWithImages(sessionId, text, agentType, imageContexts) :
-        await this.client.sendMessage(sessionId, text, agentType);
-      this.callbacks.onSendSucceeded(turnId, pendingActiveId);
+        await this.client.sendMessageWithImages(sessionId, text, agentType, imageContexts, requestedTurnId) :
+        await this.client.sendMessage(sessionId, text, agentType, requestedTurnId);
+      this.callbacks.onSendSucceeded(turnId, pendingActiveId, localMessageId);
       this.callbacks.onStatusText(RemoteI18n.t('status.sentWaiting'));
     } catch (err) {
       this.callbacks.onSendFailed(rawText, images, localMessageId, pendingActiveId);
       this.callbacks.onStatusText(ConnectionErrorPolicy.errorText(err));
+    } finally {
+      this.callbacks.onBusy(false);
+    }
+  }
+
+  async steerPreparedMessage(
+    sessionId: string,
+    turnId: string,
+    text: string,
+    displayText: string,
+    images: SelectedImageAttachment[],
+    imageContexts: RemoteImageContext[],
+    isBusy: boolean,
+    remoteAvailable: boolean
+  ): Promise<void> {
+    if ((text.length === 0 && images.length === 0) || sessionId.length === 0 || turnId.length === 0 ||
+      isBusy || !remoteAvailable) {
+      return;
+    }
+    try {
+      this.callbacks.onBusy(true);
+      const result = await this.client.steerTurn(
+        sessionId,
+        turnId,
+        text,
+        displayText,
+        imageContexts
+      );
+      if (this.callbacks.onSteerSucceeded) {
+        this.callbacks.onSteerSucceeded(result.steeringId, result.turnId, displayText, images);
+      }
+      this.callbacks.onStatusText(RemoteI18n.t('status.sentWaiting'));
+      this.callbacks.onPollRequested();
+    } catch (err) {
+      this.callbacks.onSendFailed(displayText, images, '', '');
+      const errorText = ConnectionErrorPolicy.errorText(err);
+      this.callbacks.onStatusText(errorText);
+      this.callbacks.onToast(errorText);
+    } finally {
+      this.callbacks.onBusy(false);
+    }
+  }
+
+  async buildPlan(
+    sessionId: string,
+    planFilePath: string,
+    planName: string,
+    agentType: string,
+    localMessageId: string,
+    pendingActiveId: string,
+    isBusy: boolean,
+    remoteAvailable: boolean
+  ): Promise<void> {
+    if (sessionId.length === 0 || planFilePath.length === 0 || isBusy || !remoteAvailable) {
+      return;
+    }
+    try {
+      this.callbacks.onBusy(true);
+      const turnId = await this.client.buildPlan(sessionId, planFilePath, planName, agentType);
+      this.callbacks.onSendSucceeded(turnId, pendingActiveId, localMessageId);
+      this.callbacks.onStatusText(RemoteI18n.t('status.sentWaiting'));
+      this.callbacks.onPollRequested();
+    } catch (err) {
+      this.callbacks.onSendFailed('', [], localMessageId, pendingActiveId);
+      const errorText = ConnectionErrorPolicy.errorText(err);
+      this.callbacks.onStatusText(errorText);
+      this.callbacks.onToast(errorText);
     } finally {
       this.callbacks.onBusy(false);
     }

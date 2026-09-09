@@ -4,18 +4,19 @@ use agent_client_protocol::schema::{
     SetSessionModelRequest, SetSessionModelResponse,
 };
 use agent_client_protocol::{Error, Result};
-use bitfun_agent_runtime::sdk::AgentSessionModelUpdateRequest;
-use bitfun_core::agentic::agents::get_agent_registry;
-use bitfun_core::service::config::types::AIConfig;
-use bitfun_core::service::config::{GlobalConfig, GlobalConfigManager};
+use openbitfun_agent_runtime::sdk::AgentSessionModelUpdateRequest;
+use openbitfun_core::agentic::agents::get_agent_registry;
+use openbitfun_core::service::config::types::AIConfig;
+use openbitfun_core::service::config::{GlobalConfig, GlobalConfigManager};
 
-use super::BitfunAcpRuntime;
+use super::OpenBitFunAcpRuntime;
 
-const AUTO_MODEL_ID: &str = "auto";
+const PRIMARY_MODEL_ID: &str = "primary";
+const FAST_MODEL_ID: &str = "fast";
 const MODEL_CONFIG_ID: &str = "model";
 const MODE_CONFIG_ID: &str = "mode";
 
-impl BitfunAcpRuntime {
+impl OpenBitFunAcpRuntime {
     pub(super) async fn update_session_model(
         &self,
         request: SetSessionModelRequest,
@@ -78,7 +79,7 @@ impl BitfunAcpRuntime {
 
         self.agent_runtime
             .update_session_model(AgentSessionModelUpdateRequest {
-                session_id: session.bitfun_session_id.clone(),
+                session_id: session.openbitfun_session_id.clone(),
                 model_id: normalized_model_id.clone(),
             })
             .await
@@ -95,9 +96,11 @@ impl BitfunAcpRuntime {
 }
 
 pub(super) fn normalize_session_model_id(model_id: Option<&str>) -> String {
-    let model_id = model_id.unwrap_or(AUTO_MODEL_ID).trim();
-    if model_id.is_empty() {
-        AUTO_MODEL_ID.to_string()
+    let model_id = model_id.unwrap_or(PRIMARY_MODEL_ID).trim();
+    // Upgrade-only alias for ACP clients and sessions created before the Auto
+    // selector was retired. Current options never advertise this value.
+    if model_id.is_empty() || model_id == "auto" || model_id == "default" {
+        PRIMARY_MODEL_ID.to_string()
     } else {
         model_id.to_string()
     }
@@ -159,30 +162,35 @@ pub(super) async fn build_session_config_options(
 
 async fn normalize_model_selection(model_id: &str) -> Result<String> {
     let model_id = normalize_session_model_id(Some(model_id));
-    if model_id == AUTO_MODEL_ID {
-        return Ok(model_id);
-    }
-
     let ai_config = load_ai_config().await?;
-    ai_config.resolve_model_reference(&model_id).ok_or_else(|| {
+    let resolved = if matches!(model_id.as_str(), PRIMARY_MODEL_ID | FAST_MODEL_ID) {
+        ai_config.resolve_model_selection(&model_id)
+    } else {
+        ai_config.resolve_model_reference(&model_id)
+    };
+    resolved.map(|_| model_id.clone()).ok_or_else(|| {
         Error::invalid_params().data(format!("unknown or disabled session model: {}", model_id))
     })
 }
 
 fn current_model_id(ai_config: &AIConfig, preferred_model_id: Option<&str>) -> String {
     let preferred_model_id = normalize_session_model_id(preferred_model_id);
-    if preferred_model_id == AUTO_MODEL_ID {
+    if ai_config
+        .resolve_model_selection(&preferred_model_id)
+        .is_some()
+    {
         return preferred_model_id;
     }
 
-    ai_config
-        .resolve_model_reference(&preferred_model_id)
-        .unwrap_or_else(|| AUTO_MODEL_ID.to_string())
+    PRIMARY_MODEL_ID.to_string()
 }
 
 fn available_model_infos(ai_config: &AIConfig) -> Vec<ModelInfo> {
-    let mut models = Vec::with_capacity(ai_config.models.len() + 1);
-    models.push(ModelInfo::new(AUTO_MODEL_ID, "Auto").description("Use the mode default model"));
+    let mut models = Vec::with_capacity(ai_config.models.len() + 2);
+    models.push(
+        ModelInfo::new(PRIMARY_MODEL_ID, "Primary").description("Use the configured primary model"),
+    );
+    models.push(ModelInfo::new(FAST_MODEL_ID, "Fast").description("Use the configured fast model"));
     models.extend(
         ai_config
             .models
@@ -194,10 +202,14 @@ fn available_model_infos(ai_config: &AIConfig) -> Vec<ModelInfo> {
 }
 
 fn available_model_select_options(ai_config: &AIConfig) -> Vec<SessionConfigSelectOption> {
-    let mut options = Vec::with_capacity(ai_config.models.len() + 1);
+    let mut options = Vec::with_capacity(ai_config.models.len() + 2);
     options.push(
-        SessionConfigSelectOption::new(AUTO_MODEL_ID, "Auto")
-            .description("Use the mode default model"),
+        SessionConfigSelectOption::new(PRIMARY_MODEL_ID, "Primary")
+            .description("Use the configured primary model"),
+    );
+    options.push(
+        SessionConfigSelectOption::new(FAST_MODEL_ID, "Fast")
+            .description("Use the configured fast model"),
     );
     options.extend(
         ai_config
@@ -212,7 +224,7 @@ fn available_model_select_options(ai_config: &AIConfig) -> Vec<SessionConfigSele
     options
 }
 
-fn model_display_name(model: &bitfun_core::service::config::types::AIModelConfig) -> String {
+fn model_display_name(model: &openbitfun_core::service::config::types::AIModelConfig) -> String {
     if model.model_name.trim().is_empty() {
         format!("{} / {}", model.provider, model.name)
     } else {
@@ -223,18 +235,18 @@ fn model_display_name(model: &bitfun_core::service::config::types::AIModelConfig
 async fn load_ai_config() -> Result<AIConfig> {
     let config_service = GlobalConfigManager::get_service()
         .await
-        .map_err(BitfunAcpRuntime::internal_error)?;
+        .map_err(OpenBitFunAcpRuntime::internal_error)?;
     let global_config = config_service
         .get_config::<GlobalConfig>(None)
         .await
-        .map_err(BitfunAcpRuntime::internal_error)?;
+        .map_err(OpenBitFunAcpRuntime::internal_error)?;
     Ok(global_config.ai)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{current_model_id, normalize_session_model_id, AUTO_MODEL_ID};
-    use bitfun_core::service::config::types::{AIConfig, AIModelConfig};
+    use super::{current_model_id, normalize_session_model_id, PRIMARY_MODEL_ID};
+    use openbitfun_core::service::config::types::{AIConfig, AIModelConfig};
 
     #[test]
     fn acp_session_model_mutation_uses_the_runtime_sdk() {
@@ -248,14 +260,19 @@ mod tests {
     }
 
     #[test]
-    fn normalize_session_model_defaults_to_auto() {
-        assert_eq!(normalize_session_model_id(None), AUTO_MODEL_ID);
-        assert_eq!(normalize_session_model_id(Some("")), AUTO_MODEL_ID);
+    fn normalize_session_model_defaults_to_primary() {
+        assert_eq!(normalize_session_model_id(None), PRIMARY_MODEL_ID);
+        assert_eq!(normalize_session_model_id(Some("")), PRIMARY_MODEL_ID);
+        assert_eq!(normalize_session_model_id(Some(" auto ")), PRIMARY_MODEL_ID);
+        assert_eq!(
+            normalize_session_model_id(Some(" default ")),
+            PRIMARY_MODEL_ID
+        );
         assert_eq!(normalize_session_model_id(Some(" model-a ")), "model-a");
     }
 
     #[test]
-    fn current_model_falls_back_to_auto_for_disabled_model() {
+    fn current_model_falls_back_to_primary_for_disabled_model() {
         let mut ai_config = AIConfig::default();
         ai_config.models.push(AIModelConfig {
             id: "model-a".to_string(),
@@ -263,7 +280,10 @@ mod tests {
             ..Default::default()
         });
 
-        assert_eq!(current_model_id(&ai_config, Some("model-a")), AUTO_MODEL_ID);
+        assert_eq!(
+            current_model_id(&ai_config, Some("model-a")),
+            PRIMARY_MODEL_ID
+        );
     }
 
     #[test]

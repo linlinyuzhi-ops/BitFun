@@ -13,8 +13,8 @@ use super::types::{SessionMetadata, StoredSessionIndexFile, StoredSessionMetadat
 use super::SessionMetadataPage;
 use crate::file_lock::{FileLock, FileLockError, FileLockMode};
 use crate::json_store::{JsonFileStore, JsonFileStoreError};
-use bitfun_core_types::validate_session_id;
 use log::warn;
+use openbitfun_core_types::validate_session_id;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -255,7 +255,7 @@ impl SessionMetadataStore {
 
     /// Load the rebuildable Session index while the caller owns both index locks.
     ///
-    /// Per-session `metadata.json` files are authoritative. Older BitFun versions
+    /// Per-session `metadata.json` files are authoritative. Older OpenBitFun versions
     /// can leave `index.json` missing, empty, or truncated if the machine stops
     /// during the Windows direct-overwrite fallback. Treat only index
     /// deserialization failures as recoverable; real filesystem errors must still
@@ -360,6 +360,28 @@ impl SessionMetadataStore {
         }
 
         Ok(index.sessions)
+    }
+
+    /// Read a bounded selection from the shared index without stat-ing every
+    /// Session directory or opening any Turn/state files.
+    pub async fn metadata_by_ids(
+        &self,
+        session_ids: &[String],
+    ) -> Result<Vec<SessionMetadata>, SessionMetadataStoreError> {
+        if !self.sessions_root().exists() || session_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let lock = self.get_index_lock().await;
+        let _guard = lock.lock().await;
+        let _file_guard = self.lock_index_file().await?;
+        let (index, _) = self.read_or_rebuild_index_locked().await?;
+        let selected: std::collections::HashSet<_> =
+            session_ids.iter().map(String::as_str).collect();
+        Ok(index
+            .sessions
+            .into_iter()
+            .filter(|entry| selected.contains(entry.session_id.as_str()))
+            .collect())
     }
 
     pub async fn list_metadata_page(
@@ -525,16 +547,17 @@ mod tests {
 
     #[test]
     fn index_lock_child_holds_the_cross_process_guard() {
-        if std::env::var_os("BITFUN_SESSION_INDEX_LOCK_CHILD").is_none() {
+        if std::env::var_os("OPENBITFUN_SESSION_INDEX_LOCK_CHILD").is_none() {
             return;
         }
-        let sessions_root =
-            PathBuf::from(std::env::var_os("BITFUN_SESSION_INDEX_ROOT").expect("index lock root"));
+        let sessions_root = PathBuf::from(
+            std::env::var_os("OPENBITFUN_SESSION_INDEX_ROOT").expect("index lock root"),
+        );
         let ready_path = PathBuf::from(
-            std::env::var_os("BITFUN_SESSION_INDEX_READY").expect("index lock ready path"),
+            std::env::var_os("OPENBITFUN_SESSION_INDEX_READY").expect("index lock ready path"),
         );
         let release_path = PathBuf::from(
-            std::env::var_os("BITFUN_SESSION_INDEX_RELEASE").expect("index lock release path"),
+            std::env::var_os("OPENBITFUN_SESSION_INDEX_RELEASE").expect("index lock release path"),
         );
         std::fs::create_dir_all(&sessions_root).expect("sessions root");
         let _guard = FileLock::acquire(&sessions_root.join(".index.lock"), FileLockMode::Exclusive)
@@ -563,10 +586,10 @@ mod tests {
             .arg("--exact")
             .arg("session::metadata_store::tests::index_lock_child_holds_the_cross_process_guard")
             .arg("--nocapture")
-            .env("BITFUN_SESSION_INDEX_LOCK_CHILD", "1")
-            .env("BITFUN_SESSION_INDEX_ROOT", dir.path())
-            .env("BITFUN_SESSION_INDEX_READY", &ready_path)
-            .env("BITFUN_SESSION_INDEX_RELEASE", &release_path)
+            .env("OPENBITFUN_SESSION_INDEX_LOCK_CHILD", "1")
+            .env("OPENBITFUN_SESSION_INDEX_ROOT", dir.path())
+            .env("OPENBITFUN_SESSION_INDEX_READY", &ready_path)
+            .env("OPENBITFUN_SESSION_INDEX_RELEASE", &release_path)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -628,6 +651,29 @@ mod tests {
         let listed = store.list_metadata().await.expect("list metadata");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].session_id, "session-a");
+    }
+
+    #[tokio::test]
+    async fn activity_selection_needs_only_metadata_and_leaves_transcripts_unloaded() {
+        let dir = tempdir().unwrap();
+        let store = SessionMetadataStore::new(dir.path());
+        store
+            .save_metadata(&metadata("session-a", 10))
+            .await
+            .unwrap();
+        store
+            .save_metadata(&metadata("session-b", 20))
+            .await
+            .unwrap();
+        // No state sidecars or Turn files exist. A navigation read must work
+        // solely from the index and keep unrelated sessions out of its reply.
+        let selected = store
+            .metadata_by_ids(&["session-a".to_string(), "missing".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].session_id, "session-a");
+        assert!(store.metadata_by_ids(&[]).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -866,7 +912,7 @@ mod tests {
             .expect("save visible metadata");
 
         let mut hidden = metadata("hidden", 30);
-        hidden.session_kind = bitfun_core_types::SessionKind::Subagent;
+        hidden.session_kind = openbitfun_core_types::SessionKind::Subagent;
         store
             .save_metadata(&hidden)
             .await
@@ -895,7 +941,7 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let store = SessionMetadataStore::new(dir.path());
         let mut hidden = metadata("hidden", 30);
-        hidden.session_kind = bitfun_core_types::SessionKind::Subagent;
+        hidden.session_kind = openbitfun_core_types::SessionKind::Subagent;
         hidden.status = SessionStatus::Active;
         hidden.relationship = Some(crate::session::SessionRelationship {
             kind: Some(crate::session::SessionRelationshipKind::Subagent),

@@ -3,23 +3,16 @@
  * Lists directories on the peer via HostInvoke FS APIs.
  */
 
+import { OverflowText, Button, Icon, IconButton, Input, ScrollArea } from '@openbitfun/ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
-import {
-  ArrowLeft,
-  Folder,
-  Home,
-  Loader2,
-  RefreshCw,
-  X,
-} from 'lucide-react';
-import { Button } from '@/component-library';
+import { Home, Loader2 } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n';
 import { workspaceAPI } from '@/infrastructure/api';
-import { globalAPI } from '@/infrastructure/api/service-api/GlobalAPI';
 import { systemAPI } from '@/infrastructure/api/service-api/SystemAPI';
 import { createLogger } from '@/shared/utils/logger';
+import { isImeOwnedKeyboardEvent } from '@/shared/utils/ime';
 import {
   joinDirectoryPath,
   parentDirectoryPath,
@@ -41,32 +34,6 @@ interface DirectoryEntry {
   path: string;
 }
 
-async function resolveStartPath(preferred?: string): Promise<string> {
-  if (preferred && preferred.trim()) {
-    return preferred.trim();
-  }
-  try {
-    const opened = await globalAPI.getOpenedWorkspaces();
-    const first = Array.isArray(opened) ? opened[0] : null;
-    const rootPath = first && typeof first.rootPath === 'string' ? first.rootPath : null;
-    if (rootPath) {
-      return rootPath;
-    }
-  } catch (error) {
-    log.debug('Failed to resolve peer start path from opened workspaces', error);
-  }
-  try {
-    const info = await systemAPI.getSystemInfo();
-    const platform = typeof info?.platform === 'string' ? info.platform.toLowerCase() : '';
-    if (platform.includes('win')) {
-      return 'C:\\';
-    }
-  } catch (error) {
-    log.debug('Failed to resolve peer start path from system info', error);
-  }
-  return '/';
-}
-
 export const PeerDirectoryBrowser: React.FC<PeerDirectoryBrowserProps> = ({
   visible = true,
   title,
@@ -75,23 +42,28 @@ export const PeerDirectoryBrowser: React.FC<PeerDirectoryBrowserProps> = ({
   onCancel,
 }) => {
   const { t } = useI18n('common');
-  const [currentPath, setCurrentPath] = useState(initialPath || '/');
-  const [pathInputValue, setPathInputValue] = useState(initialPath || '/');
-  const [isEditingPath, setIsEditingPath] = useState(false);
+  const [currentPath, setCurrentPath] = useState(initialPath?.trim() || '');
+  const [pathInputValue, setPathInputValue] = useState(initialPath?.trim() || '');
   const [entries, setEntries] = useState<DirectoryEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPath, setSelectedPath] = useState<string | null>(initialPath || null);
-  const pathInputRef = useRef<HTMLInputElement>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const inputRevisionRef = useRef(0);
+  const pathInputCompositionActiveRef = useRef(false);
   const loadSeqRef = useRef(0);
 
   const parentPath = useMemo(() => parentDirectoryPath(currentPath), [currentPath]);
 
-  const loadDirectory = useCallback(async (path: string) => {
+  const loadDirectory = useCallback(async (requestedPath?: string) => {
     const seq = ++loadSeqRef.current;
+    const inputRevision = inputRevisionRef.current;
     setLoading(true);
     setError(null);
+    setSelectedPath(null);
     try {
+      const path = requestedPath || (await systemAPI.getSystemInfo()).homeDir;
+      if (seq !== loadSeqRef.current) return;
+      if (!path) throw new Error(t('peerDirectoryPicker.homeUnavailable'));
       const children = await workspaceAPI.getDirectoryChildren(path);
       if (seq !== loadSeqRef.current) {
         return;
@@ -105,14 +77,14 @@ export const PeerDirectoryBrowser: React.FC<PeerDirectoryBrowserProps> = ({
         .sort((a, b) => a.name.localeCompare(b.name));
       setEntries(directories);
       setCurrentPath(path);
-      setPathInputValue(path);
+      if (inputRevision === inputRevisionRef.current) setPathInputValue(path);
       setSelectedPath(path);
     } catch (loadError) {
       if (seq !== loadSeqRef.current) {
         return;
       }
       const message = loadError instanceof Error ? loadError.message : String(loadError);
-      log.warn('Failed to list peer directory', { path, error: loadError });
+      log.warn('Failed to list peer directory', { path: requestedPath, error: loadError });
       setError(message);
       setEntries([]);
     } finally {
@@ -120,28 +92,14 @@ export const PeerDirectoryBrowser: React.FC<PeerDirectoryBrowserProps> = ({
         setLoading(false);
       }
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const start = await resolveStartPath(initialPath);
-      if (!cancelled) {
-        await loadDirectory(start);
-      }
-    })();
+    void loadDirectory(initialPath?.trim());
     return () => {
-      cancelled = true;
       loadSeqRef.current += 1;
     };
   }, [initialPath, loadDirectory]);
-
-  useEffect(() => {
-    if (isEditingPath) {
-      pathInputRef.current?.focus();
-      pathInputRef.current?.select();
-    }
-  }, [isEditingPath]);
 
   const handleGoParent = useCallback(() => {
     if (!parentPath) {
@@ -151,11 +109,8 @@ export const PeerDirectoryBrowser: React.FC<PeerDirectoryBrowserProps> = ({
   }, [loadDirectory, parentPath]);
 
   const handleGoHome = useCallback(() => {
-    void (async () => {
-      const start = await resolveStartPath(initialPath);
-      await loadDirectory(start);
-    })();
-  }, [initialPath, loadDirectory]);
+    void loadDirectory();
+  }, [loadDirectory]);
 
   const handleRefresh = useCallback(() => {
     void loadDirectory(currentPath);
@@ -167,8 +122,7 @@ export const PeerDirectoryBrowser: React.FC<PeerDirectoryBrowserProps> = ({
 
   const handleCommitPathInput = useCallback(() => {
     const next = pathInputValue.trim();
-    setIsEditingPath(false);
-    if (!next || next === currentPath) {
+    if (!next) {
       setPathInputValue(currentPath);
       return;
     }
@@ -176,12 +130,12 @@ export const PeerDirectoryBrowser: React.FC<PeerDirectoryBrowserProps> = ({
   }, [currentPath, loadDirectory, pathInputValue]);
 
   const handleConfirm = useCallback(() => {
-    const path = selectedPath || currentPath;
-    if (!path) {
+    const path = selectedPath;
+    if (!path || loading || error || pathInputValue.trim() !== currentPath) {
       return;
     }
     onSelect(path);
-  }, [currentPath, onSelect, selectedPath]);
+  }, [currentPath, error, loading, onSelect, pathInputValue, selectedPath]);
 
   return createPortal(
     <div
@@ -191,41 +145,40 @@ export const PeerDirectoryBrowser: React.FC<PeerDirectoryBrowserProps> = ({
       aria-modal="true"
       aria-hidden={!visible}
       {...(!visible ? { inert: '' } : {})}
-      data-bf-component="peer-device"
-      data-bf-part="overlay"
+      data-openbitfun-component="peer-device"
+      data-openbitfun-part="overlay"
     >
       <div
         className="peer-directory-browser"
         data-testid="peer-directory-browser"
-        data-bf-component="peer-device"
-        data-bf-part="dialog"
+        data-openbitfun-component="peer-device"
+        data-openbitfun-part="dialog"
       >
         <div
           className="peer-directory-browser__header"
-          data-bf-component="peer-device"
-          data-bf-part="header"
+          data-openbitfun-component="peer-device"
+          data-openbitfun-part="header"
         >
           <h2
             className="peer-directory-browser__header-title"
-            data-bf-component="peer-device"
-            data-bf-part="title"
+            data-openbitfun-component="peer-device"
+            data-openbitfun-part="title"
           >{title}</h2>
-          <button
-            type="button"
+          <IconButton
             className="peer-directory-browser__close-btn"
+            icon={<Icon name="xmark" size="lg" />}
+            size="md"
             aria-label={t('peerDirectoryPicker.cancel')}
             onClick={onCancel}
-            data-bf-component="peer-device"
-            data-bf-part="closeButton"
-          >
-            <X size={16} />
-          </button>
+            data-openbitfun-component="peer-device"
+            data-openbitfun-part="closeButton"
+          />
         </div>
 
         <div
           className="peer-directory-browser__toolbar"
-          data-bf-component="peer-device"
-          data-bf-part="toolbar"
+          data-openbitfun-component="peer-device"
+          data-openbitfun-part="toolbar"
         >
           <button
             type="button"
@@ -233,10 +186,10 @@ export const PeerDirectoryBrowser: React.FC<PeerDirectoryBrowserProps> = ({
             disabled={!parentPath || loading}
             onClick={handleGoParent}
             title={t('peerDirectoryPicker.parent')}
-            data-bf-component="peer-device"
-            data-bf-part="toolButton"
+            data-openbitfun-component="peer-device"
+            data-openbitfun-part="toolButton"
           >
-            <ArrowLeft size={14} />
+            <Icon name="arrow-left" size="sm" />
           </button>
           <button
             type="button"
@@ -244,73 +197,79 @@ export const PeerDirectoryBrowser: React.FC<PeerDirectoryBrowserProps> = ({
             disabled={loading}
             onClick={handleGoHome}
             title={t('peerDirectoryPicker.home')}
-            data-bf-component="peer-device"
-            data-bf-part="toolButton"
+            data-openbitfun-component="peer-device"
+            data-openbitfun-part="toolButton"
           >
             <Home size={14} />
           </button>
           <button
             type="button"
             className="peer-directory-browser__tool-btn"
-            disabled={loading}
+            disabled={loading || !currentPath}
             onClick={handleRefresh}
             title={t('peerDirectoryPicker.refresh')}
-            data-bf-component="peer-device"
-            data-bf-part="toolButton"
+            data-openbitfun-component="peer-device"
+            data-openbitfun-part="toolButton"
           >
-            <RefreshCw size={14} />
+            <Icon name="refresh" size="sm" />
           </button>
           <div
             className="peer-directory-browser__path"
-            data-bf-component="peer-device"
-            data-bf-part="path"
+            data-openbitfun-component="peer-device"
+            data-openbitfun-part="path"
           >
-            {isEditingPath ? (
-              <input
-                ref={pathInputRef}
-                className="peer-directory-browser__path-input"
+            {/* Retain the appearance part for existing user styles around the editable field. */}
+            <div data-openbitfun-component="peer-device" data-openbitfun-part="pathDisplay">
+              <Input
+                className="peer-directory-browser__path-input-field"
+                size="sm"
+                aria-label={t('peerDirectoryPicker.path')}
+                placeholder={t('peerDirectoryPicker.pathHint')}
                 value={pathInputValue}
-                onChange={(event) => setPathInputValue(event.target.value)}
-                onBlur={handleCommitPathInput}
-                data-bf-component="peer-device"
-                data-bf-part="pathInput"
+                onValueChange={(value) => {
+                  inputRevisionRef.current += 1;
+                  setPathInputValue(value);
+                }}
                 onKeyDown={(event) => {
+                  if (
+                    (event.key === 'Enter' || event.key === 'Escape')
+                    && isImeOwnedKeyboardEvent(event, pathInputCompositionActiveRef.current)
+                  ) {
+                    event.stopPropagation();
+                    return;
+                  }
                   if (event.key === 'Enter') {
                     event.preventDefault();
                     handleCommitPathInput();
                   } else if (event.key === 'Escape') {
                     event.preventDefault();
                     setPathInputValue(currentPath);
-                    setIsEditingPath(false);
                   }
                 }}
+                onCompositionStart={() => {
+                  pathInputCompositionActiveRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  pathInputCompositionActiveRef.current = false;
+                }}
+                data-openbitfun-component="peer-device"
+                data-openbitfun-part="pathInput"
               />
-            ) : (
-              <button
-                type="button"
-                className="peer-directory-browser__path-display"
-                onClick={() => setIsEditingPath(true)}
-                title={currentPath}
-                data-bf-component="peer-device"
-                data-bf-part="pathDisplay"
-              >
-                {currentPath}
-              </button>
-            )}
+            </div>
           </div>
         </div>
 
-        <div
+        <ScrollArea
           className="peer-directory-browser__body"
-          data-bf-component="peer-device"
-          data-bf-part="body"
+          data-openbitfun-component="peer-device"
+          data-openbitfun-part="body"
         >
           {loading ? (
             <div
               className="peer-directory-browser__state"
-              data-bf-component="peer-device"
-              data-bf-part="status"
-              data-bf-state="loading"
+              data-openbitfun-component="peer-device"
+              data-openbitfun-part="status"
+              data-openbitfun-state="loading"
             >
               <Loader2 size={16} className="peer-directory-browser__spinner" />
               <span>{t('peerDirectoryPicker.loading')}</span>
@@ -318,26 +277,26 @@ export const PeerDirectoryBrowser: React.FC<PeerDirectoryBrowserProps> = ({
           ) : error ? (
             <div
               className="peer-directory-browser__state peer-directory-browser__state--error"
-              data-bf-component="peer-device"
-              data-bf-part="status"
-              data-bf-state="error"
+              data-openbitfun-component="peer-device"
+              data-openbitfun-part="status"
+              data-openbitfun-state="error"
             >
               <span>{error}</span>
             </div>
           ) : entries.length === 0 ? (
             <div
               className="peer-directory-browser__state"
-              data-bf-component="peer-device"
-              data-bf-part="status"
-              data-bf-state="empty"
+              data-openbitfun-component="peer-device"
+              data-openbitfun-part="status"
+              data-openbitfun-state="empty"
             >
               <span>{t('peerDirectoryPicker.empty')}</span>
             </div>
           ) : (
             <ul
               className="peer-directory-browser__list"
-              data-bf-component="peer-device"
-              data-bf-part="list"
+              data-openbitfun-component="peer-device"
+              data-openbitfun-part="list"
             >
               {entries.map((entry) => (
                 <li key={entry.path}>
@@ -348,46 +307,46 @@ export const PeerDirectoryBrowser: React.FC<PeerDirectoryBrowserProps> = ({
                     }`}
                     onClick={() => setSelectedPath(entry.path)}
                     onDoubleClick={() => handleOpenEntry(entry)}
-                    data-bf-component="peer-device"
-                    data-bf-part="item"
-                    data-bf-state={selectedPath === entry.path ? 'selected' : undefined}
+                    data-openbitfun-component="peer-device"
+                    data-openbitfun-part="item"
+                    data-openbitfun-state={selectedPath === entry.path ? 'selected' : undefined}
                   >
-                    <Folder size={14} />
+                    <Icon name="folder" size="sm" />
                     <span>{entry.name}</span>
                   </button>
                 </li>
               ))}
             </ul>
           )}
-        </div>
+        </ScrollArea>
 
         <div
           className="peer-directory-browser__footer"
-          data-bf-component="peer-device"
-          data-bf-part="footer"
+          data-openbitfun-component="peer-device"
+          data-openbitfun-part="footer"
         >
           <div
             className="peer-directory-browser__selected"
             title={selectedPath || currentPath}
-            data-bf-component="peer-device"
-            data-bf-part="selection"
-          >
+            data-openbitfun-component="peer-device"
+            data-openbitfun-part="selection"
+          ><OverflowText>
             {t('peerDirectoryPicker.selected', { path: selectedPath || currentPath })}
-          </div>
+          </OverflowText></div>
           <div
             className="peer-directory-browser__actions"
-            data-bf-component="peer-device"
-            data-bf-part="actions"
+            data-openbitfun-component="peer-device"
+            data-openbitfun-part="actions"
           >
-            <Button type="button" variant="ghost" size="small" onClick={onCancel}>
+            <Button type="button" variant="outline" size="sm" onClick={onCancel}>
               {t('peerDirectoryPicker.cancel')}
             </Button>
             <Button
               type="button"
-              variant="primary"
-              size="small"
+              variant="fill"
+              size="sm"
               onClick={handleConfirm}
-              disabled={!(selectedPath || currentPath)}
+              disabled={!selectedPath || loading || !!error || pathInputValue.trim() !== currentPath}
             >
               {t('peerDirectoryPicker.select')}
             </Button>

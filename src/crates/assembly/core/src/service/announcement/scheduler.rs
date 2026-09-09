@@ -10,7 +10,7 @@ use super::state_store::AnnouncementStateStore;
 use super::tips_pool::builtin_tips;
 use super::types::{AnnouncementCard, AnnouncementState, TriggerCondition};
 use crate::infrastructure::app_paths::PathManager;
-use crate::util::errors::BitFunResult;
+use crate::util::errors::OpenBitFunResult;
 use log::{debug, info};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
@@ -28,7 +28,7 @@ pub struct AnnouncementScheduler {
 
 impl AnnouncementScheduler {
     /// Create a new scheduler and load persisted state from disk.
-    pub async fn new(path_manager: &Arc<PathManager>) -> BitFunResult<Self> {
+    pub async fn new(path_manager: &Arc<PathManager>) -> OpenBitFunResult<Self> {
         let store = AnnouncementStateStore::new(path_manager);
         let remote_fetcher = RemoteFetcher::new(path_manager);
         let state = store.load().await?;
@@ -50,7 +50,7 @@ impl AnnouncementScheduler {
     ///
     /// Should be called once during application startup (non-blocking – awaited
     /// inside the Tauri `setup` callback or from `announcement_api`).
-    pub async fn run(&self, locale: &str) -> BitFunResult<Vec<AnnouncementCard>> {
+    pub async fn run(&self, locale: &str) -> OpenBitFunResult<Vec<AnnouncementCard>> {
         let (open_count, is_version_first_open) = {
             let mut state = self.state.write().await;
             let is_version_first_open = state.last_seen_version != self.current_version;
@@ -120,7 +120,7 @@ impl AnnouncementScheduler {
     }
 
     /// Record that the user has seen (opened the modal for) a card.
-    pub async fn mark_seen(&self, id: &str) -> BitFunResult<()> {
+    pub async fn mark_seen(&self, id: &str) -> OpenBitFunResult<()> {
         {
             let mut state = self.state.write().await;
             state.seen_ids.insert(id.to_string());
@@ -129,7 +129,7 @@ impl AnnouncementScheduler {
     }
 
     /// Dismiss a card for the current version cycle.
-    pub async fn dismiss(&self, id: &str) -> BitFunResult<()> {
+    pub async fn dismiss(&self, id: &str) -> OpenBitFunResult<()> {
         {
             let mut state = self.state.write().await;
             state.dismissed_ids.insert(id.to_string());
@@ -138,7 +138,7 @@ impl AnnouncementScheduler {
     }
 
     /// Permanently suppress a card.
-    pub async fn never_show(&self, id: &str) -> BitFunResult<()> {
+    pub async fn never_show(&self, id: &str) -> OpenBitFunResult<()> {
         {
             let mut state = self.state.write().await;
             state.never_show_ids.insert(id.to_string());
@@ -150,7 +150,7 @@ impl AnnouncementScheduler {
     // Private helpers
     // ──────────────────────────────────────────────────────────────────────
 
-    async fn save_current_state(&self) -> BitFunResult<()> {
+    async fn save_current_state(&self) -> OpenBitFunResult<()> {
         let _save_guard = self.save_lock.lock().await;
         let state_snapshot = self.state.read().await.clone();
         self.store.save(&state_snapshot).await
@@ -164,42 +164,115 @@ impl AnnouncementScheduler {
         is_version_first_open: bool,
         now: i64,
     ) -> bool {
-        // Never-show list takes absolute precedence.
-        if state.never_show_ids.contains(&card.id) {
+        is_card_eligible(
+            card,
+            state,
+            &self.current_version,
+            open_count,
+            is_version_first_open,
+            now,
+        )
+    }
+}
+
+fn is_card_eligible(
+    card: &AnnouncementCard,
+    state: &AnnouncementState,
+    current_version: &str,
+    open_count: u64,
+    is_version_first_open: bool,
+    now: i64,
+) -> bool {
+    // Never-show list takes absolute precedence.
+    if state.never_show_ids.contains(&card.id) {
+        return false;
+    }
+
+    // Dismissed within the current version cycle.
+    if state.dismissed_ids.contains(&card.id) {
+        return false;
+    }
+
+    // Expired remote card.
+    if let Some(expires) = card.expires_at {
+        if now >= expires {
             return false;
         }
+    }
 
-        // Dismissed within the current version cycle.
-        if state.dismissed_ids.contains(&card.id) {
+    // Version restriction.
+    if let Some(required_version) = &card.app_version {
+        if required_version != current_version {
             return false;
         }
+    }
 
-        // Expired remote card.
-        if let Some(expires) = card.expires_at {
-            if now >= expires {
-                return false;
-            }
-        }
+    // A card is only complete after the presentation surface reports that it
+    // mounted. `Always` deliberately stays eligible across failed starts until
+    // that durable acknowledgement exists.
+    if card.trigger.once_per_version && state.seen_ids.contains(&card.id) {
+        return false;
+    }
 
-        // Version restriction.
-        if let Some(required_version) = &card.app_version {
-            if required_version != &self.current_version {
-                return false;
-            }
-        }
+    match &card.trigger.condition {
+        TriggerCondition::VersionFirstOpen => is_version_first_open,
+        TriggerCondition::AppNthOpen { n } => open_count == *n,
+        TriggerCondition::Always => true,
+        TriggerCondition::Manual => false,
+        TriggerCondition::FeatureUsed { .. } => false,
+    }
+}
 
-        // once_per_version: skip if already seen in this version.
-        if card.trigger.once_per_version && state.seen_ids.contains(&card.id) {
-            return false;
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        // Trigger condition check.
-        match &card.trigger.condition {
-            TriggerCondition::VersionFirstOpen => is_version_first_open,
-            TriggerCondition::AppNthOpen { n } => open_count == *n,
-            TriggerCondition::Always => true,
-            TriggerCondition::Manual => false, // only via explicit `trigger_announcement`
-            TriggerCondition::FeatureUsed { .. } => false, // handled programmatically
-        }
+    fn release_letter() -> AnnouncementCard {
+        local_cards("zh-CN")
+            .into_iter()
+            .find(|card| card.id == "release_letter_1_0_0")
+            .expect("embedded release letter")
+    }
+
+    #[test]
+    fn release_letter_waits_for_a_durable_presentation_acknowledgement() {
+        let card = release_letter();
+        let state = AnnouncementState::default();
+
+        assert!(is_card_eligible(&card, &state, "1.0.0", 1, true, 0));
+
+        let state_after_scheduler_run = AnnouncementState {
+            last_seen_version: "1.0.0".to_string(),
+            app_open_count: 1,
+            ..Default::default()
+        };
+        assert!(is_card_eligible(
+            &card,
+            &state_after_scheduler_run,
+            "1.0.0",
+            2,
+            false,
+            0,
+        ));
+
+        let mut presented_state = state_after_scheduler_run;
+        presented_state.seen_ids.insert(card.id.clone());
+        assert!(!is_card_eligible(
+            &card,
+            &presented_state,
+            "1.0.0",
+            3,
+            false,
+            0,
+        ));
+
+        assert!(!is_card_eligible(
+            &card,
+            &AnnouncementState::default(),
+            "1.0.1",
+            1,
+            true,
+            0,
+        ));
     }
 }

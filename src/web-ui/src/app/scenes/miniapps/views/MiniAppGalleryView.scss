@@ -1,37 +1,69 @@
-@use '../../../../component-library/styles/tokens' as *;
-
 .miniapp-gallery {
   .gallery-page-header__actions {
     > :first-child {
-      width: 180px;
+      width: 162px;
     }
   }
 
-  &__detail-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: $size-gap-2;
+  &__running-zone .gallery-zone__title::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-inline-end: var(--openbitfun-space-2);
+    border-radius: var(--openbitfun-radius-pill);
+    background: var(--openbitfun-color-status-success-content);
   }
 
-  &__detail-tag {
+  &__import-anchor {
     display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    border-radius: $size-radius-full;
-    background: var(--bf-appearance-token-element-bg-medium);
-    border: 1px solid var(--bf-appearance-token-border-subtle);
-    font-size: var(--bf-appearance-token-font-size-xs);
-    color: var(--bf-appearance-token-color-text-secondary);
+  }
+
+  &__card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-items: stretch;
+  }
+
+  &__card-grid.gallery-grid--skeleton .gallery-skeleton-card {
+    width: 100%;
+    height: 193px;
+    min-height: 193px;
+    border-radius: var(--openbitfun-radius-xl);
+  }
+
+  &__categories {
+    max-width: 500px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+
+    > [data-openbitfun-part='segment'] {
+      flex: 0 0 auto;
+    }
   }
 }
 
-@media (max-width: 720px) {
+@container miniapp-gallery-scene (max-width: 760px) {
   .miniapp-gallery {
     .gallery-page-header__actions {
       > :first-child {
-        width: 100%;
+        width: min(100%, 240px);
       }
     }
+
+    &__card-grid {
+      grid-template-columns: 1fr;
+    }
+
+    &__categories {
+      width: 100%;
+      max-width: 100%;
+    }
   }
+}
+
+/* Positioning-only overrides; the design-system Menu owns the surface look. */
+.miniapp-gallery__import-menu {
+  position: fixed;
+  z-index: 10020;
+  min-inline-size: 196px;
 }

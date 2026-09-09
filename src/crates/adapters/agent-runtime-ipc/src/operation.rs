@@ -1,5 +1,5 @@
-use bitfun_product_domains::tool_permissions::{PermissionReply, PermissionRequest};
-use bitfun_runtime_ports::{
+use openbitfun_product_domains::tool_permissions::{PermissionReply, PermissionRequest};
+use openbitfun_runtime_ports::{
     AgentContextReloadRequest, AgentDialogSteerRequest, AgentDialogTurnRequest,
     AgentMessageWorkspaceReferencesRequest, AgentSessionCompactionRequest,
     AgentSessionCreateRequest, AgentSessionCreateResult, AgentSessionLineageCancellationRequest,
@@ -52,6 +52,8 @@ pub struct RuntimeUserAnswersRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeAgentModeSummary {
     pub id: String,
+    #[serde(default)]
+    pub route_key: String,
     pub description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
@@ -401,7 +403,7 @@ pub enum RuntimeIpcOperationResult {
 #[cfg(test)]
 mod tests {
     use super::{RuntimeIpcOperation, RuntimeIpcSessionRequirement, RuntimeSessionRestoreRequest};
-    use bitfun_runtime_ports::{
+    use openbitfun_runtime_ports::{
         AgentContextReloadRequest, AgentContextReloadTarget, AgentDialogSteerRequest,
         AgentSessionLineageCancellationRequest, AgentSessionLineageRequest,
         AgentSessionLineageTranscriptRequest,

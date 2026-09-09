@@ -31,8 +31,6 @@ export class MermaidService {
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: 'loose',
-      fontFamily: '"Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif',
-      fontSize: 13,
       ...config,
     } as any);
 
@@ -145,8 +143,8 @@ export class MermaidService {
     }
 
     const e2eDelayMs = Number((window as Window & {
-      __BITFUN_E2E_PNG_EXPORT_DELAY_MS__?: number;
-    }).__BITFUN_E2E_PNG_EXPORT_DELAY_MS__ ?? 0);
+      __OPENBITFUN_E2E_PNG_EXPORT_DELAY_MS__?: number;
+    }).__OPENBITFUN_E2E_PNG_EXPORT_DELAY_MS__ ?? 0);
 
     if (e2eDelayMs > 0) {
       await new Promise(resolve => setTimeout(resolve, e2eDelayMs));

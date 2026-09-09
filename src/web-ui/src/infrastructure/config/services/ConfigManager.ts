@@ -16,7 +16,7 @@ const PROVIDER_INSTANCE_METADATA_KEY = 'provider_instance_id';
 declare global {
   // Injected by the desktop webview initialization script before the frontend
   // bundle runs. It avoids a startup-window IPC for the initial shortcut load.
-  var __BITFUN_BOOTSTRAP_KEYBINDINGS__: unknown | undefined;
+  var __OPENBITFUN_BOOTSTRAP_KEYBINDINGS__: unknown | undefined;
 }
 
 function legacyProviderInstanceId(seed: string): string {
@@ -91,7 +91,7 @@ class ConfigManagerImpl implements IConfigManager {
     log.info('Initializing config manager (proxy mode)');
   }
 
-  private async migrateLegacyAiModelsIfNeeded(config: unknown): Promise<unknown> {
+  private async resolveLegacyAiModels(config: unknown): Promise<unknown> {
     if (!Array.isArray(config)) {
       return config;
     }
@@ -110,7 +110,7 @@ class ConfigManagerImpl implements IConfigManager {
         const baseUrl = typeof model.base_url === 'string' ? model.base_url : '';
         const matchedProvider = matchProviderCatalogItemByBaseUrl(baseUrl);
         const inferredProviderName = matchedProvider
-          ? i18nService.t(`settings/ai-model:providers.${matchedProvider.id}.name`)
+          ? i18nService.t(`settings/models:providers.${matchedProvider.id}.name`)
           : extractProviderSegmentFromBaseUrl(baseUrl);
 
         if (inferredProviderName) {
@@ -145,8 +145,10 @@ class ConfigManagerImpl implements IConfigManager {
       return config;
     }
 
-    await configAPI.setConfig('ai.models', migratedModels);
-    log.info('Migrated legacy ai.models', {
+    // Reading is a compatibility projection, not permission to replace the
+    // model list. An asynchronous startup read may already be stale by now.
+    // These deterministic IDs are persisted by the next explicit model edit.
+    log.info('Resolved legacy model metadata for display', {
       migratedNameCount,
       migratedProviderInstanceCount,
     });
@@ -283,7 +285,7 @@ class ConfigManagerImpl implements IConfigManager {
   }
 
   private clearBootstrapOptionalConfigs(): void {
-    delete globalThis.__BITFUN_BOOTSTRAP_KEYBINDINGS__;
+    delete globalThis.__OPENBITFUN_BOOTSTRAP_KEYBINDINGS__;
   }
 
   private consumeBootstrapOptionalConfig<T = any>(path: string): {
@@ -294,12 +296,12 @@ class ConfigManagerImpl implements IConfigManager {
       return { available: false, value: undefined };
     }
 
-    if (!Object.prototype.hasOwnProperty.call(globalThis, '__BITFUN_BOOTSTRAP_KEYBINDINGS__')) {
+    if (!Object.prototype.hasOwnProperty.call(globalThis, '__OPENBITFUN_BOOTSTRAP_KEYBINDINGS__')) {
       return { available: false, value: undefined };
     }
 
-    const value = globalThis.__BITFUN_BOOTSTRAP_KEYBINDINGS__;
-    delete globalThis.__BITFUN_BOOTSTRAP_KEYBINDINGS__;
+    const value = globalThis.__OPENBITFUN_BOOTSTRAP_KEYBINDINGS__;
+    delete globalThis.__OPENBITFUN_BOOTSTRAP_KEYBINDINGS__;
     return {
       available: true,
       value: value == null ? undefined : value as T,
@@ -311,7 +313,7 @@ class ConfigManagerImpl implements IConfigManager {
     const readVersion = path ? this.getPathMutationVersion(path) : 0;
     const config = await configAPI.getConfig(path);
     const resolvedConfig = path === 'ai.models'
-      ? await this.migrateLegacyAiModelsIfNeeded(config)
+      ? await this.resolveLegacyAiModels(config)
       : config;
 
     if (path) {
@@ -338,7 +340,7 @@ class ConfigManagerImpl implements IConfigManager {
     const readVersion = this.getPathMutationVersion(path);
     const config = await configAPI.getConfig(path, { skipRetryOnNotFound: true });
     const resolvedConfig = path === 'ai.models'
-      ? await this.migrateLegacyAiModelsIfNeeded(config)
+      ? await this.resolveLegacyAiModels(config)
       : config;
 
     if (readVersion !== this.getPathMutationVersion(path)) {
@@ -364,7 +366,7 @@ class ConfigManagerImpl implements IConfigManager {
 
     for (const path of paths) {
       const resolvedConfig = path === 'ai.models'
-        ? await this.migrateLegacyAiModelsIfNeeded(configs[path])
+        ? await this.resolveLegacyAiModels(configs[path])
         : configs[path];
 
       resolvedConfigs[path] = await this.resolveReadValue(
@@ -398,7 +400,7 @@ class ConfigManagerImpl implements IConfigManager {
       return {
         hasFallback: true,
         value: {
-          mode: 'auto',
+          mode: 'primary',
           subagents: {
             default: { kind: 'fixed', model_id: 'fast' },
             builtin: {
@@ -463,7 +465,7 @@ class ConfigManagerImpl implements IConfigManager {
       }
       if (path === 'ai.agent_model_defaults') {
         return {
-          mode: 'auto',
+          mode: 'primary',
           subagents: {
             default: { kind: 'fixed', model_id: 'fast' },
             builtin: {
@@ -613,6 +615,34 @@ class ConfigManagerImpl implements IConfigManager {
       log.error('Failed to set config', { path, error });
       throw error;
     }
+  }
+
+  /** Apply an edit to a fresh host value inside the client mutation queue. */
+  async updateConfig<T>(path: string, update: (current: T) => T): Promise<T> {
+    // Model writes also reconcile default selectors on the host. Invalidate
+    // their cached siblings and serialize edits to the whole AI section.
+    const mutationPath = path === 'ai.models' ? 'ai' : path;
+    let previous!: T;
+    let next!: T;
+    await this.runMutation(mutationPath, async () => {
+      // Deliberately bypass cached/read-failure defaults: an unavailable host
+      // must not turn a partial edit into replacement of its config with [].
+      const value = await configAPI.getConfig(path);
+      previous = (path === 'ai.models' ? await this.resolveLegacyAiModels(value) : value) as T;
+      if (previous === undefined || previous === null) {
+        throw new Error(`Cannot update unavailable config: ${path}`);
+      }
+      next = update(previous);
+      await configAPI.setConfig(path, next);
+    }, () => {
+      this.configCache.set(path, next);
+      if (mutationPath === path) {
+        this.notifyConfigChange(path, previous, next);
+      } else {
+        this.notifyConfigChange(mutationPath, undefined, undefined);
+      }
+    });
+    return next;
   }
 
   async saveCloudSpeechConfig(
@@ -774,7 +804,8 @@ class ConfigManagerImpl implements IConfigManager {
   /**
    * Re-read every cached/watched path after the backend applied an external
    * config change (e.g. account cloud sync), then notify listeners only for
-   * paths whose value actually changed so config-driven UI refreshes.
+   * paths whose value changed or had no cached baseline (including bootstrap
+   * and optional reads) so config-driven UI refreshes.
    */
   async applyExternalReload(): Promise<void> {
     const trackedPaths = new Set<string>([
@@ -805,7 +836,7 @@ class ConfigManagerImpl implements IConfigManager {
     for (const path of trackedPaths) {
       const oldValue = previousValues.get(path);
       const newValue = this.configCache.get(path);
-      if (!configValuesEqual(oldValue, newValue)) {
+      if (!previousValues.has(path) || !configValuesEqual(oldValue, newValue)) {
         this.notifyConfigChange(path, oldValue, newValue);
       }
     }

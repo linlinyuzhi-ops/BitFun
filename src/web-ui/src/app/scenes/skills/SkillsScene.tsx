@@ -1,27 +1,33 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowRight,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  Filter,
-  FolderOpen,
-  Layers,
-  Package,
-  Plus,
-  Puzzle,
-  ShieldAlert,
-  ShieldCheck,
-  Trash2,
-  TrendingUp,
-  User,
-  Zap,
-} from 'lucide-react';
-import { useTranslation } from 'react-i18next';
-import { Badge, Button, ConfirmDialog, Input, Modal, Search, Select, Switch } from '@/component-library';
-import { GalleryDetailModal } from '@/app/components';
+  Button,
+  Checkbox,
+  ConfirmDialog,
+  Field,
+  Icon,
+  IconButton,
+  Input,
+  NavigationPanelItem,
+  OverflowText,
+  ScrollArea,
+  SearchField,
+  Select,
+  StatusPill,
+  Switch,
+  TabGroup,
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogHeader,
+  DialogHeading,
+  DialogTitle,
+} from '@openbitfun/ui';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { FolderOpen, Layers, Package, ShieldAlert, ShieldCheck, TrendingUp, Zap } from 'lucide-react';
+import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
+
+import { GalleryDetailModal, GalleryPageHeader } from '@/app/components';
 import type { SkillInfo, SkillLevel, SkillMarketItem } from '@/infrastructure/config/types';
+import { installedSkillMarketIds, isSkillMarketItemInstalled } from '@/infrastructure/config/skillMarketInstallation';
 import {
   buildSkillCoverageSourceMap,
   canDeleteSkill,
@@ -48,25 +54,55 @@ const log = createLogger('SkillsScene');
 
 type SkillTab = 'installed' | 'discover';
 
-const INSTALLED_PAGE_SIZE = 12;
-
 interface CategoryInfo {
   id: InstalledFilter;
   icon: React.ReactNode;
   labelKey: string;
+  titleKey: string;
   descKey: string;
 }
 
 const CATEGORIES: CategoryInfo[] = [
-  { id: 'all', icon: <Layers size={15} strokeWidth={1.6} />, labelKey: 'filters.all', descKey: 'categories.all' },
-  { id: 'builtin', icon: <ShieldCheck size={15} strokeWidth={1.6} />, labelKey: 'filters.builtin', descKey: 'categories.builtin' },
-  { id: 'user', icon: <User size={15} strokeWidth={1.6} />, labelKey: 'filters.user', descKey: 'categories.user' },
-  { id: 'project', icon: <FolderOpen size={15} strokeWidth={1.6} />, labelKey: 'filters.project', descKey: 'categories.project' },
-  { id: 'suite', icon: <Zap size={15} strokeWidth={1.6} />, labelKey: 'filters.suite', descKey: 'categories.suite' },
+  {
+    id: 'all',
+    icon: <Icon glyph={Layers} size="sm" />,
+    labelKey: 'filters.all',
+    titleKey: 'installed.titleListAll',
+    descKey: 'categories.all',
+  },
+  {
+    id: 'builtin',
+    icon: <Icon glyph={ShieldCheck} size="sm" />,
+    labelKey: 'filters.builtin',
+    titleKey: 'installed.titleBuiltin',
+    descKey: 'categories.builtin',
+  },
+  {
+    id: 'user',
+    icon: <Icon name="user" size="sm" />,
+    labelKey: 'filters.user',
+    titleKey: 'installed.titleUser',
+    descKey: 'categories.user',
+  },
+  {
+    id: 'project',
+    icon: <Icon glyph={FolderOpen} size="sm" />,
+    labelKey: 'filters.project',
+    titleKey: 'installed.titleProject',
+    descKey: 'categories.project',
+  },
+  {
+    id: 'suite',
+    icon: <Icon glyph={Zap} size="sm" />,
+    labelKey: 'filters.suite',
+    titleKey: 'suite.title',
+    descKey: 'categories.suite',
+  },
 ];
 
 const SkillsScene: React.FC = () => {
-  const { t } = useTranslation('scenes/skills');
+  const { t, formatNumber } = useI18n('scenes/skills');
+  const { t: tComponents } = useI18n('components');
   const notification = useNotification();
   const peerDevice = usePeerDeviceModeOptional();
   const remoteConnectionActive = peerDevice?.peerMode.active === true;
@@ -87,7 +123,6 @@ const SkillsScene: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<SkillTab>('installed');
   const [deleteTarget, setDeleteTarget] = useState<SkillInfo | null>(null);
-  const [installedListPage, setInstalledListPage] = useState(0);
   const [installedSearch, setInstalledSearch] = useState('');
   const [selectedDetail, setSelectedDetail] = useState<
     | { type: 'installed'; skillKey: string }
@@ -101,8 +136,8 @@ const SkillsScene: React.FC = () => {
     enabled: desktopConfigAvailable,
   });
 
-  const installedSkillNames = useMemo(
-    () => new Set(installed.skills.map((skill) => skill.name)),
+  const installedMarketIds = useMemo(
+    () => installedSkillMarketIds(installed.skills),
     [installed.skills],
   );
   const coverageSourceBySkillKey = useMemo(
@@ -136,7 +171,7 @@ const SkillsScene: React.FC = () => {
 
   const market = useSkillMarket({
     searchQuery: marketQuery,
-    installedSkillNames,
+    installedMarketIds,
     pageSize: 15,
     enabled: desktopConfigAvailable,
     onInstalledChanged: async () => {
@@ -210,177 +245,219 @@ const SkillsScene: React.FC = () => {
     return list;
   }, [hideDuplicates, installed.filteredSkills]);
 
-  const installedTotalPages = Math.max(
-    1,
-    Math.ceil(installedFiltered.length / INSTALLED_PAGE_SIZE),
-  );
-  const currentInstalledPage = Math.min(installedListPage, installedTotalPages - 1);
-  const pagedInstalledSkills = installedFiltered.slice(
-    currentInstalledPage * INSTALLED_PAGE_SIZE,
-    (currentInstalledPage + 1) * INSTALLED_PAGE_SIZE,
-  );
-
-  useEffect(() => {
-    setInstalledListPage(0);
-  }, [installedFilter, installedSearch, hideDuplicates]);
-
-  useEffect(() => {
-    setInstalledListPage((p) => Math.min(p, Math.max(0, installedTotalPages - 1)));
-  }, [installedTotalPages]);
+  const activeInstalledCategory = CATEGORIES.find((category) => category.id === installedFilter)
+    ?? CATEGORIES[0];
 
   return (
-    <div className="bitfun-skills-scene" data-testid="agent-skill-panel" data-bf-scene="skills" data-bf-part="root" data-bf-tab={activeTab}>
-      <div className="skills-tabs-bar" data-testid="skills-tabs" data-bf-scene="skills" data-bf-part="header" data-bf-tab={activeTab}>
-        <div className="skills-tabs-bar__tabs" data-bf-scene="skills" data-bf-part="tabs">
-          <button
-            type="button"
-            className={`skills-tabs-bar__tab ${activeTab === 'installed' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('installed')}
-            data-bf-scene="skills"
-            data-bf-part="tab"
-            data-bf-tab="installed"
-            data-bf-state={activeTab === 'installed' ? 'active' : undefined}
-          ><span>{t('installed.titleAll')}</span></button>
-          <span className="skills-tabs-bar__divider" data-bf-scene="skills" data-bf-part="tabDivider" />
-          <button
-            type="button"
-            className={`skills-tabs-bar__tab ${activeTab === 'discover' ? 'is-active' : ''}`}
-            disabled={!desktopConfigAvailable}
-            onClick={() => setActiveTab('discover')}
-            data-bf-scene="skills"
-            data-bf-part="tab"
-            data-bf-tab="discover"
-            data-bf-state={activeTab === 'discover' ? 'active' : undefined}
-          ><span>{t('market.title')}</span></button>
+    <div className="openbitfun-skills-scene" data-testid="agent-skill-panel" data-openbitfun-scene="skills" data-openbitfun-part="root" data-openbitfun-tab={activeTab}>
+      <GalleryPageHeader
+        title={t('nav.title')}
+        subtitle={t('page.subtitle')}
+        actions={desktopConfigAvailable && activeTab === 'installed' && installedFilter !== 'suite' ? (
+          <Button
+            variant="fill"
+            size="sm"
+            leadingIcon={<Icon name="plus" size="sm" />}
+            onClick={toggleAddForm}
+            data-testid="skills-add-skill-btn"
+          >
+            {t('toolbar.addTooltip')}
+          </Button>
+        ) : undefined}
+      />
+      <div className="skills-tabs-bar" data-testid="skills-tabs" data-openbitfun-scene="skills" data-openbitfun-part="header" data-openbitfun-tab={activeTab}>
+        <div className="skills-tabs-bar__tabs" data-openbitfun-scene="skills" data-openbitfun-part="tabs">
+          <TabGroup
+            size="sm"
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as SkillTab)}
+            aria-label={t('nav.title')}
+            items={(['installed', 'discover'] as const).map((tab) => ({
+              value: tab,
+              id: `skills-tab-${tab}`,
+              panelId: `skills-panel-${tab}`,
+              disabled: tab === 'discover' && !desktopConfigAvailable,
+              icon: <Icon glyph={tab === 'installed' ? Layers : Package} size="sm" />,
+              label: (
+                <span
+                  data-openbitfun-scene="skills"
+                  data-openbitfun-part="tab"
+                  data-openbitfun-tab={tab}
+                  data-openbitfun-state={activeTab === tab ? 'active' : undefined}
+                >
+                  {t(tab === 'installed' ? 'installed.titleAll' : 'market.title')}
+                </span>
+              ),
+            }))}
+          />
+          <span className="skills-tabs-bar__divider" data-openbitfun-scene="skills" data-openbitfun-part="tabDivider" />
         </div>
       </div>
 
-      <div className="skills-page" data-bf-scene="skills" data-bf-part="content" data-bf-tab={activeTab}>
+      <div className="skills-page" data-openbitfun-scene="skills" data-openbitfun-part="content" data-openbitfun-tab={activeTab}>
 
         {activeTab === 'installed' && (
-          <div className="skills-installed" data-bf-scene="skills" data-bf-part="installed">
-            {desktopConfigAvailable && <aside className="skills-sidebar" data-bf-scene="skills" data-bf-part="sidebar">
-              <div className="skills-sidebar__header" data-bf-scene="skills" data-bf-part="sidebarHeader">
-                <h2 className="skills-sidebar__title" data-bf-scene="skills" data-bf-part="sidebarTitle">{t('installed.titleAll')}</h2>
+          <div className="skills-installed" id="skills-panel-installed" role="tabpanel" aria-labelledby="skills-tab-installed" data-openbitfun-scene="skills" data-openbitfun-part="installed">
+            {desktopConfigAvailable && <ScrollArea className="skills-sidebar" data-openbitfun-scene="skills" data-openbitfun-part="sidebar">
+              <div className="skills-sidebar__header" data-openbitfun-scene="skills" data-openbitfun-part="sidebarHeader">
+                <h2 className="skills-sidebar__title" data-openbitfun-scene="skills" data-openbitfun-part="sidebarTitle">{t('installed.titleAll')}</h2>
               </div>
-              <nav className="skills-sidebar__nav" data-bf-scene="skills" data-bf-part="sidebarNav">
+              <nav className="skills-sidebar__nav" aria-label={t('installed.titleAll')} data-openbitfun-scene="skills" data-openbitfun-part="sidebarNav">
                 {CATEGORIES.map((cat) => {
                   const count = installed.counts[cat.id];
                   const isEmpty = count === 0;
                   return (
-                    <button
+                    <div
                       key={cat.id}
-                      type="button"
-                      className={`skills-sidebar__item ${installedFilter === cat.id ? 'is-active' : ''} ${isEmpty ? 'is-empty' : ''}`}
-                      onClick={() => setInstalledFilter(cat.id)}
-                      data-bf-scene="skills"
-                      data-bf-part="sidebarItem"
-                      data-bf-category={cat.id}
-                      data-bf-state={[
+                      className="skills-sidebar__item"
+                      data-openbitfun-scene="skills"
+                      data-openbitfun-part="sidebarItem"
+                      data-openbitfun-category={cat.id}
+                      data-openbitfun-state={[
                         installedFilter === cat.id && 'active',
                         isEmpty && 'empty',
                       ].filter(Boolean).join(' ') || undefined}
                     >
-                      <span className="skills-sidebar__item-icon" data-bf-scene="skills" data-bf-part="sidebarItemIcon">{cat.icon}</span>
-                      <span className="skills-sidebar__item-label" data-bf-scene="skills" data-bf-part="sidebarItemLabel">{t(cat.labelKey)}</span>
-                      <span className="skills-sidebar__item-count" data-bf-scene="skills" data-bf-part="sidebarItemCount">{isEmpty ? '—' : count}</span>
-                    </button>
+                      <NavigationPanelItem
+                        selected={installedFilter === cat.id}
+                        onClick={() => setInstalledFilter(cat.id)}
+                        title={t(cat.descKey)}
+                        leading={<span data-openbitfun-scene="skills" data-openbitfun-part="sidebarItemIcon">{cat.icon}</span>}
+                        metadata={(
+                          <span className="skills-sidebar__item-count" data-openbitfun-scene="skills" data-openbitfun-part="sidebarItemCount">
+                            {formatNumber(count)}
+                          </span>
+                        )}
+                      >
+                        <span data-openbitfun-scene="skills" data-openbitfun-part="sidebarItemLabel">{t(cat.labelKey)}</span>
+                      </NavigationPanelItem>
+                    </div>
                   );
                 })}
               </nav>
-              <div className="skills-sidebar__footer" data-bf-scene="skills" data-bf-part="sidebarFooter">
-                <p className="skills-sidebar__hint" data-bf-scene="skills" data-bf-part="sidebarHint">
+              <div className="skills-sidebar__footer" data-openbitfun-scene="skills" data-openbitfun-part="sidebarFooter">
+                <p className="skills-sidebar__hint" data-openbitfun-scene="skills" data-openbitfun-part="sidebarHint">
                   {t(CATEGORIES.find((c) => c.id === installedFilter)?.descKey ?? 'categories.all')}
                 </p>
               </div>
-            </aside>}
+            </ScrollArea>}
 
-            <div className="skills-main" data-bf-scene="skills" data-bf-part="main">
+            <div className="skills-main" data-openbitfun-scene="skills" data-openbitfun-part="main">
               {!desktopConfigAvailable ? (
-                <div className="skills-main__empty" data-testid="skills-management-unavailable" data-bf-scene="skills" data-bf-part="empty">
-                  <Package size={28} strokeWidth={1.2} />
+                <div className="skills-main__empty" data-testid="skills-management-unavailable" data-openbitfun-scene="skills" data-openbitfun-part="empty">
+                  <Icon glyph={Package} size="lg" />
                   <span>{t(remoteConnectionActive ? 'list.remoteUnavailable' : 'list.desktopUnavailable')}</span>
                 </div>
               ) : installedFilter === 'suite' ? (
                 <SkillsSuiteView />
               ) : (
                 <>
-                  <div className="skills-main__toolbar" data-bf-scene="skills" data-bf-part="toolbar">
-                    <Search
+                  <div className="skills-main__toolbar" data-openbitfun-scene="skills" data-openbitfun-part="toolbar">
+                    <SearchField
                       className="skills-main__toolbar-search"
                       value={installedSearch}
-                      onChange={setInstalledSearch}
-                      onClear={() => setInstalledSearch('')}
+                      onValueChange={setInstalledSearch}
+                      leadingIcon={<Icon name="search" size="sm" aria-hidden />}
                       placeholder={t('toolbar.searchPlaceholder')}
-                      size="small"
-                      clearable
+                      aria-label={t('toolbar.searchPlaceholder')}
+                      size="sm"
+                      clearLabel={installedSearch ? tComponents('search.clear') : undefined}
+                      onClear={installedSearch ? () => setInstalledSearch('') : undefined}
                     />
-                    <button
-                      type="button"
-                      className={`skills-main__chip-btn${hideDuplicates ? ' is-active' : ''}`}
-                      onClick={() => setHideDuplicates(!hideDuplicates)}
-                      data-bf-scene="skills"
-                      data-bf-part="filterAction"
-                      data-bf-state={hideDuplicates ? 'active' : undefined}
+                    <div
+                      className="skills-main__filter"
+                      data-openbitfun-scene="skills"
+                      data-openbitfun-part="filterAction"
+                      data-openbitfun-state={hideDuplicates ? 'active' : undefined}
                     >
-                      <Filter size={13} />
-                      <span>{t('toolbar.hideDuplicates')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="skills-main__add-btn"
-                      onClick={toggleAddForm}
-                      data-bf-scene="skills"
-                      data-bf-part="addAction"
-                    >
-                      <Plus size={13} />
-                      <span>{t('toolbar.addTooltip')}</span>
-                    </button>
+                      <Checkbox
+                        checked={hideDuplicates}
+                        onCheckedChange={setHideDuplicates}
+                        size="sm"
+                        label={t('toolbar.hideDuplicates')}
+                      />
+                    </div>
                   </div>
 
-                  {installed.loading && (
-                    <div className="skills-main__loading" aria-busy="true" aria-label={t('list.loading')} data-bf-scene="skills" data-bf-part="loading">
-                      {Array.from({ length: 8 }).map((_, i) => (
-                        <div
-                          key={`ins-sk-${i}`}
-                          className="skills-card-skeleton"
-                          style={{ '--surface-stagger-index': i } as React.CSSProperties}
-                          data-bf-scene="skills"
-                          data-bf-part="skeleton"
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  {!installed.loading && installed.error && (
-                    <div className="skills-main__empty skills-main__empty--error" data-bf-scene="skills" data-bf-part="error">
-                      <Package size={28} strokeWidth={1.2} />
-                      <span>{t('list.loadFailed')}</span>
-                      <Button
-                        variant="ghost"
-                        size="small"
-                        onClick={() => void installed.loadSkills(true)}
-                      >
-                        {t('list.retry')}
-                      </Button>
-                    </div>
-                  )}
-
-                  {!installed.loading && !installed.error && installedFiltered.length === 0 && (
-                    <div className="skills-main__empty" data-testid="skill-list-empty" data-bf-scene="skills" data-bf-part="empty">
-                      <Package size={28} strokeWidth={1.2} />
-                      <span>
-                        {installed.skills.length === 0
-                          ? t('list.empty.noSkills')
-                          : t('list.empty.noMatch')}
+                  <div className="skills-main__list-shell">
+                    <div
+                      className="skills-main__list-header"
+                      data-openbitfun-scene="skills"
+                      data-openbitfun-part="installedListHeader"
+                    >
+                      <div className="skills-main__list-heading">
+                        <span data-openbitfun-scene="skills" data-openbitfun-part="installedListTitle">
+                          {t(activeInstalledCategory.titleKey)}
+                        </span>
+                        <span
+                          className="skills-main__list-count"
+                          data-openbitfun-scene="skills"
+                          data-openbitfun-part="installedListCount"
+                        >
+                          {formatNumber(installedFiltered.length)}
+                        </span>
+                      </div>
+                      <span className="skills-main__column-label skills-main__column-label--source">
+                        {t('list.columns.source')}
+                      </span>
+                      <span className="skills-main__column-label skills-main__column-label--level">
+                        {t('list.columns.level')}
+                      </span>
+                      <span className="skills-main__column-label skills-main__column-label--status">
+                        {t('list.columns.status')}
+                      </span>
+                      <span className="skills-main__column-label skills-main__column-label--actions">
+                        {t('list.columns.actions')}
                       </span>
                     </div>
-                  )}
 
-                  {!installed.loading && !installed.error && (
-                    <>
-                      <div className="skills-main__grid" data-testid="skill-list" data-bf-scene="skills" data-bf-part="list">
-                        {pagedInstalledSkills.map((skill, index) => (
+                    {installed.loading && (
+                      <ScrollArea className="skills-main__loading" aria-busy="true" aria-label={t('list.loading')}>
+                        {Array.from({ length: 8 }).map((_, i) => (
+                          <div
+                            key={`ins-sk-${i}`}
+                            className="skills-card-skeleton"
+                            style={{ '--surface-stagger-index': i } as React.CSSProperties}
+                            data-openbitfun-scene="skills"
+                            data-openbitfun-part="skeleton"
+                          />
+                        ))}
+                      </ScrollArea>
+                    )}
+
+                    {!installed.loading && installed.error && (
+                      <div className="skills-main__empty skills-main__empty--error" data-openbitfun-scene="skills" data-openbitfun-part="error">
+                        <Icon glyph={Package} size="lg" />
+                        <span>{t('list.loadFailed')}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void installed.loadSkills(true)}
+                        >
+                          {t('list.retry')}
+                        </Button>
+                      </div>
+                    )}
+
+                    {!installed.loading && !installed.error && installedFiltered.length === 0 && (
+                      <div className="skills-main__empty" data-testid="skill-list-empty" data-openbitfun-scene="skills" data-openbitfun-part="empty">
+                        <Icon glyph={Package} size="lg" />
+                        <span>
+                          {installed.skills.length === 0
+                            ? t('list.empty.noSkills')
+                            : t('list.empty.noMatch')}
+                        </span>
+                      </div>
+                    )}
+
+                    {!installed.loading && !installed.error && installedFiltered.length > 0 && (
+                      <ScrollArea
+                        className="skills-main__grid"
+                        data-testid="skill-list"
+                        data-openbitfun-scene="skills"
+                        data-openbitfun-part="list"
+                      >
+                        {installedFiltered.map((skill, index) => (
                           <div
                             key={skill.key}
                             className={[
@@ -394,6 +471,7 @@ const SkillsScene: React.FC = () => {
                             onClick={() => setSelectedDetail({ type: 'installed', skillKey: skill.key })}
                             role="button"
                             tabIndex={0}
+                            data-overflow-trigger
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault();
@@ -407,50 +485,76 @@ const SkillsScene: React.FC = () => {
                             data-skill-name={skill.name}
                             data-skill-level={skill.level}
                             data-skill-builtin={skill.isBuiltin ? 'true' : 'false'}
-                            data-bf-scene="skills"
-                            data-bf-part="installedCard"
-                            data-bf-level={skill.level}
-                            data-bf-state={[
+                            data-openbitfun-scene="skills"
+                            data-openbitfun-part="installedCard"
+                            data-openbitfun-level={skill.level}
+                            data-openbitfun-state={[
                               skill.isShadowed && 'shadowed',
                               skill.isBuiltin && 'builtin',
                             ].filter(Boolean).join(' ') || undefined}
                           >
-                            <div className="skills-card__top" data-bf-scene="skills" data-bf-part="installedCardTop">
-                              <div className="skills-card__icon" data-bf-scene="skills" data-bf-part="installedCardIcon">
-                                <Puzzle size={18} strokeWidth={1.6} />
+                            <div className="skills-card__top" data-openbitfun-scene="skills" data-openbitfun-part="installedCardTop">
+                              <div className="skills-card__icon" data-openbitfun-scene="skills" data-openbitfun-part="installedCardIcon">
+                                <Icon name="extension" size="md" />
                               </div>
-                              <div className="skills-card__info" data-bf-scene="skills" data-bf-part="installedCardInfo">
-                                <span className="skills-card__name" data-testid="skill-list-item-title" data-bf-scene="skills" data-bf-part="installedCardName">{skill.name}</span>
+                              <div className="skills-card__info" data-openbitfun-scene="skills" data-openbitfun-part="installedCardInfo">
+                                <span className="skills-card__name" data-testid="skill-list-item-title" data-openbitfun-scene="skills" data-openbitfun-part="installedCardName">
+                                  <OverflowText behavior="marquee">{skill.name}</OverflowText>
+                                </span>
                                 {skill.description?.trim() && (
-                                  <span className="skills-card__desc" data-testid="skill-list-item-description" data-bf-scene="skills" data-bf-part="installedCardDescription">{skill.description}</span>
+                                  <span className="skills-card__desc" data-testid="skill-list-item-description" data-openbitfun-scene="skills" data-openbitfun-part="installedCardDescription">{skill.description}</span>
                                 )}
-                              </div>
-                              <div className="skills-card__status-badges">
-                                {skill.isBuiltin && (
-                                  <Badge variant="accent">
-                                    <ShieldCheck size={11} />
-                                    {t('list.item.builtin')}
-                                  </Badge>
-                                )}
-                                {skill.level === 'user'
-                                  && installed.globallyDisabledSkillKeys.has(skill.key) && (
-                                  <Badge variant="neutral">
-                                    {t('list.item.globalDisabled')}
-                                  </Badge>
-                                )}
+                                <div className="skills-card__status-badges">
+                                  {skill.isBuiltin && (
+                                    <StatusPill tone="accent" leading={<Icon glyph={ShieldCheck} />}>
+                                      {t('list.item.builtin')}
+                                    </StatusPill>
+                                  )}
+                                  {skill.level === 'user'
+                                    && installed.globallyDisabledSkillKeys.has(skill.key) && (
+                                    <StatusPill tone="neutral">
+                                      {t('list.item.globalDisabled')}
+                                    </StatusPill>
+                                  )}
+                                  {skill.isShadowed && (
+                                    <span title={t('list.item.shadowedTooltip', {
+                                      source: coverageSourceBySkillKey.get(skill.key)
+                                        ?? t('list.item.unknownSource'),
+                                    })}>
+                                      <StatusPill tone="warning" leading={<Icon glyph={ShieldAlert} />}>
+                                        {t('list.item.shadowed')}
+                                      </StatusPill>
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
 
-                            <div className="skills-card__meta" data-bf-scene="skills" data-bf-part="installedCardMeta">
-                              <Badge variant="neutral">
-                                {getSkillSourceLabel(skill, t('list.item.unknownSource'))}
-                              </Badge>
-                              <Badge
-                                variant={skill.level === 'user' ? 'info' : 'purple'}
+                            <div
+                              className="skills-card__meta"
+                              data-openbitfun-scene="skills"
+                              data-openbitfun-part="installedCardMeta"
+                            >
+                              <span
+                                className="skills-card__source"
+                                data-openbitfun-scene="skills"
+                                data-openbitfun-part="installedCardSource"
                               >
-                                {skill.level === 'user'
-                                  ? <User size={11} />
-                                  : <FolderOpen size={11} />}
+                                <StatusPill className="skills-card__source-pill" tone="neutral">
+                                  {getSkillSourceLabel(skill, t('list.item.unknownSource'))}
+                                </StatusPill>
+                              </span>
+                            </div>
+
+                            <div
+                              className="skills-card__level"
+                              data-openbitfun-scene="skills"
+                              data-openbitfun-part="installedCardLevel"
+                            >
+                              {skill.level === 'user'
+                                ? <Icon name="user" size="xs" />
+                                : <Icon glyph={FolderOpen} size="xs" />}
+                              <OverflowText>
                                 {market.isRemoteWorkspace
                                   ? skill.level === 'user'
                                     ? t('list.item.localUser')
@@ -458,17 +562,28 @@ const SkillsScene: React.FC = () => {
                                   : skill.level === 'user'
                                     ? t('list.item.user')
                                     : t('list.item.project')}
-                              </Badge>
-                              {skill.isShadowed && (
-                                <span title={t('list.item.shadowedTooltip', {
-                                  source: coverageSourceBySkillKey.get(skill.key)
-                                    ?? t('list.item.unknownSource'),
-                                })}>
-                                  <Badge variant="warning">
-                                    <ShieldAlert size={11} />
-                                    {t('list.item.shadowed')}
-                                  </Badge>
-                                </span>
+                              </OverflowText>
+                            </div>
+
+                            <div
+                              className="skills-card__global-toggle"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              data-openbitfun-scene="skills"
+                              data-openbitfun-part="installedCardStatus"
+                            >
+                              {skill.level === 'user' ? (
+                                <Switch
+                                  checked={!installed.globallyDisabledSkillKeys.has(skill.key)}
+                                  disabled={installed.savingGlobalSkillKey !== null}
+                                  aria-busy={installed.savingGlobalSkillKey === skill.key}
+                                  aria-label={t('list.item.globalToggleLabel', { name: skill.name })}
+                                  onChange={(event) => {
+                                    void installed.handleGlobalSkillToggle(skill, event.target.checked);
+                                  }}
+                                />
+                              ) : (
+                                <span className="skills-card__status-unavailable" aria-hidden="true">—</span>
                               )}
                             </div>
 
@@ -476,83 +591,37 @@ const SkillsScene: React.FC = () => {
                               className="skills-card__actions"
                               onClick={(e) => e.stopPropagation()}
                               onKeyDown={(e) => e.stopPropagation()}
-                              data-bf-scene="skills"
-                              data-bf-part="installedCardActions"
+                              data-openbitfun-scene="skills"
+                              data-openbitfun-part="installedCardActions"
                             >
-                              {skill.level === 'user' && (
-                                <div className="skills-card__global-toggle">
-                                  <Switch
-                                    size="small"
-                                    checked={!installed.globallyDisabledSkillKeys.has(skill.key)}
-                                    loading={installed.savingGlobalSkillKey === skill.key}
-                                    disabled={installed.savingGlobalSkillKey !== null}
-                                    aria-label={t('list.item.globalToggleLabel', { name: skill.name })}
-                                    onChange={(event) => {
-                                      void installed.handleGlobalSkillToggle(skill, event.target.checked);
-                                    }}
-                                  />
-                                </div>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="small"
+                              <IconButton
+                                size="sm"
                                 onClick={() => setSelectedDetail({ type: 'installed', skillKey: skill.key })}
-                              >
-                                <span>{t('list.item.detail')}</span>
-                                <ArrowRight size={12} />
-                              </Button>
+                                aria-label={t('list.item.detail')}
+                                title={t('list.item.detail')}
+                                data-openbitfun-scene="skills"
+                                data-openbitfun-part="installedCardDetails"
+                                icon={<Icon name="arrow-right" size="sm" />}
+                              />
                               {canDeleteSkill(skill) && (
-                                <button
-                                  type="button"
-                                  className="skills-card__delete"
+                                <IconButton
+                                  size="sm"
+                                  tone="danger"
                                   onClick={() => setDeleteTarget(skill)}
                                   aria-label={t('list.item.deleteTooltip')}
                                   title={t('list.item.deleteTooltip')}
-                                  data-bf-scene="skills"
-                                  data-bf-part="installedCardDelete"
-                                >
-                                  <Trash2 size={13} />
-                                </button>
+                                  data-openbitfun-scene="skills"
+                                  data-openbitfun-part="installedCardDelete"
+                                  icon={<Icon name="delete" size="sm" />}
+                                />
                               )}
                             </div>
                           </div>
                         ))}
-                      </div>
+                      </ScrollArea>
+                    )}
+                  </div>
 
-                      {installedFiltered.length > 0 && installedTotalPages > 1 && (
-                        <div className="skills-installed__pagination" data-bf-scene="skills" data-bf-part="pagination">
-                          <button
-                            type="button"
-                            className="skills-installed__page-btn"
-                            onClick={() => setInstalledListPage((p) => Math.max(0, p - 1))}
-                            disabled={currentInstalledPage === 0}
-                            aria-label={t('market.pagination.prev')}
-                            data-bf-scene="skills"
-                            data-bf-part="pageButton"
-                          >
-                            <ChevronLeft size={14} />
-                          </button>
-                          <span className="skills-installed__page-info" data-bf-scene="skills" data-bf-part="pageInfo">
-                            {t('market.pagination.info', {
-                              current: currentInstalledPage + 1,
-                              total: installedTotalPages,
-                            })}
-                          </span>
-                          <button
-                            type="button"
-                            className="skills-installed__page-btn"
-                            onClick={() => setInstalledListPage((p) => Math.min(installedTotalPages - 1, p + 1))}
-                            disabled={currentInstalledPage >= installedTotalPages - 1}
-                            aria-label={t('market.pagination.next')}
-                            data-bf-scene="skills"
-                            data-bf-part="pageButton"
-                          >
-                            <ChevronRight size={14} />
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  )}
                 </>
               )}
             </div>
@@ -560,68 +629,72 @@ const SkillsScene: React.FC = () => {
         )}
 
         {desktopConfigAvailable && activeTab === 'discover' && (
-          <div className="skills-discover" data-bf-scene="skills" data-bf-part="discover">
-            <div className="skills-discover__hero" data-bf-scene="skills" data-bf-part="discoverHero">
-              <div className="skills-discover__hero-content" data-bf-scene="skills" data-bf-part="discoverHeroContent">
-                <h1 className="skills-discover__title" data-bf-scene="skills" data-bf-part="discoverTitle">{t('market.title')}</h1>
-                <p className="skills-discover__subtitle" data-bf-scene="skills" data-bf-part="discoverSubtitle">
+          <div className="skills-discover" id="skills-panel-discover" role="tabpanel" aria-labelledby="skills-tab-discover" data-openbitfun-scene="skills" data-openbitfun-part="discover">
+            <div className="skills-discover__hero" data-openbitfun-scene="skills" data-openbitfun-part="discoverHero">
+              <div className="skills-discover__hero-content" data-openbitfun-scene="skills" data-openbitfun-part="discoverHeroContent">
+                <h3 className="skills-discover__title" data-openbitfun-scene="skills" data-openbitfun-part="discoverTitle">{t('market.title')}</h3>
+                <p className="skills-discover__subtitle" data-openbitfun-scene="skills" data-openbitfun-part="discoverSubtitle">
                   {t('market.subtitle')}
                 </p>
-                <div className="skills-discover__search-wrapper" data-bf-scene="skills" data-bf-part="discoverSearch">
-                  <Search
+                <div className="skills-discover__search-wrapper" data-openbitfun-scene="skills" data-openbitfun-part="discoverSearch">
+                  <SearchField
                     className="skills-discover__search"
                     value={searchDraft}
-                    onChange={setSearchDraft}
+                    onValueChange={setSearchDraft}
                     onSearch={submitMarketQuery}
-                    onClear={submitMarketQuery}
+                    leadingIcon={<Icon name="search" size="sm" aria-hidden />}
                     placeholder={t('market.searchPlaceholder')}
-                    size="medium"
-                    clearable
-                    enterToSearch
+                    aria-label={t('market.searchPlaceholder')}
+                    size="md"
+                    clearLabel={searchDraft ? tComponents('search.clear') : undefined}
+                    onClear={searchDraft ? () => {
+                      setSearchDraft('');
+                      submitMarketQuery();
+                    } : undefined}
                   />
                 </div>
               </div>
             </div>
 
-            <div className="skills-discover__content" data-bf-scene="skills" data-bf-part="discoverContent">
+            <ScrollArea className="skills-discover__content">
               {market.marketLoading && (
-                <div className="skills-discover__grid" aria-busy="true" aria-label={t('list.loading')} data-bf-scene="skills" data-bf-part="loading">
+                <div className="skills-discover__grid" aria-busy="true" aria-label={t('list.loading')} data-openbitfun-scene="skills" data-openbitfun-part="loading">
                   {Array.from({ length: 12 }).map((_, i) => (
                     <div
                       key={`mkt-sk-${i}`}
                       className="skills-discover__skeleton-card"
                       style={{ '--surface-stagger-index': i } as React.CSSProperties}
-                      data-bf-scene="skills"
-                      data-bf-part="skeleton"
+                      data-openbitfun-scene="skills"
+                      data-openbitfun-part="skeleton"
                     />
                   ))}
                 </div>
               )}
 
               {!market.marketLoading && market.marketError && (
-                <div className="skills-discover__empty skills-discover__empty--error" data-bf-scene="skills" data-bf-part="error">
-                  <Package size={28} strokeWidth={1.5} />
+                <div className="skills-discover__empty skills-discover__empty--error" data-openbitfun-scene="skills" data-openbitfun-part="error">
+                  <Icon glyph={Package} size="lg" />
                   <span>{market.marketError}</span>
                 </div>
               )}
 
               {!market.marketLoading && !market.marketError && market.loadingMore && (
-                <div className="skills-discover__grid" aria-busy="true" aria-label={t('list.loading')} data-bf-scene="skills" data-bf-part="loading">
+                <div className="skills-discover__grid" aria-busy="true" aria-label={t('list.loading')} data-openbitfun-scene="skills" data-openbitfun-part="loading">
                   {Array.from({ length: 12 }).map((_, i) => (
                     <div
                       key={`mkt-page-sk-${i}`}
                       className="skills-discover__skeleton-card"
                       style={{ '--surface-stagger-index': i } as React.CSSProperties}
-                      data-bf-scene="skills"
-                      data-bf-part="skeleton"
+                      data-openbitfun-scene="skills"
+                      data-openbitfun-part="skeleton"
                     />
                   ))}
                 </div>
               )}
 
               {!market.marketLoading && !market.marketError && !market.loadingMore && market.marketSkills.length === 0 && (
-                <div className="skills-discover__empty" data-testid="skill-list-empty" data-bf-scene="skills" data-bf-part="empty">
-                  <Package size={28} strokeWidth={1.5} />
+                <div className="skills-discover__empty" data-testid="skill-list-empty" data-openbitfun-scene="skills" data-openbitfun-part="empty">
+                  <Icon glyph={Package} size="lg" />
                   <span>{marketQuery ? t('market.empty.noMatch') : t('market.empty.noSkills')}</span>
                 </div>
               )}
@@ -629,16 +702,16 @@ const SkillsScene: React.FC = () => {
               {!market.marketLoading && !market.marketError && !market.loadingMore && market.marketSkills.length > 0 && (
                 <>
                   {marketQuery && (
-                    <div className="skills-discover__results-info" data-bf-scene="skills" data-bf-part="resultsInfo">
+                    <div className="skills-discover__results-info" data-openbitfun-scene="skills" data-openbitfun-part="resultsInfo">
                       <span>
                         {t('market.resultsInfo', { query: marketQuery, count: market.totalLoaded })}
                       </span>
                     </div>
                   )}
 
-                  <div className="skills-discover__grid" data-testid="skill-list" data-bf-scene="skills" data-bf-part="list">
+                  <div className="skills-discover__grid" data-testid="skill-list" data-openbitfun-scene="skills" data-openbitfun-part="list">
                     {market.marketSkills.map((skill, index) => {
-                      const isInstalled = installedSkillNames.has(skill.name);
+                      const isInstalled = isSkillMarketItemInstalled(skill, installedMarketIds);
                       const isDownloading = market.downloadingPackage === skill.installId;
                       return (
                         <SkillCard
@@ -649,27 +722,28 @@ const SkillsScene: React.FC = () => {
                           data-skill-name={skill.name}
                           data-skill-installed={isInstalled ? 'true' : 'false'}
                           name={skill.name}
-                          description={skill.description}
+                          description={skill.description || t('market.item.noDescription')}
                           index={index}
                           accentSeed={skill.installId}
                           iconKind="market"
                           badges={isInstalled ? (
-                            <Badge variant="success">
-                              <CheckCircle2 size={11} />
+                            <StatusPill tone="success" leading={<Icon name="check-circle" size="2xs" />}>
                               {t('market.item.installed')}
-                            </Badge>
+                            </StatusPill>
                           ) : null}
                           meta={(
-                            <span className="bitfun-skills-scene__market-meta">
-                              <TrendingUp size={12} />
-                              {skill.installs ?? 0}
+                            <span className="openbitfun-skills-scene__market-meta" title={t('market.item.installs', { count: skill.installs ?? 0 })}>
+                              <Icon glyph={TrendingUp} size="xs" />
+                              {formatNumber(skill.installs ?? 0)}
                             </span>
                           )}
                           actions={[
                             {
                               id: 'download',
-                              icon: isInstalled ? <CheckCircle2 size={13} /> : <Download size={13} />,
+                              icon: isInstalled ? <Icon name="check-circle" size="xs" /> : <Icon name="arrow-down" size="xs" />,
                               ariaLabel: isInstalled ? t('market.item.installed') : t('market.item.downloadProject'),
+                              label: isDownloading ? t('market.item.downloading') : undefined,
+                              loading: isDownloading,
                               title: isDownloading
                                 ? t('market.item.downloading')
                                 : (isInstalled ? t('market.item.installedTooltip') : t('market.item.downloadProject')),
@@ -689,39 +763,39 @@ const SkillsScene: React.FC = () => {
                   </div>
 
                   {(market.totalPages > 1 || market.hasMore) && (
-                    <div className="skills-discover__pagination" data-bf-scene="skills" data-bf-part="pagination">
-                      <button
-                        type="button"
+                    <div className="skills-discover__pagination" data-openbitfun-scene="skills" data-openbitfun-part="pagination">
+                      <IconButton
+                        size="sm"
+                        variant="fill"
                         className="skills-discover__page-btn"
                         onClick={market.goToPrevPage}
                         disabled={market.currentPage === 0 || market.loadingMore}
                         aria-label={t('market.pagination.prev')}
-                        data-bf-scene="skills"
-                        data-bf-part="pageButton"
-                      >
-                        <ChevronLeft size={14} />
-                      </button>
-                      <span className="skills-discover__page-info" data-bf-scene="skills" data-bf-part="pageInfo">
+                        data-openbitfun-scene="skills"
+                        data-openbitfun-part="pageButton"
+                        icon={<Icon name="chevron-left" size="sm" />}
+                      />
+                      <span className="skills-discover__page-info" data-openbitfun-scene="skills" data-openbitfun-part="pageInfo">
                         {market.hasMore
                           ? t('market.pagination.infoMore', { current: market.currentPage + 1 })
                           : t('market.pagination.info', { current: market.currentPage + 1, total: market.totalPages })}
                       </span>
-                      <button
-                        type="button"
+                      <IconButton
+                        size="sm"
+                        variant="fill"
                         className="skills-discover__page-btn"
                         onClick={() => void market.goToNextPage()}
                         disabled={(!market.hasMore && market.currentPage >= market.totalPages - 1) || market.loadingMore}
                         aria-label={t('market.pagination.next')}
-                        data-bf-scene="skills"
-                        data-bf-part="pageButton"
-                      >
-                        <ChevronRight size={14} />
-                      </button>
+                        data-openbitfun-scene="skills"
+                        data-openbitfun-part="pageButton"
+                        icon={<Icon name="chevron-right" size="sm" />}
+                      />
                     </div>
                   )}
                 </>
               )}
-            </div>
+            </ScrollArea>
           </div>
         )}
       </div>
@@ -729,7 +803,7 @@ const SkillsScene: React.FC = () => {
       <GalleryDetailModal
         isOpen={desktopConfigAvailable && Boolean(selectedDetail)}
         onClose={() => setSelectedDetail(null)}
-        icon={selectedMarketSkill ? <Package size={24} strokeWidth={1.6} /> : <Puzzle size={24} strokeWidth={1.6} />}
+        icon={selectedMarketSkill ? <Icon glyph={Package} size="lg" /> : <Icon name="extension" size="lg" />}
         iconGradient={getCardGradient(
           selectedInstalledSkill?.name
           ?? selectedMarketSkill?.installId
@@ -744,19 +818,18 @@ const SkillsScene: React.FC = () => {
                 source: coverageSourceBySkillKey.get(selectedInstalledSkill.key)
                   ?? t('list.item.unknownSource'),
               })}>
-                <Badge variant="warning">
-                  <ShieldAlert size={11} />
+                <StatusPill tone="warning" leading={<Icon glyph={ShieldAlert} />}>
                   {t('list.item.shadowed')}
-                </Badge>
+                </StatusPill>
               </span>
             )}
-            <Badge variant="neutral">
+            <StatusPill tone="neutral">
               {getSkillSourceLabel(selectedInstalledSkill, t('list.item.unknownSource'))}
-            </Badge>
-            <Badge variant={selectedInstalledSkill.isBuiltin ? 'accent' : 'success'}>
+            </StatusPill>
+            <StatusPill tone={selectedInstalledSkill.isBuiltin ? 'accent' : 'success'}>
               {selectedInstalledSkill.isBuiltin ? t('list.item.builtin') : t('list.item.userInstalled')}
-            </Badge>
-            <Badge variant={selectedInstalledSkill.level === 'user' ? 'info' : 'purple'}>
+            </StatusPill>
+            <StatusPill tone={selectedInstalledSkill.level === 'user' ? 'info' : 'accent'}>
               {market.isRemoteWorkspace
                 ? selectedInstalledSkill.level === 'user'
                   ? t('list.item.localUser')
@@ -764,13 +837,12 @@ const SkillsScene: React.FC = () => {
                 : selectedInstalledSkill.level === 'user'
                   ? t('list.item.user')
                   : t('list.item.project')}
-            </Badge>
+            </StatusPill>
           </>
-        ) : selectedMarketSkill && installedSkillNames.has(selectedMarketSkill.name) ? (
-          <Badge variant="success">
-            <CheckCircle2 size={11} />
+        ) : selectedMarketSkill && isSkillMarketItemInstalled(selectedMarketSkill, installedMarketIds) ? (
+          <StatusPill tone="success" leading={<Icon name="check-circle" size="2xs" />}>
             {t('market.item.installed')}
-          </Badge>
+          </StatusPill>
         ) : null}
         description={selectedInstalledSkill?.description ?? selectedMarketSkill?.description}
         testId="skill-detail-panel"
@@ -778,35 +850,37 @@ const SkillsScene: React.FC = () => {
         descriptionTestId="skill-detail-description"
         closeButtonTestId="skill-detail-close"
         meta={selectedMarketSkill ? (
-          <span className="bitfun-skills-scene__market-meta">
-            <TrendingUp size={12} />
-            {selectedMarketSkill.installs ?? 0}
+          <span className="openbitfun-skills-scene__market-meta">
+            <Icon glyph={TrendingUp} size="xs" />
+            {formatNumber(selectedMarketSkill.installs ?? 0)}
           </span>
         ) : null}
         actions={selectedInstalledSkill && canDeleteSkill(selectedInstalledSkill) ? (
           <Button
-            variant="danger"
-            size="small"
+            variant="fill"
+            tone="danger"
+            size="sm"
             onClick={() => {
               setDeleteTarget(selectedInstalledSkill);
               setSelectedDetail(null);
             }}
+            leadingIcon={<Icon name="delete" size="sm" />}
           >
-            <Trash2 size={14} />
+
             {t('deleteModal.delete')}
           </Button>
         ) : selectedMarketSkill ? (
           <>
-            {installedSkillNames.has(selectedMarketSkill.name) ? (
-              <Button variant="secondary" size="small" disabled>
+            {isSkillMarketItemInstalled(selectedMarketSkill, installedMarketIds) ? (
+              <Button variant="outline" size="sm" disabled>
                 {t('market.item.installed')}
               </Button>
             ) : (
               <>
                 {!market.isRemoteWorkspace && (
                   <Button
-                    variant="primary"
-                    size="small"
+                    variant="fill"
+                    size="sm"
                     onClick={() => void market.handleDownload(selectedMarketSkill, 'project')}
                     disabled={market.downloadingPackage === selectedMarketSkill.installId || !market.hasWorkspace}
                   >
@@ -814,8 +888,8 @@ const SkillsScene: React.FC = () => {
                   </Button>
                 )}
                 <Button
-                  variant={market.isRemoteWorkspace ? 'primary' : 'secondary'}
-                  size="small"
+                  variant={market.isRemoteWorkspace ? 'fill' : 'outline'}
+                  size="sm"
                   onClick={() => void market.handleDownload(selectedMarketSkill, 'user')}
                   disabled={market.downloadingPackage === selectedMarketSkill.installId}
                 >
@@ -828,16 +902,16 @@ const SkillsScene: React.FC = () => {
       >
         {selectedInstalledSkill ? (
           <>
-            <div className="bitfun-skills-scene__detail-row">
-              <span className="bitfun-skills-scene__detail-label">{t('list.item.sourceLabel')}</span>
-              <span className="bitfun-skills-scene__detail-value">
+            <div className="openbitfun-skills-scene__detail-row">
+              <span className="openbitfun-skills-scene__detail-label">{t('list.item.sourceLabel')}</span>
+              <span className="openbitfun-skills-scene__detail-value">
                 {getSkillSourceLabel(selectedInstalledSkill, t('list.item.unknownSource'))}
               </span>
             </div>
             {selectedInstalledSkill.isShadowed && (
-              <div className="bitfun-skills-scene__detail-row">
-                <span className="bitfun-skills-scene__detail-label">{t('list.item.shadowedLabel')}</span>
-                <span className="bitfun-skills-scene__detail-value">
+              <div className="openbitfun-skills-scene__detail-row">
+                <span className="openbitfun-skills-scene__detail-label">{t('list.item.shadowedLabel')}</span>
+                <span className="openbitfun-skills-scene__detail-value">
                   {t('list.item.shadowedDetail', {
                     source: coverageSourceBySkillKey.get(selectedInstalledSkill.key)
                       ?? t('list.item.unknownSource'),
@@ -845,12 +919,12 @@ const SkillsScene: React.FC = () => {
                 </span>
               </div>
             )}
-            <div className="bitfun-skills-scene__detail-row" data-testid="skill-detail-capabilities-section">
-              <span className="bitfun-skills-scene__detail-label">{t('list.item.pathLabel')}</span>
+            <div className="openbitfun-skills-scene__detail-row" data-testid="skill-detail-capabilities-section">
+              <span className="openbitfun-skills-scene__detail-label">{t('list.item.pathLabel')}</span>
               {canRevealSkillPath ? (
                 <button
                   type="button"
-                  className="bitfun-skills-scene__detail-path-btn"
+                  className="openbitfun-skills-scene__detail-path-btn"
                   title={t('list.item.openPathInExplorer')}
                   onClick={() => void handleRevealSkillPath(selectedInstalledSkill.path)}
                   data-testid="skills-detail-path-btn"
@@ -858,34 +932,34 @@ const SkillsScene: React.FC = () => {
                   {selectedInstalledSkill.path}
                 </button>
               ) : (
-                <code className="bitfun-skills-scene__detail-value">{selectedInstalledSkill.path}</code>
+                <code className="openbitfun-skills-scene__detail-value">{selectedInstalledSkill.path}</code>
               )}
             </div>
           </>
         ) : null}
 
         {selectedMarketSkill?.source ? (
-          <div className="bitfun-skills-scene__detail-row" data-testid="skill-detail-capabilities-section">
-            <span className="bitfun-skills-scene__detail-label">{t('market.item.sourceLabel')}</span>
-            <span className="bitfun-skills-scene__detail-value">{selectedMarketSkill.source}</span>
+          <div className="openbitfun-skills-scene__detail-row" data-testid="skill-detail-capabilities-section">
+            <span className="openbitfun-skills-scene__detail-label">{t('market.item.sourceLabel')}</span>
+            <span className="openbitfun-skills-scene__detail-value">{selectedMarketSkill.source}</span>
           </div>
         ) : null}
 
         {selectedMarketSkill ? (
-          <div className="bitfun-skills-scene__detail-row">
-            <span className="bitfun-skills-scene__detail-label">{t('market.detail.installsLabel')}</span>
-            <span className="bitfun-skills-scene__detail-value">{selectedMarketSkill.installs ?? 0}</span>
+          <div className="openbitfun-skills-scene__detail-row">
+            <span className="openbitfun-skills-scene__detail-label">{t('market.detail.installsLabel')}</span>
+            <span className="openbitfun-skills-scene__detail-value">{selectedMarketSkill.installs ?? 0}</span>
           </div>
         ) : null}
 
         {selectedMarketSkill?.url ? (
-          <div className="bitfun-skills-scene__detail-row">
-            <span className="bitfun-skills-scene__detail-label">{t('market.detail.linkLabel')}</span>
+          <div className="openbitfun-skills-scene__detail-row">
+            <span className="openbitfun-skills-scene__detail-label">{t('market.detail.linkLabel')}</span>
             <a
               href={selectedMarketSkill.url}
               target="_blank"
               rel="noreferrer"
-              className="bitfun-skills-scene__detail-link"
+              className="openbitfun-skills-scene__detail-link"
               data-testid="skills-detail-external-link"
             >
               {selectedMarketSkill.url}
@@ -894,90 +968,98 @@ const SkillsScene: React.FC = () => {
         ) : null}
       </GalleryDetailModal>
 
-      <Modal
-        isOpen={desktopConfigAvailable && isAddFormOpen}
-        onClose={() => {
-          installed.resetForm();
-          setAddFormOpen(false);
+      <Dialog
+        open={desktopConfigAvailable && isAddFormOpen}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            installed.resetForm();
+            setAddFormOpen(false);
+          }
         }}
-        title={t('form.title')}
-        size="small"
+        size="sm"
       >
-        <div className="bitfun-skills-scene__modal-form">
-          <Select
-            label={t('form.level.label')}
-            options={[
-              { label: t('form.level.user'), value: 'user' },
-              {
-                label: `${t('form.level.project')}${installed.hasWorkspace && !installed.isRemoteWorkspace ? '' : t('form.level.projectDisabled')}`,
-                value: 'project',
-                disabled: !installed.hasWorkspace || installed.isRemoteWorkspace,
-              },
-            ]}
-            value={installed.formLevel}
-            onChange={(value) => installed.setFormLevel(value as SkillLevel)}
-            size="medium"
-          />
+        <DialogHeader>
+          <DialogHeading>
+            <DialogTitle>{t('form.title')}</DialogTitle>
+          </DialogHeading>
+          <DialogClose />
+        </DialogHeader>
+        <DialogBody inset="none">
+        <div className="openbitfun-skills-scene__modal-form">
+          <Field label={t('form.level.label')} controlWidth="fill">
+            <Select
+              options={[
+                { label: t('form.level.user'), value: 'user' },
+                {
+                  label: `${t('form.level.project')}${installed.hasWorkspace && !installed.isRemoteWorkspace ? '' : t('form.level.projectDisabled')}`,
+                  value: 'project',
+                  disabled: !installed.hasWorkspace || installed.isRemoteWorkspace,
+                },
+              ]}
+              value={installed.formLevel}
+              onValueChange={(value) => installed.setFormLevel(value as SkillLevel)}
+              size="md"
+            />
+          </Field>
 
           {installed.formLevel === 'project' && installed.hasWorkspace ? (
-            <div className="bitfun-skills-scene__form-hint">
+            <div className="openbitfun-skills-scene__form-hint">
               {t('form.level.selectedProjectPath', { path: installed.workspacePath })}
             </div>
           ) : null}
 
-          <div className="bitfun-skills-scene__path-input">
-            <Input
-              label={t('form.path.label')}
-              placeholder={t('form.path.placeholder')}
-              value={installed.formPath}
-              onChange={(e) => installed.setFormPath(e.target.value)}
-              variant="outlined"
-            />
-            <button
-              type="button"
-              className="gallery-action-btn"
+          <div className="openbitfun-skills-scene__path-input">
+            <Field label={t('form.path.label')} controlWidth="fill">
+              <Input
+                placeholder={t('form.path.placeholder')}
+                value={installed.formPath}
+                onChange={(e) => installed.setFormPath(e.target.value)}
+              />
+            </Field>
+            <IconButton
+              size="md"
               onClick={installed.handleBrowse}
               aria-label={t('form.path.browseTooltip')}
-            >
-              <FolderOpen size={15} />
-            </button>
+              title={t('form.path.browseTooltip')}
+              icon={<Icon glyph={FolderOpen} size="sm" />}
+            />
           </div>
-          <div className="bitfun-skills-scene__path-hint">
+          <div className="openbitfun-skills-scene__path-hint">
             {t('form.path.hint')}
           </div>
 
           {installed.isValidating ? (
-            <div className="bitfun-skills-scene__validating">{t('form.validating')}</div>
+            <div className="openbitfun-skills-scene__validating">{t('form.validating')}</div>
           ) : null}
 
           {installed.validationResult ? (
             <div
               className={[
-                'bitfun-skills-scene__validation',
+                'openbitfun-skills-scene__validation',
                 installed.validationResult.valid ? 'is-valid' : 'is-invalid',
               ].filter(Boolean).join(' ')}
             >
               {installed.validationResult.valid ? (
                 <>
-                  <div className="bitfun-skills-scene__validation-name">
+                  <div className="openbitfun-skills-scene__validation-name">
                     {installed.validationResult.name}
                   </div>
-                  <div className="bitfun-skills-scene__validation-desc">
+                  <div className="openbitfun-skills-scene__validation-desc">
                     {installed.validationResult.description}
                   </div>
                 </>
               ) : (
-                <div className="bitfun-skills-scene__validation-error">
+                <div className="openbitfun-skills-scene__validation-error">
                   {installed.validationResult.error}
                 </div>
               )}
             </div>
           ) : null}
 
-          <div className="bitfun-skills-scene__modal-form-actions">
+          <div className="openbitfun-skills-scene__modal-form-actions">
             <Button
-              variant="secondary"
-              size="small"
+              variant="outline"
+              size="sm"
               onClick={() => {
                 installed.resetForm();
                 setAddFormOpen(false);
@@ -986,8 +1068,8 @@ const SkillsScene: React.FC = () => {
               {t('form.actions.cancel')}
             </Button>
             <Button
-              variant="primary"
-              size="small"
+              variant="fill"
+              size="sm"
               onClick={handleAddSkill}
               disabled={!installed.validationResult?.valid || installed.isAdding}
             >
@@ -995,11 +1077,12 @@ const SkillsScene: React.FC = () => {
             </Button>
           </div>
         </div>
-      </Modal>
+              </DialogBody>
+      </Dialog>
 
       <ConfirmDialog
-        isOpen={desktopConfigAvailable && Boolean(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
+        open={desktopConfigAvailable && Boolean(deleteTarget)}
+        onOpenChange={() => setDeleteTarget(null)}
         onConfirm={async () => {
           if (!desktopConfigAvailable || !deleteTarget || !canDeleteSkill(deleteTarget)) {
             setDeleteTarget(null);

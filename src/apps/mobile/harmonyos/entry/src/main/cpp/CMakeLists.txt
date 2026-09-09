@@ -1,17 +1,22 @@
 cmake_minimum_required(VERSION 3.5.0)
-project(bitfun_crypto)
+project(openbitfun_crypto)
 
-add_library(bitfun_crypto SHARED
+# Argon2 is a shared, platform-neutral source set. HarmonyOS and the KMP iOS
+# actual both build this same implementation; keep the algorithm out of either
+# platform directory so the two copies cannot drift.
+set(OPENBITFUN_ARGON2_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../shared/argon2)
+
+add_library(openbitfun_crypto SHARED
   napi_argon2.cpp
-  argon2/argon2.c
-  argon2/core.c
-  argon2/encoding.c
-  argon2/ref.c
-  argon2/run.c
-  argon2/thread.c
-  argon2/blake2/blake2b.c
+  ${OPENBITFUN_ARGON2_DIR}/argon2.c
+  ${OPENBITFUN_ARGON2_DIR}/core.c
+  ${OPENBITFUN_ARGON2_DIR}/encoding.c
+  ${OPENBITFUN_ARGON2_DIR}/ref.c
+  ${OPENBITFUN_ARGON2_DIR}/run.c
+  ${OPENBITFUN_ARGON2_DIR}/thread.c
+  ${OPENBITFUN_ARGON2_DIR}/blake2/blake2b.c
 )
 
-target_include_directories(bitfun_crypto PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/argon2)
-target_compile_definitions(bitfun_crypto PRIVATE A2_VISCTL)
-target_link_libraries(bitfun_crypto PUBLIC libace_napi.z.so)
+target_include_directories(openbitfun_crypto PRIVATE ${OPENBITFUN_ARGON2_DIR})
+target_compile_definitions(openbitfun_crypto PRIVATE A2_VISCTL)
+target_link_libraries(openbitfun_crypto PUBLIC libace_napi.z.so)

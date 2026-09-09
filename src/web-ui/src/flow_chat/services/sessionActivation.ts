@@ -29,7 +29,10 @@ export async function openMainSession(
 }
 
 export async function activateMainSession(sessionId: string): Promise<boolean> {
-  const isTargetActive = () => flowChatStore.getState().activeSessionId === sessionId;
+  const isTargetActive = () => {
+    const state = flowChatStore.getState();
+    return state.activeSessionId === sessionId && state.sessions.has(sessionId);
+  };
   const targetSession = flowChatStore.getState().sessions.get(sessionId) ?? null;
   if (!targetSession) {
     return false;

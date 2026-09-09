@@ -13,17 +13,47 @@ vi.mock('lucide-react', () => ({
   Copy: () => <Icon name="copy" />,
 }));
 
-vi.mock('@/component-library', () => ({
-  Button: ({
-    children,
-    className,
-    ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" className={className} {...props}>
-      {children}
-    </button>
+vi.mock('@openbitfun/ui', () => ({
+  Icon: ({ name, ...props }: { name: string } & React.HTMLAttributes<HTMLSpanElement>) => <span data-icon={name} {...props} />,
+  Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button type="button" {...props}>{children}</button>
   ),
-  CubeLoading: ({ text }: { text: string }) => <div>{text}</div>,
+  IconButton: ({
+    icon,
+    size: _size,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    icon: React.ReactNode;
+    size?: string;
+  }) => (
+    <button type="button" data-component="icon-button" {...props}>{icon}</button>
+  ),
+  LoadingState: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  SegmentedControl: ({
+    options,
+    value,
+    onValueChange,
+    'aria-label': ariaLabel,
+  }: {
+    options: Array<{ value: string; label: React.ReactNode }>;
+    value: string;
+    onValueChange?: (value: string) => void;
+    'aria-label'?: string;
+  }) => (
+    <div role="radiogroup" aria-label={ariaLabel}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="radio"
+          aria-checked={option.value === value}
+          onClick={() => onValueChange?.(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock('../meditor', () => ({
@@ -84,7 +114,7 @@ vi.mock('@/infrastructure/event-bus', () => ({
   },
 }));
 
-vi.mock('@/component-library/components/ConfirmDialog/confirmService', () => ({
+vi.mock('@/infrastructure/confirm-dialog', () => ({
   confirmDialog: vi.fn(),
 }));
 
@@ -95,23 +125,26 @@ describe('MarkdownEditor', () => {
     );
 
     expect(html).toContain('aria-label="Copy Markdown"');
-    expect(html).toContain('data-icon="copy"');
-    expect(html).toContain('bitfun-markdown-editor__toolbar-button');
+    expect(html).toContain('data-icon="duplicate"');
+    expect(html).toContain('data-component="icon-button"');
   });
 
-  it('uses preview mode for markdown rendering', () => {
+  it('opens Mermaid documents in rich text mode', () => {
     const html = renderToStaticMarkup(
       <MarkdownEditor initialContent="```mermaid\ngraph TD\n  A-->B\n```" />,
     );
 
-    expect(html).toContain('data-mode="preview"');
+    expect(html).toContain('data-mode="ir"');
   });
 
-  it('does not show the IR fallback warning in the preview/source file UI', () => {
+  it('offers only rich text and source modes', () => {
     const html = renderToStaticMarkup(
       <MarkdownEditor initialContent="# Ordinary Markdown" />,
     );
 
-    expect(html).not.toContain('IR fallback warning');
+    expect(html).toContain('editor.markdownEditor.richText');
+    expect(html).toContain('editor.markdownEditor.source');
+    expect(html).not.toContain('editor.markdownEditor.preview');
+    expect(html.match(/role="radio"/g)).toHaveLength(2);
   });
 });

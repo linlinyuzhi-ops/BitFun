@@ -1,7 +1,8 @@
+import { OverflowText, Button, IconButton } from '@openbitfun/ui';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import path from 'path-browserify';
-import {CornerUpLeft, Link2, Loader2, Square, Sparkles} from 'lucide-react';
+import { CornerUpLeft, Loader2, Square } from 'lucide-react';
 import {FlowChatContext, FlowChatVolatileContext} from '../modern/FlowChatContext';
 import {VirtualItemRenderer} from '../modern/VirtualItemRenderer';
 import {RuntimeStatusSlot} from '../modern/RuntimeStatusSlot';
@@ -9,18 +10,17 @@ import {PermissionRequestPanel} from '../modern/PermissionRequestPanel';
 import {pendingPermissionToolCallIdsForSession} from '../modern/permissionRequestRouting';
 import {usePermissionRequests} from '../modern/usePermissionRequests';
 import {useExploreGroupState} from '../modern/useExploreGroupState';
+import {ChatInputApprovalBand} from '../ChatInputApprovalBand';
 import {ScrollToBottomButton} from '@/flow_chat';
 import {flowChatStore} from '../../store/FlowChatStore';
-import type {DialogTurn, FlowChatConfig, FlowChatState, Session} from '../../types/flow-chat';
+import type {DialogTurn, FlowChatState, Session} from '../../types/flow-chat';
 import {sessionToVirtualItems} from '../../store/modernFlowChatStore';
 import {FLOWCHAT_FOCUS_ITEM_EVENT, type FlowChatFocusItemRequest} from '../../events/flowchatNavigation';
 import {fileTabManager} from '@/shared/services/FileTabManager';
 import {createTab} from '@/shared/utils/tabUtils';
-import {IconButton, type LineRange} from '@/component-library';
-import {
-  PRESENCE_BOUNDARY_MIN_EXIT_MS,
-  PresenceBoundary,
-} from '@/component-library/components/PresenceBoundary';
+import { type LineRange } from '@/shared/editor/LineRange';
+import { Tooltip, Icon } from '@openbitfun/ui';
+import { DEFAULT_RETAINED_MOUNT_MS, RetainedMountBoundary } from '@/shared/presence';
 import {resolveSessionRelationship} from '../../utils/sessionMetadata';
 import {agentAPI} from '@/infrastructure/api';
 import {globalEventBus} from '@/infrastructure/event-bus';
@@ -61,6 +61,13 @@ import {
   hasOpaqueWorkspaceMutationRisk,
 } from '../../utils/modifiedFilePaths';
 import { getMotionAwareScrollBehavior } from '../../utils/motionPreference';
+import { sessionLineageLifecycleForSession } from '../../utils/sessionLineage';
+import {
+  SubagentAvatar,
+} from '../../subagent-identity';
+import { FlowChatManager } from '../../services/FlowChatManager';
+import { useSessionCompletionReceipt } from '../../hooks/useSessionCompletionReceipt';
+import { isImeOwnedKeyboardEvent } from '@/shared/utils/ime';
 
 function findReviewChildByRequestId(
   parentSessionId: string | null | undefined,
@@ -90,14 +97,6 @@ export interface BtwSessionPanelProps {
   viewKind?: BtwSessionViewKind;
   displayTitle?: string;
 }
-
-const PANEL_CONFIG: FlowChatConfig = {
-  enableMarkdown: true,
-  autoScroll: true,
-  showTimestamps: false,
-  maxHistoryRounds: 50,
-  enableVirtualScroll: false,
-};
 
 const resolveSessionTitle = (session?: Session | null, fallback = 'Side thread') =>
   session?.title?.trim() || fallback;
@@ -153,6 +152,7 @@ export const BtwSessionPanel: React.FC<BtwSessionPanelProps> = ({
   const [stoppingReview, setStoppingReview] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  useSessionCompletionReceipt(childSessionId ?? null, scrollContainerRef);
   const actionBarRef = useRef<HTMLDivElement>(null);
   const [actionBarHeight, setActionBarHeight] = useState(0);
   const shouldAutoScrollRef = useRef(true);
@@ -186,6 +186,9 @@ export const BtwSessionPanel: React.FC<BtwSessionPanelProps> = ({
     childRelationship.kind === 'subagent'
     ? childRelationship.kind
     : 'btw';
+  const subagentAvatarStatus = childKind === 'subagent' && childSession
+    ? sessionLineageLifecycleForSession(childSession)
+    : 'idle';
   const childBadgeLabel = viewKind === 'review-check'
     ? t('toolCards.taskTool.reviewCoverageLabel')
     : t(`childSession.kinds.${childKind}.short`, {
@@ -372,7 +375,6 @@ export const BtwSessionPanel: React.FC<BtwSessionPanelProps> = ({
     activeSessionOverride: childSession ?? null,
     allowUserMessageEdit: false,
     allowTranscriptExport: viewKind !== 'review-check',
-    config: PANEL_CONFIG,
     onExploreGroupToggle,
     onExpandGroup,
     onExpandAllInTurn,
@@ -465,7 +467,7 @@ export const BtwSessionPanel: React.FC<BtwSessionPanelProps> = ({
       setRetainedReviewActionBarOwnerId((currentOwnerId) =>
         currentOwnerId === ownerId ? null : currentOwnerId,
       );
-    }, PRESENCE_BOUNDARY_MIN_EXIT_MS);
+    }, DEFAULT_RETAINED_MOUNT_MS);
     return () => window.clearTimeout(timer);
   }, [childSessionId, retainedReviewActionBarOwnerId, showReviewActionBar]);
   const retainsReviewActionBarLayout = Boolean(
@@ -1020,10 +1022,27 @@ export const BtwSessionPanel: React.FC<BtwSessionPanelProps> = ({
     );
   }, [btwOrigin, parentSessionId]);
 
+  const handlePanelKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (
+      event.key !== 'Escape' ||
+      event.defaultPrevented ||
+      childKind !== 'btw' ||
+      !isTurnProcessing ||
+      !childSessionId ||
+      isImeOwnedKeyboardEvent(event.nativeEvent)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    void FlowChatManager.getInstance().cancelSessionTask(childSessionId);
+  }, [childKind, childSessionId, isTurnProcessing]);
+
   if (!childSessionId || !childSession) {
     return (
-      <div className="btw-session-panel btw-session-panel--empty" data-bf-component="btw-session-panel" data-bf-part="root" data-bf-view="empty">
-        <div className="btw-session-panel__empty-state" data-bf-component="btw-session-panel" data-bf-part="empty">
+      <div className="btw-session-panel btw-session-panel--empty" data-openbitfun-component="btw-session-panel" data-openbitfun-part="root" data-openbitfun-view="empty">
+        <div className="btw-session-panel__empty-state" data-openbitfun-component="btw-session-panel" data-openbitfun-part="empty">
           {t('btw.emptyThreadLabel', { label: t('btw.threadLabel') })}
         </div>
       </div>
@@ -1035,68 +1054,75 @@ export const BtwSessionPanel: React.FC<BtwSessionPanelProps> = ({
       <FlowChatVolatileContext.Provider value={volatileContextValue}>
       <div
         className={`btw-session-panel${retainsReviewActionBarLayout ? ' btw-session-panel--has-action-bar' : ''}`}
-        data-bf-component="btw-session-panel"
-        data-bf-part="root"
-        data-bf-view="session"
-        data-bf-state={retainsReviewActionBarLayout ? 'hasActionBar' : undefined}
+        onKeyDown={handlePanelKeyDown}
+        data-openbitfun-component="btw-session-panel"
+        data-openbitfun-part="root"
+        data-openbitfun-view="session"
+        data-openbitfun-state={retainsReviewActionBarLayout ? 'hasActionBar' : undefined}
       >
-        <div className="btw-session-panel__header" data-bf-component="btw-session-panel" data-bf-part="header">
-          <div className="btw-session-panel__header-left" data-bf-component="btw-session-panel" data-bf-part="headerMain">
-            <span className="btw-session-panel__badge" data-bf-component="btw-session-panel" data-bf-part="badge">{childBadgeLabel}</span>
+        <div className="btw-session-panel__header" data-openbitfun-component="btw-session-panel" data-openbitfun-part="header">
+          <div className="btw-session-panel__header-left" data-openbitfun-component="btw-session-panel" data-openbitfun-part="headerMain">
+            {childKind === 'subagent' ? (
+              <SubagentAvatar
+                sessionId={childSessionId}
+                name={displayTitle}
+                size={24}
+                status={subagentAvatarStatus}
+              />
+            ) : null}
+            <span className="btw-session-panel__badge" data-openbitfun-component="btw-session-panel" data-openbitfun-part="badge">{childBadgeLabel}</span>
           </div>
           <div className="btw-session-panel__header-title-wrap">
-            <span className="btw-session-panel__title" data-bf-component="btw-session-panel" data-bf-part="title">
+            <OverflowText className="btw-session-panel__title" data-openbitfun-component="btw-session-panel" data-openbitfun-part="title">
               {displayTitle?.trim() || (viewKind === 'review-check'
                 ? childBadgeLabel
                 : resolveSessionTitle(childSession, childTitleFallback))}
-            </span>
+            </OverflowText>
           </div>
-          <div className="btw-session-panel__header-right" data-bf-component="btw-session-panel" data-bf-part="actions">
+          <div className="btw-session-panel__header-right" data-openbitfun-component="btw-session-panel" data-openbitfun-part="actions">
             {showOriginMeta && (
-              <div className="btw-session-panel__meta" data-bf-component="btw-session-panel" data-bf-part="meta">
+              <div className="btw-session-panel__meta" data-openbitfun-component="btw-session-panel" data-openbitfun-part="meta">
                 <span className="btw-session-panel__meta-label">{childOriginLabel}</span>
-                <Link2 size={11} />
-                <span className="btw-session-panel__meta-title">{resolveSessionTitle(parentSession, t('btw.parent'))}</span>
+                <Icon name="link" size="2xs" />
+                <OverflowText className="btw-session-panel__meta-title">{resolveSessionTitle(parentSession, t('btw.parent'))}</OverflowText>
               </div>
             )}
             {(viewKind === 'review-check' || childKind === 'review' || childKind === 'deep_review') && (
-              <IconButton
-                className="btw-session-panel__stop-button"
-                variant="ghost"
-                size="xs"
-                onClick={() => void handleStopReviewSession()}
-                disabled={!canStopReviewSession}
-                tooltip={stoppingReview
+              <Tooltip content={stoppingReview
                   ? stoppingReviewLabel
-                  : stopReviewLabel}
-                aria-label={stoppingReview
-                  ? stoppingReviewLabel
-                  : stopReviewLabel}
-                data-testid="btw-session-panel-stop-review"
-              >
-                {stoppingReview ? (
-                  <Loader2
-                    className="btw-session-panel__stop-spinner"
-                    size={11}
-                    data-testid="btw-session-panel-stop-spinner"
-                  />
-                ) : (
-                  <Square size={11} />
-                )}
-              </IconButton>
+                  : stopReviewLabel}>
+                <IconButton
+                  className="btw-session-panel__stop-button"
+                  size="sm"
+                  onClick={() => void handleStopReviewSession()}
+                  disabled={!canStopReviewSession}
+                  aria-label={stoppingReview
+                    ? stoppingReviewLabel
+                    : stopReviewLabel}
+                  data-testid="btw-session-panel-stop-review"
+                  icon={stoppingReview ? (
+                    <Loader2
+                      className="btw-session-panel__stop-spinner"
+                      size={11}
+                      data-testid="btw-session-panel-stop-spinner"
+                    />
+                  ) : (
+                    <Square size={11} />
+                  )}
+                />
+              </Tooltip>
             )}
             {canReturnToParentSession && (
-              <IconButton
-                className="btw-session-panel__origin-button"
-                variant="ghost"
-                size="xs"
-                onClick={handleReturnToParentSession}
-                tooltip={viewKind === 'review-check' ? returnToParentLabel : backTooltip}
-                aria-label={returnToParentLabel}
-                data-testid="btw-session-panel-origin-button"
-              >
-                <CornerUpLeft size={12} />
-              </IconButton>
+              <Tooltip content={viewKind === 'review-check' ? returnToParentLabel : backTooltip}>
+                <IconButton
+                  className="btw-session-panel__origin-button"
+                  size="sm"
+                  onClick={handleReturnToParentSession}
+                  aria-label={returnToParentLabel}
+                  data-testid="btw-session-panel-origin-button"
+                  icon={<CornerUpLeft size={12} />}
+                />
+              </Tooltip>
             )}
           </div>
         </div>
@@ -1118,15 +1144,15 @@ export const BtwSessionPanel: React.FC<BtwSessionPanelProps> = ({
           ref={scrollContainerRef}
           tabIndex={-1}
           className="btw-session-panel__body"
-          data-bf-component="btw-session-panel"
-          data-bf-part="body"
+          data-openbitfun-component="btw-session-panel"
+          data-openbitfun-part="body"
           style={reviewActionBottomPadding > 0 ? { paddingBottom: `${reviewActionBottomPadding}px` } : undefined}
         >
           {isReviewDetail && reviewDetailNotices.length > 0 && (
             <div
               className={`btw-session-panel__empty-state${virtualItems.length > 0 ? ' btw-session-panel__empty-state--with-content' : ''}`}
-              data-bf-component="btw-session-panel"
-              data-bf-part="empty"
+              data-openbitfun-component="btw-session-panel"
+              data-openbitfun-part="empty"
               role={reviewDetailNotices.some(({ state }) =>
                 state === 'load-failed' || state === 'failed' || state === 'timed-out')
                 ? 'alert'
@@ -1137,19 +1163,19 @@ export const BtwSessionPanel: React.FC<BtwSessionPanelProps> = ({
                 <span key={state}>{t(key, { label: childBadgeLabel })}</span>
               ))}
               {canRetryReviewDetailLoad && (
-                <button
-                  type="button"
-                  className="btw-session-panel__empty-retry"
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={loadChildHistory}
                 >
                   {t('childSession.reviewDetail.retryLoad')}
-                </button>
+                </Button>
               )}
             </div>
           )}
           {virtualItems.length === 0 ? (
             !isReviewDetail || reviewDetailNotices.length === 0 ? (
-              <div className="btw-session-panel__empty-state" data-bf-component="btw-session-panel" data-bf-part="empty">{t('session.empty')}</div>
+              <div className="btw-session-panel__empty-state" data-openbitfun-component="btw-session-panel" data-openbitfun-part="empty">{t('session.empty')}</div>
             ) : null
           ) : (
             virtualItems.map((item, index) => (
@@ -1170,14 +1196,14 @@ export const BtwSessionPanel: React.FC<BtwSessionPanelProps> = ({
           onClick={handleScrollToBottom}
           focusReturnRef={scrollContainerRef}
           className="btw-session-panel__scroll-to-bottom"
-          data-bf-component="btw-session-panel"
-          data-bf-part="scrollToBottom"
+          data-openbitfun-component="btw-session-panel"
+          data-openbitfun-part="scrollToBottom"
         />
         <div
           className="btw-session-panel__minimized-indicator"
-          data-bf-component="btw-session-panel"
-          data-bf-part="minimized"
-          data-bf-state={showMinimizedIndicator ? 'minimized' : 'hidden'}
+          data-openbitfun-component="btw-session-panel"
+          data-openbitfun-part="minimized"
+          data-openbitfun-state={showMinimizedIndicator ? 'minimized' : 'hidden'}
           aria-hidden={!showMinimizedIndicator}
           {...(!showMinimizedIndicator ? { inert: '' } : {})}
         >
@@ -1189,7 +1215,7 @@ export const BtwSessionPanel: React.FC<BtwSessionPanelProps> = ({
                 label: minimizedActionLabel,
               })}
             >
-              <Sparkles size={14} />
+              <Icon name="spark" size="sm" />
               <span className="btw-session-panel__minimized-text">
                 {minimizedActionLabel}
               </span>
@@ -1201,19 +1227,19 @@ export const BtwSessionPanel: React.FC<BtwSessionPanelProps> = ({
             </button>
         </div>
 
-        <PresenceBoundary active={showReviewActionBar}>
+        <RetainedMountBoundary present={showReviewActionBar}>
           <div
             ref={actionBarRef}
             className="btw-session-panel__action-bar-wrapper"
-            data-bf-component="btw-session-panel"
-            data-bf-part="actionBar"
+            data-openbitfun-component="btw-session-panel"
+            data-openbitfun-part="actionBar"
             data-visible={showReviewActionBar ? 'true' : 'false'}
             aria-hidden={!showReviewActionBar}
             {...(!showReviewActionBar ? { inert: '' } : {})}
           >
             <ReviewActionBar childSessionId={childSessionId} />
           </div>
-        </PresenceBoundary>
+        </RetainedMountBoundary>
       </div>
       </FlowChatVolatileContext.Provider>
     </FlowChatContext.Provider>

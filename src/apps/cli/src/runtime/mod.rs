@@ -2,10 +2,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use bitfun_agent_runtime::sdk::{AgentEventSource, AgentRuntime};
-use bitfun_core::agentic::system::AgenticSystem;
-use bitfun_core::product_assembly::{ProductAssemblyPlan, ProductServiceCapabilityAvailability};
-use bitfun_core::product_runtime::{
+use openbitfun_agent_runtime::sdk::{AgentEventSource, AgentRuntime};
+use openbitfun_core::agentic::system::AgenticSystem;
+use openbitfun_core::product_assembly::{
+    ProductAssemblyPlan, ProductServiceCapabilityAvailability,
+};
+use openbitfun_core::product_runtime::{
     build_local_runtime_services, ensure_product_dialog_scheduler, CoreAgentRuntimeCompatibility,
     CoreLocalWorkspaceSnapshot, CoreProductAgentRuntime, CoreProductEventQueueOwner,
 };

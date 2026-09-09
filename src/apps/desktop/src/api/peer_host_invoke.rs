@@ -2,13 +2,21 @@
 //!
 //! Commands are executed through the same frontend invoke surface as local UI
 //! (peer webview → `invoke`), so handler signatures stay single-sourced.
-//! Local-only / controller-only commands are denied before any bridge call.
+//! Which commands may run here on a controller's behalf is decided by the
+//! Product Operation Registry (`openbitfun_product_domains::remote_surface`); this
+//! module only applies its verdict before any bridge call. The frontend and
+//! the CLI peer host derive their tables from the same registry, so the three
+//! surfaces cannot drift apart. See `docs/architecture/remote-surface-contract.md`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
+use openbitfun_product_domains::remote_surface::{
+    capability_map, digest as remote_surface_digest, peer_host_verdict, peer_stance,
+    retired_reason, PeerHostKind, PeerHostVerdict, PeerStance,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter};
@@ -255,8 +263,21 @@ struct HostInvokeBridgeRequest {
     args: Value,
 }
 
+/// Whether this host must refuse the command on a controller's behalf.
+///
+/// Covers both registry stances that a peer host never executes:
+/// `ControllerLocal` (the controller keeps it) and `OperatorOnly` (only the
+/// machine that owns the workspace may decide it, e.g. `git_trust_repository`).
 pub fn is_local_only_command(command: &str) -> bool {
-    LOCAL_ONLY_COMMANDS.contains(&command)
+    matches!(
+        peer_stance(command),
+        Some(PeerStance::ControllerLocal | PeerStance::OperatorOnly)
+    )
+}
+
+/// Commands kept as protocol tombstones after their runtime owner was removed.
+pub fn is_retired_command(command: &str) -> bool {
+    retired_reason(command).is_some()
 }
 
 /// Register a controller device id to receive peer UI events.
@@ -315,12 +336,14 @@ pub fn disconnect_controllers() -> Vec<String> {
     state.permission_request_ids.drain().collect()
 }
 
-pub fn track_permission_event(event: &bitfun_agent_runtime::sdk::PermissionRequestEvent) -> bool {
+pub fn track_permission_event(
+    event: &openbitfun_agent_runtime::sdk::PermissionRequestEvent,
+) -> bool {
     let Ok(mut state) = peer_control_state().lock() else {
         return false;
     };
     match event {
-        bitfun_agent_runtime::sdk::PermissionRequestEvent::Asked { request } => {
+        openbitfun_agent_runtime::sdk::PermissionRequestEvent::Asked { request } => {
             if !state.controllers.is_empty() {
                 state
                     .permission_request_ids
@@ -330,8 +353,8 @@ pub fn track_permission_event(event: &bitfun_agent_runtime::sdk::PermissionReque
                 false
             }
         }
-        bitfun_agent_runtime::sdk::PermissionRequestEvent::Replied { request_id, .. }
-        | bitfun_agent_runtime::sdk::PermissionRequestEvent::Cancelled { request_id, .. } => {
+        openbitfun_agent_runtime::sdk::PermissionRequestEvent::Replied { request_id, .. }
+        | openbitfun_agent_runtime::sdk::PermissionRequestEvent::Cancelled { request_id, .. } => {
             let was_tracked = state.permission_request_ids.remove(request_id);
             was_tracked && !state.controllers.is_empty()
         }
@@ -352,7 +375,7 @@ pub async fn fail_closed_permission_requests(
     if request_ids.is_empty() {
         return Ok(());
     }
-    let manager = bitfun_core::product_runtime::core_permission_request_manager()?;
+    let manager = openbitfun_core::product_runtime::core_permission_request_manager()?;
     let mut failures = Vec::new();
     for request_id in request_ids {
         if let Err(error) = manager
@@ -451,23 +474,30 @@ pub async fn peer_controller_set_active(active: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Dispatch an allowlisted (non-local-only) product command on this peer.
+/// Dispatch a product command on this peer according to the registry verdict.
 pub async fn dispatch(command: &str, args: Value) -> HostInvokeBridgeResult {
-    if command.is_empty() {
-        return HostInvokeBridgeResult {
-            ok: false,
-            value: None,
-            error: Some("HostInvoke command is empty".to_string()),
-        };
-    }
-    if is_local_only_command(command) {
-        return HostInvokeBridgeResult {
-            ok: false,
-            value: None,
-            error: Some(format!(
-                "command '{command}' is local-only and cannot run on peer"
-            )),
-        };
+    match peer_host_verdict(command, PeerHostKind::Desktop) {
+        PeerHostVerdict::Refuse(refusal) => {
+            return HostInvokeBridgeResult {
+                ok: false,
+                value: None,
+                error: Some(refusal.message(command)),
+            };
+        }
+        // Attach/detach/ping and the dispatch target verbs are answered by
+        // `remote_connect_api::execute_local_remote_command` before this
+        // function is reached; a direct call is a wiring bug, not a product
+        // command to bridge.
+        PeerHostVerdict::HostControlPlane => {
+            return HostInvokeBridgeResult {
+                ok: false,
+                value: None,
+                error: Some(format!(
+                    "command '{command}' belongs to the peer host control plane and is not bridged as a product command"
+                )),
+            };
+        }
+        PeerHostVerdict::Execute => {}
     }
 
     let app = match account_app_handle() {
@@ -553,6 +583,18 @@ mod tests {
         );
         assert_eq!(
             value
+                .pointer("/capabilities/product_control_native_v1")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            value
+                .pointer("/capabilities/product_control_presentation_v1")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            value
                 .pointer("/capabilities/targeted_session_rollback")
                 .and_then(Value::as_bool),
             Some(true)
@@ -610,12 +652,48 @@ mod tests {
             "speech_append_audio_chunk",
             "speech_finish_input_session",
             "speech_cancel_input_session",
+            "speech_start_realtime_session",
+            "speech_append_realtime_audio",
+            "speech_commit_realtime_audio",
+            "speech_send_realtime_tool_result",
+            "speech_speak_realtime_text",
+            "speech_cancel_realtime_response",
+            "speech_close_realtime_session",
+            "speech_get_realtime_config",
+            "speech_save_realtime_config",
             // Same controller-owned observer/credential family as the other
             // dispatch verbs already denied here.
             "dispatch_continue",
         ] {
             assert!(is_local_only_command(command), "{command}");
         }
+    }
+
+    #[test]
+    fn built_in_browser_target_lifecycle_is_refused_on_the_peer() {
+        assert!(is_local_only_command(
+            "browser_webview_set_agent_target_state"
+        ));
+    }
+
+    #[test]
+    fn frontend_update_decisions_stay_with_the_controller_window() {
+        assert!(is_local_only_command("frontend_update_candidate_ready"));
+        assert!(is_local_only_command("get_frontend_update_status"));
+        assert!(is_local_only_command("confirm_frontend_update"));
+        assert!(is_local_only_command("rollback_frontend_update"));
+    }
+
+    #[test]
+    fn product_control_presentation_callbacks_stay_with_the_controller_window() {
+        for command in [
+            "mark_openbitfun_control_surface_ready",
+            "mark_openbitfun_control_surface_unready",
+            "report_openbitfun_control_result",
+        ] {
+            assert!(is_local_only_command(command), "{command}");
+        }
+        assert!(!is_local_only_command("product_control_invoke"));
     }
 
     /// Reading why Git refuses a repository is safe to answer for a
@@ -625,6 +703,79 @@ mod tests {
     fn granting_git_ownership_trust_is_refused_on_the_peer() {
         assert!(is_local_only_command("git_trust_repository"));
         assert!(!is_local_only_command("git_get_repository_trust"));
+    }
+
+    /// `remote_connect_api::execute_local_remote_command` special-cases these
+    /// three names before the deny check; the registry must agree so the CLI
+    /// host and the frontend derive the same control plane.
+    #[test]
+    fn control_plane_commands_are_host_control_plane_in_registry() {
+        use openbitfun_product_domains::remote_surface::operation;
+        for command in [
+            "peer_control_attach",
+            "peer_control_detach",
+            "peer_mode_ping",
+        ] {
+            assert_eq!(
+                operation(command).map(|op| op.peer),
+                Some(PeerStance::HostControlPlane),
+                "{command}"
+            );
+            assert!(
+                !is_local_only_command(command),
+                "{command} is answered by the control plane, not refused as local-only"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn local_only_commands_fail_before_the_webview_bridge() {
+        let result = dispatch("account_login", serde_json::json!({})).await;
+        assert!(!result.ok);
+        assert_eq!(
+            result.error.as_deref(),
+            Some("command 'account_login' is local-only and cannot run on peer")
+        );
+        let result = dispatch("git_trust_repository", serde_json::json!({})).await;
+        assert_eq!(
+            result.error.as_deref(),
+            Some("command 'git_trust_repository' is local-only and cannot run on peer")
+        );
+    }
+
+    #[tokio::test]
+    async fn cli_only_aliases_are_refused_with_a_host_reason() {
+        let result = dispatch("list_files", serde_json::json!({})).await;
+        assert!(!result.ok);
+        let error = result.error.unwrap_or_default();
+        assert!(
+            error.starts_with("command 'list_files' is not supported on desktop peer host:"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_commands_report_a_host_version_mismatch() {
+        let result = dispatch("not_an_openbitfun_command", serde_json::json!({})).await;
+        assert!(!result.ok);
+        let error = result.error.unwrap_or_default();
+        assert!(
+            error.contains("is unknown to this OpenBitFun desktop peer host version"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn retired_lsp_commands_fail_before_the_webview_bridge() {
+        let result = dispatch("lsp_open_workspace", serde_json::json!({})).await;
+        assert!(!result.ok);
+        assert!(result.value.is_none());
+        assert_eq!(
+            result.error.as_deref(),
+            Some(
+                "command 'lsp_open_workspace' is unsupported because the OpenBitFun LSP runtime has been retired"
+            )
+        );
     }
 
     #[test]

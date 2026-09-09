@@ -1,10 +1,10 @@
 //! Types for session persistence
 
-use bitfun_core_types::ToolImageAttachment;
-use bitfun_core_types::{
+use openbitfun_core_types::ToolImageAttachment;
+use openbitfun_core_types::{
     AiErrorDetail, SessionContinuationPolicy, SessionExecutionTarget, SessionKind,
 };
-use bitfun_events::ModelRoundAttemptDiagnostic;
+use openbitfun_events::ModelRoundAttemptDiagnostic;
 use serde::{Deserialize, Serialize};
 
 pub const SESSION_STORAGE_SCHEMA_VERSION: u32 = 2;
@@ -146,6 +146,11 @@ pub struct SessionMetadata {
         alias = "lastFinishedAt"
     )]
     pub last_finished_at: Option<u64>,
+
+    /// Compact latest user-Turn fact, maintained with the metadata index. Lists
+    /// must not load transcript files to discover the latest outcome.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_turn: Option<SessionLastTurn>,
 
     /// Turn count
     #[serde(alias = "turn_count")]
@@ -335,6 +340,22 @@ impl StoredSessionMetadataFile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredDialogTurnFile {
+    pub schema_version: u32,
+    #[serde(flatten)]
+    pub turn: DialogTurnData,
+}
+
+impl StoredDialogTurnFile {
+    pub fn new(turn: DialogTurnData) -> Self {
+        Self {
+            schema_version: SESSION_STORAGE_SCHEMA_VERSION,
+            turn,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredSessionIndexFile {
     pub schema_version: u32,
     pub updated_at: u64,
@@ -392,6 +413,36 @@ pub struct SessionTurnCatalogEntry {
     pub preview: Option<String>,
     #[serde(default)]
     pub preview_truncated: bool,
+    /// Small, read-only projection used to render Turn Rail tooltips without
+    /// copying executable context payloads into the navigation catalog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capsule_preview: Option<TurnRailCapsulePreview>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnRailCapsulePreview {
+    pub segments: Vec<TurnRailCapsuleSegment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TurnRailCapsuleSegment {
+    Text {
+        text: String,
+    },
+    Context {
+        #[serde(rename = "contextType")]
+        context_type: String,
+        label: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+    },
+    InlineToken {
+        #[serde(rename = "tokenType")]
+        token_type: String,
+        label: String,
+    },
 }
 
 /// Lightweight navigation catalog for a persisted Session.
@@ -790,6 +841,12 @@ fn default_is_markdown() -> bool {
 pub struct ThinkingItemData {
     pub id: String,
     pub content: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "reasoning_kind"
+    )]
+    pub reasoning_kind: Option<openbitfun_core_types::ReasoningContentKind>,
     #[serde(alias = "is_streaming")]
     pub is_streaming: bool,
     #[serde(alias = "is_collapsed")]
@@ -1046,7 +1103,30 @@ pub enum TurnStatus {
     Cancelled,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionLastTurn {
+    pub turn_id: String,
+    pub turn_index: usize,
+    pub status: TurnStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_time: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_generation: Option<u32>,
+    /// A persisted interrupted recovery checkpoint, distinct from cancellation.
+    /// None identifies older summaries that have not captured this fact yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_pending: Option<bool>,
+}
+
 impl SessionMetadata {
+    pub fn needs_last_turn_backfill(&self) -> bool {
+        self.turn_count > 0
+            && self.last_turn.as_ref().is_none_or(|last| {
+                last.status == TurnStatus::Cancelled && last.recovery_pending.is_none()
+            })
+    }
+
     /// Creates a new session metadata.
     pub fn new(
         session_id: String,
@@ -1093,6 +1173,7 @@ impl SessionMetadata {
             workspace_hostname: None,
             unread_completion: None,
             needs_user_attention: None,
+            last_turn: None,
         }
     }
 
@@ -1234,7 +1315,7 @@ mod tests {
         SessionRelationshipKind, SessionTurnWindowResponse, TextItemData, ThinkingItemData,
         ToolItemData, UserMessageData,
     };
-    use bitfun_core_types::{SessionContinuationPolicy, SessionKind};
+    use openbitfun_core_types::{SessionContinuationPolicy, SessionKind};
 
     #[test]
     fn dialog_turn_kind_defaults_to_user_dialog_for_legacy_payloads() {
@@ -1663,6 +1744,7 @@ mod tests {
         });
         let thinking: ThinkingItemData = serde_json::from_value(thinking_payload)
             .expect("thinking attempt fields should deserialize");
+        assert!(thinking.reasoning_kind.is_none());
         assert_eq!(thinking.attempt_id.as_deref(), Some("round-1:attempt:2"));
         assert_eq!(thinking.attempt_index, Some(2));
 

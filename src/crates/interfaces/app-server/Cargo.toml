@@ -1,16 +1,16 @@
 [package]
-name = "bitfun-app-server"
+name = "openbitfun-app-server"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "BitFun generic JSON-RPC app-server surface over agent_client_protocol custom roles"
+description = "OpenBitFun generic JSON-RPC app-server surface over agent_client_protocol custom roles"
 
 [lib]
-name = "bitfun_app_server"
+name = "openbitfun_app_server"
 
 [dependencies]
 agent-client-protocol = { workspace = true }
-bitfun-app-server-protocol = { path = "../app-server-protocol" }
+openbitfun-app-server-protocol = { path = "../app-server-protocol" }
 # Host-service handlers use the reviewed Agent Runtime owner closure. Add a
 # narrower Core owner feature when a newly registered domain needs it; the
 # protocol surface must not inherit the broad bitfun-core/product-full union.
@@ -30,12 +30,12 @@ url = { workspace = true }
 [features]
 default = []
 # Compatibility feature for existing callers. TypeScript schemas are owned and
-# exported by `bitfun-app-server-protocol`.
-ts = ["bitfun-app-server-protocol/ts"]
+# exported by `openbitfun-app-server-protocol`.
+ts = ["openbitfun-app-server-protocol/ts"]
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 async-trait = { workspace = true }
-bitfun-app-server-client = { path = "../app-server-client" }
+openbitfun-app-server-client = { path = "../app-server-client" }

@@ -144,6 +144,7 @@ function recoverSubmissionAfterSurfaceSwitch(
       agentType: draft.agentType,
       imageContexts: draft.options?.imageContexts,
       imageDisplayData: draft.options?.imageDisplayData,
+      composerDraft: draft.options?.pendingQueueDraft,
       userMessageMetadata: draft.options?.userMessageMetadata,
     });
     log.info('Device surface switched before submit reached the host; message re-queued', {
@@ -270,6 +271,7 @@ export async function sendMessage(
           agentType,
           imageContexts: options?.imageContexts,
           imageDisplayData: options?.imageDisplayData,
+          composerDraft: options?.pendingQueueDraft,
           userMessageMetadata: options?.userMessageMetadata,
         });
         log.info('Message enqueued: session busy or queue non-empty', {
@@ -301,7 +303,7 @@ export async function sendMessage(
   // Switch UI mode if specified
   if (switchToMode && switchToMode !== session.mode) {
     context.flowChatStore.updateSessionMode(sessionId, switchToMode);
-    window.dispatchEvent(new CustomEvent('bitfun:session-switched', {
+    window.dispatchEvent(new CustomEvent('openbitfun:session-switched', {
       detail: { sessionId, mode: switchToMode }
     }));
   }
@@ -322,7 +324,7 @@ export async function sendMessage(
       options?.execution?.kind === 'fresh_external_subagent'
       && (acpClientId || driver.id !== 'local')
     ) {
-      throw new Error('External subagent command delegation requires the local BitFun runtime');
+      throw new Error('External subagent command delegation requires the local OpenBitFun runtime');
     }
 
     if (
@@ -598,6 +600,7 @@ export async function drainPendingQueue(
               mimeType?: string;
             }>
           | undefined,
+        pendingQueueDraft: next.composerDraft,
         userMessageMetadata: next.userMessageMetadata,
         bypassPendingQueue: true,
       },

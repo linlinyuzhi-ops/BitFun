@@ -2,49 +2,56 @@
 
 Scope: this guide applies to `src/crates/services/services-core`.
 
-`bitfun-services-core` owns cross-platform service DTOs and helpers that compile
+`openbitfun-services-core` owns cross-platform service DTOs and helpers that compile
 without the full product runtime. This includes generic filesystem/search/JSON
-IO helpers, bounded local Instruction file reads, LSP package/protocol/watch/process primitives, session metadata
-storage helpers, and local OS action primitives such as command lookup,
+IO helpers, bounded local Instruction file reads, Session metadata storage
+helpers, the durable Memory SQLite format, and local OS action primitives such as command lookup,
 clipboard, file/url opening, script execution, workspace runtime FS/shell
-providers, managed process-tree lifecycle, process-level Agent Runtime ownership locks, and system facts. Product crates may layer routing, policy,
+providers, process-wide TLS provider selection, managed process-tree lifecycle,
+process-level Agent Runtime ownership locks, and system facts. Product crates may layer routing, policy,
 capability selection, event emission, or legacy error mapping outside this
 crate.
 
 ## Guardrails
 
-- Do not depend on `bitfun-core`, app crates, Tauri, tool runtime, or product
+- Do not depend on `openbitfun-core`, app crates, Tauri, tool runtime, or product
   runtime crates.
-- Prefer `bitfun-core-types` for shared DTOs and `bitfun-runtime-ports` for
+- Prefer `openbitfun-core-types` for shared DTOs and `openbitfun-runtime-ports` for
   cross-layer traits.
 - Keep dependency features explicit and keep `default = []`. The coarse service
-  capability owners are `diagnostics` (diagnostic-log redaction), `diff`
+  capability owners are `credential-vault` (prompt-free encrypted local
+  credential files), `diagnostics` (diagnostic-log redaction), `diff`
   (local text diff calculation), `filesystem` (local file operations/search),
   `json-io` (generic locked and atomic JSON file IO), `local-storage`
   (JSON/session/usage persistence), `process-runtime` (command
   lookup and supervised child lifecycle), and `workspace-instructions`
   (declarative instruction discovery). Consumers enable those or the narrower
-  `lsp`, `workspace-runtime`, `workspace-identity`, `runtime-ownership`,
+  `workspace-runtime`, `workspace-identity`, `runtime-ownership`, `tls-provider`,
   `permission`, `dispatch-workspace`, `markdown`, `session-git`, and
   `workspace-text-runtime` extensions only for behavior they use. Products
   needing IANA time-zone ranges and dashboard aggregation additionally select
   `token-usage-statistics`. In particular, session metadata consumers must
   not compile libgit2 unless they use the memory-workspace baseline/diff API.
   Keep Tokio and platform API capabilities owner-scoped too: the empty profile
-  carries no Tokio dependency, `lsp` and `workspace-runtime`
-  explicitly compose `process-runtime`, and Windows storage/process bindings
+  carries no Tokio dependency, `workspace-runtime` explicitly composes
+  `process-runtime`, and Windows storage/process bindings
   must not be enabled from one shared dependency feature union.
-- LSP manifest and protocol DTOs belong in `bitfun-core-types`; reusable LSP
-  package, protocol, detection, debounce, watch, and process-manager helpers
-  belong in `services-core`; product workspace state, event emission, global
-  singletons, and file-sync orchestration stay outside this crate.
+- `tls-provider` is the single owner of the process-wide Rustls provider. It
+  selects only `ring`, `std`, and `tls12`; provider-neutral Reqwest consumers
+  call `tls_provider::ensure_ring_crypto_provider` before client construction.
+  Do not install a Rustls provider from another crate.
 - Runtime call sites that touch agent execution, scheduler state, workspace
   managers, filesystem orchestration, or product behavior stay outside this
-  crate. `workspace-runtime` may implement local `bitfun-runtime-ports`
+  crate. `workspace-runtime` may implement local `openbitfun-runtime-ports`
   providers, but not workspace selection or product orchestration.
 - `runtime_ownership` owns only canonical identity plus Embedded shared-lock and
   Shared exclusive-lock primitives. It must not select workspaces, start or
   cache Runtime instances, or define Session/Turn ownership.
+- The `product-identity` capability re-exports immutable build facts from
+  `openbitfun-core-types`. Storage, dispatch, integration, and ownership code
+  must reuse them; runtime product selection and product policy stay outside
+  this crate. Capabilities that need those facts compose `product-identity`
+  explicitly rather than adding them to the empty profile.
 - `workspace_identity` owns canonical local roots plus stable local/remote
   workspace and session-storage identifiers. It has no SSH registry, transport,
   authentication, SFTP, PTY, or remote lifecycle responsibility; integrations
@@ -61,6 +68,11 @@ crate.
   resource-limit safety. Unix descendants that deliberately create a new
   session/process group are outside this boundary and must be treated as a
   disclosed residual risk until a platform supervisor is introduced.
+- Windows final cleanup closes only registered `process_tree` child Jobs and
+  rejects new managed spawns after shutdown begins. It must not initialize or
+  close the Job used by `contain_current_process_tree`: that explicit CLI/SDK
+  host-lifetime guard includes the host itself and stays alive until process
+  exit. Keep updater/restart handoff processes outside managed child trees.
 
 ## Verification
 
@@ -84,3 +96,16 @@ pnpm run check:core-boundaries
 
 Other capability-specific target names remain in `Cargo.toml`; document a new
 command here only when it becomes a recurring owner workflow.
+
+## Offline-compatible storage formats
+
+workspace-persistence owns workspace records and registry validation;
+coordination-store owns the durable coordination SQLite schema;
+session-event-format owns the logged-event envelope and durable-prefix validator.
+StorageError carries only storage error categories; Core preserves its original
+error mappings. Workspace managers, watchers, identity loading and live scanning
+remain in Core through runtime extension traits on the shared records.
+
+```bash
+cargo test -p openbitfun-services-core --no-default-features --features workspace-persistence,coordination-store,session-event-format --lib
+```

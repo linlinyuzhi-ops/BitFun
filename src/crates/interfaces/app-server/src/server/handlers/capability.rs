@@ -1,11 +1,11 @@
 use agent_client_protocol::Error;
-use bitfun_app_server_protocol::app::CapabilityAvailability;
-use bitfun_app_server_protocol::error::{AppServerErrorData, AppServerErrorKind};
-use bitfun_app_server_protocol::external_source::ExternalSourceErrorData;
-use bitfun_app_server_protocol::worktree::{
+use openbitfun_app_server_protocol::app::CapabilityAvailability;
+use openbitfun_app_server_protocol::error::{AppServerErrorData, AppServerErrorKind};
+use openbitfun_app_server_protocol::external_source::ExternalSourceErrorData;
+use openbitfun_app_server_protocol::worktree::{
     WorktreeErrorCode, WorktreeErrorData, WorktreeOperationError,
 };
-use bitfun_product_domains::external_sources::{
+use openbitfun_product_domains::external_sources::{
     ExternalSourceOperationError, ExternalSourceOperationErrorCode,
 };
 
@@ -112,7 +112,7 @@ fn external_management_error(capability: &str, error: ExternalSourceOperationErr
     )
 }
 
-fn error_with_data(
+pub(super) fn error_with_data(
     kind: AppServerErrorKind,
     capability: &str,
     message: impl Into<String>,

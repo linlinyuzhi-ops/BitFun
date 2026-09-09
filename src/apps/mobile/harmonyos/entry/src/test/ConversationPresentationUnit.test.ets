@@ -4,12 +4,10 @@ import { ChatComposerPolicy, ComposerPrimaryAction } from '../main/ets/services/
 import { ChatSurface } from '../main/ets/pages/state/ChatSurface';
 import {
   GENERAL_CHAT_COMPOSER_CAPABILITIES,
-  REMOTE_CHAT_COMPOSER_CAPABILITIES,
-  REMOTE_CREATE_COMPOSER_CAPABILITIES
+  REMOTE_CHAT_COMPOSER_CAPABILITIES
 } from '../main/ets/pages/state/ChatComposerCapabilities';
 import { ConversationViewState } from '../main/ets/pages/state/ConversationViewState';
 import { GeneralChatPageState } from '../main/ets/pages/state/GeneralChatPageState';
-import { RemoteCreateSessionState } from '../main/ets/pages/state/RemoteCreateSessionState';
 import { RemotePageState } from '../main/ets/pages/state/RemotePageState';
 import { AppRoute } from '../main/ets/pages/navigation/AppRouteContract';
 import { ConversationHeaderPolicy } from '../main/ets/pages/policy/ConversationHeaderPolicy';
@@ -25,7 +23,14 @@ import {
 import { AssistantProcessLayoutPolicy } from '../main/ets/pages/policy/AssistantProcessLayoutPolicy';
 import { ConversationMessageRenderPolicy } from '../main/ets/pages/policy/ConversationMessageRenderPolicy';
 import { ToolCollapsePolicy } from '../main/ets/pages/policy/ToolCollapsePolicy';
-import { ConversationUiMessage, ConversationUiToolStatus } from '../main/ets/pages/state/ConversationUiModels';
+import { ChatMessageStructurePolicy } from '../main/ets/pages/policy/ChatMessageStructurePolicy';
+import { ToolStatusPresentationPolicy } from '../main/ets/pages/policy/ToolStatusPresentationPolicy';
+import { PlanToolPolicy } from '../main/ets/pages/policy/PlanToolPolicy';
+import {
+  ConversationUiMessage,
+  ConversationUiMessageItem,
+  ConversationUiToolStatus
+} from '../main/ets/pages/state/ConversationUiModels';
 import {
   ConnectSheetLandingPolicy,
   ConnectSheetStatusPolicy,
@@ -46,6 +51,14 @@ import {
 } from '../main/ets/services/ConnectScanDecisionPolicy';
 
 export default function conversationPresentationUnitTest() {
+  describe('HarnessProfilePolicy', () => {
+    it('maps mobile execution levels to canonical host Agents', 0, () => {
+      expect(HarnessProfilePolicy.agentType('minimal')).assertEqual('minimal');
+      expect(HarnessProfilePolicy.agentType('standard')).assertEqual('agentic');
+      expect(HarnessProfilePolicy.agentType('ultimate')).assertEqual('Ultra');
+    });
+  });
+
   describe('Local conversation empty home', () => {
     it('keeps local chat on a blank timeline instead of suggestion chips', 0, () => {
       const projection = ConversationViewState.project(
@@ -62,6 +75,13 @@ export default function conversationPresentationUnitTest() {
   });
 
   describe('ThinkingPresentationPolicy', () => {
+    it('reserves enough width for every running dot and inter-dot gap', 0, () => {
+      expect(ThinkingPresentationPolicy.runningDotsWidth()).assertEqual(30);
+      expect(ThinkingPresentationPolicy.runningDotsWidth() >=
+        ThinkingPresentationPolicy.RUNNING_DOT_WIDTH * ThinkingPresentationPolicy.RUNNING_DOT_COUNT +
+        ThinkingPresentationPolicy.RUNNING_DOT_GAP * (ThinkingPresentationPolicy.RUNNING_DOT_COUNT - 1)).assertTrue();
+    });
+
     it('treats active and running as in-progress thinking', 0, () => {
       expect(ThinkingPresentationPolicy.isRunning('active')).assertTrue();
       expect(ThinkingPresentationPolicy.isRunning('running')).assertTrue();
@@ -204,6 +224,169 @@ export default function conversationPresentationUnitTest() {
       };
       expect(ConversationMessageRenderPolicy.shouldRender(item)).assertFalse();
     });
+
+    it('keeps an empty failed assistant row for its error UI', 0, () => {
+      const item: ConversationUiMessage = {
+        id: 'a3',
+        role: 'assistant',
+        text: '',
+        status: 'failed',
+        error: 'Model request failed'
+      };
+      expect(ConversationMessageRenderPolicy.shouldRender(item)).assertTrue();
+    });
+  });
+
+  describe('Extracted chat presentation policies', () => {
+    it('classifies tool behavior and projects question payloads without the component', 0, () => {
+      const question = toolStatus('question-1', 'AskUserQuestion', 'running');
+      question.input_preview = '{"questions":[{"header":"Scope","question":"Which files?"}]}';
+      expect(ToolStatusPresentationPolicy.isQuestion(question)).assertTrue();
+      expect(ToolStatusPresentationPolicy.questionPromptFromJson(question.input_preview)).assertEqual('Which files?');
+      expect(ToolStatusPresentationPolicy.isFileMutation(toolStatus('edit-1', 'ApplyPatch', 'done'))).assertTrue();
+      expect(ToolStatusPresentationPolicy.isCommand(toolStatus('exec-1', 'ExecCommand', 'running'))).assertTrue();
+    });
+
+    it('groups adjacent reasoning and completed tools in transcript order', 0, () => {
+      const groups = ChatMessageStructurePolicy.structuredGroups([
+        { type: 'thinking', content: 'Inspect the architecture' },
+        { type: 'tool', tool: toolStatus('read-1', 'Read', 'completed') },
+        { type: 'text', content: 'The result' }
+      ], 'item', false, 'done');
+      expect(groups.length).assertEqual(2);
+      expect(groups[0].type).assertEqual('activity_group');
+      expect(ChatMessageStructurePolicy.activityGroupTools(groups[0]).length).assertEqual(1);
+      expect(groups[1].type).assertEqual('item');
+    });
+
+    it('routes Task tools through the subagent item renderer instead of the generic tool list', 0, () => {
+      const task = toolStatus('task-1', 'Task', 'running');
+      task.input_preview = '{"description":"Read the README introduction"}';
+      const groups = ChatMessageStructurePolicy.structuredGroups([
+        { type: 'tool', tool: task, content: 'Running task' }
+      ], 'item', true, 'active');
+      expect(groups.length).assertEqual(1);
+      expect(groups[0].type).assertEqual('item');
+      expect(groups[0].items.length).assertEqual(1);
+      expect(groups[0].tools.length).assertEqual(0);
+      expect(ChatMessageStructurePolicy.subagentTitle(groups[0].items[0]))
+        .assertEqual('Read the README introduction');
+    });
+
+    it('nests marked subagent execution inside its Task while preserving interleaved parent tools', 0, () => {
+      const task = toolStatus('task-1', 'Task', 'running');
+      const internalRead = toolStatus('read-1', 'Read', 'running');
+      const directRead = toolStatus('read-parent', 'Read', 'completed');
+      const groups = ChatMessageStructurePolicy.structuredGroups([
+        { type: 'tool', tool: task },
+        { type: 'tool', tool: directRead },
+        { type: 'thinking', content: 'Inspect child files', is_subagent: true },
+        { type: 'tool', tool: internalRead, is_subagent: true }
+      ], 'item', true, 'active');
+      expect(groups.length).assertEqual(2);
+      expect(groups[0].items.length).assertEqual(1);
+      expect(groups[0].items[0].tool?.name || '').assertEqual('Task');
+      expect(groups[0].items[0].subItems?.length || 0).assertEqual(2);
+      expect(groups[1].tools.length).assertEqual(1);
+      expect(groups[1].tools[0].id).assertEqual('read-parent');
+    });
+
+    it('scopes legacy unmarked process output only while a Task is running', 0, () => {
+      const runningTask = toolStatus('task-running', 'Task', 'running');
+      const childRead = toolStatus('child-read', 'Read', 'running');
+      const scoped = ChatMessageStructurePolicy.scopeSubagentItems([
+        { type: 'tool', tool: runningTask },
+        { type: 'thinking', content: 'Legacy child thinking' },
+        { type: 'tool', tool: childRead }
+      ]);
+      expect(scoped.length).assertEqual(1);
+      expect(scoped[0].subItems?.length || 0).assertEqual(2);
+
+      const completedTask = toolStatus('task-done', 'Task', 'completed');
+      const parentOutput = ChatMessageStructurePolicy.scopeSubagentItems([
+        { type: 'tool', tool: completedTask },
+        { type: 'thinking', content: 'Parent resumes' }
+      ]);
+      expect(parentOutput.length).assertEqual(2);
+      expect(parentOutput[0].subItems?.length || 0).assertEqual(0);
+    });
+
+    it('keeps one plain assistant text item on the lightweight markdown path', 0, () => {
+      expect(ChatMessageStructurePolicy.requiresStructuredRendering([
+        { type: 'text', content: 'Hello' }
+      ])).assertFalse();
+      expect(ChatMessageStructurePolicy.requiresStructuredRendering([
+        { type: 'text', content: 'Streaming', subItems: [] }
+      ])).assertFalse();
+      expect(ChatMessageStructurePolicy.requiresStructuredRendering([
+        { type: 'thinking', content: 'Inspect' },
+        { type: 'text', content: 'Done' }
+      ])).assertTrue();
+    });
+
+    it('renders steering as a stable inline user entry instead of assistant text', 0, () => {
+      const steering: ConversationUiMessageItem = {
+        type: 'user-steering',
+        steering_id: 'steering-1',
+        content: 'Use the second approach'
+      };
+      expect(ChatMessageStructurePolicy.isUserSteeringEntry(steering)).assertTrue();
+      expect(ChatMessageStructurePolicy.isTextEntry(steering)).assertFalse();
+      expect(ChatMessageStructurePolicy.requiresStructuredRendering([steering])).assertTrue();
+      expect(ChatMessageStructurePolicy.structuredItemKey(steering, 'item-1'))
+        .assertEqual('item-1-steering-steering-1');
+    });
+
+    it('peels a trailing composite reply onto a stable streaming markdown leaf', 0, () => {
+      const items: ConversationUiMessageItem[] = [
+        { type: 'thinking', content: 'Inspect' },
+        { type: 'tool', tool: toolStatus('read-1', 'Read', 'completed') },
+        { type: 'text', content: 'Growing answer' }
+      ];
+      const processItems = ChatMessageStructurePolicy.withoutTrailingTopLevelText(items);
+      expect(processItems.length).assertEqual(2);
+      expect(ChatMessageStructurePolicy.trailingTopLevelText(items)).assertEqual('Growing answer');
+
+      const toolAfterText: ConversationUiMessageItem[] = [
+        { type: 'text', content: 'Intermediate note' },
+        { type: 'tool', tool: toolStatus('write-1', 'Write', 'running') }
+      ];
+      expect(ChatMessageStructurePolicy.trailingTopLevelText(toolAfterText)).assertEqual('');
+      expect(ChatMessageStructurePolicy.withoutTrailingTopLevelText(toolAfterText).length).assertEqual(2);
+    });
+
+    it('invalidates structured rendering when tool topology changes without keying growing reply text', 0, () => {
+      const first: ConversationUiMessageItem[] = [
+        { type: 'thinking', content: 'Inspect' },
+        { type: 'tool', tool: toolStatus('skill-1', 'Skill', 'running') }
+      ];
+      const moreTools: ConversationUiMessageItem[] = [
+        { type: 'thinking', content: 'Inspect' },
+        { type: 'tool', tool: toolStatus('skill-1', 'Skill', 'completed') },
+        { type: 'tool', tool: toolStatus('read-1', 'Read', 'running') }
+      ];
+      const firstKey = ChatMessageStructurePolicy.structuredRenderKey(first, 'item', true, 'active');
+      const moreToolsKey = ChatMessageStructurePolicy.structuredRenderKey(moreTools, 'item', true, 'active');
+      expect(firstKey === moreToolsKey).assertFalse();
+
+      const replyA = moreTools.concat([{ type: 'text', content: 'A' }]);
+      const replyB = moreTools.concat([{ type: 'text', content: 'A growing answer' }]);
+      const processA = ChatMessageStructurePolicy.withoutTrailingTopLevelText(replyA);
+      const processB = ChatMessageStructurePolicy.withoutTrailingTopLevelText(replyB);
+      expect(ChatMessageStructurePolicy.structuredRenderKey(processA, 'item', true, 'active'))
+        .assertEqual(ChatMessageStructurePolicy.structuredRenderKey(processB, 'item', true, 'active'));
+    });
+
+    it('does not render a top-level tool twice when structured items already contain it', 0, () => {
+      const covered = toolStatus('read-1', 'Read', 'completed');
+      const extra = toolStatus('exec-1', 'ExecCommand', 'completed');
+      const remaining = ChatMessageStructurePolicy.toolsNotCoveredByItems(
+        [covered, extra],
+        [{ type: 'tool', tool: covered }]
+      );
+      expect(remaining.length).assertEqual(1);
+      expect(remaining[0].id).assertEqual('exec-1');
+    });
   });
 
   describe('AssistantProcessLayoutPolicy', () => {
@@ -283,6 +466,24 @@ export default function conversationPresentationUnitTest() {
       expect(groups[0].type).assertEqual('tool');
     });
 
+    it('keeps plan cards out of collapsed tool summaries', 0, () => {
+      const planTool: ConversationUiToolStatus = {
+        id: 'plan-1',
+        name: 'Write',
+        status: 'completed',
+        input_preview: '{"file_path":"/repo/.openbitfun/plans/mobile.plan.md"}'
+      };
+      const groups = ToolCollapsePolicy.collapsedGroups([
+        toolStatus('1', 'Read', 'completed'),
+        planTool,
+        toolStatus('2', 'Grep', 'completed')
+      ]);
+      expect(groups.length).assertEqual(3);
+      expect(groups[1].tools[0].name).assertEqual('Write');
+      expect(PlanToolPolicy.descriptor(planTool)?.file_path || '').assertEqual('/repo/.openbitfun/plans/mobile.plan.md');
+      expect(PlanToolPolicy.canBuild(planTool)).assertTrue();
+    });
+
     it('does not fold running, failed, or blocking tools into the summary', 0, () => {
       const groups = ToolCollapsePolicy.collapsedGroups([
         toolStatus('1', 'Grep', 'completed'),
@@ -300,11 +501,37 @@ export default function conversationPresentationUnitTest() {
       expect(groups[3].tools[0].name).assertEqual('Write');
     });
 
-    it('expands a subagent card only while that task is running', 0, () => {
-      expect(ToolCollapsePolicy.defaultSubagentExpanded(true)).assertTrue();
-      expect(ToolCollapsePolicy.defaultSubagentExpanded(false)).assertFalse();
-      expect(ToolCollapsePolicy.subagentExpandedForStatus(true, true, false)).assertFalse();
-      expect(ToolCollapsePolicy.subagentExpandedForStatus(false, true, true)).assertFalse();
+    it('presents subagent progress as a plain label without repeating it as body copy', 0, () => {
+      const progress: ConversationUiMessageItem = {
+        type: 'subagent',
+        is_subagent: true,
+        content: '**Planning exploration of AGENTS subcrates**'
+      };
+      expect(ChatMessageStructurePolicy.subagentTitle(progress))
+        .assertEqual('Planning exploration of AGENTS subcrates');
+      expect(ChatMessageStructurePolicy.subagentBody(progress)).assertEqual('');
+
+      const task = toolStatus('task-2', 'Task', 'running');
+      task.input_preview = '{"description":"Inspect workspace structure"}';
+      const taskProgress: ConversationUiMessageItem = {
+        type: 'tool',
+        tool: task,
+        content: 'Running “Inspect workspace structure”'
+      };
+      expect(ChatMessageStructurePolicy.subagentTitle(taskProgress)).assertEqual('Inspect workspace structure');
+      expect(ChatMessageStructurePolicy.subagentBody(taskProgress)).assertEqual('');
+
+      const structuredTask = toolStatus('task-3', 'Task', 'running');
+      structuredTask.tool_input = JSON.parse('{"description":"Read the README first paragraph"}') as Object;
+      expect(ToolStatusPresentationPolicy.taskTitle(structuredTask))
+        .assertEqual('Read the README first paragraph');
+
+      const codexTask = toolStatus('task-4', 'Task', 'running');
+      codexTask.tool_input = JSON.parse(
+        '{"task_name":"read_readme","message":"Read the first README paragraph."}'
+      ) as Object;
+      expect(ToolStatusPresentationPolicy.taskTitle(codexTask))
+        .assertEqual('Read the first README paragraph.');
     });
 
     it('keeps the summary row and lists members when the group is expanded', 0, () => {
@@ -336,6 +563,22 @@ export default function conversationPresentationUnitTest() {
       )).assertTrue();
       expect(REMOTE_CHAT_COMPOSER_CAPABILITIES.showAddButton).assertTrue();
       expect(REMOTE_CHAT_COMPOSER_CAPABILITIES.supportsAttachments).assertTrue();
+    });
+
+    it('keeps voice reachable beside Send once a draft has content', 0, () => {
+      expect(ChatComposerPolicy.shouldShowSupplementalVoice('继续补充', 0, false, true)).assertTrue();
+      expect(ChatComposerPolicy.shouldShowSupplementalVoice('', 1, false, true)).assertTrue();
+      expect(ChatComposerPolicy.shouldShowSupplementalVoice('', 0, false, true)).assertFalse();
+      expect(ChatComposerPolicy.shouldShowSupplementalVoice('继续补充', 0, true, true)).assertFalse();
+      expect(ChatComposerPolicy.shouldShowSupplementalVoice('继续补充', 0, false, false)).assertFalse();
+      expect(ChatComposerPolicy.canUseSupplementalVoice(false)).assertTrue();
+      expect(ChatComposerPolicy.canUseSupplementalVoice(true)).assertFalse();
+    });
+
+    it('keeps the composer expanded while model selection returns to the active edit', 0, () => {
+      expect(ChatComposerPolicy.isExpanded('', false, false, true)).assertTrue();
+      expect(ChatComposerPolicy.isExpanded('', false, false, false)).assertFalse();
+      expect(ChatComposerPolicy.isExpanded('', false, true, false)).assertTrue();
     });
 
     it('names the primary composer action for assistive labels', 0, () => {
@@ -509,17 +752,32 @@ export default function conversationPresentationUnitTest() {
     });
 
     it('reuses the signed-in cloud session instead of asking for the password again', 0, () => {
-      expect(ConnectScanDecisionPolicy.decide(true, true, 'alice', 'alice', 'desktop-1'))
+      expect(ConnectScanDecisionPolicy.decide(true, true, 'alice', 'alice', 'desktop-1', 'https://relay.example.com', 'https://relay.example.com/'))
         .assertEqual(DetectedUrlAction.USE_CLOUD_DEVICE);
-      expect(ConnectScanDecisionPolicy.decide(true, true, 'alice', 'alice', ''))
+      expect(ConnectScanDecisionPolicy.decide(true, true, 'alice', 'alice', '', 'https://relay.example.com', 'wss://relay.example.com/ws'))
         .assertEqual(DetectedUrlAction.SHOW_CLOUD_DEVICES);
-      expect(ConnectScanDecisionPolicy.decide(true, true, 'alice', '', 'desktop-1'))
+      expect(ConnectScanDecisionPolicy.decide(true, true, 'alice', '', 'desktop-1', 'https://relay.example.com', 'https://relay.example.com'))
         .assertEqual(DetectedUrlAction.USE_CLOUD_DEVICE);
     });
 
-    it('still asks for a password when the QR belongs to a different account', 0, () => {
-      expect(ConnectScanDecisionPolicy.decide(true, true, 'alice', 'bob', 'desktop-1'))
-        .assertEqual(DetectedUrlAction.PROMPT_ACCOUNT_PASSWORD);
+    it('does not reuse an account session from a different relay', 0, () => {
+      expect(ConnectScanDecisionPolicy.decide(
+        true, true, 'alice', 'alice', 'desktop-1',
+        'https://relay-a.example.com', 'https://relay-b.example.com'
+      )).assertEqual(DetectedUrlAction.PROMPT_ACCOUNT_PASSWORD);
+    });
+
+    it('uses the authenticated device directory instead of display-name equality', 0, () => {
+      expect(ConnectScanDecisionPolicy.decide(
+        true, true, 'alice', 'bob', 'desktop-1',
+        'https://relay.example.com', 'wss://relay.example.com/ws'
+      ))
+        .assertEqual(DetectedUrlAction.USE_CLOUD_DEVICE);
+      expect(ConnectScanDecisionPolicy.decide(
+        true, true, '', 'renamed-account', 'desktop-1',
+        'https://relay.example.com', 'https://relay.example.com/'
+      ))
+        .assertEqual(DetectedUrlAction.USE_CLOUD_DEVICE);
     });
   });
 
@@ -542,43 +800,92 @@ export default function conversationPresentationUnitTest() {
       expect(named.allowRename).assertTrue();
       expect(named.showActions).assertTrue();
       const branded = ConversationHeaderPolicy.present(ChatSurface.Remote, '', '', 'feat/ui', false);
-      expect(branded.subtitle).assertEqual('BitFun · feat/ui');
+      expect(branded.subtitle).assertEqual('OpenBitFun · feat/ui');
     });
 
-    it('treats create as a titled conversation chrome without actions or rename', 0, () => {
-      const create = ConversationHeaderPolicy.present(ChatSurface.Create, 'ignored', 'Studio', 'main', true);
-      expect(create.fallbackKey).assertEqual('remote.create.title');
-      expect(create.title).assertEqual('');
-      expect(create.subtitle).assertEqual('');
-      expect(create.allowRename).assertFalse();
-      expect(create.showActions).assertFalse();
-    });
   });
 
-  describe('Create conversation projection', () => {
-    it('projects remote create onto the shared conversation view with create capabilities', 0, () => {
-      const remote = new RemotePageState();
-      remote.desktopName = 'Studio';
-      const create = new RemoteCreateSessionState();
-      create.setDraft('hello from create');
-      create.setSelectedModelId('model-1');
-      create.isSubmitting = true;
-      create.errorText = 'device mismatch';
-      const projection = ConversationViewState.project(
-        AppRoute.RemoteCreate,
-        remote,
-        new GeneralChatPageState(),
-        '',
-        create
+  describe('ModelServiceSettingsPolicy', () => {
+    it('resolves the current model in selected / session / primary order', 0, () => {
+      const catalog = modelServiceCatalog([
+        cloudModel('cloud:a', 'alpha'),
+        cloudModel('cloud:b', 'beta'),
+        localModel('local-chat')
+      ], 'cloud:b', 'cloud:a');
+      expect(ModelServiceSettingsPolicy.currentModel(catalog, 'cloud:a')?.id).assertEqual('cloud:a');
+      expect(ModelServiceSettingsPolicy.currentModel(catalog, '')?.id).assertEqual('cloud:b');
+      expect(ModelServiceSettingsPolicy.currentModel({
+        version: 1,
+        models: catalog.models,
+        default_models: { primary: 'cloud:a' }
+      }, '')?.id).assertEqual('cloud:a');
+      expect(ModelServiceSettingsPolicy.currentModel({
+        version: 1,
+        models: [],
+        default_models: {}
+      }, '') === undefined).assertTrue();
+    });
+
+    it('lists only enabled cloud account models and keeps source rows unselected', 0, () => {
+      const catalog = modelServiceCatalog([
+        cloudModel('cloud:a', 'alpha'),
+        {
+          id: 'cloud:off',
+          name: 'off',
+          provider: 'account',
+          base_url: '',
+          model_name: 'off',
+          enabled: false,
+          capabilities: []
+        },
+        localModel('local-chat')
+      ], 'cloud:a', 'cloud:a');
+      const accountModels = ModelServiceSettingsPolicy.accountModels(catalog);
+      expect(accountModels.length).assertEqual(1);
+      expect(accountModels[0].id).assertEqual('cloud:a');
+      expect(ModelServiceSettingsPolicy.isAccountModelSelected(catalog, 'cloud:a')).assertTrue();
+      expect(ModelServiceSettingsPolicy.isLocalModelSelected(catalog, 'cloud:a')).assertFalse();
+      expect(ModelServiceSettingsPolicy.sourceRowShowsSelectionCheck()).assertFalse();
+      expect(ModelServiceSettingsPolicy.localRowSelectsOnBodyTap(
+        'https://api.example.com',
+        'local-chat',
+        true
+      )).assertTrue();
+      expect(ModelServiceSettingsPolicy.localRowSelectsOnBodyTap('', '', false)).assertFalse();
+      expect(ModelServiceSettingsPolicy.modelLabel(undefined, 'fallback')).assertEqual('fallback');
+      expect(ModelServiceSettingsPolicy.sheetPage('account')).assertEqual('account');
+      expect(ModelServiceSettingsPolicy.sheetPage('unknown')).assertEqual('overview');
+      expect(ModelServiceSettingsPolicy.parentSettingsPage('overview')).assertEqual('main');
+      expect(ModelServiceSettingsPolicy.parentSettingsPage('language')).assertEqual('main');
+      expect(ModelServiceSettingsPolicy.parentSettingsPage('account')).assertEqual('overview');
+      expect(ModelServiceSettingsPolicy.parentSettingsPage('local')).assertEqual('overview');
+    });
+
+    it('sizes the overview, account list, editor, and language sheets from content', 0, () => {
+      const overview = ModelServiceSettingsPolicy.overviewSheetHeight();
+      expect(overview < 400).assertTrue();
+      expect(overview > 300).assertTrue();
+      expect(ModelServiceSettingsPolicy.accountListSheetHeight(0)).assertEqual(
+        ModelServiceSettingsPolicy.HEADER_HEIGHT +
+          ModelServiceSettingsPolicy.LIST_TOP_PADDING +
+          ModelServiceSettingsPolicy.EMPTY_ACCOUNT_HEIGHT +
+          ModelServiceSettingsPolicy.LIST_BOTTOM_PADDING
       );
-      expect(projection.surface).assertEqual(ChatSurface.Create);
-      expect(projection.composerCapabilities.supportsAttachments).assertFalse();
-      expect(projection.composerCapabilities.showAddButton).assertFalse();
-      expect(projection.chatInput).assertEqual('hello from create');
-      expect(projection.isBusy).assertTrue();
-      expect(projection.inlineStatusText).assertEqual('device mismatch');
-      expect(projection.timelineItems.length).assertEqual(0);
-      expect(projection.desktopName).assertEqual('Studio');
+      const three = ModelServiceSettingsPolicy.accountListContentHeight(3);
+      const seven = ModelServiceSettingsPolicy.accountListContentHeight(7);
+      const twelve = ModelServiceSettingsPolicy.accountListContentHeight(12);
+      expect(three < seven).assertTrue();
+      expect(twelve).assertEqual(seven);
+      expect(ModelServiceSettingsPolicy.accountListSheetHeight(12))
+        .assertEqual(ModelServiceSettingsPolicy.MAX_SHEET_HEIGHT);
+      expect(ModelServiceSettingsPolicy.localEditorSheetHeight())
+        .assertEqual(ModelServiceSettingsPolicy.LOCAL_EDITOR_HEIGHT);
+      expect(ModelServiceSettingsPolicy.languageSheetHeight(2)).assertEqual(
+        ModelServiceSettingsPolicy.HEADER_HEIGHT +
+          ModelServiceSettingsPolicy.LANGUAGE_LIST_TOP_PADDING +
+          2 * ModelServiceSettingsPolicy.LANGUAGE_ROW_HEIGHT +
+          ModelServiceSettingsPolicy.LANGUAGE_LIST_BOTTOM_PADDING
+      );
     });
   });
 
@@ -665,6 +972,61 @@ export default function conversationPresentationUnitTest() {
       );
     });
   });
+}
+
+function cloudModel(id: string, modelName: string): RemoteModelConfig {
+  return {
+    id,
+    name: modelName,
+    provider: 'account',
+    base_url: 'https://chat.example.com/v1',
+    model_name: modelName,
+    enabled: true,
+    capabilities: ['text_chat']
+  };
+}
+
+function localModel(modelName: string): RemoteModelConfig {
+  return {
+    id: GENERAL_CHAT_LOCAL_MODEL_ID,
+    name: modelName,
+    provider: 'local',
+    base_url: 'https://localhost/v1',
+    model_name: modelName,
+    enabled: true,
+    capabilities: ['text_chat']
+  };
+}
+
+function modelServiceCatalog(
+  models: RemoteModelConfig[],
+  sessionModelId: string,
+  primary: string
+): RemoteModelCatalog {
+  return {
+    version: 1,
+    models,
+    default_models: { primary },
+    session_model_id: sessionModelId
+  };
+}
+
+function thinkingPart(beforeToolIndex: number, text: string): ActivityThinkingPart {
+  return {
+    beforeToolIndex,
+    text,
+    status: 'done',
+    streaming: false,
+    streamKey: `k-${beforeToolIndex}-${text}`
+  };
+}
+
+function rowPlanTrace(rows: ActivityRowPlan[]): string {
+  const parts: string[] = [];
+  rows.forEach((row: ActivityRowPlan) => {
+    parts.push(`${row.kind}${row.index}`);
+  });
+  return parts.join(' ');
 }
 
 function cloudModel(id: string, modelName: string): RemoteModelConfig {

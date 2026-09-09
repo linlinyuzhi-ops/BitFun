@@ -210,7 +210,48 @@ Logical 与 Development 的主要映射如下，映射是多对多关系：
 | Execution | Agent Core、Tools & Execution 的可移植原语与 Computer Use 契约，以及 Custom Agents、Tool Extensions、Hooks 的运行支持 |
 | Contracts | 为多个逻辑职责提供稳定事实与 port；不构成独立逻辑模块 |
 
-Assembly 是唯一组装根，只选择下层能力和实现，不能反向依赖 app。每个生态 adapter 独立保留外部格式和顺序语义，再映射到 BitFun owner；生态 adapter 之间不能形成兄弟依赖。
+Installer、E2E 以及 MiniApp/Skin market server 和对应 service 在 Level 0 图中分别归入交付入口、测试范围或 Services 家族，不作为独立架构模块。
+Logical 与 Development 的主要映射如下，映射是多对多关系：
+
+| Development area | Logical coverage |
+|---|---|
+| Apps & Interfaces | Application、Cross-platform 的宿主入口，Extensions 的用户控制面，以及 Desktop Computer Use 的平台实现 |
+| Assembly | Application、Agent Core、Tools & Execution 和 Extensions 的能力选择、产品编排与装配 |
+| Adapters | Tool Protocols 和外部生态接入所需的协议转换；adapter 本身不是逻辑层 |
+| Services | Tools & Execution 的具体执行支持，以及 Cross-platform 的操作系统能力实现 |
+| Execution | Agent Core、Tools & Execution 的可移植原语与 Computer Use 契约，以及 Custom Agents、Tool Extensions、Hooks 的运行支持 |
+| Contracts | 为多个逻辑职责提供稳定事实与 port；不构成独立逻辑模块 |
+
+Assembly 是唯一组装根，只选择下层能力和实现，不能反向依赖 app。每个生态 adapter 独立保留外部格式和顺序语义，再映射到 OpenBitFun owner；生态 adapter 之间不能形成兄弟依赖。
+
+各层的静态职责按下表执行。层间只允许由上向下依赖；同层依赖必须有明确的单向 owner 关系，不能为了复用方便形成环。
+
+| 层 | 负责 | 不负责 |
+|---|---|---|
+| Apps & Interfaces | 选择一个交付入口，提交唯一 Delivery Profile，转换 UI / CLI / ACP / SDK Host 协议 | 复制 Session、Agent loop、权限或工具执行状态 |
+| Assembly | 选择能力包、Agent 清单、原子工具组和具体 provider，校验组装结果 | 执行产品工作流、持有协议连接或读取 app 状态 |
+| Adapters | 把外部协议、生态格式和提供方请求转换为 OpenBitFun contracts | 决定产品能力、写入 Runtime 权威状态 |
+| Services | 实现文件系统、Git、终端、网络、MCP、远端和平台 I/O | 读取 Delivery Profile、依赖 Assembly 或产品入口 |
+| Execution | 提供可移植 Runtime 语义、命名工作流策略、工具契约与执行原语 | 选择产品形态、包含 UI/协议/平台实现 |
+| Contracts | 定义稳定事实、DTO、事件和 port | 持有运行时行为或依赖任何上层 |
+
+#### Agent Runtime 与命名工作流边界
+
+`agent-runtime` 的合理范围是所有交付形态都需要的一套通用执行语义：Agent / Session / Turn 生命周期，调度、取消和恢复，Context → Model → Tool 循环，权限与人工交互，事件、用量、checkpoint，以及通用 Tool、Hook、Skill、Custom Agent 扩展接口。
+
+以下内容不属于 Agent Runtime：
+
+- Deep Review、Deep Research 等按名称定义的产品工作流、提示词和报告策略；
+- MiniApp、Canvas 等产物产品及其发布、市场或界面生命周期；
+- CLI、ACP、SDK Host、Tauri、HTTP/WebSocket 等入口和协议；
+- 文件系统、Git、终端、网络、MCP、远端与 AI 提供方的具体实现；
+- Delivery Profile 和某个产品应该装载哪些 Agent / Tool 的选择。
+
+命名工作流的无 I/O 决策归 `agent-workflows`；具体 I/O 归 Services；`product-capabilities` 只选择工作流能力、Agent ID 和原子工具组。依赖方向固定为 `Assembly → agent-workflows → agent-runtime / contracts`，`agent-runtime` 禁止反向依赖 `agent-workflows`。当前 `agent-workflows` 的 DeepResearch 报告后处理不需要 Runtime 类型，因此直接依赖基础库；这不改变上述长期方向。
+
+原子逻辑模块应满足三个条件：一个明确 owner、一个可独立测试的输入输出契约、一个变化原因。`core.basic`、`core.agent`、`core.session`、`core.git`、`core.web`、`core.mcp`、`core.computer-use`、`core.review`、`core.miniapp`、`core.creation`、`core.canvas` 分别表达实际工具职责；其中 `core.creation` 只承载创造模式的产品创作入口，不吸收 MiniApp runtime/market owner。不得重新合成 `core.integration` 这类同时包含网络、Git、MCP、产品工具和平台能力的大组。
+
+当前生产循环仍由 `assembly/core` 的 `ConversationCoordinator → Scheduler → ExecutionEngine → RoundExecutor → ToolPipeline` 持有；`agent-runtime` 已拥有可移植决策与 Rust preview facade，但尚未独立拥有完整循环。`assembly/core` 因此仍是过渡期兼容组装与实际 owner，不能被描述成只有 wiring。后续迁移必须逐条切换真实调用方、保留行为等价测试并删除旧写入方；移动 DTO、增加 feature 或 re-export 均不算 owner 迁移。当前仍位于 Runtime/Core 的 DeepReview 兼容逻辑只允许迁出和修复，不继续承接新的产品行为。
 
 各层的静态职责按下表执行。层间只允许由上向下依赖；同层依赖必须有明确的单向 owner 关系，不能为了复用方便形成环。
 
@@ -308,6 +349,7 @@ flowchart LR
     SharedRuntime["Shared Runtime"]
     WorkspaceData["Workspace Data"]
     ToolProcesses["Tool Processes"]
+    PluginHosts["Plugin Host(s)\noptional Bun child"]
   end
 
   subgraph UserDevice["Client Device"]
@@ -335,6 +377,7 @@ flowchart LR
   CLIApp -.->|Local IPC| SharedRuntime
   WebServer --> WorkspaceData
   WebServer -->|spawn| ToolProcesses
+  WebServer -->|optional spawn| PluginHosts
   WebServer -->|HTTPS| AIProviders
   RelayServer --> RelayDB
   RelayServer --> AssetStore
@@ -342,19 +385,21 @@ flowchart LR
   SharedRuntime --> WorkspaceData
   EmbeddedNodes -->|spawn| ToolProcesses
   SharedRuntime -->|spawn| ToolProcesses
+  EmbeddedNodes -->|optional spawn| PluginHosts
+  SharedRuntime -->|optional spawn| PluginHosts
   EmbeddedNodes -->|HTTPS| AIProviders
   SharedRuntime -->|HTTPS| AIProviders
   DesktopApp -->|SSH| RemoteHosts
 
   classDef unit fill:#ffffff,stroke:#737373,stroke-width:1.3px,color:#171717;
-  class DesktopApp,CLIApp,ACPApp,SDKHost,SharedRuntime,WorkspaceData,ToolProcesses,WebClient,MobileClient,WebServer,RelayServer,RelayDB,AssetStore,AIProviders,RemoteHosts unit;
+  class DesktopApp,CLIApp,ACPApp,SDKHost,SharedRuntime,WorkspaceData,ToolProcesses,PluginHosts,WebClient,MobileClient,WebServer,RelayServer,RelayDB,AssetStore,AIProviders,RemoteHosts unit;
   style LocalHost fill:#ffffff,stroke:#737373;
   style EmbeddedNodes fill:#ffffff,stroke:#a3a3a3;
   style UserDevice fill:#ffffff,stroke:#a3a3a3;
   style RelayHost fill:#ffffff,stroke:#737373;
 ```
 
-实线表示主要协议、存储访问或进程创建，虚线表示显式启用的 Shared TUI 本机连接。Relay DB 只在账户模式启用，Asset Store 的具体实现由部署配置选择。完整 package plugin 尚未形成生产闭环，因此不把规划中的 Plugin Host 画成当前部署实例。
+实线表示主要协议、存储访问或进程创建，虚线表示显式启用的 Shared TUI 本机连接。Relay DB 只在账户模式启用，Asset Store 的具体实现由部署配置选择。启用配置型 OpenCode package plugin 时，实际承载 Agent Runtime 的本地 Rust 进程会监督一个共享 Bun Plugin Host；Host 在进程内按 workspace execution root 建立代际隔离的逻辑实例，Remote execution domain 当前不回退到控制机执行。
 
 | Deployment unit | Main contents |
 |---|---|
@@ -365,6 +410,7 @@ flowchart LR
 | SDK Host | 私有跨进程 adapter；公开 SDK 产品尚未交付 |
 | Web Server | Embedded Agent Runtime、WebSocket App Server、Health/Info；当前只允许 loopback 单用户模式 |
 | Relay Server | WebSocket/HTTP bridge、账户与同步；不包含 Agent Runtime |
+| Plugin Host | 可选的受管 Bun 子进程；执行配置中显式声明的 OpenCode package plugin，由本地 Agent Runtime 进程监督，不按 Session 或插件各启一个进程 |
 
 ### 2.5 Scenarios (+1) · Level 0
 
@@ -406,7 +452,7 @@ flowchart TB
 
 ## 3. 接口边界
 
-BitFun 只保留四个稳定业务接口边界；工具、事件和权限作为归属子接口被复用，不在插件层重复定义。App Server
+OpenBitFun 只保留四个稳定业务接口边界；工具、事件和权限作为归属子接口被复用，不在插件层重复定义。App Server
 是 Agent Runtime API 和其他 owner 接口面向当前 Web，以及未来确实需要连接边界的 Rich Client 的版本化 wire adapter，不新增第五个
 业务 owner 或能力分类。Embedded TUI 已使用 direct Runtime adapter；Shared 是否使用 App Server 由 4.3 节所述评审决定。本文使用
 “接口”描述可被调用或依赖的能力面；只有描述跨进程消息封装、结构化 schema、序列化对象或强兼容约束时才使用
@@ -423,7 +469,7 @@ TUI DTO、权限/上下文转换或终端投影辅助函数，但不得建立新
 | 接口边界 | 谁使用 | 提供 | 不包含 |
 |---|---|---|---|
 | Agent Runtime API | App Server、Headless CLI、ACP、Server、Remote、SDK 等 adapter | Query、Session、Tool/MCP、Permission、Hook、Event、Usage | UI、Rich Client wire、协议和具体服务实现 |
-| BitFun 与插件接口 | `PluginRuntimeClient`、安全模块、产品组装、生态适配器 | 来源、能力、Hook 变换、界面贡献、诊断 | 最终权限、工具结果、审计和内核状态 |
+| OpenBitFun 与插件接口 | `PluginRuntimeClient`、安全模块、产品组装、生态适配器 | 来源、能力、Hook 变换、界面贡献、诊断 | 最终权限、工具结果、审计和内核状态 |
 | 插件运行时接口 | Runtime、执行层、产品组装、`PluginRuntimeClient` | 请求身份、期限、响应校验和诊断 | SDK/UI 对象、生态原始对象和进程句柄 |
 | 外部生态兼容接口 | 来源管理、能力模块、`PluginRuntimeClient`、Plugin Host | 发现、顺序、参数、诊断和明确映射 | 跨生态任意数据、兄弟适配器依赖和外部 CLI 前置依赖 |
 
@@ -434,8 +480,8 @@ TUI DTO、权限/上下文转换或终端投影辅助函数，但不得建立新
 | 子接口 | 归属 | 用法 |
 |---|---|---|
 | 工具 ABI | `tool-contracts` / 执行层 | 具备真实执行实现的插件 custom tool、MCP 工具和内置工具进入同一可调用工具集合、权限和陈旧调用保护路径；只有声明或候选项的插件工具不能进入该集合。 |
-| 事件清单 | `events` / 智能体内核事件 schema | 对固定生态版本维护各自事件清单；插件观察兼容事件，BitFun 内部私有字段在对应适配层转换或脱敏。 |
-| 权限与副作用 | 安全模块 / runtime ports | 插件启用后，默认兼容策略允许 OpenCode `permission.ask` 和直接脚本能力按当前用户权限运行；经 BitFun 接口的调用可细分收紧，直接脚本能力只能由真实 OS/容器环境粗粒度限制，否则停用插件。 |
+| 事件清单 | `events` / 智能体内核事件 schema | 对固定生态版本维护各自事件清单；插件观察兼容事件，OpenBitFun 内部私有字段在对应适配层转换或脱敏。 |
+| 权限与副作用 | 安全模块 / runtime ports | 插件启用后，默认兼容策略允许 OpenCode `permission.ask` 和直接脚本能力按当前用户权限运行；经 OpenBitFun 接口的调用可细分收紧，直接脚本能力只能由真实 OS/容器环境粗粒度限制，否则停用插件。 |
 
 ### 3.1 公开接口进入条件
 
@@ -444,7 +490,7 @@ TUI DTO、权限/上下文转换或终端投影辅助函数，但不得建立新
 1. 属于上表一个明确接口边界，不能同时承担前后端协议、插件扩展、host ABI 和生态适配职责。
 2. 有当前消费方；仅为了未来兼容、完整矩阵或概念完整性保留的代码接口不进入稳定面。该规则不阻止需求、
    风险、完整能力矩阵和阶段计划记录未来工作，也不能用来把官方稳定能力从兼容审计中删除。
-3. 能映射到 OpenCode-compatible P0 关键场景，或属于 BitFun 已有关键路径的稳定子接口。
+3. 能映射到 OpenCode-compatible P0 关键场景，或属于 OpenBitFun 已有关键路径的稳定子接口。
 4. 不能由既有工具 ABI、事件清单、权限模块或能力服务接口承接时，才允许新增。
 5. PR 必须说明版本影响、验证命令和删除条件。
 
@@ -452,7 +498,7 @@ TUI DTO、权限/上下文转换或终端投影辅助函数，但不得建立新
 `pub` 符号扫描器。已登记接口必须声明 `contractSlice` 供机器校验归属；未登记接口仍须满足上述进入条件，并由
 PR 审查和最近的边界测试验证。边界脚本通过不能解释为全仓公开接口已经自动完成预算审计。
 
-没有 OpenCode 对应能力、没有当前消费方、不能归入关键 BitFun 场景的接口，处理方式只有三种：删除、降级为主机内部实现，或返回类型化 `unsupported` / 诊断。
+没有 OpenCode 对应能力、没有当前消费方、不能归入关键 OpenBitFun 场景的接口，处理方式只有三种：删除、降级为主机内部实现，或返回类型化 `unsupported` / 诊断。
 
 已批准后续工作所需的短期前置接口不等于占位实现。确需预留时，必须在相邻设计中写明首个消费方、稳定语义、
 接入验证和未接入时的删除条件；在端到端调用链落地前保持内部可见或显式标为未接入，不能用空实现、测试替身或
@@ -495,7 +541,7 @@ adapter 映射到稳定 owner 接口，不因该目标复用 App Server wire。�
 本文其他章节和历史设计中出现的“Runtime SDK”，如果指 `agent-runtime::sdk`，统一称为
 **Rust Runtime SDK（当前 preview）**；它是共享 **Agent Runtime API** 的当前 Rust 入口。只有
 [`agent-sdk-product-architecture.md`](agent-sdk-product-architecture.md) 定义的 Python/TypeScript package 才称为公开
-**BitFun Agent SDK**，其跨进程适配器称为 **SDK Host**。该术语区分不要求机械重命名现有 crate/module，但禁止用
+**OpenBitFun Agent SDK**，其跨进程适配器称为 **SDK Host**。该术语区分不要求机械重命名现有 crate/module，但禁止用
 Rust preview 的存在证明公开 SDK 已交付。
 
 第一方多实例目标称为 **Shared Agent Runtime deployment**。承载它的 Rust 进程与 SDK Host、Plugin Host、Server/Relay 和 Remote
@@ -613,10 +659,12 @@ composition，而是继续通过自己的 loopback WebSocket App Server 入口�
 
 ```mermaid
 flowchart LR
-  Owner["能力归属模块"] <--> Client["PluginRuntimeClient"]
-  Client <--> Adapter["生态 adapter"]
-  Adapter <--> Service["Process service"]
-  Service <--> Host["Plugin Host"]
+  Owner["能力归属模块"] <--> Lifecycle["Core package lifecycle"]
+  Lifecycle <--> Runtime["HookFunctionRuntime"]
+  Runtime <--> Adapter["OpenCode adapter"]
+  Adapter <--> Service["Process-tree service"]
+  Service <--> Host["Shared Bun Plugin Host"]
+  Legacy["legacy managed / standalone path"] <--> Client["PluginRuntimeClient / ScriptToolRuntime"]
 ```
 
 插件贡献走独立的提交链，不绕过能力归属模块：
@@ -642,17 +690,20 @@ flowchart LR
   Agent Runtime API 是一组小而明确的用例接口，不是必须实例化的总入口；adapter 可以调用对应归属模块的少量接口，
   但不能访问内部状态、绕过既有编排或复制业务规则。任何入口都不直接调用 Plugin Host。
 - 插件只进入扩展贡献接口，不直接写内核状态、工具结果、权限结果或审计事实。
-- Rust 主应用内只有 `PluginRuntimeClient` 及 services 层现有脚本执行实现：前者当前负责类型化调用、期限、同一插件实例
-  串行化、重复请求结果、响应校验和故障诊断；取消结果失效、有界队列和旧连接结果拒绝只有在端口具备相应身份后
-  才能作为目标能力加入。后者沿 `ScriptToolRuntime` 边界负责 Plugin Host 的物理健康、资源预算与进程树回收。Host 仅指运行
-  Node/Bun 和第三方 JS/TS 的子进程；插件启停与贡献生命周期仍由既有来源和能力归属模块管理。
+- 当前 package-plugin 路径由 Core 持有 workspace 逻辑实例和贡献代际，沿类型化 `HookFunctionRuntime` 调用
+  OpenCode adapter；adapter 解释 OpenCode Config/Contributor/Tool 形态后输出生态无关的 Agent、Tool 引用和 Skill 根贡献，
+  Core 的通用发布模块只把这些贡献提交给既有能力 owner。OpenCode 专属组装路径仍持有 Config 调用和 Tool registration
+  转换；adapter 持有共享 Bun Plugin Host 的 wire、连接和物理生命周期，并复用 services 的进程树原语。
+  legacy managed-package 请求可靠性仍由 `PluginRuntimeClient` 承担，standalone `.js` Tool worker 仍由
+  `ScriptToolRuntime` 承担。三者不共享生命周期对象，也不能互相外推已交付能力。
 - 外部来源的 Command、Tool、Subagent、MCP 仍保留能力专属 DTO 和 owner，但它们的发现调度统一由
   `ExternalSourceControlPlane` 持有；当前 Desktop/TUI/Peer 的控制事实只通过版本化的 product-domain 只读视图共享，
   不复制生态 payload、界面状态机或远端专用 DTO。App Server 已注册 external-source schema、handler 和 client translation；Embedded Host
   注入 management owner 后可以调用。通用 Server `/ws` 当前没有绑定可信工作区的 management owner，因此返回类型化 `unsupported`；只有注入 Host 持有的作用域化 owner 并通过 WebSocket round-trip 后，Server 才交付该共享边界。
-- 每个生态适配层独立保留该生态的外部格式、来源顺序和调用语义，并映射到 BitFun 归属模块；它本身不成为新的
+- 每个生态适配层独立保留该生态的外部格式、来源顺序和调用语义，并映射到 OpenBitFun 归属模块；它本身不成为新的
   业务归属模块，也不能依赖或修改兄弟生态 adapter。通用目录、`ExternalSourceControlPlane` 和能力归属模块只依赖开放生态 ID、
-  来源限定身份与能力专属 provider 契约，不按 OpenCode、Codex 或 Claude Code 分支行为。
+  来源限定身份与能力专属 provider 契约，不按 OpenCode、Codex、Claude Code 或 DeepSeek Harness 分支行为。不同生态
+  可以复用已存在的中立贡献 DTO 与发布动作，但不因此共享配置解析、Host 协议、执行句柄或生命周期。
 - 产品组装是组装根，只在组装期选择能力、服务实现、插件运行时绑定和降级策略。
 - 对外能力接口只提供现有归属模块的窄用例、只读状态、事件和明确错误；它不是第二个 Agent Runtime、通用服务
   定位器或插件 Host。外部产品扩展、外部 SDK 控制端和“使用外部 Runtime 组装新产品”是三种不同交付路径，
@@ -667,14 +718,15 @@ flowchart LR
 
 - `Host` 首次出现或跨文档引用时必须带限定词，并表示实际承载执行或协议的进程/产品，例如 Plugin Host、SDK Host、Peer Host；
   同一小节已明确指代后可简称 Host，Rust 插件调用可靠性实现不得称为 Host。
-- 插件侧只保留插件实例、能力贡献、`PluginRuntimeClient` 和 Plugin Host 四个跨文档名词；进程监督、脚本执行、
-  来源发现和能力提交直接使用已有归属模块的职责描述，不再增加平行的 Manager/Controller/Coordinator 名称。
+- 当前 package-plugin 路径只使用插件实例、能力贡献、Core package lifecycle、`HookFunctionRuntime` 和 Plugin Host；
+  legacy managed-package 才使用 `PluginRuntimeClient`。进程监督、脚本执行、来源发现和能力提交直接使用已有归属模块
+  的职责描述，不再增加平行的 Manager/Controller/Coordinator 名称。
 - 不建立额外的插件运行对象、注册表或状态机。插件实例由现有来源模块标识，贡献由对应能力模块管理；Plugin Host
   只是可以承载多个插件实例的物理进程组。
 - workspace 只在具体归属模块确有独立配置、状态、版本或并发单例时作为该状态的限定键；它不是通用
   runtime、Plugin Host 或 session 的别名。
 - `Product Assembly` 是唯一组装名称。当前 Rust 内部入口称为
-  Rust Runtime SDK（preview），只有公开 Python/TypeScript 产品称为 BitFun Agent SDK。
+  Rust Runtime SDK（preview），只有公开 Python/TypeScript 产品称为 OpenBitFun Agent SDK。
 - 生态 adapter 必须按方向说明是来源导入还是外部宿主输出。插件兼容接口、组合规则、脚本执行后端和当前能力版本都是
   已有归属模块的具体职责，不建立同义的第二层架构名词。
 
@@ -683,9 +735,11 @@ flowchart LR
 
 ## 5. OpenCode-compatible 当前基线与目标
 
-Plugin Runtime P0 只验证了 BitFun 专用插件目录中的来源校验、工作区审核、启停记录、CLI 诊断和 custom tool 名称预览。
-它不执行 JS/TS，不注册真实工具，也不运行 OpenCode 钩子、Client 或终端插件。现有能力只能称为“静态预览”，
-不能称为“OpenCode 插件运行时”。详细代码事实集中在
+当前生产路径可通过一个受管 Bun Plugin Host 执行配置中显式声明的 OpenCode package plugin，并把完整合并配置、
+Config Hook 的 Agent/权限/Skill 投影、真实 Tool 注册与执行、`tool.execute.before/after`、最小 Client 回环接口接入
+既有归属模块。插件激活失败会撤下对应代际贡献、发布统一诊断并保留原生 Session 能力；Remote execution domain
+当前明确不在控制机回退执行。自动插件目录发现、完整 Client/Hook/TUI 表面与安全收口仍未完成，不能表述为完整
+OpenCode Runtime 兼容。详细代码事实集中在
 [`plugin-runtime-design.md#7-当前实现`](extensions/plugin-runtime-design.md#7-当前实现)。
 
 与 Plugin Runtime 分离的四条纵向基线已经通过各自的能力专属 provider 契约接入：Prompt Command 可发现本地
@@ -697,7 +751,7 @@ package plugin、OpenCode/通用动态 Hook Runtime、primary agent、外部 age
 配置兼容已经可用。独立目录可以发现并脱敏展示 OpenCode、Claude Code 与 Codex 的本地 Hook 声明；其中只有明确审阅的
 Claude Code/Codex 命令子集可复制为既有 `AgentHookEngine` 的原生层，OpenCode 和其余声明仍不加载 handler 或授予权限。
 
-目标路线不要求 OpenCode 插件作者维护 `bitfun.plugin.json` 或复制到 `.bitfun/plugins`。BitFun 直接发现用户和
+目标路线不要求 OpenCode 插件作者维护 `openbitfun.plugin.json` 或复制到 `.openbitfun/plugins`。OpenBitFun 直接发现用户和
 项目的 OpenCode 配置、插件目录、工具目录和软件包来源；低风险内容按用户偏好自动应用或先询问，可执行来源在
 首次启用或能力扩大时非阻塞确认。用户允许执行的候选自动记录当前版本，在自有脚本进程中真实加载插件，再通过兼容
 适配层把工具、稳定钩子、Client 和 TUI 插件入口接入现有归属模块。
@@ -718,10 +772,9 @@ flowchart LR
 
 稳定决策如下：
 
-- 不启动完整 OpenCode Runtime，也不依赖用户安装 OpenCode CLI；BitFun 实现自己的监督、适配和 Rust 转发层。
-  当前 standalone Tool 子集通过受监督的 Node.js worker 执行且不安装依赖；未来只有固定的 package plugin 样例证明
-  确有需要时，才单独裁决 Bun、依赖准备和版本兼容方案。OpenCode v2 当前同时维护 Bun 编译产物与 Node SEA 并行
-  产物，因此 BitFun 不把外部项目尚未稳定的运行时选择提升为插件内部 ABI 或核心架构约束。
+- 不启动完整 OpenCode Runtime，也不依赖用户安装 OpenCode CLI；OpenBitFun 实现自己的监督、适配和 Rust 转发层。
+  当前 standalone Tool 子集继续通过受监督的 Node.js worker 执行；配置型 package plugin 使用受管 Bun Host，分发仍
+  依赖系统 Bun 或 `OPENBITFUN_BUN_COMMAND`，Bun 只属于当前物理执行后端，不进入插件内部 ABI 或核心业务合同。
 - 用户全局和项目来源自动发现；低风险内容默认无感应用并显示可撤销摘要，可执行来源首次启用或能力扩大时等待
   非阻塞确认。确认前不得 import module、启动 worker、读取凭据或产生直接脚本副作用。
 - 激活后的本地插件默认按 OpenCode 语义运行，允许当前用户通常拥有的文件、网络、进程和环境能力；用户、
@@ -745,7 +798,7 @@ flowchart LR
 - GUI、TUI、Web 和 Remote 只消费能力服务、稳定状态和操作接口，不直接依赖 `PluginRuntimeClient`、Plugin Host
   进程或 OpenCode 原始类型。
 
-最明显的首期降级是 OpenCode TUI 的原始 `CliRenderer`、Solid/OpenTUI 组件树。BitFun CLI 使用 Ratatui，无法直接
+最明显的首期降级是 OpenCode TUI 的原始 `CliRenderer`、Solid/OpenTUI 组件树。OpenBitFun CLI 使用 Ratatui，无法直接
 执行这些组件；宿主操作和结构化贡献可以适配，原始组件必须返回明确降级且不能打开空白或无法退出的页面。
 其他暂不承诺项、原因和风险统一在
 [`opencode-extension-compatibility.md#6-明确限制与延期决策`](extensions/opencode-extension-compatibility.md#6-明确限制与延期决策)
@@ -784,8 +837,8 @@ flowchart LR
 - GUI 与 TUI 布局由对应宿主独立校验，只共享产品身份、Capability ID、品牌资源索引和策略引用，不共享布局、
   组件、主题键、键位或渲染状态。
 - 布局选择只能引用宿主已注册的稳定 ID；品牌生成和校验继续使用仓库现有构建流程，不新增通用脚本运行时。
-- 产品内置扩展、BitFun 原生包和 OpenCode 标准来源不共享来源根、信任/启用记录、安装状态、更新通道或卸载
-  生命周期；三者只复用适用的包校验、插件内部 ABI、Plugin Host 进程边界和经 BitFun 能力接口的权限/审计路径。
+- 产品内置扩展、OpenBitFun 原生包和 OpenCode 标准来源不共享来源根、信任/启用记录、安装状态、更新通道或卸载
+  生命周期；三者只复用适用的包校验、插件内部 ABI、Plugin Host 进程边界和经 OpenBitFun 能力接口的权限/审计路径。
 
 产品定制和品牌资源的详细边界见
 [`product-customization-blueprint.md`](product-customization-blueprint.md)；CLI/TUI 的消费方式和配置导入见
@@ -810,7 +863,7 @@ flowchart TB
 ```
 
 当前 HTTP Server 调用 agent bootstrap，创建 Embedded Runtime 和 workspace ownership，并把 `/ws` 连接交给
-`BitfunAppServer::serve`。它固定绑定 loopback，只有 Origin allowlist，没有每连接认证和 user/workspace/execution-domain
+`OpenBitFunAppServer::serve`。它固定绑定 loopback，只有 Origin allowlist，没有每连接认证和 user/workspace/execution-domain
 绑定；因此只能视为本机单用户 App Server Host，不能据此宣称远程、多用户或公开 Server Agent API 已交付。
 
 当前 Peer 运行连接：
@@ -857,7 +910,7 @@ Shared Agent Runtime 是第一方多实例的目标部署，不是上表新增�
 架构或实现 PR 必须满足：
 
 - 未新增无消费方的公开接口、空注册表、泛描述符或多生态稳定接口。
-- 没有把 OpenCode 类型或 CLI 可用性提升为 BitFun 内部数据模型；适配器仍应保持 OpenCode 配置、加载顺序和
+- 没有把 OpenCode 类型或 CLI 可用性提升为 OpenBitFun 内部数据模型；适配器仍应保持 OpenCode 配置、加载顺序和
   冲突的外部可观察语义。
 - 插件可按 OpenCode Hook 语义提出并链式应用变换，最终结构、策略、审计和状态提交仍由对应模块完成。
 - 只有名称或静态声明、没有真实执行实现的插件工具不能进入最终可调用工具集合。
@@ -867,8 +920,8 @@ Shared Agent Runtime 是第一方多实例的目标部署，不是上表新增�
   事件因果和审计；单选、顺序执行、名称并存、失败回退或结果汇总规则必须由能力归属模块明确。
 - TUI 与 GUI 不共享内部主题键、键位模型或界面状态；OpenCode TUI 原始键和组件只存在于适配层，转换后由
   TUI 宿主消费，不能用构建期布局选择冒充运行时插件兼容。
-- 只有产品身份、安全恢复和法律要求等明确保护项不能被用户扩展覆盖；普通内置工具、命令和主题作为 BitFun
-  来源候选保留，跨生态同名时由用户选择，不能按注册顺序静默决胜。冲突界面固定先展示 BitFun 候选，但展示顺序
+- 只有产品身份、安全恢复和法律要求等明确保护项不能被用户扩展覆盖；普通内置工具、命令和主题作为 OpenBitFun
+  来源候选保留，跨生态同名时由用户选择，不能按注册顺序静默决胜。冲突界面固定先展示 OpenBitFun 候选，但展示顺序
   不等于自动选择。产品内置扩展不能复用用户来源批准或启用记录，产品签名也不能绕过运行时
   权限、审计和故障隔离。
 - GUI/TUI 布局选择不复制主题 schema，不固化动态能力状态，也不携带可执行 UI 或任意构建脚本。
@@ -880,3 +933,19 @@ Shared Agent Runtime 是第一方多实例的目标部署，不是上表新增�
   启停顺序和失败回滚。这项宿主接入不构成 CLI、Server、ACP 或 HarmonyOS 本地产品支持。
 - HarmonyOS PC 的完整目标同时包含本地 CLI/TUI 与 GUI，当前均不能标记可用；两种宿主分别验收，具体支持证据和禁止替代项以平台规约及各自专题为准。
 - 文档、边界脚本和 focused 测试能说明本次变更保护了哪个稳定接口边界，或删除/降级了哪个过宽接口。
+
+## 独立数据迁移工具的依赖边界
+
+Data Migrator 是独立发布的本地离线工具，不依赖 Core、Product Assembly、Desktop 或 Web UI。
+主应用不检测、启动或捆绑迁移器。两者在同一源码工作区复用稳定的数据格式与存储实现：
+
+- contracts/config-contracts：配置 DTO、默认值、版本校验及到共享模型 DTO 的纯转换；Core 原路径保留转发，ConfigProvider 仍在 Core。
+- services-core 的 workspace-persistence、coordination-store、session-event-format：工作区记录、注册表校验、SQLite 物理 schema 和会话日志格式。
+- services/legacy-migration-adapters：旧版读取、转换、引用修复；只调用共享存储 owner。
+- services/legacy-migration：快照、锁、暂存、备份、原子写入、日志恢复和无时效交接依赖的任务存储。
+
+本次只移动数据/存储 owner，不移动 WorkspaceManager、会话生命周期、权限、事件或远程执行。
+WorkspaceInfo/WorkspaceIdentity 的运行操作由 Core 的 runtime extension traits 保留，稳定记录无需导入这些能力。
+原 Core 存储入口保留错误映射；可选 legacy-migration facade 保留旧导入路径，但不再由 product-full 启用。
+远程四种场景不提供迁移工具的执行入口；仅转换本机保存的连接记录，不连接远端。
+使用与发行契约以 [独立迁移器说明](../../src/apps/data-migrator/README.zh-CN.md) 为准。

@@ -16,25 +16,25 @@ use tokio::task::JoinSet;
 use tokio::time::{timeout, Duration};
 
 use crate::api::app_state::AppState;
-use bitfun_core::agentic::tools::implementations::skills::mode_overrides::{
+use openbitfun_core::agentic::tools::implementations::skills::mode_overrides::{
     clear_user_mode_skill_overrides, load_globally_disabled_user_skills,
     load_project_mode_skills_document_local, project_mode_skills_path_for_remote,
     save_project_mode_skills_document_local, set_disabled_mode_skills_in_document,
     set_global_user_skill_disabled, set_mode_skill_disabled_in_document, set_user_mode_skill_state,
 };
-use bitfun_core::agentic::tools::implementations::skills::{
+use openbitfun_core::agentic::tools::implementations::skills::{
     resolver::resolve_skill_default_enabled_for_mode, ModeSkillInfo, SkillData, SkillInfo,
     SkillLocation, SkillRegistry,
 };
-use bitfun_core::agentic::workspace::RemoteWorkspaceFs;
-use bitfun_core::infrastructure::get_path_manager_arc;
-use bitfun_core::service::config::agent_profile_project_store::{
+use openbitfun_core::agentic::workspace::RemoteWorkspaceFs;
+use openbitfun_core::infrastructure::get_path_manager_arc;
+use openbitfun_core::service::config::agent_profile_project_store::{
     deserialize_project_agent_profiles_document, serialize_project_agent_profiles_document,
 };
-use bitfun_core::service::remote_ssh::workspace_state::is_remote_path;
-use bitfun_core::service::remote_ssh::{get_remote_workspace_manager, RemoteWorkspaceEntry};
-use bitfun_core::service::runtime::RuntimeManager;
-use bitfun_core::util::process_manager;
+use openbitfun_core::service::remote_ssh::workspace_state::is_remote_path;
+use openbitfun_core::service::remote_ssh::{get_remote_workspace_manager, RemoteWorkspaceEntry};
+use openbitfun_core::service::runtime::RuntimeManager;
+use openbitfun_core::util::process_manager;
 
 const SKILLS_SEARCH_API_BASE: &str = "https://skills.sh";
 const DEFAULT_MARKET_QUERY: &str = "skill";
@@ -44,8 +44,23 @@ const MAX_OUTPUT_PREVIEW_CHARS: usize = 2000;
 const MARKET_DESC_FETCH_TIMEOUT_SECS: u64 = 4;
 const MARKET_DESC_FETCH_CONCURRENCY: usize = 6;
 const MARKET_DESC_MAX_LEN: usize = 220;
+const REMOTE_SKILL_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(60);
 
 static MARKET_DESCRIPTION_CACHE: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
+
+async fn await_remote_skill_discovery<T>(
+    operation: impl std::future::Future<Output = Result<T, String>>,
+    deadline: Duration,
+) -> Result<T, String> {
+    timeout(deadline, operation)
+        .await
+        .map_err(|_| {
+            format!(
+                "Remote Skill discovery timed out after {} seconds. Check the SSH/SFTP connection and retry.",
+                deadline.as_secs().max(1)
+            )
+        })?
+}
 
 fn can_delete_owned_skill(source_id: &str, source_slot: &str, is_builtin: bool) -> bool {
     if is_builtin {
@@ -54,18 +69,18 @@ fn can_delete_owned_skill(source_id: &str, source_slot: &str, is_builtin: bool) 
 
     let source_id = source_id.trim().to_ascii_lowercase();
     if !source_id.is_empty() {
-        return matches!(source_id.as_str(), "bitfun" | "bitfun-system");
+        return matches!(source_id.as_str(), "openbitfun" | "openbitfun-system");
     }
 
     let source_slot = source_slot.trim().to_ascii_lowercase();
-    source_slot.starts_with("bitfun")
+    source_slot.starts_with("openbitfun")
 }
 
 fn ensure_skill_can_be_deleted(skill: &SkillInfo) -> Result<(), String> {
     if can_delete_owned_skill(&skill.source_id, &skill.source_slot, skill.is_builtin) {
         Ok(())
     } else {
-        Err("Only BitFun-owned, non-built-in Skills can be deleted from BitFun".to_string())
+        Err("Only OpenBitFun-owned, non-built-in Skills can be deleted from OpenBitFun".to_string())
     }
 }
 
@@ -215,14 +230,20 @@ async fn get_all_skills_for_workspace_input(
     workspace_path: Option<&str>,
 ) -> Result<Vec<SkillInfo>, String> {
     if let Some((remote_root, entry)) = resolve_remote_workspace(state, workspace_path).await? {
-        let remote_fs = state
-            .get_remote_file_service_async()
-            .await
-            .map_err(|e| format!("Remote file service not available: {}", e))?;
-        let remote_workspace_fs = RemoteWorkspaceFs::new(entry.connection_id, remote_fs);
-        Ok(registry
-            .get_all_skills_for_remote_workspace(&remote_workspace_fs, &remote_root)
-            .await)
+        await_remote_skill_discovery(
+            async {
+                let remote_fs = state
+                    .get_remote_file_service_async()
+                    .await
+                    .map_err(|e| format!("Remote file service not available: {}", e))?;
+                let remote_workspace_fs = RemoteWorkspaceFs::new(entry.connection_id, remote_fs);
+                Ok(registry
+                    .get_all_skills_for_remote_workspace(&remote_workspace_fs, &remote_root)
+                    .await)
+            },
+            REMOTE_SKILL_DISCOVERY_TIMEOUT,
+        )
+        .await
     } else {
         Ok(registry
             .get_all_skills_for_workspace(workspace_root_from_input(workspace_path).as_deref())
@@ -237,15 +258,25 @@ async fn get_mode_skill_infos_for_workspace_input(
     workspace_path: Option<&str>,
 ) -> Result<Vec<ModeSkillInfo>, String> {
     if let Some((remote_root, entry)) = resolve_remote_workspace(state, workspace_path).await? {
-        let remote_fs = state
-            .get_remote_file_service_async()
-            .await
-            .map_err(|e| format!("Remote file service not available: {}", e))?;
-        let remote_workspace_fs =
-            RemoteWorkspaceFs::new(entry.connection_id.clone(), remote_fs.clone());
-        Ok(registry
-            .get_mode_skill_infos_for_remote_workspace(&remote_workspace_fs, &remote_root, mode_id)
-            .await)
+        await_remote_skill_discovery(
+            async {
+                let remote_fs = state
+                    .get_remote_file_service_async()
+                    .await
+                    .map_err(|e| format!("Remote file service not available: {}", e))?;
+                let remote_workspace_fs =
+                    RemoteWorkspaceFs::new(entry.connection_id.clone(), remote_fs.clone());
+                Ok(registry
+                    .get_mode_skill_infos_for_remote_workspace(
+                        &remote_workspace_fs,
+                        &remote_root,
+                        mode_id,
+                    )
+                    .await)
+            },
+            REMOTE_SKILL_DISCOVERY_TIMEOUT,
+        )
+        .await
     } else if let Some(workspace_root) = workspace_root_from_input(workspace_path) {
         Ok(registry
             .get_mode_skill_infos_for_workspace(Some(&workspace_root), mode_id)
@@ -301,7 +332,7 @@ async fn persist_user_mode_skill_selection(
         }
     }
 
-    bitfun_core::service::config::mode_config_canonicalizer::persist_agent_profile_from_value(
+    openbitfun_core::service::config::mode_config_canonicalizer::persist_agent_profile_from_value(
         mode_id,
         serde_json::json!({
             "disabled_user_skills": normalize_skill_key_list(disabled_user_skills),
@@ -542,7 +573,7 @@ pub async fn set_global_skill_disabled(
         set_global_user_skill_disabled(skill_key, request.disabled)
             .await
             .map_err(|error| format!("Failed to update global Skill settings: {}", error))?;
-    if let Err(error) = bitfun_core::service::config::reload_global_config().await {
+    if let Err(error) = openbitfun_core::service::config::reload_global_config().await {
         log::warn!(
             "Failed to reload global configuration after Skill availability update: skill_key={}, error={}",
             skill_key,
@@ -619,7 +650,7 @@ pub async fn set_mode_skill_disabled(
         set_user_mode_skill_state(&mode_id, &skill_key, !disabled, default_enabled)
             .await
             .map_err(|e| format!("Failed to update user skill override: {}", e))?;
-        if let Err(e) = bitfun_core::service::config::reload_global_config().await {
+        if let Err(e) = openbitfun_core::service::config::reload_global_config().await {
             log::warn!(
                 "Failed to reload global config after user skill override change: mode_id={}, skill_key={}, error={}",
                 mode_id,
@@ -766,7 +797,7 @@ pub async fn replace_mode_skill_selection(
         .await?;
     }
 
-    if let Err(e) = bitfun_core::service::config::reload_global_config().await {
+    if let Err(e) = openbitfun_core::service::config::reload_global_config().await {
         log::warn!(
             "Failed to reload global config after batch skill update: mode_id={}, error={}",
             request.mode_id,
@@ -800,7 +831,7 @@ pub async fn reset_mode_skill_selection(
         clear_project_mode_skill_selection_local(&request.mode_id, &workspace_root).await?;
     }
 
-    if let Err(e) = bitfun_core::service::config::reload_global_config().await {
+    if let Err(e) = openbitfun_core::service::config::reload_global_config().await {
         log::warn!(
             "Failed to reload global config after resetting skill selection: mode_id={}, error={}",
             request.mode_id,
@@ -900,7 +931,9 @@ pub async fn add_skill(
                         .to_string(),
                 );
             }
-            workspace_root.join(".bitfun").join("skills")
+            get_path_manager_arc()
+                .project_root(&workspace_root)
+                .join("skills")
         } else {
             return Err("No workspace open, cannot add project-level Skill".to_string());
         }
@@ -1048,21 +1081,47 @@ pub async fn delete_skill(
 }
 
 #[cfg(test)]
-mod skill_delete_policy_tests {
-    use super::can_delete_owned_skill;
+mod tests {
+    use super::{await_remote_skill_discovery, can_delete_owned_skill};
+    use std::future;
+    use tokio::time::Duration;
+
+    #[tokio::test]
+    async fn remote_skill_discovery_returns_before_the_deadline() {
+        let result =
+            await_remote_skill_discovery(async { Ok(vec!["skill"]) }, Duration::from_secs(1))
+                .await
+                .expect("ready discovery should complete");
+
+        assert_eq!(result, vec!["skill"]);
+    }
+
+    #[tokio::test]
+    async fn remote_skill_discovery_times_out_with_recovery_guidance() {
+        let error = await_remote_skill_discovery(
+            future::pending::<Result<(), String>>(),
+            Duration::from_millis(1),
+        )
+        .await
+        .expect_err("stalled discovery should time out");
+
+        assert!(error.contains("Remote Skill discovery timed out"));
+        assert!(error.contains("SSH/SFTP connection"));
+        assert!(error.contains("retry"));
+    }
 
     #[test]
-    fn only_bitfun_owned_non_builtin_skills_are_deletable() {
-        assert!(can_delete_owned_skill("bitfun", "bitfun", false));
-        assert!(can_delete_owned_skill("", "bitfun", false));
+    fn only_openbitfun_owned_non_builtin_skills_are_deletable() {
+        assert!(can_delete_owned_skill("openbitfun", "openbitfun", false));
+        assert!(can_delete_owned_skill("", "openbitfun", false));
         assert!(can_delete_owned_skill(
-            "bitfun-system",
-            "bitfun-system",
+            "openbitfun-system",
+            "openbitfun-system",
             false
         ));
         assert!(!can_delete_owned_skill(
-            "bitfun-system",
-            "bitfun-system",
+            "openbitfun-system",
+            "openbitfun-system",
             true
         ));
         assert!(!can_delete_owned_skill("opencode", "home.opencode", false));
@@ -1137,7 +1196,8 @@ pub async fn download_skill_market(
     let runtime_manager = RuntimeManager::new()
         .map_err(|e| format!("Failed to initialize runtime manager: {}", e))?;
     let resolved_npx = runtime_manager.resolve_command("npx").ok_or_else(|| {
-        "Command 'npx' is not available. Install Node.js or configure BitFun runtimes.".to_string()
+        "Command 'npx' is not available. Install Node.js or configure OpenBitFun runtimes."
+            .to_string()
     })?;
 
     let mut command = process_manager::create_tokio_command(&resolved_npx.command);
@@ -1233,6 +1293,7 @@ async fn fetch_skill_market(query: &str, limit: u32) -> Result<Vec<SkillMarketIt
     let base_url = api_base.trim_end_matches('/');
     let endpoint = format!("{}/api/search", base_url);
 
+    crate::ensure_rustls_crypto_provider();
     let client = Client::new();
     let response = client
         .get(&endpoint)

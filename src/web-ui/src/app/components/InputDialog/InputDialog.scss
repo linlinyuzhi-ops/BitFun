@@ -1,0 +1,24 @@
+.input-dialog__description {
+  margin: 0 0 var(--openbitfun-space-3);
+  color: var(--openbitfun-color-content-muted);
+  font-family: var(--openbitfun-type-support-font-family);
+  font-size: var(--openbitfun-type-support-font-size);
+  font-weight: var(--openbitfun-type-support-font-weight);
+  line-height: var(--openbitfun-type-support-line-height);
+  letter-spacing: var(--openbitfun-type-support-letter-spacing);
+}
+
+.input-dialog__input {
+  inline-size: 100%;
+}
+
+.input-dialog__error {
+  display: block;
+  margin-block-start: var(--openbitfun-space-2);
+  color: var(--openbitfun-color-status-danger-content);
+  font-family: var(--openbitfun-type-support-font-family);
+  font-size: var(--openbitfun-type-support-font-size);
+  font-weight: var(--openbitfun-type-support-font-weight);
+  line-height: var(--openbitfun-type-support-line-height);
+  letter-spacing: var(--openbitfun-type-support-letter-spacing);
+}

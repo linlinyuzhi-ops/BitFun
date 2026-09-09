@@ -6,8 +6,8 @@ use crate::{
     MAX_REQUEST_FRAME_BYTES, PROTOCOL_VERSION,
 };
 
-use bitfun_product_domains::tool_permissions::PermissionReply;
-use bitfun_runtime_ports::{
+use openbitfun_product_domains::tool_permissions::PermissionReply;
+use openbitfun_runtime_ports::{
     AgentContextReloadRequest, AgentContextReloadTarget, AgentDialogSteerRequest,
     AgentDialogTurnRequest, AgentMessageWorkspaceReferencesRequest, AgentSessionCompactionRequest,
     AgentSessionLineageCancellationRequest, AgentSessionLineageRequest,
@@ -87,6 +87,7 @@ fn protocol_round_trips_read_only_main_agent_catalog() {
     let result = RuntimeIpcOperationResult::AgentModes {
         modes: vec![RuntimeAgentModeSummary {
             id: "review".to_string(),
+            route_key: "opencode:review".to_string(),
             description: "Review the current workspace".to_string(),
             model_id: Some("provider/model".to_string()),
             is_external: true,
@@ -298,7 +299,7 @@ fn protocol_round_trips_workspace_diff_as_a_read_only_workspace_operation() {
 #[test]
 fn protocol_round_trips_user_shell_as_an_idle_controller_turn() {
     let operation = RuntimeIpcOperation::RunUserShellCommand {
-        request: bitfun_runtime_ports::AgentUserShellCommandRequest {
+        request: openbitfun_runtime_ports::AgentUserShellCommandRequest {
             session_id: "session-1".to_string(),
             turn_id: "turn-shell".to_string(),
             command: "git status --short".to_string(),
@@ -330,6 +331,7 @@ fn protocol_round_trips_the_reviewed_session_mode_operation() {
         request: AgentSessionModeUpdateRequest {
             session_id: "session-1".to_string(),
             mode_id: "ask".to_string(),
+            agent_route_key: None,
         },
     };
 

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use bitfun_agent_tools::{
+use openbitfun_agent_tools::{
     acp_external_agent_tool_input_schema, build_acp_external_agent_tool_definition,
     build_acp_external_agent_tool_name, build_acp_external_agent_tool_result,
     render_acp_external_agent_rejected_message, render_acp_external_agent_result_for_assistant,
@@ -9,8 +9,8 @@ use bitfun_agent_tools::{
     validate_acp_external_agent_tool_input, AcpExternalAgentToolDefinition,
     AcpExternalAgentToolDefinitionInput, ToolResult, ValidationResult,
 };
-use bitfun_core::agentic::tools::framework::{Tool, ToolRenderOptions, ToolUseContext};
-use bitfun_core::util::errors::{BitFunError, BitFunResult};
+use openbitfun_core::agentic::tools::framework::{Tool, ToolRenderOptions, ToolUseContext};
+use openbitfun_core::util::errors::{OpenBitFunError, OpenBitFunResult};
 use serde_json::Value;
 
 use super::config::AcpClientConfig;
@@ -52,6 +52,8 @@ fn acp_external_agent_definition_for_config(
     build_acp_external_agent_tool_definition(AcpExternalAgentToolDefinitionInput {
         client_id,
         display_name: config.name.as_deref(),
+        subagent_description: config.subagent.description.as_deref(),
+        best_for: config.subagent.best_for.as_deref(),
         read_only: config.readonly,
     })
 }
@@ -62,7 +64,7 @@ impl Tool for AcpAgentTool {
         &self.definition.tool_name
     }
 
-    async fn description(&self) -> BitFunResult<String> {
+    async fn description(&self) -> OpenBitFunResult<String> {
         Ok(self.definition.description.clone())
     }
 
@@ -114,15 +116,15 @@ impl Tool for AcpAgentTool {
         &self,
         input: &Value,
         context: &ToolUseContext,
-    ) -> BitFunResult<Vec<ToolResult>> {
-        let bitfun_session_id = context.session_id.clone().ok_or_else(|| {
-            BitFunError::tool("ACP tool requires an active BitFun session".to_string())
+    ) -> OpenBitFunResult<Vec<ToolResult>> {
+        let openbitfun_session_id = context.session_id.clone().ok_or_else(|| {
+            OpenBitFunError::tool("ACP tool requires an active OpenBitFun session".to_string())
         })?;
         let prompt = input
             .get("prompt")
             .and_then(|value| value.as_str())
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| BitFunError::tool("prompt is required".to_string()))?
+            .ok_or_else(|| OpenBitFunError::tool("prompt is required".to_string()))?
             .to_string();
 
         let workspace_path = input
@@ -145,7 +147,7 @@ impl Tool for AcpAgentTool {
                 prompt,
                 workspace_path,
                 None,
-                bitfun_session_id,
+                openbitfun_session_id,
                 None,
                 timeout_seconds,
             )
@@ -182,6 +184,11 @@ mod tests {
             env: HashMap::new(),
             enabled: true,
             readonly: true,
+            subagent: crate::client::config::AcpClientSubagentConfig {
+                enabled: true,
+                description: Some("Implements complex code changes".to_string()),
+                best_for: Some("Cross-file refactors".to_string()),
+            },
             permission_mode: AcpClientPermissionMode::Ask,
         };
 
@@ -190,6 +197,9 @@ mod tests {
         assert_eq!(definition.tool_name, "acp__codex__prompt");
         assert_eq!(definition.display_name, "Codex");
         assert_eq!(definition.user_facing_name, "Codex (ACP)");
+        assert!(definition
+            .description
+            .contains("Role: Implements complex code changes."));
         assert!(definition.read_only);
     }
 }

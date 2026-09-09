@@ -6,39 +6,10 @@
     margin-bottom: 20px;
   }
 
-  /** Component-library `Search` — align with settings nav capsule */
-  &__search.search {
+  /** Design-system `SearchField` — align with settings nav capsule */
+  &__search {
     flex: 1;
     min-width: 0;
-
-    .search__wrapper {
-      height: 32px;
-      min-height: 32px;
-      padding: 0 10px;
-      gap: 8px;
-      border-radius: 6px;
-      /* Match Search defaults; the canonical border token must stay defined to avoid a dropped border. */
-      border: 1px solid var(--bf-appearance-token-border-base);
-      background: var(--bf-appearance-token-element-bg-base);
-    }
-
-    &.search--hovered:not(.search--disabled) .search__wrapper {
-      border-color: var(--bf-appearance-token-border-medium);
-    }
-
-    &.search--focused .search__wrapper,
-    .search__wrapper:focus-within {
-      border-color: var(--bf-appearance-token-color-accent-500);
-      box-shadow: 0 0 0 2px var(--bf-appearance-token-color-accent-100);
-    }
-
-    .search__input {
-      font-size: 13px;
-
-      &::placeholder {
-        color: var(--bf-appearance-token-color-text-muted);
-      }
-    }
   }
 
   &__actions {
@@ -52,9 +23,9 @@
     padding: 8px 12px;
     margin-bottom: 16px;
     border-radius: 6px;
-    background: var(--bf-appearance-token-color-error-bg);
-    color: var(--bf-appearance-token-color-error);
-    font-size: 13px;
+    background: var(--openbitfun-color-status-danger-surface);
+    color: var(--openbitfun-color-status-danger-content);
+    font-size: var(--openbitfun-type-label-md-font-size);
   }
 
   &__list {
@@ -71,15 +42,15 @@
     border-radius: 6px;
 
     &:hover {
-      background: var(--bf-appearance-token-element-bg-hover);
+      background: var(--openbitfun-color-action-neutral-surface-hover);
     }
 
     &--recording {
-      background: var(--bf-appearance-token-color-accent-100);
+      background: var(--openbitfun-color-action-secondary-background);
     }
 
     &--conflict {
-      background: var(--bf-appearance-token-color-warning-bg);
+      background: var(--openbitfun-color-status-warning-surface);
     }
 
     &--modified .kb-shortcuts__item-name {
@@ -96,25 +67,24 @@
   }
 
   &__item-name {
-    font-size: 13px;
-    color: var(--bf-appearance-token-color-text-primary);
+    font-size: var(--openbitfun-type-label-md-font-size);
+    color: var(--openbitfun-color-content-primary);
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   &__item-hint {
-    font-size: 10px;
-    line-height: 1.35;
-    color: var(--bf-appearance-token-color-text-muted);
-    font-weight: 400;
+    font-size: var(--openbitfun-type-micro-font-size);
+    line-height: var(--openbitfun-type-meta-line-height);
+    color: var(--openbitfun-color-content-muted);
+    font-weight: var(--openbitfun-type-body-sm-font-weight);
     white-space: normal;
     opacity: 0.62;
   }
 
   &__item-conflict-hint {
-    font-size: 11px;
-    color: var(--bf-appearance-token-color-warning);
+    font-size: var(--openbitfun-type-meta-font-size);
+    color: var(--openbitfun-color-status-warning-content);
   }
 
   &__item-key {
@@ -129,82 +99,10 @@
     opacity: 0.95;
   }
 
-  &__keybadge--readonly {
-    cursor: default;
-    user-select: none;
-
-    &:hover {
-      border-color: var(--bf-appearance-token-border-base);
-      color: var(--bf-appearance-token-color-text-secondary);
-    }
-  }
-
-  &__keybadge {
-    display: inline-flex;
-    align-items: center;
-    padding: 3px 8px;
-    border-radius: 4px;
-    border: 1px solid var(--bf-appearance-token-border-base);
-    background: var(--bf-appearance-token-element-bg-subtle);
-    color: var(--bf-appearance-token-color-text-secondary);
-    font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
-    font-size: 12px;
-    cursor: pointer;
-    white-space: nowrap;
-    min-width: 60px;
-    justify-content: center;
-
-    &:hover {
-      border-color: var(--bf-appearance-token-color-accent-500);
-      color: var(--bf-appearance-token-color-text-primary);
-    }
-
-    &--recording {
-      border-color: var(--bf-appearance-token-color-accent-500);
-      background: var(--bf-appearance-token-color-accent-100);
-      color: var(--bf-appearance-token-color-accent-500);
-    }
-
-    &--conflict {
-      border-color: var(--bf-appearance-token-color-warning);
-      color: var(--bf-appearance-token-color-warning);
-    }
-  }
-
-  &__revert-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 4px;
-    border: 1px solid var(--bf-appearance-token-border-base);
-    background: transparent;
-    color: var(--bf-appearance-token-color-text-muted);
-    font-size: 13px;
-    cursor: pointer;
-    padding: 0;
-
-    &:hover {
-      color: var(--bf-appearance-token-color-text-primary);
-      border-color: var(--bf-appearance-token-color-text-secondary);
-    }
-  }
-
   &__empty {
     padding: 32px;
     text-align: center;
-    color: var(--bf-appearance-token-color-text-muted);
-    font-size: 14px;
-  }
-}
-
-
-/* Page subtitle: keep primary title dominant */
-.kb-shortcuts-page-header.bitfun-config-page-header {
-  .bitfun-config-page-header__subtitle {
-    font-size: var(--bf-appearance-token-font-size-xs);
-    color: var(--bf-appearance-token-color-text-muted);
-    opacity: 0.88;
+    color: var(--openbitfun-color-content-muted);
+    font-size: var(--openbitfun-type-body-md-font-size);
   }
 }

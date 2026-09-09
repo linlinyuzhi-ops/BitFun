@@ -486,7 +486,6 @@ pub fn auto_push_failed_message(language: BotLanguage, file_name: &str, err: &st
 }
 
 const REMOTE_CONNECT_PERSISTENCE_FILENAME: &str = "remote_connect_persistence.json";
-const LEGACY_BOT_PERSISTENCE_FILENAME: &str = "bot_connections.json";
 static BOT_PERSISTENCE_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
 
 fn bot_persistence_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -497,7 +496,7 @@ fn bot_persistence_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn bot_persistence_path() -> Option<std::path::PathBuf> {
-    super::bitfun_home_dir().map(|home| home.join(REMOTE_CONNECT_PERSISTENCE_FILENAME))
+    super::product_home_dir().map(|home| home.join(REMOTE_CONNECT_PERSISTENCE_FILENAME))
 }
 
 fn bot_persistence_backup_path(path: &std::path::Path) -> std::path::PathBuf {
@@ -508,30 +507,20 @@ fn bot_persistence_backup_path(path: &std::path::Path) -> std::path::PathBuf {
     path.with_file_name(format!("{file_name}.bak"))
 }
 
-fn legacy_bot_persistence_path() -> Option<std::path::PathBuf> {
-    super::bitfun_home_dir().map(|home| home.join(LEGACY_BOT_PERSISTENCE_FILENAME))
-}
-
 fn load_bot_persistence_unlocked() -> BotPersistenceData {
     let Some(path) = bot_persistence_path() else {
         return BotPersistenceData::default();
     };
-    match std::fs::read_to_string(&path) {
-        Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
-        Err(_) => {
+    match crate::remote_persistence::read_bot_persistence(&path) {
+        Ok(Some(data)) => serde_json::to_value(data)
+            .ok()
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default(),
+        Ok(None) | Err(_) => {
             // A backup without the canonical file means the process stopped
             // during the Windows replace dance. Fail closed instead of
-            // restoring the legacy file or a pre-clear account context.
-            if bot_persistence_backup_path(&path).exists() {
-                return BotPersistenceData::default();
-            }
-            let Some(legacy_path) = legacy_bot_persistence_path() else {
-                return BotPersistenceData::default();
-            };
-            match std::fs::read_to_string(&legacy_path) {
-                Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
-                Err(_) => BotPersistenceData::default(),
-            }
+            // restoring a pre-clear account context.
+            BotPersistenceData::default()
         }
     }
 }
@@ -614,7 +603,12 @@ fn save_bot_persistence_unlocked(data: &BotPersistenceData) {
         return;
     };
     if let Ok(json) = serde_json::to_string_pretty(data) {
-        if let Err(e) = write_bot_persistence_atomic(&path, json.as_bytes()) {
+        let owner_valid =
+            serde_json::from_str::<crate::remote_persistence::BotPersistenceRecord>(&json)
+                .is_ok_and(|value| value.validate().is_ok());
+        if !owner_valid {
+            log::error!("Failed to save bot persistence: owner validation failed");
+        } else if let Err(e) = write_bot_persistence_atomic(&path, json.as_bytes()) {
             log::error!("Failed to save bot persistence: {e}");
         }
     }
@@ -661,7 +655,7 @@ mod tests {
 
     fn make_temp_workspace() -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
         let base = std::env::temp_dir().join(format!(
-            "bitfun-remote-connect-test-{}",
+            "openbitfun-remote-connect-test-{}",
             uuid::Uuid::new_v4()
         ));
         let workspace = base.join("workspace");

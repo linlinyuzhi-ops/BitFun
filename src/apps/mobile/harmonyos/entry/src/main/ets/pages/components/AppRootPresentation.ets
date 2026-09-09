@@ -28,7 +28,6 @@ import { RemoteI18n } from '../../i18n/RemoteI18n';
 import { GeneralChatPageState } from '../state/GeneralChatPageState';
 import { DeviceDirectoryState } from '../state/DeviceDirectoryState';
 import { RemotePageState } from '../state/RemotePageState';
-import { RemoteCreateSessionState } from '../state/RemoteCreateSessionState';
 import { FilePreviewState } from '../state/FilePreviewState';
 import {
   FilePreviewLayout,
@@ -74,9 +73,8 @@ export struct AppRootPresentation {
   @Local wideDetailContentWidth: number = 0;
   @Local wideCollapsedDetailContentOffset: number = 0;
   @Local wideCollapsedDetailContentWidth: number = 0;
-  @Local wideMasterPaneCollapsed: boolean = false;
+  @Local wideWorkspacePresentationMode: WideWorkspacePresentationMode = WideWorkspacePresentationMode.Default;
   @Local wideMasterPaneMotionActive: boolean = false;
-  @Local restoreCollapsedMasterAfterPreview: boolean = false;
   @Local showRemoteViewSettings: boolean = false;
   @Local remoteSurfaceState: RemoteSurfaceState = new RemoteSurfaceState();
   @Local settingsPlacement: SettingsPlacement =
@@ -118,12 +116,8 @@ export struct AppRootPresentation {
 
   @Monitor('filePreviewState.visible')
   onFilePreviewVisibilityChanged(): void {
-    if (this.filePreviewState.visible && this.wideMasterPaneCollapsed) {
-      this.restoreCollapsedMasterAfterPreview = true;
-      this.wideMasterPaneCollapsed = false;
-    } else if (!this.filePreviewState.visible && this.restoreCollapsedMasterAfterPreview && this.isWideLayout()) {
-      this.wideMasterPaneCollapsed = true;
-      this.restoreCollapsedMasterAfterPreview = false;
+    if (!this.filePreviewState.visible && this.isFilePreviewExpanded()) {
+      this.wideWorkspacePresentationMode = WideWorkspacePresentationMode.Default;
     }
   }
 
@@ -172,7 +166,7 @@ export struct AppRootPresentation {
   NavigationContent() {
     Stack() {
       Navigation(this.navigationStack) { this.RouteContent(AppRoute.ChatHome) }
-        .id('bitfunHomeNavigation')
+        .id('openbitfunHomeNavigation')
         .width('100%').height('100%').hideTitleBar(true)
         .mode(NavigationMode.Stack)
         .navBarWidth('100%')
@@ -242,7 +236,6 @@ export struct AppRootPresentation {
       ConversationRouteSurface({
         route,
         remotePageState: this.remotePageState,
-        remoteCreateState: this.remoteCreateState,
         generalPageState: this.generalPageState,
         filePreviewState: this.filePreviewState,
         remoteSurfaceState: this.remoteSurfaceState,
@@ -294,20 +287,29 @@ export struct AppRootPresentation {
   }
 
   private collapseWideMasterPane(): void {
-    if (!this.isWideLayout() || this.filePreviewState.visible) {
+    if (!this.isWideLayout()) {
       return;
     }
+    // Expanded preview borrows the conversation panels while keeping workspace
+    // navigation visible. Collapsing navigation exits that focus mode first,
+    // then leaves the regular right-panel preview beside the wider chat.
     this.enableWideMasterPaneMotion();
     this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => {
-      this.wideMasterPaneCollapsed = true;
+      this.wideWorkspacePresentationMode = WideWorkspacePresentationMode.SidebarCollapsed;
     });
   }
 
   private restoreWideMasterPane(): void {
+    const previewLayout = this.filePreviewLayout();
+    if (WideLayoutGeometry.restoreMasterClosesPreview(previewLayout)) {
+      // Focus split temporarily borrows the master pane's space. Restoring the
+      // master therefore dismisses the preview instead of leaving a restore
+      // control that cannot change the visible layout.
+      this.actions.onFilePreview.close();
+    }
     this.enableWideMasterPaneMotion();
     this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => {
-      this.wideMasterPaneCollapsed = false;
-      this.restoreCollapsedMasterAfterPreview = false;
+      this.wideWorkspacePresentationMode = WideWorkspacePresentationMode.Default;
     });
   }
 
@@ -316,6 +318,38 @@ export struct AppRootPresentation {
     setTimeout(() => {
       this.wideMasterPaneMotionActive = false;
     }, 240);
+  }
+
+  private toggleFilePreviewExpanded(): void {
+    if (!this.canToggleFilePreviewExpanded()) {
+      return;
+    }
+    this.wideWorkspacePresentationMode = this.isFilePreviewExpanded() ?
+      WideWorkspacePresentationMode.Default : WideWorkspacePresentationMode.PreviewExpanded;
+  }
+
+  private canToggleFilePreviewExpanded(): boolean {
+    if (!this.filePreviewState.visible || !this.isWideLayout()) {
+      return false;
+    }
+    const defaultLayout = FilePreviewPlacementPolicy.resolveLayout(
+      true,
+      true,
+      this.viewportWidth,
+      this.verticalCreases,
+      this.wideMasterPaneWidth,
+      false
+    );
+    const expandedLayout = FilePreviewPlacementPolicy.resolveLayout(
+      true,
+      true,
+      this.viewportWidth,
+      this.verticalCreases,
+      this.wideMasterPaneWidth,
+      true
+    );
+    return defaultLayout.placement === FilePreviewPlacement.WideTriplePane &&
+      expandedLayout.placement === FilePreviewPlacement.WideMasterPreviewFocus;
   }
 
   private filePreviewPlacement(): FilePreviewPlacement {
@@ -328,7 +362,8 @@ export struct AppRootPresentation {
       this.isWideLayout(),
       this.viewportWidth,
       this.verticalCreases,
-      this.wideMasterPaneWidth
+      this.wideMasterPaneWidth,
+      this.isFilePreviewExpanded()
     );
   }
 

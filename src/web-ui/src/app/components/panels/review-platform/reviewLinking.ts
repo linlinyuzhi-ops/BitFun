@@ -1,5 +1,6 @@
 import type { Session } from '@/flow_chat/types/flow-chat';
 import type {
+  ReviewPlatformDetailSection,
   ReviewPlatformPullRequest,
   ReviewPlatformPullRequestDetail,
 } from '@/infrastructure/api';

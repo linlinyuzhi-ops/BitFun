@@ -1,22 +1,7 @@
-/**
- * SettingsScene — content-only renderer for the Settings scene.
- *
- * The left-side navigation lives in SettingsNav (rendered by NavPanel via
- * nav-registry). This component only renders the active config content panel
- * driven by settingsStore.activeTab.
- */
-
-import React, {
-  Suspense,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react';
-import { ViewTransitionBoundary } from '@/component-library';
-import { useSettingsStore } from './settingsStore';
-import { useExternalAppAwareness } from '@/infrastructure/config/components/external-sources';
-import type { ConfigTab } from './settingsConfig';
+import React, { Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ConfirmDialog } from '@openbitfun/ui';
+import { useTranslation } from 'react-i18next';
+import { NavigationTransitionBoundary } from '@/app/navigation/NavigationTransitionBoundary';
 import {
   AcpAgentsConfig,
   AIModelConfig,
@@ -43,16 +28,16 @@ import './SettingsScene.scss';
 function SettingsSceneLoading() {
   return (
     <div
-      className="bitfun-settings-scene__loading"
+      className="openbitfun-settings-scene__loading"
       aria-busy="true"
       aria-hidden="true"
-      data-bf-scene="settings"
-      data-bf-part="loading"
+      data-openbitfun-scene="settings"
+      data-openbitfun-part="loading"
     >
-      <div className="bitfun-settings-scene__loading-line bitfun-settings-scene__loading-line--title" />
-      <div className="bitfun-settings-scene__loading-line" />
-      <div className="bitfun-settings-scene__loading-line" />
-      <div className="bitfun-settings-scene__loading-block" />
+      <div className="openbitfun-settings-scene__loading-line openbitfun-settings-scene__loading-line--title" />
+      <div className="openbitfun-settings-scene__loading-line" />
+      <div className="openbitfun-settings-scene__loading-line" />
+      <div className="openbitfun-settings-scene__loading-block" />
     </div>
   );
 }
@@ -82,100 +67,114 @@ function resolveSettingsContent(tab: ConfigTab): React.ComponentType | null {
   }
 }
 
-const SettingsScene: React.FC = () => {
-  useExternalAppAwareness();
-  const activeTab = useSettingsStore(s => s.activeTab);
-  const contentFocus = useSettingsStore(s => s.contentFocus);
-  const contentFocusRequestId = useSettingsStore(s => s.contentFocusRequestId);
-  const tabTransitionTarget = useSettingsStore(s => s.tabTransitionTarget);
-  const tabTransitionMotion = useSettingsStore(s => s.tabTransitionMotion);
-  const tabTransitionSequence = useSettingsStore(s => s.tabTransitionSequence);
-  const setActiveTab = useSettingsStore(s => s.setActiveTab);
-  const appliedTransitionSequenceRef = useRef(tabTransitionSequence);
-
-  const resolvedTab: ConfigTab =
-    (activeTab as string) === 'session-config' ? 'session-personalization' : activeTab;
+const SettingsScene: React.FC<SettingsSceneProps> = ({ isActive = true }) => {
+  const { t } = useTranslation('settings');
+  const activePageId = useSettingsStore((state) => state.activePageId);
+  const activeViewId = useSettingsStore((state) => state.activeViewId);
+  const navigationRequestId = useSettingsStore((state) => state.navigationRequestId);
+  const pageTransitionTarget = useSettingsStore((state) => state.pageTransitionTarget);
+  const pageTransitionMotion = useSettingsStore((state) => state.pageTransitionMotion);
+  const pageTransitionSequence = useSettingsStore((state) => state.pageTransitionSequence);
+  const { pendingNavigation } = useSettingsDraftSnapshot();
+  const appliedTransitionSequenceRef = useRef(pageTransitionSequence);
+  const [preparedPageId, setPreparedPageId] = useState<SettingsPageId | null>(() => (
+    isSettingsPageReady(activePageId) ? activePageId : null
+  ));
 
   useEffect(() => {
-    /** Legacy merged session settings tab removed in favor of two panels. */
-    if ((activeTab as string) === 'session-config') {
-      setActiveTab('session-personalization');
+    if (isSettingsPageReady(activePageId)) {
+      setPreparedPageId(activePageId);
+      return;
     }
-  }, [activeTab, setActiveTab]);
-
-  const shouldAnimateTabTransition = (
-    appliedTransitionSequenceRef.current !== tabTransitionSequence
-    && tabTransitionTarget === resolvedTab
-    && tabTransitionMotion === 'pointer'
-  );
-
-  useLayoutEffect(() => {
-    appliedTransitionSequenceRef.current = tabTransitionSequence;
-  }, [tabTransitionSequence]);
-
-  /**
-   * Cold entries into the scene (first open after launch, deep links) mount a
-   * panel whose chunk and i18n namespaces are still in flight, which paints the
-   * skeleton and then a frame of raw i18n keys. Hold the first paint until those
-   * resources land — an empty content area for a few ms reads as instant, a
-   * three-stage flash does not. SettingsNav preloads before it flips the active
-   * tab, so tab switches are never gated here.
-   */
-  const [firstPaintReady, setFirstPaintReady] = useState(() =>
-    isSettingsTabContentReady(resolvedTab)
-  );
-
-  useEffect(() => {
-    if (firstPaintReady) return;
-
     let cancelled = false;
     const commit = () => {
-      if (!cancelled) setFirstPaintReady(true);
+      if (!cancelled) setPreparedPageId(activePageId);
     };
-    void preloadSettingsTabContent(resolvedTab).then(commit, commit);
-
+    void preloadSettingsPage(activePageId).then(commit, commit);
     return () => {
       cancelled = true;
     };
-  }, [firstPaintReady, resolvedTab]);
+  }, [activePageId]);
 
-  const Content = firstPaintReady ? resolveSettingsContent(resolvedTab) : null;
+  const shouldAnimatePageTransition = (
+    appliedTransitionSequenceRef.current !== pageTransitionSequence
+    && pageTransitionTarget === activePageId
+    && pageTransitionMotion === 'pointer'
+  );
+
+  useLayoutEffect(() => {
+    appliedTransitionSequenceRef.current = pageTransitionSequence;
+  }, [pageTransitionSequence]);
+
+  const manifest = getSettingsPageManifest(activePageId);
+  const Content = preparedPageId === activePageId ? manifest.component : null;
 
   return (
     <div
-      className="bitfun-settings-scene"
+      className="openbitfun-settings-scene"
       data-testid="settings-scene"
-      data-settings-tab={resolvedTab}
-      data-bf-scene="settings"
-      data-bf-part="root"
-      data-bf-tab={resolvedTab}
+      data-settings-page={activePageId}
+      data-openbitfun-scene="settings"
+      data-openbitfun-part="root"
+      data-openbitfun-page={activePageId}
     >
-      {Content && (
-        <ViewTransitionBoundary
-          viewKey={resolvedTab}
-          animate={shouldAnimateTabTransition}
-          className="bitfun-settings-scene__content-transition"
-          viewClassName="bitfun-settings-scene__content-wrapper"
+      {Content ? (
+        <NavigationTransitionBoundary
+          transitionKey={activePageId}
+          motion={shouldAnimatePageTransition ? 'pointer' : 'none'}
+          className="openbitfun-settings-scene__content-transition"
+          layerClassName="openbitfun-settings-scene__content-wrapper"
         >
           <div
             data-testid="settings-scene-content"
-            data-bf-scene="settings"
-            data-bf-part="content"
-            data-bf-tab={resolvedTab}
+            data-openbitfun-scene="settings"
+            data-openbitfun-part="content"
+            data-openbitfun-page={activePageId}
           >
             <Suspense fallback={<SettingsSceneLoading />}>
-              {resolvedTab === 'external-sources' || resolvedTab === 'hooks' ? (
-                <ExternalSourcesConfig
-                  initialFocus={contentFocus === 'hooks' ? 'hooks' : undefined}
-                  focusRequestId={contentFocus === 'hooks' ? contentFocusRequestId : undefined}
-                />
-              ) : (
-                <Content />
-              )}
+              <Content
+                isActive={isActive}
+                viewId={activeViewId ?? undefined}
+                navigationRequestId={navigationRequestId}
+              />
             </Suspense>
           </div>
-        </ViewTransitionBoundary>
-      )}
+        </NavigationTransitionBoundary>
+      ) : <SettingsSceneLoading />}
+      <ConfirmDialog
+        open={pendingNavigation !== null}
+        testId="settings-unsaved-navigation-dialog"
+        title={t('changeGuard.title')}
+        message={pendingNavigation?.failed
+          ? t('changeGuard.saveFailed')
+          : t('changeGuard.message', {
+              count: pendingNavigation?.resourceLabels.length ?? 0,
+            })}
+        preview={pendingNavigation?.resourceLabels.length ? (
+          <ul className="openbitfun-settings-scene__draft-list">
+            {pendingNavigation.resourceLabels.map((label, index) => (
+              <li key={`${label}:${index}`}>{label}</li>
+            ))}
+          </ul>
+        ) : undefined}
+        cancelText={t('changeGuard.keepEditing')}
+        secondaryText={t('changeGuard.discardAndLeave')}
+        confirmText={t('changeGuard.saveAndLeave')}
+        pendingAction={pendingNavigation?.action === 'save'
+          ? 'confirm'
+          : pendingNavigation?.action === 'discard'
+            ? 'secondary'
+            : null}
+        onOpenChange={() => cancelPendingSettingsNavigation()}
+        onSecondary={async () => {
+          await discardAndContinueSettingsNavigation();
+        }}
+        onConfirm={async () => {
+          await saveAndContinueSettingsNavigation();
+        }}
+        closeOnPointerOutside={false}
+        type={pendingNavigation?.failed ? 'error' : 'warning'}
+      />
     </div>
   );
 };

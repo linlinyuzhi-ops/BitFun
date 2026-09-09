@@ -1,5 +1,5 @@
 use crate::stream::types::unified::{UnifiedResponse, UnifiedTokenUsage, UnifiedToolCall};
-use bitfun_agent_stream::ToolCallCompletion;
+use openbitfun_agent_stream::ToolCallCompletion;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -371,6 +371,7 @@ impl GeminiSSEData {
                     responses.push(UnifiedResponse {
                         text: None,
                         reasoning_content: None,
+                        reasoning_content_kind: None,
                         thinking_signature,
                         tool_call: Some(UnifiedToolCall {
                             tool_call_index: Some(part_index),
@@ -393,6 +394,7 @@ impl GeminiSSEData {
                         responses.push(UnifiedResponse {
                             text: None,
                             reasoning_content: Some(reasoning_content),
+                            reasoning_content_kind: None,
                             thinking_signature,
                             tool_call: None,
                             usage: usage.take(),
@@ -412,6 +414,7 @@ impl GeminiSSEData {
                         responses.push(UnifiedResponse {
                             text: None,
                             reasoning_content: Some(reasoning_content),
+                            reasoning_content_kind: None,
                             thinking_signature,
                             tool_call: None,
                             usage: usage.take(),
@@ -428,6 +431,7 @@ impl GeminiSSEData {
                     responses.push(UnifiedResponse {
                         text: if is_thought { None } else { Some(text.clone()) },
                         reasoning_content: if is_thought { Some(text) } else { None },
+                        reasoning_content_kind: None,
                         thinking_signature,
                         tool_call: None,
                         usage: usage.take(),
@@ -443,6 +447,7 @@ impl GeminiSSEData {
                     responses.push(UnifiedResponse {
                         text: None,
                         reasoning_content: None,
+                        reasoning_content_kind: None,
                         thinking_signature,
                         tool_call: None,
                         usage: usage.take(),
@@ -479,6 +484,7 @@ impl GeminiSSEData {
             responses.push(UnifiedResponse {
                 text: summary,
                 reasoning_content: None,
+                reasoning_content_kind: None,
                 thinking_signature: None,
                 tool_call: None,
                 usage: usage.take(),
@@ -520,7 +526,7 @@ impl GeminiSSEData {
 #[cfg(test)]
 mod tests {
     use super::{map_gemini_finish_reason, GeminiSSEData};
-    use bitfun_agent_stream::ToolCallCompletion;
+    use openbitfun_agent_stream::ToolCallCompletion;
 
     #[test]
     fn maps_gemini_output_limit_and_safety_finishes() {

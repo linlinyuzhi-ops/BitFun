@@ -5,9 +5,10 @@
  */
 import { normalizePath } from '@/shared/utils/pathUtils';
 import { getEditorType } from '@/infrastructure/language-detection';
-import type { LineRange } from '@/component-library/components/Markdown';
+import { type LineRange } from '@/shared/editor/LineRange';
 import { enqueuePendingTab } from './pendingTabQueue';
 import type { PendingTabDetail } from './pendingTabQueue';
+import { workspaceManager } from '@/infrastructure/services/business/workspaceManager';
 
 export interface FileTabOptions {
    
@@ -39,6 +40,10 @@ export interface FileTabOptions {
    * mounts and registers its event listener.
    */
   sceneJustOpened?: boolean;
+
+  /** Explicitly choose a panel type, e.g. opening HTML as source text. */
+  editorType?: ReturnType<typeof getEditorType>;
+  remoteConnectionId?: string;
 }
 
  
@@ -69,6 +74,8 @@ class FileTabManager {
       splitView = false,
       targetGroup = 'secondary',
       sceneJustOpened = false,
+      editorType: explicitEditorType,
+      remoteConnectionId,
     } = options;
 
     
@@ -78,7 +85,18 @@ class FileTabManager {
     const fileName = providedFileName || normalizedPath.split(/[/\\]/).pop() || '';
     
     
-    const editorType = getEditorType(fileName);
+    const editorType = explicitEditorType || getEditorType(fileName);
+    const workspaceState = workspaceManager.getState();
+    const effectiveWorkspacePath = workspacePath || (
+      editorType === 'html-preview' ? workspaceState.currentWorkspace?.rootPath : undefined
+    );
+    const scopedRemoteConnectionId = remoteConnectionId || (
+      effectiveWorkspacePath
+        ? Array.from(workspaceState.openedWorkspaces.values()).find(
+            (workspace) => normalizePath(workspace.rootPath) === normalizePath(effectiveWorkspacePath)
+          )?.connectionId
+        : undefined
+    );
     
     
     const finalJumpToRange = jumpToRange || (jumpToLine ? { start: jumpToLine, end: jumpToColumn ? jumpToLine : undefined } : undefined);
@@ -87,7 +105,8 @@ class FileTabManager {
     const tabData = {
       filePath: normalizedPath,
       fileName,
-      workspacePath,
+      workspacePath: effectiveWorkspacePath,
+      remoteConnectionId: scopedRemoteConnectionId,
       navigationToken: navigationToken ?? Date.now(),
       
       ...(finalJumpToRange && { jumpToRange: finalJumpToRange }),
@@ -102,10 +121,10 @@ class FileTabManager {
       title: fileName,
       data: tabData,
       metadata: {
-        duplicateCheckKey: normalizedPath
+        duplicateCheckKey: explicitEditorType ? `${normalizedPath}:${editorType}` : normalizedPath
       },
       checkDuplicate: !forceNew,
-      duplicateCheckKey: normalizedPath
+      duplicateCheckKey: explicitEditorType ? `${normalizedPath}:${editorType}` : normalizedPath
     };
 
     
@@ -144,7 +163,7 @@ class FileTabManager {
   private isRightPanelCollapsed(): boolean {
     
     try {
-      const layoutState = (window as any).__BITFUN_LAYOUT_STATE__;
+      const layoutState = (window as any).__OPENBITFUN_LAYOUT_STATE__;
       return layoutState?.rightPanelCollapsed ?? false;
     } catch {
       return false;

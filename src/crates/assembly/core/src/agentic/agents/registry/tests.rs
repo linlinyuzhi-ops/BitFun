@@ -15,15 +15,15 @@ use crate::agentic::agents::{
 use crate::agentic::workspace::session_execution_workspace_root;
 use crate::service::config::types::AgentSubagentOverrideState;
 use async_trait::async_trait;
-use bitfun_agent_runtime::custom_agent::{
+use openbitfun_agent_runtime::custom_agent::{
     custom_agent_save_markdown_file, CustomAgentDefinition, CustomAgentDiscoveryRoots,
     CustomAgentKind, CustomAgentLevel,
 };
-use bitfun_agent_runtime::sdk::{RuntimeAgentRegistry, RuntimeAgentRegistryQuery};
-use bitfun_agent_runtime::session::SessionConfig;
-use bitfun_agent_runtime::thread_goal_tools::THREAD_GOAL_TOOL_NAMES;
-use bitfun_product_domains::external_sources::EcosystemId;
-use bitfun_product_domains::external_subagents::ExternalSubagentMode;
+use openbitfun_agent_runtime::sdk::{RuntimeAgentRegistry, RuntimeAgentRegistryQuery};
+use openbitfun_agent_runtime::session::SessionConfig;
+use openbitfun_agent_runtime::thread_goal_tools::THREAD_GOAL_TOOL_NAMES;
+use openbitfun_product_domains::external_sources::EcosystemId;
+use openbitfun_product_domains::external_subagents::ExternalSubagentMode;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -157,12 +157,15 @@ fn source_qualified_key_resolves_the_matching_custom_subagent() {
 
     let project = registry
         .get_custom_agent_detail_by_key_inner(
-            "project::bitfun::SameNamedReviewer",
+            "project::openbitfun::SameNamedReviewer",
             Some(&workspace),
         )
         .expect("project key should select the project definition");
     let user = registry
-        .get_custom_agent_detail_by_key_inner("user::bitfun::SameNamedReviewer", Some(&workspace))
+        .get_custom_agent_detail_by_key_inner(
+            "user::openbitfun::SameNamedReviewer",
+            Some(&workspace),
+        )
         .expect("user key should select the user definition");
 
     assert_eq!(project.prompt, "project review guidance");
@@ -214,7 +217,7 @@ async fn review_lookup_is_scoped_to_the_requested_workspace() {
 
 #[tokio::test]
 async fn review_lookup_cold_loads_the_requested_project_registry() {
-    let env = CustomAgentTestEnv::new("bitfun-project-review-lookup");
+    let env = CustomAgentTestEnv::new("openbitfun-project-review-lookup");
     let registry = AgentRegistry::new();
     let agent_id = "ProjectReviewer";
     write_project_custom_review_subagent(
@@ -237,13 +240,12 @@ fn top_level_modes_default_to_auto() {
         "minimal",
         "Multitask",
         "Cowork",
-        "Plan",
-        "debug",
+        "Creative",
         "Claw",
         "DeepResearch",
-        "Team",
+        "Ultra",
     ] {
-        assert_eq!(default_model_id_for_builtin_agent(agent_type), "auto");
+        assert_eq!(default_model_id_for_builtin_agent(agent_type), "primary");
     }
 }
 
@@ -345,7 +347,7 @@ async fn minimal_is_a_builtin_mode_with_the_focused_manifest() {
 }
 
 #[test]
-fn every_builtin_primary_mode_defaults_to_the_thread_goal_lifecycle() {
+fn every_builtin_standard_mode_defaults_to_the_thread_goal_lifecycle() {
     for spec in builtin_agent_specs()
         .iter()
         .filter(|spec| spec.category == AgentCategory::Mode)
@@ -361,6 +363,32 @@ fn every_builtin_primary_mode_defaults_to_the_thread_goal_lifecycle() {
                 "builtin primary mode {} is missing {}",
                 mode.id(),
                 tool_name
+            );
+        }
+    }
+}
+
+#[test]
+fn creation_tools_default_only_to_creative_mode() {
+    const CREATION_TOOLS: &[&str] = &[
+        "InitMiniApp",
+        "FinalizeMiniApp",
+        "PublishMiniApp",
+        "FrontendWorkbench",
+    ];
+
+    for spec in builtin_agent_specs()
+        .iter()
+        .filter(|spec| spec.category == AgentCategory::Mode)
+    {
+        let mode = (spec.factory)();
+        let default_tools = mode.default_tools();
+        for tool_name in CREATION_TOOLS {
+            assert_eq!(
+                default_tools.iter().any(|tool| tool == tool_name),
+                mode.id() == "Creative",
+                "creation tool {tool_name} has unexpected default exposure in {}",
+                mode.id()
             );
         }
     }
@@ -391,13 +419,88 @@ fn every_builtin_mode_with_control_hub_can_also_schedule_with_cron() {
 }
 
 #[test]
+fn builtin_modes_carrying_the_environment_tools_can_forward_a_port_they_opened() {
+    // The allowlist is what the deferred catalog is built from, so a tool
+    // missing here is invisible to the model however it is registered — the
+    // Agent then reinvents the feature as hand-written `ssh -L` instructions
+    // for the user to run.
+    //
+    // Cron is the marker for "carries the environment-control set" rather than
+    // ExecCommand, which even the deliberately narrow modes have: `minimal` is
+    // a fixed six-tool manifest and `Ultra` is a planner whose workers do the
+    // running, and neither carries Git or Cron either.
+    for spec in builtin_agent_specs()
+        .into_iter()
+        .filter(|spec| spec.category == AgentCategory::Mode)
+    {
+        let mode = (spec.factory)();
+        let default_tools = mode.default_tools();
+        let runs_commands = default_tools.iter().any(|tool| tool == "ExecCommand");
+        let schedules = default_tools.iter().any(|tool| tool == "Cron");
+        if !(runs_commands && schedules) {
+            continue;
+        }
+        assert!(
+            default_tools.iter().any(|tool| tool == "PortForward"),
+            "builtin mode {} can run commands but cannot forward a port it opened",
+            mode.id()
+        );
+    }
+}
+
+#[test]
+fn agent_list_and_delete_are_exposed_only_to_swarm_planners() {
+    for spec in builtin_agent_specs() {
+        let agent = (spec.factory)();
+        let has_list = agent.default_tools().iter().any(|tool| tool == "AgentList");
+        let has_delete = agent
+            .default_tools()
+            .iter()
+            .any(|tool| tool == "AgentDelete");
+        let should_have_controls = matches!(agent.id(), "Ultra" | "SwarmPlanner");
+        assert_eq!(
+            has_list,
+            should_have_controls,
+            "unexpected AgentList exposure for {}",
+            agent.id()
+        );
+        assert_eq!(
+            has_delete,
+            should_have_controls,
+            "unexpected AgentDelete exposure for {}",
+            agent.id()
+        );
+    }
+}
+
+#[test]
+fn skill_tool_is_exposed_only_to_ultra_and_swarm_worker_within_the_swarm_catalog() {
+    for spec in builtin_agent_specs() {
+        let agent = (spec.factory)();
+        if !matches!(
+            agent.id(),
+            "Ultra" | "SwarmPlanner" | "SwarmWorker" | "SwarmReviewer"
+        ) {
+            continue;
+        }
+        assert_eq!(
+            agent.default_tools().iter().any(|tool| tool == "Skill"),
+            matches!(agent.id(), "Ultra" | "SwarmWorker"),
+            "unexpected Skill exposure for {}",
+            agent.id()
+        );
+    }
+}
+
+#[test]
 fn non_deep_review_builtin_subagents_default_to_primary() {
     for agent_type in [
         "Explore",
-        "FileFinder",
         "CodeReview",
         "GeneralPurpose",
         "MemoryPhase2",
+        "SwarmPlanner",
+        "SwarmWorker",
     ] {
         assert_eq!(
             default_model_id_for_builtin_agent(agent_type),
@@ -477,6 +580,7 @@ fn deep_review_family_defaults_to_fast() {
         "ReviewFrontend",
         "ReviewJudge",
         "ReviewFixer",
+        "SwarmReviewer",
     ] {
         assert_eq!(
             default_model_id_for_builtin_agent(agent_type),
@@ -597,6 +701,37 @@ async fn task_visible_subagents_are_filtered_by_parent_agent() {
     assert!(!deep_research_visible
         .iter()
         .any(|agent| agent.id == "ReviewWorker"));
+
+    let ultra_visible = registry
+        .get_subagents_for_query(&SubagentQueryContext {
+            parent_agent_type: Some("Ultra"),
+            workspace_root: None,
+            list_scope: SubagentListScope::TaskVisible,
+            include_disabled: false,
+            external_sources_supported: false,
+        })
+        .await;
+    for swarm_id in ["SwarmPlanner", "SwarmWorker", "SwarmReviewer"] {
+        assert!(ultra_visible.iter().any(|agent| agent.id == swarm_id));
+    }
+    assert_eq!(ultra_visible.len(), 3);
+    assert!(!ultra_visible
+        .iter()
+        .any(|agent| agent.id == "GeneralPurpose"));
+
+    let planner_visible = registry
+        .get_subagents_for_query(&SubagentQueryContext {
+            parent_agent_type: Some("SwarmPlanner"),
+            workspace_root: None,
+            list_scope: SubagentListScope::TaskVisible,
+            include_disabled: false,
+            external_sources_supported: false,
+        })
+        .await;
+    assert_eq!(planner_visible.len(), 3);
+    for swarm_id in ["SwarmPlanner", "SwarmWorker", "SwarmReviewer"] {
+        assert!(planner_visible.iter().any(|agent| agent.id == swarm_id));
+    }
 }
 
 #[test]
@@ -730,7 +865,6 @@ async fn prompt_stability_task_visible_subagents_are_sorted_deterministically() 
     let expected = vec![
         "ABuiltin",
         "Explore",
-        "FileFinder",
         "GeneralPurpose",
         "zBuiltin",
         "AProject",
@@ -802,8 +936,8 @@ async fn parent_subagent_overrides_follow_source_scopes() {
         external_sources_supported: false,
     };
 
-    let project_override_key = "project::bitfun::ProjectScout".to_string();
-    let user_override_key = "user::bitfun::UserScout".to_string();
+    let project_override_key = "project::openbitfun::ProjectScout".to_string();
+    let user_override_key = "user::openbitfun::UserScout".to_string();
     let builtin_override_key = "builtin::builtin::Explore".to_string();
 
     let mut project_parent_map = HashMap::new();
@@ -889,7 +1023,7 @@ async fn parent_subagent_overrides_follow_source_scopes() {
 
 #[tokio::test]
 async fn explicit_custom_mode_load_exposes_user_mode_metadata_in_modes_info() {
-    let env = CustomAgentTestEnv::new("bitfun-custom-mode-registry-load");
+    let env = CustomAgentTestEnv::new("openbitfun-custom-mode-registry-load");
     let registry = AgentRegistry::new();
     let mode_path = env.user_agents_dir.join("planner-plus.md");
     write_user_custom_mode(
@@ -918,15 +1052,12 @@ async fn explicit_custom_mode_load_exposes_user_mode_metadata_in_modes_info() {
     assert_eq!(mode.model, Some("primary".to_string()));
     assert!(mode.default_tools.contains(&"Read".to_string()));
     assert!(mode.default_tools.contains(&"Grep".to_string()));
-    for tool_name in THREAD_GOAL_TOOL_NAMES {
-        assert!(mode.default_tools.iter().any(|tool| tool == tool_name));
-    }
     assert!(mode.is_readonly);
 }
 
 #[tokio::test]
 async fn custom_mode_does_not_appear_in_subagent_list() {
-    let env = CustomAgentTestEnv::new("bitfun-custom-mode-registry-separation");
+    let env = CustomAgentTestEnv::new("openbitfun-custom-mode-registry-separation");
     let registry = AgentRegistry::new();
     write_user_custom_mode(
         &env.user_agents_dir.join("planner-plus.md"),
@@ -934,7 +1065,7 @@ async fn custom_mode_does_not_appear_in_subagent_list() {
         "Planner Plus",
         vec!["Read".to_string()],
         UserContextPolicy::empty().with_workspace_instructions(),
-        "auto",
+        "primary",
         false,
     );
     write_user_custom_subagent(&env.user_agents_dir.join("helper.md"), "Helper");
@@ -950,7 +1081,7 @@ async fn custom_mode_does_not_appear_in_subagent_list() {
 
 #[tokio::test]
 async fn project_scoped_custom_mode_is_skipped_while_project_subagent_loads() {
-    let env = CustomAgentTestEnv::new("bitfun-custom-mode-registry-project");
+    let env = CustomAgentTestEnv::new("openbitfun-custom-mode-registry-project");
     let registry = AgentRegistry::new();
     let workspace_root = env.workspace_root.clone();
 
@@ -979,7 +1110,7 @@ async fn project_scoped_custom_mode_is_skipped_while_project_subagent_loads() {
 
 #[tokio::test]
 async fn custom_mode_detail_reports_kind_level_model_path_and_policy() {
-    let env = CustomAgentTestEnv::new("bitfun-custom-mode-registry-detail");
+    let env = CustomAgentTestEnv::new("openbitfun-custom-mode-registry-detail");
     let registry = AgentRegistry::new();
     let mode_path = env.user_agents_dir.join("planner-plus.md");
     write_user_custom_mode(
@@ -1016,7 +1147,7 @@ async fn custom_mode_detail_reports_kind_level_model_path_and_policy() {
 
 #[tokio::test]
 async fn updating_custom_mode_model_persists_and_keeps_mode_category() {
-    let env = CustomAgentTestEnv::new("bitfun-custom-mode-registry-update-model");
+    let env = CustomAgentTestEnv::new("openbitfun-custom-mode-registry-update-model");
     let registry = AgentRegistry::new();
     let mode_path = env.user_agents_dir.join("planner-plus.md");
     write_user_custom_mode(
@@ -1025,7 +1156,7 @@ async fn updating_custom_mode_model_persists_and_keeps_mode_category() {
         "Planner Plus",
         vec!["Read".to_string()],
         UserContextPolicy::empty().with_workspace_instructions(),
-        "auto",
+        "primary",
         false,
     );
 
@@ -1033,12 +1164,7 @@ async fn updating_custom_mode_model_persists_and_keeps_mode_category() {
         .load_custom_agents_from_test_roots(None, &env.discovery_roots(None))
         .await;
     registry
-        .update_and_save_custom_agent_config(
-            "PlannerPlus",
-            Some("primary".to_string()),
-            false,
-            None,
-        )
+        .update_and_save_custom_agent_config("PlannerPlus", Some("fast".to_string()), false, None)
         .expect("mode model update should save");
 
     let mode = registry
@@ -1049,7 +1175,7 @@ async fn updating_custom_mode_model_persists_and_keeps_mode_category() {
         .expect("updated mode should still be present");
     let saved = std::fs::read_to_string(&mode_path).expect("updated mode file should be readable");
 
-    assert_eq!(mode.model, Some("primary".to_string()));
+    assert_eq!(mode.model, Some("fast".to_string()));
     assert_eq!(mode.source, AgentSource::User);
     assert!(registry.get_mode_agent("PlannerPlus").is_some());
     assert!(!registry
@@ -1058,12 +1184,12 @@ async fn updating_custom_mode_model_persists_and_keeps_mode_category() {
         .iter()
         .any(|agent| agent.id == "PlannerPlus"));
     assert!(saved.contains("kind: mode"));
-    assert!(saved.contains("model: primary"));
+    assert!(saved.contains("model: fast"));
 }
 
 #[tokio::test]
 async fn updating_custom_mode_definition_rewrites_file_and_preserves_mode_kind() {
-    let env = CustomAgentTestEnv::new("bitfun-custom-mode-registry-update-definition");
+    let env = CustomAgentTestEnv::new("openbitfun-custom-mode-registry-update-definition");
     let registry = AgentRegistry::new();
     let mode_path = env.user_agents_dir.join("planner-plus.md");
     write_user_custom_mode(
@@ -1072,7 +1198,7 @@ async fn updating_custom_mode_definition_rewrites_file_and_preserves_mode_kind()
         "Planner Plus",
         vec!["Read".to_string()],
         UserContextPolicy::empty().with_workspace_instructions(),
-        "auto",
+        "primary",
         false,
     );
 
@@ -1090,7 +1216,7 @@ async fn updating_custom_mode_definition_rewrites_file_and_preserves_mode_kind()
             Some(true),
             None,
             Some(UserContextPolicy::empty().with_workspace_context()),
-            Some("primary".to_string()),
+            Some("fast".to_string()),
         )
         .await
         .expect("mode definition update should save");
@@ -1105,7 +1231,7 @@ async fn updating_custom_mode_definition_rewrites_file_and_preserves_mode_kind()
     assert_eq!(detail.name, "Planner Pro");
     assert_eq!(detail.description, "Updated planning mode");
     assert_eq!(detail.prompt, "Always explain your plan first.");
-    assert_eq!(detail.model, "primary");
+    assert_eq!(detail.model, "fast");
     assert_eq!(detail.tools, vec!["Read".to_string(), "Grep".to_string()]);
     assert_eq!(
         detail.user_context_policy,
@@ -1113,7 +1239,7 @@ async fn updating_custom_mode_definition_rewrites_file_and_preserves_mode_kind()
     );
     assert!(saved.contains("kind: mode"));
     assert!(saved.contains("name: Planner Pro"));
-    assert!(saved.contains("model: primary"));
+    assert!(saved.contains("model: fast"));
     assert!(saved.contains("- workspace_context"));
 }
 
@@ -1128,7 +1254,7 @@ impl CustomAgentTestEnv {
     fn new(prefix: &str) -> Self {
         let root = std::env::temp_dir().join(format!("{prefix}-{}", unique_suffix()));
         let workspace_root = root.join("workspace");
-        let workspace_agents_dir = workspace_root.join(".bitfun").join("agents");
+        let workspace_agents_dir = workspace_root.join(".openbitfun").join("agents");
         let user_agents_dir = root.join("user-root").join("agents");
         std::fs::create_dir_all(&workspace_agents_dir)
             .expect("workspace agents dir should be created");
@@ -1145,7 +1271,7 @@ impl CustomAgentTestEnv {
     fn discovery_roots(&self, workspace_root: Option<PathBuf>) -> CustomAgentDiscoveryRoots {
         CustomAgentDiscoveryRoots {
             workspace_root,
-            bitfun_user_agents_dir: Some(self.user_agents_dir.clone()),
+            openbitfun_user_agents_dir: Some(self.user_agents_dir.clone()),
             home_dir: None,
         }
     }
@@ -1278,6 +1404,7 @@ async fn external_routes_are_workspace_scoped_fail_closed_and_generation_leased(
         vec![ExternalSubagentRegistration {
             runtime_key: runtime_v1.to_string(),
             logical_id: "Explore".to_string(),
+            route_key: "opencode:test:explore".to_string(),
             ecosystem_id: EcosystemId::new("opencode").unwrap(),
             provider_label: "OpenCode".to_string(),
             model_binding: super::ExternalSubagentModelBinding::Fixed {
@@ -1345,7 +1472,7 @@ async fn external_routes_are_workspace_scoped_fail_closed_and_generation_leased(
     assert_eq!(primary_binding.runtime_agent_key, runtime_v1);
     assert_eq!(
         primary_binding.route_owner,
-        bitfun_core_types::SessionAgentRouteOwner::External
+        openbitfun_core_types::SessionAgentRouteOwner::External
     );
     drop(primary_binding);
     assert!(registry.is_external_subagent_route("Explore", Some(&workspace)));
@@ -1401,6 +1528,7 @@ async fn external_routes_are_workspace_scoped_fail_closed_and_generation_leased(
         vec![ExternalSubagentRegistration {
             runtime_key: runtime_v2.to_string(),
             logical_id: "Explore".to_string(),
+            route_key: "opencode:test:explore".to_string(),
             ecosystem_id: EcosystemId::new("opencode").unwrap(),
             provider_label: "OpenCode".to_string(),
             model_binding: super::ExternalSubagentModelBinding::Fixed {
@@ -1464,6 +1592,7 @@ async fn external_routes_use_one_canonical_workspace_identity_for_all_operations
         vec![ExternalSubagentRegistration {
             runtime_key: runtime_key.to_string(),
             logical_id: "canonical-profile".to_string(),
+            route_key: "opencode:test:canonical-profile".to_string(),
             ecosystem_id: EcosystemId::new("opencode").unwrap(),
             provider_label: "OpenCode".to_string(),
             model_binding: super::ExternalSubagentModelBinding::InheritParent,
@@ -1487,6 +1616,17 @@ async fn external_routes_use_one_canonical_workspace_identity_for_all_operations
         .expect("alias path should resolve the installed external generation");
     assert_eq!(binding.runtime_agent_key, runtime_key);
     drop(binding);
+    let routed_entry = registry
+        .find_external_route_entry("canonical-profile", &workspace_alias)
+        .expect("model lookup should resolve the logical id through the external route");
+    assert_eq!(routed_entry.agent.id(), runtime_key);
+    assert_eq!(
+        registry
+            .get_model_id_for_agent("canonical-profile", Some(&workspace_alias))
+            .await
+            .expect("external logical id should resolve a model fallback"),
+        default_model_id_for_builtin_agent("canonical-profile").to_string()
+    );
     assert!(registry
         .get_modes_info_for_workspace(Some(&workspace_alias), true)
         .await
@@ -1506,7 +1646,7 @@ fn persisted_external_owner_never_falls_back_to_a_same_name_local_mode() {
             "agentic",
             Some(Path::new("C:/workspace/restarted-external-owner")),
             true,
-            Some(bitfun_core_types::SessionAgentRouteOwner::External),
+            Some(openbitfun_core_types::SessionAgentRouteOwner::External),
         )
         .is_none());
     let local = registry
@@ -1514,12 +1654,12 @@ fn persisted_external_owner_never_falls_back_to_a_same_name_local_mode() {
             "agentic",
             Some(Path::new("C:/workspace/legacy-local-owner")),
             true,
-            Some(bitfun_core_types::SessionAgentRouteOwner::Local),
+            Some(openbitfun_core_types::SessionAgentRouteOwner::Local),
         )
         .expect("legacy local sessions keep their local route");
     assert_eq!(
         local.route_owner,
-        bitfun_core_types::SessionAgentRouteOwner::Local
+        openbitfun_core_types::SessionAgentRouteOwner::Local
     );
 }
 
@@ -1531,6 +1671,7 @@ async fn external_agent_role_controls_main_and_task_projection() {
     let registration = |runtime_key: &str, mode| ExternalSubagentRegistration {
         runtime_key: runtime_key.to_string(),
         logical_id: logical_id.to_string(),
+        route_key: format!("opencode:test:{logical_id}"),
         ecosystem_id: EcosystemId::new("opencode").unwrap(),
         provider_label: "OpenCode".to_string(),
         model_binding: super::ExternalSubagentModelBinding::InheritParent,
@@ -1557,15 +1698,12 @@ async fn external_agent_role_controls_main_and_task_projection() {
         )],
         route("external::primary"),
     );
-    let primary = registry
+    registry
         .get_modes_info_for_workspace(Some(&workspace), true)
         .await
         .into_iter()
         .find(|agent| agent.id == logical_id)
         .expect("external primary projection should be visible");
-    for tool_name in THREAD_GOAL_TOOL_NAMES {
-        assert!(primary.default_tools.iter().any(|tool| tool == tool_name));
-    }
     assert!(!registry
         .get_subagents_for_query(&SubagentQueryContext {
             parent_agent_type: Some("agentic"),
@@ -1619,6 +1757,7 @@ fn persisted_primary_route_owner_rejects_same_name_route_takeover() {
         vec![ExternalSubagentRegistration {
             runtime_key: runtime_key.to_string(),
             logical_id: logical_id.to_string(),
+            route_key: format!("opencode:test:{logical_id}"),
             ecosystem_id: EcosystemId::new("opencode").unwrap(),
             provider_label: "OpenCode".to_string(),
             model_binding: super::ExternalSubagentModelBinding::InheritParent,
@@ -1641,7 +1780,7 @@ fn persisted_primary_route_owner_rejects_same_name_route_takeover() {
             logical_id,
             Some(&workspace),
             true,
-            Some(bitfun_core_types::SessionAgentRouteOwner::Local),
+            Some(openbitfun_core_types::SessionAgentRouteOwner::Local),
         )
         .is_none());
 
@@ -1657,7 +1796,241 @@ fn persisted_primary_route_owner_rejects_same_name_route_takeover() {
             logical_id,
             Some(&workspace),
             true,
-            Some(bitfun_core_types::SessionAgentRouteOwner::External),
+            Some(openbitfun_core_types::SessionAgentRouteOwner::External),
+        )
+        .is_none());
+}
+
+#[test]
+fn validated_generation_replacement_restores_same_name_local_agent() {
+    let registry = AgentRegistry::new();
+    let workspace = PathBuf::from("D:/workspace/plugin-agent-removed");
+    let logical_id = "agentic";
+    let runtime_key = "external::agentic::generation-1";
+    registry.install_external_subagent_routes(
+        &workspace,
+        vec![ExternalSubagentRegistration {
+            runtime_key: runtime_key.to_string(),
+            logical_id: logical_id.to_string(),
+            route_key: format!("opencode:test:{logical_id}"),
+            ecosystem_id: EcosystemId::new("opencode").unwrap(),
+            provider_label: "OpenCode".to_string(),
+            model_binding: super::ExternalSubagentModelBinding::InheritParent,
+            hidden: false,
+            mode: ExternalSubagentMode::Primary,
+            agent: Arc::new(TestAgent {
+                id: runtime_key.to_string(),
+            }),
+        }],
+        [(
+            logical_id.to_string(),
+            ExternalSubagentRoute::External(runtime_key.to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let old_turn = registry
+        .resolve_primary_agent_for_turn(logical_id, Some(&workspace), true, None)
+        .expect("external generation");
+    assert_eq!(old_turn.runtime_agent_key, runtime_key);
+
+    registry.replace_external_subagent_routes(&workspace, Vec::new(), BTreeMap::new());
+
+    let fresh_turn = registry
+        .resolve_primary_agent_for_turn(logical_id, Some(&workspace), true, None)
+        .expect("same-name local agent");
+    assert_eq!(
+        fresh_turn.route_owner,
+        openbitfun_core_types::SessionAgentRouteOwner::Local
+    );
+    assert_eq!(fresh_turn.runtime_agent_key, logical_id);
+    assert_eq!(old_turn.runtime_agent_key, runtime_key);
+}
+
+#[test]
+fn route_overlay_overrides_without_replacing_base_external_routes() {
+    let registry = AgentRegistry::new();
+    let workspace = PathBuf::from("D:/workspace/plugin-agent-overlay");
+    let registration = |runtime_key: &str,
+                        logical_id: &str,
+                        provider: &str,
+                        ecosystem: &str|
+     -> ExternalSubagentRegistration {
+        ExternalSubagentRegistration {
+            runtime_key: runtime_key.to_string(),
+            logical_id: logical_id.to_string(),
+            route_key: format!("{ecosystem}:{provider}:{logical_id}"),
+            ecosystem_id: EcosystemId::new(ecosystem).unwrap(),
+            provider_label: provider.to_string(),
+            model_binding: super::ExternalSubagentModelBinding::InheritParent,
+            hidden: false,
+            mode: ExternalSubagentMode::Primary,
+            agent: Arc::new(TestAgent {
+                id: runtime_key.to_string(),
+            }),
+        }
+    };
+    let route = |logical_id: &str, runtime_key: &str| {
+        (
+            logical_id.to_string(),
+            ExternalSubagentRoute::External(runtime_key.to_string()),
+        )
+    };
+
+    registry.install_external_subagent_routes(
+        &workspace,
+        vec![
+            registration("external::base-agentic", "agentic", "Base", "claude-code"),
+            registration("external::base-only", "base-only", "Base", "claude-code"),
+        ],
+        [
+            route("agentic", "external::base-agentic"),
+            route("base-only", "external::base-only"),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    registry.replace_external_subagent_route_overlay(
+        &workspace,
+        "opencode-plugin-config",
+        vec![
+            registration("external::plugin-agentic", "agentic", "Plugin", "opencode"),
+            registration("external::plugin-only", "plugin-only", "Plugin", "opencode"),
+        ],
+        [
+            route("agentic", "external::plugin-agentic"),
+            route("plugin-only", "external::plugin-only"),
+        ]
+        .into_iter()
+        .collect(),
+    );
+
+    let plugin_turn = registry
+        .resolve_primary_agent_for_turn("agentic", Some(&workspace), true, None)
+        .expect("overlay route");
+    assert_eq!(plugin_turn.runtime_agent_key, "external::plugin-agentic");
+    assert_eq!(
+        registry
+            .resolve_primary_agent_for_turn("base-only", Some(&workspace), true, None)
+            .expect("unrelated base route")
+            .runtime_agent_key,
+        "external::base-only"
+    );
+    assert_eq!(
+        registry
+            .resolve_primary_agent_for_turn("plugin-only", Some(&workspace), true, None)
+            .expect("plugin-only overlay route")
+            .runtime_agent_key,
+        "external::plugin-only"
+    );
+
+    registry.install_external_subagent_routes(
+        &workspace,
+        vec![
+            registration(
+                "external::base-agentic-v2",
+                "agentic",
+                "Base v2",
+                "claude-code",
+            ),
+            registration("external::base-only", "base-only", "Base", "claude-code"),
+        ],
+        [
+            route("agentic", "external::base-agentic-v2"),
+            route("base-only", "external::base-only"),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    assert_eq!(
+        registry
+            .resolve_primary_agent_for_turn("agentic", Some(&workspace), true, None)
+            .expect("overlay still wins after base refresh")
+            .runtime_agent_key,
+        "external::plugin-agentic"
+    );
+
+    registry.release_external_subagent_route_overlay(&workspace, "opencode-plugin-config");
+
+    assert_eq!(
+        registry
+            .resolve_primary_agent_for_turn("agentic", Some(&workspace), true, None)
+            .expect("latest base route restored")
+            .runtime_agent_key,
+        "external::base-agentic-v2"
+    );
+    assert_eq!(
+        registry
+            .resolve_primary_agent_for_turn("base-only", Some(&workspace), true, None)
+            .expect("base route retained")
+            .runtime_agent_key,
+        "external::base-only"
+    );
+    assert!(registry
+        .resolve_primary_agent_for_turn("plugin-only", Some(&workspace), true, None)
+        .is_none());
+    assert!(registry.check_agent_exists("external::plugin-agentic"));
+    drop(plugin_turn);
+    assert!(!registry.check_agent_exists("external::plugin-agentic"));
+}
+
+#[test]
+fn persisted_route_key_rejects_same_name_external_provider_takeover() {
+    let registry = AgentRegistry::new();
+    let workspace = PathBuf::from("D:/workspace/plugin-agent-takeover");
+    let logical_id = "agentic";
+    let registration = |runtime_key: &str, route_key: &str| ExternalSubagentRegistration {
+        runtime_key: runtime_key.to_string(),
+        logical_id: logical_id.to_string(),
+        route_key: route_key.to_string(),
+        ecosystem_id: EcosystemId::new("opencode").unwrap(),
+        provider_label: "OpenCode".to_string(),
+        model_binding: super::ExternalSubagentModelBinding::InheritParent,
+        hidden: false,
+        mode: ExternalSubagentMode::Primary,
+        agent: Arc::new(TestAgent {
+            id: runtime_key.to_string(),
+        }),
+    };
+    registry.replace_external_subagent_routes(
+        &workspace,
+        vec![registration("external::one", "opencode:plugin-one:agentic")],
+        [(
+            logical_id.to_string(),
+            ExternalSubagentRoute::External("external::one".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let binding = registry
+        .resolve_primary_agent_for_turn_with_route(
+            logical_id,
+            Some(&workspace),
+            true,
+            Some(openbitfun_core_types::SessionAgentRouteOwner::External),
+            Some("opencode:plugin-one:agentic"),
+        )
+        .expect("original route");
+    drop(binding);
+
+    registry.replace_external_subagent_routes(
+        &workspace,
+        vec![registration("external::two", "opencode:plugin-two:agentic")],
+        [(
+            logical_id.to_string(),
+            ExternalSubagentRoute::External("external::two".to_string()),
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    assert!(registry
+        .resolve_primary_agent_for_turn_with_route(
+            logical_id,
+            Some(&workspace),
+            true,
+            Some(openbitfun_core_types::SessionAgentRouteOwner::External),
+            Some("opencode:plugin-one:agentic"),
         )
         .is_none());
 }
@@ -1671,6 +2044,7 @@ fn external_primary_route_follows_the_session_execution_worktree() {
     let registration = |runtime_key: &str| ExternalSubagentRegistration {
         runtime_key: runtime_key.to_string(),
         logical_id: logical_id.to_string(),
+        route_key: format!("opencode:test:{logical_id}"),
         ecosystem_id: EcosystemId::new("opencode").unwrap(),
         provider_label: "OpenCode".to_string(),
         model_binding: super::ExternalSubagentModelBinding::InheritParent,
@@ -1725,7 +2099,7 @@ fn builtin_review_agents_resolve_as_local_session_primaries() {
         assert_eq!(binding.runtime_agent_key, agent_type);
         assert_eq!(
             binding.route_owner,
-            bitfun_core_types::SessionAgentRouteOwner::Local
+            openbitfun_core_types::SessionAgentRouteOwner::Local
         );
     }
 }
@@ -1755,7 +2129,7 @@ fn non_session_primary_subagents_and_unknown_ids_do_not_resolve() {
                     agent_type,
                     None,
                     false,
-                    Some(bitfun_core_types::SessionAgentRouteOwner::External),
+                    Some(openbitfun_core_types::SessionAgentRouteOwner::External),
                 )
                 .is_none(),
             "{agent_type} must fail closed for an external owner"
@@ -1809,7 +2183,7 @@ fn local_route_resolves_review_agents_as_session_primaries() {
         assert_eq!(binding.runtime_agent_key, agent_type);
         assert_eq!(
             binding.route_owner,
-            bitfun_core_types::SessionAgentRouteOwner::Local
+            openbitfun_core_types::SessionAgentRouteOwner::Local
         );
     }
 

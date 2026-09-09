@@ -1,4 +1,7 @@
 import ReactDOM from "react-dom/client";
+// Register the design-system layer order before any product module can import
+// component CSS. CSS layers keep their first-seen order for the document.
+import "@openbitfun/ui/styles.css";
 import App from "./app/App";
 import AgentCompanionDesktopPet from "./app/components/AgentCompanionDesktopPet/AgentCompanionDesktopPet";
 import AppErrorBoundary from "./app/components/AppErrorBoundary";
@@ -8,11 +11,11 @@ import { PeerDeviceProvider } from "./infrastructure/peer-device/PeerDeviceConte
 import { PeerHostInvokeBridge } from "./infrastructure/peer-device/PeerHostInvokeBridge";
 import { PeerDirectoryPickerHost } from "./infrastructure/peer-device/PeerDirectoryPickerHost";
 import { I18nProvider } from "./infrastructure/i18n/providers/I18nProvider";
-import { mouseGlowService } from "./infrastructure/mouse-glow/core/MouseGlowService";
+import { OpenBitFunDesignSystemProvider } from "./infrastructure/design-system";
 import "./app/styles/index.scss";
 
-// Font: Noto Sans SC is loaded via a <link> tag in index.html.
-// File path: public/fonts/fonts.css, served as /fonts/fonts.css.
+// The build-selected font profile is linked from index.html before first paint.
+// Apple uses system faces; non-Apple bundles HarmonyOS Sans and Fira Code.
 
 import { bootstrapLogger, createLogger, initLogger } from './shared/utils/logger';
 import { elapsedMs, logElapsed, measureAsyncAndLog, nowMs } from './shared/utils/timing';
@@ -57,7 +60,7 @@ async function traceStartupStep<T>(
 }
 
 /** Dedupe only for white-screen heuristic (empty #root), not for Error Boundary logs. */
-const WHITE_SCREEN_LOGGED_FLAG = '__bitfun_white_screen_crash_logged__';
+const WHITE_SCREEN_LOGGED_FLAG = '__openbitfun_white_screen_crash_logged__';
 function hasLoggedWhiteScreenCrash(): boolean {
   return Boolean((window as any)[WHITE_SCREEN_LOGGED_FLAG]);
 }
@@ -85,7 +88,7 @@ function isRootEmpty(): boolean {
 }
 
 function registerGlobalErrorHandlers() {
-  const flag = '__bitfun_global_error_handlers_registered__';
+  const flag = '__openbitfun_global_error_handlers_registered__';
   const w = window as any;
   if (w[flag]) {
     return;
@@ -221,7 +224,7 @@ async function initializeBeforeRender(): Promise<void> {
     });
   });
 
-  log.info('Initializing BitFun');
+  log.info('Initializing OpenBitFun');
 
   await traceStartupStep('before_render_step', 'appearance_initialize', async () => {
     await measureAsyncAndLog(log, 'Startup step completed', async () => {
@@ -232,7 +235,6 @@ async function initializeBeforeRender(): Promise<void> {
     });
   });
   log.info('Theme system initialized');
-  mouseGlowService.initialize();
   logElapsed(log, 'Startup phase completed', phaseStartedAt, {
     data: { phase: 'initializeBeforeRender' },
   });
@@ -316,7 +318,7 @@ async function initializeAfterRender(): Promise<void> {
     }
   });
 
-  log.info('BitFun core systems initialized successfully');
+  log.info('OpenBitFun core systems initialized successfully');
   logElapsed(log, 'Startup phase completed', phaseStartedAt, {
     data: { phase: 'initializeAfterRender' },
   });
@@ -331,7 +333,7 @@ async function startApplication(): Promise<void> {
   try {
     await initializeBeforeRender();
   } catch (error) {
-    log.error('Failed to initialize BitFun (pre-render)', error);
+    log.error('Failed to initialize OpenBitFun (pre-render)', error);
   }
 
   startupTrace.markPhase('startup_step_start', { step: 'load_i18n_provider', mode: 'static' });
@@ -341,14 +343,16 @@ async function startApplication(): Promise<void> {
     mode: 'static',
   });
   const isAgentCompanionWindow = new URLSearchParams(window.location.search)
-    .get('bitfunWindow') === 'agent-companion';
+    .get('openbitfunWindow') === 'agent-companion';
 
   const renderStartedAt = nowMs();
   if (isAgentCompanionWindow) {
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <AppErrorBoundary>
         <I18nProvider>
-          <AgentCompanionDesktopPet />
+          <OpenBitFunDesignSystemProvider>
+            <AgentCompanionDesktopPet />
+          </OpenBitFunDesignSystemProvider>
         </I18nProvider>
       </AppErrorBoundary>
     );
@@ -368,13 +372,15 @@ async function startApplication(): Promise<void> {
   ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <AppErrorBoundary>
       <I18nProvider>
-        <WorkspaceProvider>
-          <PeerDeviceProvider>
-            <PeerHostInvokeBridge />
-            <PeerDirectoryPickerHost />
-            <App />
-          </PeerDeviceProvider>
-        </WorkspaceProvider>
+        <OpenBitFunDesignSystemProvider>
+          <WorkspaceProvider>
+            <PeerDeviceProvider>
+              <PeerHostInvokeBridge />
+              <PeerDirectoryPickerHost />
+              <App />
+            </PeerDeviceProvider>
+          </WorkspaceProvider>
+        </OpenBitFunDesignSystemProvider>
       </I18nProvider>
     </AppErrorBoundary>
   );

@@ -4,7 +4,7 @@ mod tests {
 
     use super::{
         action_opens_extension_management, agent_event_stream_failure, apply_agent_mode_feedback,
-        apply_model_selection_feedback, apply_session_model_migration,
+        apply_model_selection_feedback, apply_session_model_fallback,
         apply_session_rename_feedback, begin_slash_menu_selection, builtin_arguments_error,
         builtin_arguments_route, builtin_command_reconfirmation,
         clear_selected_native_command_prefill, cli_native_prompt_command_descriptors,
@@ -41,13 +41,14 @@ mod tests {
     use crate::ui::chat::ChatView;
     use crate::ui::command_menu::{ExternalCommandProjection, NativeCommandCollisionProjection};
     use crate::ui::theme::Theme;
-    use bitfun_events::{AgenticEvent, ToolEventData};
-    use bitfun_product_domains::external_hook_catalog::{
+    use crossterm::event::Event;
+    use openbitfun_events::{AgenticEvent, ToolEventData};
+    use openbitfun_product_domains::external_hook_catalog::{
         ExternalHookCatalogEntry, ExternalHookCatalogSnapshotV1, ExternalHookHandlerKind,
         ExternalHookMatcherSummary, ExternalHookNativeActivation, ExternalHookProjectionStatus,
     };
-    use bitfun_product_domains::external_source_control::ExternalSourceControlSnapshotV1;
-    use bitfun_product_domains::external_sources::{
+    use openbitfun_product_domains::external_source_control::ExternalSourceControlSnapshotV1;
+    use openbitfun_product_domains::external_sources::{
         native_prompt_command_conflict_key, ExternalSourceAssetKind,
         ExternalSourceCatalogSnapshot as RawExternalSourceCatalogSnapshot,
         ExternalSourceDiagnostic, ExternalSourceDiagnosticSeverity, ExternalSourceOperationError,
@@ -55,16 +56,15 @@ mod tests {
         ExternalSourcePublicSnapshot as ExternalSourceCatalogSnapshot, ExternalSourceScope,
         ExternalToolActivationState,
     };
-    use bitfun_product_domains::external_subagents::{
+    use openbitfun_product_domains::external_subagents::{
         ExternalSubagentActivationState, ExternalSubagentModelBindingTarget,
     };
-    use bitfun_product_domains::native_hooks::{
+    use openbitfun_product_domains::native_hooks::{
         NativeHookFileSummary as NativeHookFileView,
         NativeHookHandlerSummary as NativeHookHandlerView, NativeHookOverview,
         NativeHookRuleSummary as NativeHookRuleView,
     };
-    use bitfun_runtime_ports::AgentContextReloadTarget;
-    use crossterm::event::Event;
+    use openbitfun_runtime_ports::AgentContextReloadTarget;
     use std::collections::{BTreeMap, BTreeSet};
 
     fn public_external_source_snapshot(value: serde_json::Value) -> ExternalSourceCatalogSnapshot {
@@ -84,7 +84,7 @@ mod tests {
             .expect("agent selection boundary")
             .0;
 
-        assert!(selection.contains(".update_session_mode(&task_session_id, &task_mode_id)"));
+        assert!(selection.contains(".update_session_mode_with_route("));
         assert!(!selection.contains("selected.id == self.agent_type"));
     }
 
@@ -132,7 +132,7 @@ mod tests {
             provider_conflict_key: None,
             native_collision: Some(NativeCommandCollisionProjection {
                 native_action_id: name.to_string(),
-                native_candidate_id: format!("bitfun.cli:{name}"),
+                native_candidate_id: format!("openbitfun.cli:{name}"),
                 external_candidate_id: format!("external:{name}"),
                 conflict_key: "conflict-v1".to_string(),
                 selected_candidate_id: selected_candidate_id.map(str::to_string),
@@ -253,7 +253,7 @@ mod tests {
 
         let mut permission_needed = control.clone();
         permission_needed.sources[0].effective_status =
-            bitfun_product_domains::external_source_control::ExternalSourceEffectiveStatus::ReviewRequired;
+            openbitfun_product_domains::external_source_control::ExternalSourceEffectiveStatus::ReviewRequired;
         let permission_text = external_control_status_text(&permission_needed);
         assert!(permission_text.contains("Needs permission"));
         assert!(permission_text.contains("Manage permissions: /tools, /agent, /mcp, or /hooks"));
@@ -435,10 +435,10 @@ mod tests {
                 "conflictKey": "conflict-v1",
                 "toolName": "review",
                 "candidates": [{
-                    "candidateId": "bitfun:review",
-                    "displayName": "BitFun review",
+                    "candidateId": "openbitfun:review",
+                    "displayName": "OpenBitFun review",
                     "kind": "built_in",
-                    "providerId": "bitfun",
+                    "providerId": "openbitfun",
                     "contentVersion": "builtin-v1"
                 }, {
                     "candidateId": "external:review",
@@ -531,7 +531,7 @@ mod tests {
         assert!(text.contains("OpenCode: recommended"));
         assert!(text.contains("command auto"));
         assert!(text.contains("tool ask"));
-        assert!(text.contains("bitfun config external --help"));
+        assert!(text.contains("openbitfun config external --help"));
     }
 
     #[test]
@@ -575,10 +575,10 @@ mod tests {
     fn external_tool_review_summary_discloses_execution_boundary_and_commands() {
         let summary = external_tool_review_text(Some(&external_tool_review_snapshot()));
 
-        assert!(summary.contains("BitFun and MCP"));
+        assert!(summary.contains("OpenBitFun and MCP"));
         assert!(summary.contains("External AI applications"));
         assert!(summary.contains("Use /mcp to manage MCP servers"));
-        assert!(summary.contains("BitFun does not run external code while checking sources"));
+        assert!(summary.contains("OpenBitFun does not run external code while checking sources"));
         assert!(summary.contains("filesystem, network, process, environment variables"));
         assert!(summary.contains("inherited environment variables"));
         assert!(summary.contains("processes it starts may keep running after cancellation"));
@@ -605,7 +605,7 @@ mod tests {
     fn external_tool_runtime_recovery_starts_with_refresh_without_restart_pressure() {
         let mut snapshot = external_tool_review_snapshot();
         snapshot.tools[0].activation = ExternalToolActivationState::RuntimeUnavailable {
-            reason: "BitFun could not find Node.js for external tools".to_string(),
+            reason: "OpenBitFun could not find Node.js for external tools".to_string(),
         };
 
         let summary = external_tool_review_text(Some(&snapshot));
@@ -624,7 +624,7 @@ mod tests {
         let summary = external_tool_review_text(Some(&snapshot));
         assert!(summary.contains("Current choices"));
         assert!(summary.contains("OpenCode review [selected, currently unavailable]"));
-        assert!(summary.contains("BitFun review [not selected]"));
+        assert!(summary.contains("OpenBitFun review [not selected]"));
         assert!(summary.contains("/tools choose 1 1"));
 
         snapshot.tools[0].activation = ExternalToolActivationState::Active;
@@ -636,7 +636,7 @@ mod tests {
             parse_external_tool_review_action("choose 1 1", Some(&snapshot), None).unwrap(),
             ExternalToolReviewAction::Choose {
                 conflict_key: "conflict-v1".to_string(),
-                candidate_id: "bitfun:review".to_string(),
+                candidate_id: "openbitfun:review".to_string(),
             }
         );
         let notice = external_tool_pending_notice_key(&snapshot).unwrap();
@@ -759,7 +759,7 @@ mod tests {
             crate::actions::action_for_alias("/hooks", crate::actions::ActionContext::Chat)
                 .expect("/hooks must be registered");
         assert_eq!(action.id, "hooks");
-        // /hooks shows BitFun's own executable hooks; the external read-only
+        // /hooks shows OpenBitFun's own executable hooks; the external read-only
         // catalog keeps its own command.
         assert_eq!(action.handler, ActionHandler::NativeHooks);
         for alias in ["/hooks_external", "/hooks-external"] {
@@ -902,7 +902,7 @@ mod tests {
         assert!(text.contains("Discovery is read-only"));
         assert!(text.contains("Claude Code"));
         assert!(text.contains("PreToolUse"));
-        assert!(text.contains("coverage mapped: BitFun tool before"));
+        assert!(text.contains("coverage mapped: OpenBitFun tool before"));
         assert!(text.contains("SessionStart"));
         assert!(text.contains("native only"));
         assert!(text.contains("opaque static registration"));
@@ -923,7 +923,7 @@ mod tests {
                 },
                 NativeHookFileView {
                     scope: "project".to_string(),
-                    location: "<workspace>/.bitfun/config/hooks.json".to_string(),
+                    location: "<workspace>/.openbitfun/config/hooks.json".to_string(),
                     exists: true,
                     loaded: false,
                 },
@@ -949,7 +949,7 @@ mod tests {
     fn native_hook_text_reports_gating_layers_and_issues() {
         let text = render_native_hook_overview(&native_hook_overview());
 
-        assert!(text.contains("Hooks (BitFun)"));
+        assert!(text.contains("Hooks (OpenBitFun)"));
         assert!(text.contains("Hooks: enabled (app.hooks.enabled)"));
         assert!(text.contains("Project hook file: disabled (app.hooks.project_hooks_enabled)"));
         assert!(text.contains("user [loaded; present]"));
@@ -1321,7 +1321,7 @@ mod tests {
 
     #[test]
     fn native_choice_is_reused_when_multiple_external_candidates_remain_unresolved() {
-        let selected_native = "bitfun.cli:help";
+        let selected_native = "openbitfun.cli:help";
         let first = external_command("help", Some(selected_native));
         let mut second = external_command("help", Some(selected_native));
         second.candidate_id = "external:help:second".to_string();
@@ -1342,7 +1342,7 @@ mod tests {
     }
 
     #[test]
-    fn discovery_pending_does_not_block_known_bitfun_commands() {
+    fn discovery_pending_does_not_block_known_openbitfun_commands() {
         assert_eq!(
             command_route(true, None, true, false),
             CommandRoute::Builtin
@@ -1359,7 +1359,7 @@ mod tests {
             let descriptors = cli_native_prompt_command_descriptors(alias);
             assert_eq!(descriptors.len(), 1);
             assert_eq!(descriptors[0].command_name, alias);
-            assert_eq!(descriptors[0].candidate_id, "bitfun.cli:mcp_servers");
+            assert_eq!(descriptors[0].candidate_id, "openbitfun.cli:mcp_servers");
         }
     }
 
@@ -1379,7 +1379,7 @@ mod tests {
             choices: BTreeMap::new(),
             lineage_current_keys: BTreeMap::new(),
             conflicted_candidate_ids: BTreeSet::from([
-                "bitfun.cli:help".to_string(),
+                "openbitfun.cli:help".to_string(),
                 "external:help".to_string(),
             ]),
         };
@@ -1630,7 +1630,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_model_migration_replaces_the_visible_session_model_and_explains_why() {
+    fn runtime_model_fallback_replaces_the_visible_session_model_and_explains_why() {
         let mut state = ChatState::new(
             "session".to_string(),
             "Session".to_string(),
@@ -1640,7 +1640,7 @@ mod tests {
         state.current_model_id = Some("removed-model".to_string());
         state.current_model_name = "Removed model".to_string();
 
-        assert!(apply_session_model_migration(
+        assert!(apply_session_model_fallback(
             &mut state,
             "session",
             "removed-model",
@@ -1650,9 +1650,9 @@ mod tests {
 
         assert_eq!(state.current_model_id.as_deref(), Some("replacement-model"));
         assert_eq!(state.current_model_name, "replacement-model");
-        let notice = state.messages.last().expect("migration notice");
+        let notice = state.messages.last().expect("fallback notice");
         let crate::chat_state::FlowItem::Text { content, .. } = &notice.flow_items[0] else {
-            panic!("migration notice must be text");
+            panic!("fallback notice must be text");
         };
         assert!(content.contains("removed-model"));
         assert!(content.contains("replacement-model"));
@@ -1660,7 +1660,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_model_migration_ignores_another_session() {
+    fn runtime_model_fallback_ignores_another_session() {
         let mut state = ChatState::new(
             "current-session".to_string(),
             "Session".to_string(),
@@ -1670,7 +1670,7 @@ mod tests {
         state.current_model_id = Some("removed-model".to_string());
         state.current_model_name = "Removed model".to_string();
 
-        assert!(!apply_session_model_migration(
+        assert!(!apply_session_model_fallback(
             &mut state,
             "other-session",
             "removed-model",
@@ -1682,7 +1682,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_model_migration_ignores_a_stale_previous_selector() {
+    fn runtime_model_fallback_ignores_a_stale_previous_selector() {
         let mut state = ChatState::new(
             "session".to_string(),
             "Session".to_string(),
@@ -1692,11 +1692,11 @@ mod tests {
         state.current_model_id = Some("newer-explicit-model".to_string());
         state.current_model_name = "Newer explicit model".to_string();
 
-        assert!(!apply_session_model_migration(
+        assert!(!apply_session_model_fallback(
             &mut state,
             "session",
             "removed-model",
-            "auto",
+            "primary",
             "model_deleted",
         ));
         assert_eq!(
@@ -1818,7 +1818,7 @@ mod tests {
     fn previous_session_update_failure_is_not_reported_as_a_success() {
         let status = previous_session_update_status(
             "mode",
-            "Plan",
+            "Cowork",
             &SessionUpdateApplyOutcome::SessionUpdateFailed("storage unavailable".to_string()),
         );
 
@@ -2315,9 +2315,9 @@ mod tests {
                 "conflictKey": "conflict-v1",
                 "logicalId": "review",
                 "candidates": [{
-                    "candidateId": "bitfun:review",
-                    "displayName": "BitFun review",
-                    "sourceLabel": "BitFun",
+                    "candidateId": "openbitfun:review",
+                    "displayName": "OpenBitFun review",
+                    "sourceLabel": "OpenBitFun",
                     "external": false
                 }, {
                     "candidateId": "external_subagent:opencode:review:v1",
@@ -2339,7 +2339,7 @@ mod tests {
         assert!(summary.contains("Requested model: anthropic/claude-sonnet-4"));
         assert!(summary.contains("Requested profile: named variant high"));
         assert!(summary.contains("configured effort: high"));
-        assert!(summary.contains("Resolution: choose a BitFun model"));
+        assert!(summary.contains("Resolution: choose a OpenBitFun model"));
         assert!(summary.contains("Affects 2 agents"));
         assert!(summary.contains("/agent bind 1 2"));
         assert!(summary.contains("Tools: read, search"));
@@ -2361,9 +2361,9 @@ mod tests {
 
         let mut inherited = external_agent_review_snapshot();
         inherited.subagents[0].requested_model =
-            bitfun_product_domains::external_subagents::ExternalSubagentModelRequest::Inherit;
+            openbitfun_product_domains::external_subagents::ExternalSubagentModelRequest::Inherit;
         inherited.subagents[0].model_binding_method =
-            bitfun_product_domains::external_subagents::ExternalSubagentModelBindingMethod::Inherit;
+            openbitfun_product_domains::external_subagents::ExternalSubagentModelBindingMethod::Inherit;
         inherited.subagents[0].model_binding_key = None;
         inherited.subagents[0].effective_model_label = None;
         let inherited_summary = external_agent_review_text(Some(&inherited));
@@ -2389,7 +2389,7 @@ mod tests {
 
     #[test]
     fn agent_management_behavior_change_invalidates_an_old_native_choice() {
-        let candidate_id = "bitfun.cli:switch_agent";
+        let candidate_id = "openbitfun.cli:switch_agent";
         let old_key = native_prompt_command_conflict_key(
             "local-user",
             "agents",
@@ -2419,7 +2419,7 @@ mod tests {
         assert!(
             summary.contains("Review agent (OpenCode, external) [selected, currently unavailable]")
         );
-        assert!(summary.contains("BitFun review (BitFun, BitFun/local) [not selected]"));
+        assert!(summary.contains("OpenBitFun review (OpenBitFun, OpenBitFun/local) [not selected]"));
         assert!(summary.contains("/agent choose 1 1"));
 
         snapshot.subagents[0].activation_state = ExternalSubagentActivationState::Active;
@@ -2431,7 +2431,7 @@ mod tests {
             parse_external_agent_review_action("choose 1 1", Some(&snapshot), None).unwrap(),
             ExternalAgentReviewAction::Choose {
                 conflict_key: "conflict-v1".to_string(),
-                candidate_id: "bitfun:review".to_string(),
+                candidate_id: "openbitfun:review".to_string(),
                 approve_external: false,
                 expected_subagent_generation: 4,
                 expected_preference_revision: 7,
@@ -2448,7 +2448,7 @@ mod tests {
             "",
         );
         let text = lines.join("\n");
-        assert!(text.contains("check that BitFun can read and save its settings, then refresh"));
+        assert!(text.contains("check that OpenBitFun can read and save its settings, then refresh"));
         assert!(!text.to_ascii_lowercase().contains("restart"));
     }
 
@@ -2471,8 +2471,8 @@ mod tests {
         });
 
         let agents = external_agent_review_text(Some(&snapshot));
-        assert!(agents.contains("BitFun could not save conflict information"));
-        assert!(agents.contains("check BitFun settings storage, then refresh"));
+        assert!(agents.contains("OpenBitFun could not save conflict information"));
+        assert!(agents.contains("check OpenBitFun settings storage, then refresh"));
         assert!(agents.contains("external_subagent.conflict_history_write_failed"));
         assert!(agents.contains("future_host.agent_map_invalid"));
 
@@ -2527,7 +2527,7 @@ mod tests {
             parse_external_agent_review_action("choose 1 0", Some(&snapshot), None).unwrap(),
             ExternalAgentReviewAction::Choose {
                 conflict_key: "conflict-v1".to_string(),
-                candidate_id: "__bitfun_disabled__".to_string(),
+                candidate_id: "__openbitfun_disabled__".to_string(),
                 approve_external: false,
                 expected_subagent_generation: 4,
                 expected_preference_revision: 7,
@@ -2703,12 +2703,12 @@ mod tests {
         let mut referenced = plain.clone();
         referenced
             .workspace_references
-            .push(bitfun_runtime_ports::AgentWorkspaceReference {
+            .push(openbitfun_runtime_ports::AgentWorkspaceReference {
                 path: "src/lib.rs".to_string(),
-                kind: bitfun_runtime_ports::AgentWorkspaceReferenceKind::File,
+                kind: openbitfun_runtime_ports::AgentWorkspaceReferenceKind::File,
                 start_line: None,
                 end_line: None,
-                source: bitfun_runtime_ports::AgentWorkspaceReferenceSourceRange {
+                source: openbitfun_runtime_ports::AgentWorkspaceReferenceSourceRange {
                     start: 0,
                     end: 11,
                     value: "@src/lib.rs".to_string(),

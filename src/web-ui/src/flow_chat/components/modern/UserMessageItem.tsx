@@ -6,7 +6,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
-import { Copy, Check, RotateCcw, Loader2, ArrowDownToLine, X, CircleUser, Pencil } from 'lucide-react';
+import { RotateCcw, Loader2 } from 'lucide-react';
 import type { DialogTurn, FlowUserSteeringItem } from '../../types/flow-chat';
 import { flowChatManager } from '../../services/FlowChatManager';
 import { useFlowChatContext } from './FlowChatContext';
@@ -26,8 +26,9 @@ import { globalEventBus } from '@/infrastructure/event-bus';
 import { shouldIgnoreCardToggleClick } from '@/shared/utils/textSelection';
 import { observeElementResize } from '@/shared/utils/sharedResizeObserver';
 import { formatContextForPrompt } from '@/shared/utils/contextPrompt';
-import { Tooltip, confirmDanger, ToolProcessingDots } from '@/component-library';
-import { ReproductionStepsBlock } from '@/component-library/components/Markdown/ReproductionStepsBlock';
+import { Tooltip, Icon } from '@openbitfun/ui';
+import { confirmDanger } from '@/infrastructure/confirm-dialog';
+import { ToolProcessingDots } from '@openbitfun/ui/flow-chat';
 import { UserMessageEditComposer } from './UserMessageEditComposer';
 import {
   describeUserMessageEditImpact,
@@ -41,6 +42,7 @@ import type { SessionUsagePanelTab } from '../usage/sessionUsagePanelTypes';
 import { coerceSessionUsageReport } from '../usage/usageReportUtils';
 import { resolveSessionRelationship } from '../../utils/sessionMetadata';
 import { isRemoteWorkspaceSession } from '../../utils/sessionWorkspace';
+import { resolveSessionDriverId } from '../../session-drivers/resolve';
 import { absoluteSessionTurnIndexForId } from '../../utils/flowChatTurnOrdinal';
 import {
   composerPresentationToAccessibleText,
@@ -52,7 +54,9 @@ import {
   parseComposerPresentation,
   type ComposerPresentation,
 } from '../../utils/composerPresentation';
+import { restoreImageContextsFromPayload } from '../../utils/imageContextRestoration';
 import { UserMessagePresentationContent } from './UserMessagePresentationContent';
+import { UserMessageImage } from './UserMessageImage';
 import './UserMessageItem.scss';
 
 const log = createLogger('UserMessageItem');
@@ -97,7 +101,6 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
   ({ message, turnId, absoluteTurnIndex, turnStatus, steeringStatus }) => {
     const { t, formatDate } = useI18n('flow-chat');
     const {
-      config,
       sessionId,
       activeSessionOverride,
       allowUserMessageRollback = true,
@@ -121,11 +124,39 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
     const messageContent = typeof message?.content === 'string' ? message.content : String(message?.content || '');
+    const sentTimestamp = typeof message?.timestamp === 'number'
+      && Number.isFinite(message.timestamp)
+      && message.timestamp > 0
+      ? message.timestamp
+      : null;
+    const sentTime = useMemo(() => sentTimestamp === null ? null : formatDate(sentTimestamp, {
+      hour: '2-digit',
+      minute: '2-digit',
+    }), [formatDate, sentTimestamp]);
+    const sentAtLabel = useMemo(() => sentTimestamp === null ? null : t('message.sentAt', {
+      time: formatDate(sentTimestamp, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZoneName: 'short',
+      }),
+    }), [formatDate, sentTimestamp, t]);
     const composerPresentation = useMemo(() => {
       const presentation = parseComposerPresentation(message?.metadata?.composerPresentation);
       return hasComposerPresentationReferences(presentation) ? presentation : null;
     }, [message?.metadata?.composerPresentation]);
     const messageImages = useMemo(() => message?.images ?? [], [message?.images]);
+    const restoredComposerContexts = useMemo(() => [
+      ...(composerPresentation ? composerPresentationContexts(composerPresentation) : []),
+      ...restoreImageContextsFromPayload({
+        id: message?.id ?? turnId,
+        timestamp: message?.timestamp ?? 0,
+        imageDisplayData: messageImages,
+      }),
+    ], [composerPresentation, message?.id, message?.timestamp, messageImages, turnId]);
     const isUsageReportMessage = message?.metadata?.localCommandKind === 'usage_report';
     const isGoalLoadingMessage = Boolean(message?.metadata?.threadGoalKickoff);
     const isThreadGoalContinuationCheck = Boolean(message?.metadata?.threadGoalContinuation);
@@ -166,7 +197,8 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
     const actionTurnIndex = resolvedAbsoluteTurnIndex !== undefined
       ? resolvedAbsoluteTurnIndex - 1
       : -1;
-    const isRemoteSession = isRemoteWorkspaceSession(currentSession ?? undefined, null);
+    const isDispatchSession = resolveSessionDriverId(resolvedSessionId ?? '', currentSession ?? undefined) === 'dispatch';
+    const isRemoteSession = isRemoteWorkspaceSession(currentSession ?? undefined, null) || isDispatchSession;
     const isSystemTriggered = Boolean(
       message?.metadata?.triggerSource && message.metadata.triggerSource !== 'desktop_ui',
     );
@@ -189,7 +221,9 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
       !steeringStatus;
     const canEdit = canEditBase && isSessionIdle && !isEditSubmitting && !sessionMutation;
     const canShowEditAction = allowUserMessageEdit && !isFailed && !isThreadGoalSystemMessage;
-    const editDisabledReason = isRemoteSession
+    const editDisabledReason = isDispatchSession
+      ? t('message.editDisabledDispatch')
+      : isRemoteSession
       ? t('message.editDisabledRemote')
       : isSystemTriggered
         ? t('message.cannotEdit')
@@ -202,6 +236,8 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
               : t('message.cannotEdit');
     const rollbackTooltip = canRollback
       ? t('message.rollbackTo', { index: actionTurnIndex + 1 })
+      : isDispatchSession
+        ? t('message.rollbackDisabledDispatch')
       : isRemoteSession
         ? t('message.rollbackDisabledRemote')
         : !isSessionIdle
@@ -214,12 +250,8 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
         }
       : null;
 
-    const { displayText, reproductionSteps } = useMemo(() => {
-      const reproductionRegex = /<reproduction_steps>([\s\S]*?)<\/reproduction_steps\s*>?/g;
-      const reproductionMatch = reproductionRegex.exec(messageContent);
-      const reproduction = reproductionMatch ? reproductionMatch[1].trim() : null;
-
-      let cleaned = messageContent.replace(reproductionRegex, '').trim();
+    const displayText = useMemo(() => {
+      let cleaned = messageContent;
       if (isThreadGoalContinuationCheck) {
         cleaned = cleaned.replace(/\s*\n+\s*/g, ' ').trim();
       }
@@ -231,7 +263,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
           .trim();
       }
 
-      return { displayText: cleaned, reproductionSteps: reproduction };
+      return cleaned;
     }, [isThreadGoalContinuationCheck, messageContent, messageImages]);
     const copyText = composerPresentation
       ? composerPresentationToAccessibleText(composerPresentation)
@@ -310,9 +342,10 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
         });
 
         const composerContent = result.composerText ?? messageContent;
-        if (composerContent.trim().length > 0) {
+        if (composerContent.trim().length > 0 || restoredComposerContexts.length > 0) {
           globalEventBus.emit('fill-chat-input', {
             content: composerContent,
+            contexts: restoredComposerContexts,
             ...(composerPresentation ? { composerPresentation } : {}),
           });
         }
@@ -322,7 +355,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
         log.error('Rollback failed', error);
         notificationService.error(`${t('message.rollbackFailed')}: ${error instanceof Error ? error.message : String(error)}`);
       }
-    }, [actionTurnIndex, canRollback, composerPresentation, resolvedSessionId, t, turnId, messageContent]);
+    }, [actionTurnIndex, canRollback, composerPresentation, resolvedSessionId, restoredComposerContexts, t, turnId, messageContent]);
 
     const handleBeginEdit = useCallback((e: React.MouseEvent) => {
       e.stopPropagation();
@@ -433,9 +466,10 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
       e.stopPropagation();
       globalEventBus.emit('fill-chat-input', {
         content: messageContent,
+        contexts: restoredComposerContexts,
         ...(composerPresentation ? { composerPresentation } : {}),
       });
-    }, [composerPresentation, messageContent]);
+    }, [composerPresentation, messageContent, restoredComposerContexts]);
 
     const handleOpenUsageReport = useCallback((report: SessionUsageReport, initialTab?: SessionUsagePanelTab) => {
       void import('../../services/openSessionUsageReport').then(({ openSessionUsagePanel }) => {
@@ -469,7 +503,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
 
     // Avoid zero-size errors by rendering a placeholder instead of null.
     if (!message) {
-      return <div data-bf-component="user-message-item" data-bf-part="root" style={{ minHeight: '1px' }} />;
+      return <div data-openbitfun-component="user-message-item" data-openbitfun-part="root" style={{ minHeight: '1px' }} />;
     }
 
     if (isUsageReportMessage) {
@@ -486,7 +520,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
 
     if (isGoalLoadingMessage) {
       return (
-        <div data-bf-component="user-message-item" data-bf-part="loading" data-bf-state="loading" className="session-usage-report-card session-usage-report-card--loading" aria-live="polite">
+        <div data-openbitfun-component="user-message-item" data-openbitfun-part="loading" data-openbitfun-state="loading" className="session-usage-report-card session-usage-report-card--loading" aria-live="polite">
           <div className="session-usage-report-card__loading-main">
             <ToolProcessingDots className="session-usage-report-card__loading-dots" size={12} />
             <div>
@@ -498,25 +532,18 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
     }
     
     return (
-      <div
-        data-bf-component="user-message-item"
-        data-bf-part="root"
-        data-bf-state={[expanded && 'expanded', isFailed && 'failed'].filter(Boolean).join(' ') || undefined}
-        ref={containerRef}
-        className={`user-message-item ${expanded ? 'user-message-item--expanded' : ''}${isFailed ? ' user-message-item--failed' : ''}`}
-        data-testid="chat-user-message"
-        data-turn-id={turnId}
-        data-status={resolvedTurnStatus || ''}
-        data-failed={isFailed ? 'true' : 'false'}
-      >
-        {config?.showTimestamps && (
-          <div className="user-message-item__timestamp" data-bf-component="user-message-item" data-bf-part="timestamp">
-            {formatDate(new Date(message.timestamp), {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </div>
-        )}
+      <div className="user-message-item-shell">
+        <div
+          data-openbitfun-component="user-message-item"
+          data-openbitfun-part="root"
+          data-openbitfun-state={[expanded && 'expanded', isFailed && 'failed'].filter(Boolean).join(' ') || undefined}
+          ref={containerRef}
+          className={`user-message-item ${expanded ? 'user-message-item--expanded' : ''}${isFailed ? ' user-message-item--failed' : ''}`}
+          data-testid="chat-user-message"
+          data-turn-id={turnId}
+          data-status={resolvedTurnStatus || ''}
+          data-failed={isFailed ? 'true' : 'false'}
+        >
         {isEditing ? (
           <UserMessageEditComposer
             value={editDraft}
@@ -537,12 +564,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
             excludeSessionId={resolvedSessionId}
           />
         ) : (
-          <div className="user-message-item__main" data-bf-component="user-message-item" data-bf-part="main">
-            {isFailed && (
-            <span className="user-message-item__failed-avatar" aria-hidden>
-              <CircleUser size={18} strokeWidth={1.75} />
-            </span>
-          )}
+          <div className="user-message-item__main" data-openbitfun-component="user-message-item" data-openbitfun-part="main">
           <div
             className={
               isFailed
@@ -555,8 +577,8 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
                 <div 
                   ref={contentRef}
                   className="user-message-item__content"
-                  data-bf-component="user-message-item"
-                  data-bf-part="content"
+                  data-openbitfun-component="user-message-item"
+                  data-openbitfun-part="content"
                   data-testid="chat-user-message-content"
                   data-turn-id={turnId}
                   onClick={handleToggleExpand}
@@ -570,7 +592,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
                   ) : displayText}
                 </div>
                 {steeringTag && (
-                  <div className={`user-message-item__steering-tag ${steeringTag.className}`} data-bf-component="user-message-item" data-bf-part="steeringTag">
+                  <div className={`user-message-item__steering-tag ${steeringTag.className}`} data-openbitfun-component="user-message-item" data-openbitfun-part="steeringTag">
                     {steeringTag.label}
                   </div>
                 )}
@@ -580,8 +602,8 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
                 <div 
                   ref={contentRef}
                   className="user-message-item__content"
-                  data-bf-component="user-message-item"
-                  data-bf-part="content"
+                  data-openbitfun-component="user-message-item"
+                  data-openbitfun-part="content"
                   data-testid="chat-user-message-content"
                   data-turn-id={turnId}
                   onClick={handleToggleExpand}
@@ -595,19 +617,63 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
                   ) : displayText}
                 </div>
                 {steeringTag && (
-                  <div className={`user-message-item__steering-tag ${steeringTag.className}`} data-bf-component="user-message-item" data-bf-part="steeringTag">
+                  <div className={`user-message-item__steering-tag ${steeringTag.className}`} data-openbitfun-component="user-message-item" data-openbitfun-part="steeringTag">
                     {steeringTag.label}
                   </div>
                 )}
               </>
             )}
-            <div className="user-message-item__actions" data-bf-component="user-message-item" data-bf-part="actions">
+            </div>
+          </div>
+        )}
+
+        {message.images && message.images.length > 0 && (
+          <div className="user-message-item__images" data-openbitfun-component="user-message-item" data-openbitfun-part="images">
+            {message.images.map(img => (
+              <UserMessageImage key={img.id} image={img} onPreview={setLightboxImage} />
+            ))}
+          </div>
+        )}
+
+          {lightboxImage && createPortal(
+            <div
+              className="user-message-item__lightbox"
+              onClick={() => setLightboxImage(null)}
+              data-openbitfun-component="user-message-item"
+              data-openbitfun-part="lightbox"
+              data-openbitfun-native-webview-occlusion
+            >
+              <button className="user-message-item__lightbox-close" onClick={() => setLightboxImage(null)}>
+                <Icon name="xmark" size="lg" style={{ width: 20, height: 20 }} />
+              </button>
+              <img src={lightboxImage} alt="Preview" onClick={(e) => e.stopPropagation()} />
+            </div>,
+            getAppearanceOverlayHost(),
+          )}
+        </div>
+
+        <div className="user-message-item__meta" data-openbitfun-component="user-message-item" data-openbitfun-part="meta">
+          {sentTime && sentAtLabel && sentTimestamp !== null && (
+            <time
+              className="user-message-item__timestamp"
+              data-openbitfun-component="user-message-item"
+              data-openbitfun-part="timestamp"
+              data-testid="chat-user-message-timestamp"
+              dateTime={new Date(sentTimestamp).toISOString()}
+              title={sentAtLabel}
+              aria-label={sentAtLabel}
+            >
+              {sentTime}
+            </time>
+          )}
+          {!isEditing && (
+            <div className="user-message-item__actions" data-openbitfun-component="user-message-item" data-openbitfun-part="actions">
               <button
                 className={`user-message-item__copy-btn ${copied ? 'copied' : ''}`}
                 onClick={handleCopy}
                 title={copied ? t('message.copyFailed') : t('message.copy')}
               >
-                {copied ? <Check size={14} /> : <Copy size={14} />}
+                {copied ? <Icon name="check-line" size="sm" /> : <Icon name="duplicate" size="sm" />}
               </button>
               {canShowEditAction && (
                 <Tooltip content={canEdit ? t('message.edit') : editDisabledReason}>
@@ -618,7 +684,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
                     disabled={!canEdit}
                     title={canEdit ? t('message.edit') : editDisabledReason}
                   >
-                    <Pencil size={14} />
+                    <Icon name="edit" size="sm" />
                   </button>
                 </Tooltip>
               )}
@@ -628,7 +694,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
                     className="user-message-item__copy-btn"
                     onClick={handleFillToInput}
                   >
-                    <ArrowDownToLine size={14} />
+                    <Icon name="arrow-down" size="sm" />
                   </button>
                 </Tooltip>
               ) : canShowRollbackAction && !steeringStatus ? (
@@ -648,38 +714,9 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
                 </Tooltip>
               ) : null}
             </div>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {message.images && message.images.length > 0 && (
-          <div className="user-message-item__images" data-bf-component="user-message-item" data-bf-part="images">
-            {message.images.map(img => {
-              const src = img.dataUrl || (img.imagePath ? `https://asset.localhost/${encodeURIComponent(img.imagePath)}` : undefined);
-              return src ? (
-                <div data-bf-component="user-message-item" data-bf-part="image" key={img.id} className="user-message-item__image-thumb" onClick={(e) => { e.stopPropagation(); setLightboxImage(src); }}>
-                  <img src={src} alt={img.name} />
-                </div>
-              ) : null;
-            })}
-          </div>
-        )}
-
-        {reproductionSteps && (
-          <div className="user-message-item__blocks" data-bf-component="user-message-item" data-bf-part="blocks">
-            {reproductionSteps && <ReproductionStepsBlock steps={reproductionSteps} />}
-          </div>
-        )}
-
-        {lightboxImage && createPortal(
-          <div className="user-message-item__lightbox" onClick={() => setLightboxImage(null)} data-bf-component="user-message-item" data-bf-part="lightbox">
-            <button className="user-message-item__lightbox-close" onClick={() => setLightboxImage(null)}>
-              <X size={20} />
-            </button>
-            <img src={lightboxImage} alt="Preview" onClick={(e) => e.stopPropagation()} />
-          </div>,
-          getAppearanceOverlayHost(),
-        )}
       </div>
     );
   }

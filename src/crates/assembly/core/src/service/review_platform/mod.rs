@@ -1,30 +1,31 @@
 //! Compatibility facade for review-platform operations.
 //!
 //! Provider detection, provider DTO mapping, token persistence, and HTTP/Git
-//! integration logic live in `bitfun-services-integrations::review_platform`.
-//! Core only preserves the legacy static API, injects BitFun storage paths, and
+//! integration logic live in `openbitfun-services-integrations::review_platform`.
+//! Core only preserves the legacy static API, injects OpenBitFun storage paths, and
 //! connects the product remote-workspace classifier.
 
 use crate::infrastructure::try_get_path_manager_arc;
 use std::sync::Arc;
 
-pub use bitfun_services_integrations::review_platform::{
-    ReviewAuthSource, ReviewAuthState, ReviewChecks, ReviewDecision, ReviewEvidenceCompleteness,
-    ReviewFileStatus, ReviewItemState, ReviewPlatformAccount, ReviewPlatformActionResult,
+pub use openbitfun_services_integrations::review_platform::{
+    classify_git_command_failure, untrusted_repository_error_message, ReviewAuthSource,
+    ReviewAuthState, ReviewChecks, ReviewDecision, ReviewEvidenceCompleteness, ReviewFileStatus,
+    ReviewItemState, ReviewPlatformAccount, ReviewPlatformActionResult,
     ReviewPlatformApprovalRequest, ReviewPlatformAuthChallenge, ReviewPlatformAuthChallengeState,
     ReviewPlatformCapabilities, ReviewPlatformCiItem, ReviewPlatformCiLog, ReviewPlatformCommit,
     ReviewPlatformCreatePullRequestRequest, ReviewPlatformDetailSection, ReviewPlatformError,
     ReviewPlatformFile, ReviewPlatformIssueComment, ReviewPlatformIssueEvidence,
-    ReviewPlatformKind, ReviewPlatformPullRequest, ReviewPlatformPullRequestDetail,
-    ReviewPlatformPullRequestDetailPage, ReviewPlatformPullRequestFileDiff,
-    ReviewPlatformPullRequestReviewTarget, ReviewPlatformRemote,
+    ReviewPlatformKind, ReviewPlatformListState, ReviewPlatformPullRequest,
+    ReviewPlatformPullRequestDetail, ReviewPlatformPullRequestDetailPage,
+    ReviewPlatformPullRequestFileDiff, ReviewPlatformPullRequestReviewTarget, ReviewPlatformRemote,
     ReviewPlatformReplyToThreadRequest, ReviewPlatformRepositoryRef,
     ReviewPlatformRequestChangesRequest, ReviewPlatformResolveThreadRequest,
     ReviewPlatformSubmitReviewRequest, ReviewPlatformThread, ReviewPlatformThreadKind,
     ReviewPlatformWorkspaceSnapshot, ReviewSubmitEvent,
 };
 
-use bitfun_services_integrations::review_platform::{
+use openbitfun_services_integrations::review_platform::{
     ReviewPlatformService as ReviewPlatformOwnerService, ReviewPlatformWorkspaceClassifier,
     REVIEW_PLATFORM_TOKEN_FILE_NAME,
 };
@@ -35,13 +36,20 @@ struct CoreReviewPlatformWorkspaceClassifier;
 
 #[async_trait::async_trait]
 impl ReviewPlatformWorkspaceClassifier for CoreReviewPlatformWorkspaceClassifier {
+    /// With `remote-workspace` this consults the SSH registry. Without it the
+    /// compat facade still recognises an opened workspace record of kind
+    /// `Remote`, and the owner then routes Git probes to
+    /// [`Self::execute_remote_git_command`], which refuses below instead of
+    /// running `git` against the controller filesystem.
     async fn is_remote_workspace_path(&self, path: &str) -> bool {
-        #[cfg(feature = "remote-workspace")]
+        #[cfg(any(feature = "remote-workspace", feature = "agent-runtime"))]
         {
             return crate::service::remote_ssh::workspace_state::is_remote_path(path).await;
         }
-        #[cfg(not(feature = "remote-workspace"))]
+        #[cfg(not(any(feature = "remote-workspace", feature = "agent-runtime")))]
         {
+            // No SSH registry and no workspace records exist in this build,
+            // so nothing can mark a path as remote.
             let _ = path;
             false
         }
@@ -58,7 +66,7 @@ impl ReviewPlatformWorkspaceClassifier for CoreReviewPlatformWorkspaceClassifier
             use crate::service::remote_ssh::workspace_state::{
                 get_remote_workspace_manager, lookup_remote_connection,
             };
-            use bitfun_services_integrations::remote_ssh::{
+            use openbitfun_services_integrations::remote_ssh::{
                 build_remote_git_command, normalize_remote_workspace_path,
             };
 
@@ -98,16 +106,17 @@ impl ReviewPlatformWorkspaceClassifier for CoreReviewPlatformWorkspaceClassifier
             } else {
                 stderr
             };
-            return Err(ReviewPlatformError::InvalidRepository(
+            return Err(classify_git_command_failure(
+                current_dir,
                 message.trim().to_string(),
             ));
         }
         #[cfg(not(feature = "remote-workspace"))]
         {
-            let _ = (workspace_path, current_dir, args);
-            Err(ReviewPlatformError::InvalidRepository(
-                "Remote workspace support is not available in this build".to_string(),
-            ))
+            let _ = (current_dir, args);
+            Err(ReviewPlatformError::InvalidRepository(format!(
+                "Remote workspaces are not compiled into this OpenBitFun host (feature `remote-workspace`); refusing to run Git against the local filesystem for a remote workspace: {workspace_path}"
+            )))
         }
     }
 }
@@ -147,6 +156,18 @@ impl ReviewPlatformService {
     ) -> Result<ReviewPlatformWorkspaceSnapshot, ReviewPlatformError> {
         owner_service()?
             .workspace_context(repository_path, remote_id)
+            .await
+    }
+
+    pub async fn workspace_snapshot_with_state(
+        repository_path: &str,
+        remote_id: Option<&str>,
+        page: Option<u32>,
+        per_page: Option<u32>,
+        state: ReviewPlatformListState,
+    ) -> Result<ReviewPlatformWorkspaceSnapshot, ReviewPlatformError> {
+        owner_service()?
+            .workspace_snapshot_with_state(repository_path, remote_id, page, per_page, state)
             .await
     }
 
@@ -368,8 +389,8 @@ mod tests {
 
         let error = classifier
             .execute_remote_git_command(
-                "/bitfun-tests/unregistered-remote-workspace",
-                "/bitfun-tests/unregistered-remote-workspace",
+                "/openbitfun-tests/unregistered-remote-workspace",
+                "/openbitfun-tests/unregistered-remote-workspace",
                 &["remote", "-v"],
             )
             .await

@@ -2,7 +2,7 @@
 
 [中文版](./CONTRIBUTING_CN.md)
 
-Thanks for your interest in BitFun! BitFun is a multi-platform AI programming environment powered by Rust and TypeScript, with shared core logic across Desktop/CLI/Server. This guide explains how to contribute effectively.
+Thanks for your interest in OpenBitFun! OpenBitFun is a multi-platform AI programming environment powered by Rust and TypeScript, with shared core logic across Desktop/CLI/Server. This guide explains how to contribute effectively.
 
 ## Code of Conduct
 
@@ -17,7 +17,7 @@ Be respectful, kind, and constructive. We welcome contributors of all background
 - Rust toolchain (install via [rustup](https://rustup.rs/))
 - [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for desktop development
 
-BitFun standardizes local JavaScript builds and CI on Node.js 22.12+. The GitHub
+OpenBitFun standardizes local JavaScript builds and CI on Node.js 22.12+. The GitHub
 Actions upgrades in this repository use Node.js 24-compatible action runtimes,
 but project scripts should run on Node.js 22.12+ unless a narrower local guide
 says otherwise. After switching from an older Node.js version, rerun
@@ -25,7 +25,7 @@ says otherwise. After switching from an older Node.js version, rerun
 
 #### Build Prerequisites Check
 
-When `cargo check --workspace`, `cargo check -p bitfun-desktop`, or pnpm build
+When `cargo check --workspace`, `cargo check -p openbitfun-desktop`, or pnpm build
 commands fail with confusing errors (e.g., "resource path doesn't exist" or
 sherpa-onnx download failures), run the preflight check to identify missing
 prerequisites and get actionable fix commands:
@@ -39,8 +39,8 @@ The check detects:
 
 - Missing `node_modules` (fix: `pnpm install`)
 - Missing `src/mobile-web/dist` (fix: `pnpm run prepare:mobile-web` — the
-  bitfun-desktop Tauri build script references this directory as a resource,
-  so `cargo check -p bitfun-desktop` and `cargo check --workspace` fail
+  openbitfun-desktop Tauri build script references this directory as a resource,
+  so `cargo check -p openbitfun-desktop` and `cargo check --workspace` fail
   without it)
 - Missing sherpa-onnx prebuilt libs (the sherpa-onnx-sys build script
   downloads from GitHub at build time; if the download fails on poor
@@ -77,7 +77,7 @@ pnpm run e2e:test
 ### Desktop debugging tools
 
 Desktop dev builds enable the `devtools` Cargo feature. Use `F12` for native
-webview DevTools. `Cmd/Ctrl + Shift + I` toggles the BitFun element inspector,
+webview DevTools. `Cmd/Ctrl + Shift + I` toggles the OpenBitFun element inspector,
 and `Cmd/Ctrl + Shift + J` also opens native DevTools. These tools are disabled
 in end-user `release` builds.
 
@@ -105,7 +105,7 @@ terms:
    > Product managers and UI designers are welcome to submit ideas quickly via PI. We will help refine them for development.
 2. Improve the Agent system and overall quality
 3. Improve system stability and strengthen foundational capabilities
-4. Expand the ecosystem (Skills, MCP, LSP plugins, or better support for domain-specific development scenarios)
+4. Expand the ecosystem (Skills, MCP, or better support for domain-specific development scenarios)
 
 ## Contribution Workflow and PR Expectations
 
@@ -118,7 +118,7 @@ We welcome contributions beyond standard feature or bug-fix PRs. Examples includ
 | Prompts | `src/crates/assembly/core/src/agentic/agents/prompts/` | Add or refine prompts, and update related logic as needed |
 | Tools | `src/crates/assembly/core/src/agentic/tools/implementations/`, `src/crates/assembly/core/src/agentic/tools/registry.rs` | Add tool implementations and register them in the tool registry |
 | Subagents | `src/crates/assembly/core/src/agentic/agents/custom_subagents/`, `src/crates/assembly/core/src/agentic/agents/registry.rs` | Add subagent implementations and register them in the subagent registry |
-| Mode contributions | `src/crates/assembly/core/src/agentic/agents/*_mode.rs`, `src/crates/assembly/core/src/agentic/agents/prompts/*_mode.md`, `src/web-ui/src/locales/*/settings/modes.json` | Add/improve agent modes (e.g. Plan/Debug/Agentic or custom modes) and keep prompts + UI copy in sync |
+| Mode contributions | `src/crates/assembly/core/src/agentic/agents/*_mode.rs`, `src/crates/assembly/core/src/agentic/agents/prompts/*_mode.md`, `src/web-ui/src/locales/*/settings/modes.json` | Add/improve Agentic or custom modes and keep prompts + UI copy in sync |
 | Scenario guides for Code Agent and AIIde | `website/src/docs/` | Add workflows, playbooks, and real-world scenario docs (or link them from `README.md`) |
 
 ### Before you start
@@ -144,6 +144,15 @@ If your work is AI-assisted, please note it in the PR and indicate testing level
 
 Do not commit transient AI prompts, local absolute paths, generated scratch files, pairing secrets, tokens, certificates, or unrelated artifacts. Keep the PR focused on the intended product or maintenance change.
 
+Git objects larger than 5 MiB are rejected by the Repository Object Sizes check,
+including files added in an intermediate commit and deleted before the PR's final
+commit. Keep build artifacts outside Git. Existing bundled Chinese fonts have
+exact-object exceptions in `scripts/git-object-size-policy.json`; changes to those
+exceptions require review. Check a proposed history with
+`node scripts/check-git-object-sizes.mjs --base origin/main --head HEAD`, or omit
+`--base` to check all reachable history. Verify the checker with
+`node --test scripts/check-git-object-sizes.test.mjs`.
+
 ### Branch management
 
 **The `main` branch is the default collaboration branch and accepts feature PRs.** Since this repo encourages product managers and developers to use AI-generated code for rapid validation or idea submission, **please open all PRs targeting the `main` branch**.
@@ -164,15 +173,19 @@ Common local checks:
 | Change type | Typical verification |
 | --- | --- |
 | Repository metadata or GitHub config | `pnpm run check:repo-hygiene && pnpm run check:github-config && git diff --check` |
-| Frontend runtime or UI | `pnpm run type-check:web`, plus the nearest focused test when behavior changed |
+| Frontend runtime or UI | `pnpm run check:web`, plus the nearest focused test when behavior changed |
 | Mobile web | `pnpm --dir src/mobile-web run type-check` |
 | Rust shared runtime or services | `cargo check --workspace`, plus a focused `cargo test` when behavior changed |
-| Desktop/Tauri integration | `cargo check -p bitfun-desktop` |
+| Desktop/Tauri integration | `cargo check -p openbitfun-desktop` |
 | i18n resources or contract | use the matching i18n row in `AGENTS.md` |
 
 For UI changes, include screenshots or a short recording when helpful. If you
 cannot run a relevant check, explain why in the PR and provide a lower-risk
 manual verification path.
+
+`pnpm run check:web` combines the Web UI type-check with the Appearance
+contract, theme color, and theme visual governance gates that CI applies to
+frontend changes.
 
 ## Security and Compliance
 

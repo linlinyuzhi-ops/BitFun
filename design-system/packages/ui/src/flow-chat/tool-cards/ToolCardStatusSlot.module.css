@@ -1,0 +1,62 @@
+@layer openbitfun.components {
+  .root {
+    position: relative;
+    display: inline-flex;
+    inline-size: 100%;
+    block-size: 100%;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .statusLayer,
+  .iconLayer {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
+  }
+
+  .statusLayer > :where(svg, img),
+  .iconLayer > :where(svg, img) {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+  }
+
+  .iconLayer {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+  }
+
+  .root[data-default-icon="tool"] .statusLayer {
+    opacity: 0;
+  }
+
+  .root[data-default-icon="tool"] .iconLayer {
+    opacity: 1;
+  }
+
+  .success {
+    color: var(--openbitfun-color-status-success-emphasis);
+  }
+
+  .danger {
+    color: var(--openbitfun-color-status-danger-emphasis);
+  }
+
+  .statusLayer .processing {
+    color: var(--openbitfun-color-status-info-emphasis);
+  }
+
+  .muted {
+    color: var(--openbitfun-color-content-muted);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .statusLayer,
+    .iconLayer {
+      transition: none;
+    }
+  }
+}

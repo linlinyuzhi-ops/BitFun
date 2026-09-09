@@ -6,8 +6,9 @@
  */
 
 import React, { useRef, useEffect, useState } from 'react';
-import { Bell, BellDot, BellRing } from 'lucide-react';
-import { Tooltip } from '@/component-library';
+import { BellDot, BellRing } from 'lucide-react';
+import { Icon, MenuItem, Tooltip } from '@openbitfun/ui';
+
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
 import {
   useUnreadCount,
@@ -19,11 +20,15 @@ import './NotificationButton.scss';
 interface NotificationButtonProps {
   className?: string;
   navFooterHoverIconSwap?: boolean;
+  menuItem?: boolean;
+  onActivate?: () => void;
 }
 
 const NotificationButton: React.FC<NotificationButtonProps> = ({
   className = '',
   navFooterHoverIconSwap = false,
+  menuItem = false,
+  onActivate,
 }) => {
   const { t } = useI18n('common');
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -47,35 +52,82 @@ const NotificationButton: React.FC<NotificationButtonProps> = ({
     }
   }, [activeNotification]);
 
+  const handleActivate = () => {
+    notificationService.toggleCenter();
+    onActivate?.();
+  };
+
+  if (menuItem) {
+    const progressLabel = activeNotification?.variant === 'loading'
+      ? null
+      : activeNotification
+        ? `${Math.round(activeNotification.progress || 0)}%`
+        : null;
+
+    return (
+      <MenuItem
+        className={className || undefined}
+        leading={activeNotification?.variant === 'loading' ? (
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            className="openbitfun-notification-btn__spinner"
+            aria-hidden="true"
+          >
+            <path d="M12 2 A 10 10 0 0 1 22 12" strokeLinecap="round" />
+          </svg>
+        ) : unreadCount > 0 ? (
+          <BellDot size={14} className="openbitfun-notification-btn__icon--has-message" aria-hidden="true" />
+        ) : (
+          <Icon name="bell" size="sm" aria-hidden="true" />
+        )}
+        metadata={progressLabel ? (
+          <span className="openbitfun-notification-btn__menu-status">{progressLabel}</span>
+        ) : unreadCount > 0 ? (
+          <span className="openbitfun-notification-btn__menu-count">{unreadCount}</span>
+        ) : undefined}
+        onClick={handleActivate}
+        aria-label={t('nav.notifications')}
+        data-testid="notification-button"
+      >
+        {t('nav.notifications')}
+      </MenuItem>
+    );
+  }
+
   return (
     <Tooltip content={t('nav.notifications')} placement="right" disabled={!!activeNotification}>
-    <button data-bf-component="notification-button" data-bf-part="root"
+    <button data-openbitfun-component="notification-button" data-openbitfun-part="root"
       ref={buttonRef}
       className={[
-        'bitfun-notification-btn',
-        activeNotification ? 'bitfun-notification-btn--has-progress' : '',
-        activeNotification?.variant === 'loading' ? 'bitfun-notification-btn--loading' : '',
-        navFooterHoverIconSwap && !activeNotification ? 'bitfun-notification-btn--nav-hover-icon' : '',
+        'openbitfun-notification-btn',
+        activeNotification ? 'openbitfun-notification-btn--has-progress' : '',
+        activeNotification?.variant === 'loading' ? 'openbitfun-notification-btn--loading' : '',
+        navFooterHoverIconSwap && !activeNotification ? 'openbitfun-notification-btn--nav-hover-icon' : '',
         className,
       ].filter(Boolean).join(' ')}
-      onClick={() => notificationService.toggleCenter()}
+      onClick={handleActivate}
       type="button"
       aria-label={t('nav.notifications')}
       data-testid="notification-button"
     >
       {activeNotification ? (
         <>
-          <div className="bitfun-notification-btn__progress" data-bf-component="notification-button" data-bf-part="progress">
+          <div className="openbitfun-notification-btn__progress" data-openbitfun-component="notification-button" data-openbitfun-part="progress">
             {activeNotification.variant === 'loading' ? (
-              <div className="bitfun-notification-btn__loading-icon" data-bf-component="notification-button" data-bf-part="loadingIcon">
+              <div className="openbitfun-notification-btn__loading-icon" data-openbitfun-component="notification-button" data-openbitfun-part="loadingIcon">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
                   stroke="currentColor" strokeWidth="2.5"
-                  className="bitfun-notification-btn__spinner">
+                  className="openbitfun-notification-btn__spinner">
                   <path d="M12 2 A 10 10 0 0 1 22 12" strokeLinecap="round" />
                 </svg>
               </div>
             ) : (
-              <div className="bitfun-notification-btn__progress-icon" data-bf-component="notification-button" data-bf-part="progressIcon">
+              <div className="openbitfun-notification-btn__progress-icon" data-openbitfun-component="notification-button" data-openbitfun-part="progressIcon">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
                   stroke="currentColor" strokeWidth="2">
                   <circle cx="12" cy="12" r="10" opacity="0.2" />
@@ -89,7 +141,7 @@ const NotificationButton: React.FC<NotificationButtonProps> = ({
                 </svg>
               </div>
             )}
-            <span className="bitfun-notification-btn__progress-text" data-bf-component="notification-button" data-bf-part="progressText">
+            <span className="openbitfun-notification-btn__progress-text" data-openbitfun-component="notification-button" data-openbitfun-part="progressText">
               {activeNotification.variant === 'loading'
                 ? activeNotification.message
                 : (() => {
@@ -105,15 +157,15 @@ const NotificationButton: React.FC<NotificationButtonProps> = ({
             </span>
           </div>
           <div
-            className="bitfun-notification-btn__tooltip"
-            data-bf-component="notification-button"
-            data-bf-part="tooltip"
+            className="openbitfun-notification-btn__tooltip"
+            data-openbitfun-component="notification-button"
+            data-openbitfun-part="tooltip"
             style={{ transform: `translateX(calc(-50% + ${tooltipOffset}px))` }}
           >
             <div
-              className="bitfun-notification-btn__tooltip-content"
-              data-bf-component="notification-button"
-              data-bf-part="tooltipContent"
+              className="openbitfun-notification-btn__tooltip-content"
+              data-openbitfun-component="notification-button"
+              data-openbitfun-part="tooltipContent"
               style={{ '--tooltip-offset': `${tooltipOffset}px` } as React.CSSProperties}
             >
               {activeNotification.title}
@@ -122,23 +174,23 @@ const NotificationButton: React.FC<NotificationButtonProps> = ({
         </>
       ) : navFooterHoverIconSwap ? (
         unreadCount > 0 ? (
-          <span className="bitfun-nav-panel__footer-btn-icon-swap" aria-hidden="true">
+          <span className="openbitfun-nav-panel__footer-btn-icon-swap" aria-hidden="true">
             <BellDot
               size={15}
-              className="bitfun-notification-btn__icon--has-message bitfun-nav-panel__footer-btn-icon-swap-default"
+              className="openbitfun-notification-btn__icon--has-message openbitfun-nav-panel__footer-btn-icon-swap-default"
             />
-            <BellRing size={15} className="bitfun-nav-panel__footer-btn-icon-swap-hover" />
+            <BellRing size={15} className="openbitfun-nav-panel__footer-btn-icon-swap-hover" />
           </span>
         ) : (
-          <span className="bitfun-nav-panel__footer-btn-icon-swap" aria-hidden="true">
-            <Bell size={15} className="bitfun-nav-panel__footer-btn-icon-swap-default" />
-            <BellRing size={15} className="bitfun-nav-panel__footer-btn-icon-swap-hover" />
+          <span className="openbitfun-nav-panel__footer-btn-icon-swap" aria-hidden="true">
+            <Icon name="bell" size="sm" className="openbitfun-nav-panel__footer-btn-icon-swap-default" />
+            <BellRing size={15} className="openbitfun-nav-panel__footer-btn-icon-swap-hover" />
           </span>
         )
       ) : (
         unreadCount > 0
-          ? <BellDot size={14} className="bitfun-notification-btn__icon--has-message" />
-          : <Bell size={14} />
+          ? <BellDot size={14} className="openbitfun-notification-btn__icon--has-message" />
+          : <Icon name="bell" size="sm" />
       )}
     </button>
     </Tooltip>

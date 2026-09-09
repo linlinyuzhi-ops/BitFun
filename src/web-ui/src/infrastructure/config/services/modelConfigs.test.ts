@@ -44,7 +44,7 @@ describe('modelConfigs', () => {
     expect(getProviderDisplayName({
       base_url: 'https://open.bigmodel.cn/api/paas/v4',
       model_name: 'glm-5',
-    })).toBe('settings/ai-model:providers.zhipu.name');
+    })).toBe('settings/models:providers.zhipu.name');
   });
 
   it('recognizes the full TokenDance chat completions URL', async () => {
@@ -53,7 +53,7 @@ describe('modelConfigs', () => {
     expect(getProviderDisplayName({
       base_url: 'https://tokendance.space/gateway/v1/chat/completions',
       model_name: 'glm-5.2',
-    })).toBe('settings/ai-model:providers.tokendance.name');
+    })).toBe('settings/models:providers.tokendance.name');
   });
 
   it('allocates readable model config IDs with collision and selector handling', async () => {
@@ -64,6 +64,31 @@ describe('modelConfigs', () => {
     expect(allocateModelConfigId('gpt-5-mini', ['gpt-5-mini', 'gpt-5-mini-2'])).toBe('gpt-5-mini-3');
     expect(allocateModelConfigId('primary', [])).toBe('primary-2');
     expect(allocateModelConfigId('AUTO', [])).toBe('AUTO-2');
+  });
+
+  it('counts nested references to every model in a provider deletion', async () => {
+    const { countModelConfigReferences } = await import('./modelConfigs');
+    const modelIds = new Set(['model-a', 'model-b']);
+
+    expect(countModelConfigReferences({
+      primary: 'model-a',
+      fast: 'model-c',
+      agents: [{ model: 'model-b' }, { model: 'model-a-suffix' }],
+    }, modelIds)).toBe(2);
+  });
+
+  it('removes only models from the selected provider instance', async () => {
+    const { removeProviderModelConfigs } = await import('./modelConfigs');
+    const configs = [
+      { id: 'model-a', metadata: { provider_instance_id: 'provider-1' } },
+      { id: 'model-b', metadata: { provider_instance_id: 'provider-1' } },
+      { id: 'model-c', metadata: { provider_instance_id: 'provider-2' } },
+    ];
+
+    expect(removeProviderModelConfigs(configs, 'provider-1')).toEqual({
+      remaining: [configs[2]],
+      removed: [configs[0], configs[1]],
+    });
   });
 
   it('loads ai.models only when the model manager is actually used', async () => {

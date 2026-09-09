@@ -1,20 +1,16 @@
 [package]
-name = "bitfun-cli"
+name = "openbitfun-cli"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "BitFun CLI - Terminal User Interface"
-default-run = "bitfun"
+description = "OpenBitFun CLI - Terminal User Interface"
+default-run = "openbitfun"
 autobins = false
 autotests = false
 
 [[bin]]
-name = "bitfun"
+name = "openbitfun"
 path = "src/main.rs"
-
-[[bin]]
-name = "bitfun-cli"
-path = "src/bin/bitfun_cli_compat.rs"
 
 [[test]]
 name = "acp_stdio_cli"
@@ -34,8 +30,9 @@ path = "tests/terminal_process_contracts.rs"
 
 [dependencies]
 # Internal crates
-bitfun-core = { path = "../../crates/assembly/core", features = [
+openbitfun-core = { path = "../../crates/assembly/core", features = [
     "agent-runtime",
+    "product-search",
     "document-read",
     "subscription-auth",
     "remote-connect",
@@ -120,7 +117,7 @@ fs2 = { workspace = true }
 base64 = { workspace = true }
 image = { workspace = true, features = ["gif", "jpeg", "png", "webp"] }
 minisign-verify = "0.2"
-reqwest = { workspace = true, features = ["http2", "rustls", "stream"] }
+reqwest = { workspace = true, features = ["http2", "rustls-no-provider", "stream"] }
 sha2 = { workspace = true }
 tar = { workspace = true }
 tempfile = "3"

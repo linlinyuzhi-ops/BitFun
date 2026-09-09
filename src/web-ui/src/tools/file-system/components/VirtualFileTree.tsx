@@ -1,8 +1,10 @@
-import React, { useCallback, useMemo, useRef, forwardRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, forwardRef } from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { VirtualFileTreeProps, FlatFileNode, FileSystemNode } from '../types';
 import { useI18n } from '@/infrastructure/i18n';
-import { expandedFoldersContains } from '@/shared/utils/pathUtils';
+import { expandedFoldersContains, repositoryPathKey } from '@/shared/utils/pathUtils';
+import { getMotionAwareScrollBehavior } from '@/shared/utils/motionPreference';
+import { findFileTreeRevealIndex } from '../utils/fileTreeReveal';
 import { FileTreeItem } from './FileTreeItem';
 
 interface VirtualFileRowProps {
@@ -43,7 +45,7 @@ const VirtualFileRow = React.memo<VirtualFileRowProps>(({
   }), [node]);
 
   return (
-    <div className="bitfun-file-explorer__node">
+    <div className="openbitfun-file-explorer__node">
       <FileTreeItem
         node={nodeForIcon}
         level={node.depth}
@@ -68,6 +70,8 @@ VirtualFileRow.displayName = 'VirtualFileRow';
 export const VirtualFileTree = forwardRef<VirtuosoHandle, VirtualFileTreeProps>(({
   flatNodes,
   selectedFile,
+  revealTarget,
+  workspacePath,
   expandedFolders,
   onNodeSelect,
   onToggleExpand,
@@ -81,6 +85,15 @@ export const VirtualFileTree = forwardRef<VirtuosoHandle, VirtualFileTreeProps>(
 }, ref) => {
   const { t } = useI18n('tools');
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const completedReveal = useRef<typeof revealTarget>(undefined);
+  useEffect(() => {
+    if (!revealTarget || completedReveal.current === revealTarget || !virtuosoRef.current) return;
+    let index = findFileTreeRevealIndex(flatNodes, revealTarget.path);
+    if (index < 0 && workspacePath && repositoryPathKey(workspacePath) === repositoryPathKey(revealTarget.path)) index = 0;
+    if (index < 0 || flatNodes.length === 0) return;
+    virtuosoRef.current.scrollToIndex({ index, align: 'center', behavior: getMotionAwareScrollBehavior('smooth') });
+    completedReveal.current = revealTarget;
+  }, [flatNodes, revealTarget, workspacePath]);
 
   React.useImperativeHandle(ref, () => virtuosoRef.current!, []);
 
@@ -93,7 +106,7 @@ export const VirtualFileTree = forwardRef<VirtuosoHandle, VirtualFileTreeProps>(
   }, [onToggleExpand]);
 
   const itemContent = useCallback((_index: number, node: FlatFileNode) => {
-    const isSelected = selectedFile === node.path;
+    const isSelected = Boolean(selectedFile && findFileTreeRevealIndex([node], selectedFile) === 0);
     const isExpanded = expandedFoldersContains(expandedFolders, node.path);
 
     return (
@@ -114,8 +127,8 @@ export const VirtualFileTree = forwardRef<VirtuosoHandle, VirtualFileTreeProps>(
 
   if (flatNodes.length === 0) {
     return (
-      <div className={`bitfun-file-explorer__tree bitfun-file-explorer__tree--empty ${className}`}>
-        <div className="bitfun-file-explorer__empty-message">
+      <div className={`openbitfun-file-explorer__tree openbitfun-file-explorer__tree--empty ${className}`}>
+        <div className="openbitfun-file-explorer__empty-message">
           <p>{t('fileTree.empty')}</p>
         </div>
       </div>
@@ -124,7 +137,7 @@ export const VirtualFileTree = forwardRef<VirtuosoHandle, VirtualFileTreeProps>(
 
   return (
     <div 
-      className={`bitfun-file-explorer__tree bitfun-file-explorer__tree--virtual ${className}`}
+      className={`openbitfun-file-explorer__tree openbitfun-file-explorer__tree--virtual ${className}`}
       style={{ height }}
       tabIndex={0}
     >

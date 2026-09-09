@@ -1,0 +1,93 @@
+.openbitfun-scene-top-bar {
+  position: relative;
+  z-index: 10;
+  align-items: center;
+  flex: 0 0 var(--openbitfun-layout-toolbar-md-height);
+  // Reclaim the scene surface's left gutter so tabs share the vertical inset.
+  width: calc(100% + var(--openbitfun-space-4));
+  margin-inline-start: calc(0px - var(--openbitfun-space-4));
+  min-width: 0;
+  height: var(--openbitfun-layout-toolbar-md-height);
+  min-block-size: var(--openbitfun-layout-toolbar-md-height);
+  padding-block: 0;
+  // Subtract the tab strip's own one-border-width inline padding.
+  padding-inline-start: calc(
+    (
+      var(--openbitfun-layout-toolbar-md-height)
+      - var(--openbitfun-control-tab-group-item-height-sm)
+      - var(--openbitfun-border-width-default)
+    ) / 2 - var(--openbitfun-border-width-default)
+  );
+  overflow: visible;
+  background: var(--openbitfun-color-surface-scene);
+  container-name: scene-top-bar;
+  container-type: inline-size;
+  user-select: none;
+
+  &:has(.window-controls--windows) {
+    // Extend through the scene surface's right gutter so Close reaches the edge.
+    width: calc(100% + 2 * var(--openbitfun-space-4));
+    padding-inline-end: 0;
+
+    > [data-openbitfun-part='trailing'] {
+      align-self: stretch;
+    }
+  }
+
+  &[data-bordered='true'] {
+    &::after {
+      content: '';
+      position: absolute;
+      inset-block-end: calc(0px - var(--openbitfun-border-width-default));
+      width: var(--openbitfun-space-4);
+      height: var(--openbitfun-border-width-default);
+      background: var(--openbitfun-color-border-subtle);
+      pointer-events: none;
+    }
+
+    &::after {
+      inset-inline-start: 100%;
+    }
+  }
+
+  // Keep a window drag target outside the scrolling tabs, even at overflow.
+  &__drag-space {
+    align-self: stretch;
+    flex: 0 0 48px;
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 0;
+    height: 100%;
+    margin-inline-start: var(--openbitfun-space-2);
+
+    &:empty {
+      display: none;
+    }
+  }
+
+  &__actions-divider {
+    margin-inline-start: var(--openbitfun-space-2);
+  }
+
+  &__actions:empty + &__actions-divider {
+    display: none;
+  }
+
+  &__window-controls {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    height: 100%;
+    margin-inline-start: var(--openbitfun-space-2);
+  }
+}
+
+@media (forced-colors: active) {
+  .openbitfun-scene-top-bar[data-bordered='true']::after {
+    background: ButtonText;
+  }
+}

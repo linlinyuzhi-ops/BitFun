@@ -1,18 +1,10 @@
+import { OverflowText, Button, Combobox, Icon, IconButton, SearchField, Select, StatusPill, Tooltip, ScrollArea, type IconSource } from '@openbitfun/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TFunction } from 'i18next';
-import {
-  Bot,
-  Cpu,
-  RotateCcw,
-  Pencil,
-  Plus,
-  Puzzle,
-  Search as SearchIcon,
-  Trash2,
-  Wrench,
-} from 'lucide-react';
+import { Bot, Cpu, FileText, MessageSquareText, RotateCcw, Wrench } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Badge, Button, IconButton, Search, Select, confirmDanger } from '@/component-library';
+import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
+import { confirmDanger } from '@/infrastructure/confirm-dialog';
 import {
   GalleryDetailModal,
   GalleryEmpty,
@@ -23,6 +15,7 @@ import {
   GalleryZone,
 } from '@/app/components';
 import AgentCard from './components/AgentCard';
+import AgentHarnessOverview from './components/AgentHarnessOverview';
 import CoreAgentCard, { type CoreAgentMeta } from './components/CoreAgentCard';
 import CreateAgentPage from './components/CreateAgentPage';
 import {
@@ -35,6 +28,8 @@ import { ToolGroupPicker, ToolGroupSummary } from './components/ToolGroupPicker'
 import { useUserSkillGroups } from './components/useUserSkillGroups';
 import { useUserToolGroups } from './components/useUserToolGroups';
 import {
+  type AgentFilterLevel,
+  type AgentFilterType,
   type AgentWithCapabilities,
   useAgentsStore,
 } from './agentsStore';
@@ -42,7 +37,6 @@ import { useAgentsList } from './hooks/useAgentsList';
 import { AGENT_ICON_MAP } from './agentsIcons';
 import { CAPABILITY_ACCENT, CORE_AGENT_ACCENTS, DEFAULT_CORE_AGENT_ACCENT } from './agentAppearance';
 import { getCardGradient } from '@/shared/utils/cardGradients';
-import { getMotionAwareScrollBehavior } from '@/shared/utils/motionPreference';
 import { isAgentProfileConfigurableToolName } from './agentToolVisibility';
 import { getAgentBadge, getAgentDescription, getCapabilityLabel } from './utils';
 import './AgentsView.scss';
@@ -66,12 +60,12 @@ import {
   type ModelSelectOption,
   useModelSelectPresentation,
 } from '@/infrastructure/config/components/ModelSelectPresentation';
-import { useSceneManager } from '@/app/hooks/useSceneManager';
-import { useSettingsStore } from '@/app/scenes/settings/settingsStore';
+import { openEcosystemCompatibility } from '@/app/scenes/ecosystem-compatibility/ecosystemCompatibilityStore';
 
 const DEFAULT_SUBAGENT_MODEL_OVERRIDE_VALUE = '__default_subagent_model__';
 
 type CapabilityTab = 'model' | 'tools' | 'skills' | 'subagents';
+type AgentDetailSection = 'basic' | 'behavior' | CapabilityTab;
 
 function normalizeSelectValue(value: string | number | (string | number)[]): string {
   return String(Array.isArray(value) ? (value[0] ?? '') : value);
@@ -172,9 +166,8 @@ function subagentTooltipFields(
 
 const AgentsHomeView: React.FC = () => {
   const { t } = useTranslation('scenes/agents');
+  const { t: tComponents } = useI18n('components');
   const notification = useNotification();
-  const { openScene } = useSceneManager();
-  const setSettingsTab = useSettingsStore((state) => state.setActiveTab);
   const [deletingAgent, setDeletingAgent] = useState(false);
   const {
     searchQuery,
@@ -187,7 +180,7 @@ const AgentsHomeView: React.FC = () => {
     openEditAgent,
   } = useAgentsStore();
   const [selectedAgentId, setSelectedAgentId] = React.useState<string | null>(null);
-  const [activeCapabilityTab, setActiveCapabilityTab] = React.useState<CapabilityTab | null>(null);
+  const [activeDetailSection, setActiveDetailSection] = React.useState<AgentDetailSection>('basic');
   const [toolsEditing, setToolsEditing] = React.useState(false);
   const [skillsEditing, setSkillsEditing] = React.useState(false);
   const [subagentsEditing, setSubagentsEditing] = React.useState(false);
@@ -199,7 +192,7 @@ const AgentsHomeView: React.FC = () => {
   const [savingSubagents, setSavingSubagents] = React.useState(false);
   const [savingSubagentModel, setSavingSubagentModel] = React.useState(false);
   const { computerUseEnabled } = useComputerUseEnabled();
-  const { buildModelOption, renderModelOption, renderModelValue } = useModelSelectPresentation();
+  const { buildModelOption } = useModelSelectPresentation();
   const {
     groups: userToolGroups,
     saveGroups: saveUserToolGroups,
@@ -220,7 +213,6 @@ const AgentsHomeView: React.FC = () => {
     getModeProfile,
     getAgentSkills,
     getModeManageableSubagents,
-    counts,
     hiddenAgentIds,
     loadAgents,
     getModeConfig,
@@ -271,34 +263,42 @@ const AgentsHomeView: React.FC = () => {
     },
   }), [t]);
 
-  const coreAgents = useMemo(() => allAgents.filter((agent) => CORE_AGENT_IDS.has(agent.id)), [allAgents]);
+  const coreAgents = useMemo(
+    () => filteredAgents.filter((agent) => CORE_AGENT_IDS.has(agent.id)),
+    [filteredAgents],
+  );
 
   const visibleAgents = useMemo(
     () => filteredAgents.filter((agent) => isAgentInOverviewZone(agent, hiddenAgentIds)),
     [filteredAgents, hiddenAgentIds],
   );
 
-  const scrollToZone = useCallback((targetId: string) => {
-    document.getElementById(targetId)?.scrollIntoView({
-      behavior: getMotionAwareScrollBehavior('smooth'),
-      block: 'start',
-    });
-  }, []);
+  const catalogAgents = useMemo(
+    () => [...coreAgents, ...visibleAgents],
+    [coreAgents, visibleAgents],
+  );
 
-  const levelFilters = [
-    { key: 'builtin', label: t('filters.builtin'), count: counts.builtin },
-    { key: 'user', label: t('filters.user'), count: counts.user },
-    { key: 'project', label: t('filters.project'), count: counts.project },
-    { key: 'external', label: t('filters.external'), count: counts.external },
-  ] as const;
+  const sourceFilterOptions = useMemo(() => [
+    { value: 'all', label: t('filters.anySource') },
+    { value: 'builtin', label: t('filters.builtin') },
+    { value: 'user', label: t('filters.user') },
+    { value: 'project', label: t('filters.project') },
+    { value: 'external', label: t('filters.external') },
+  ], [t]);
 
-  const typeFilters = [
-    { key: 'mode', label: t('filters.mode'), count: counts.mode },
-    { key: 'subagent', label: t('filters.subagent'), count: counts.subagent },
-  ] as const;
+  const typeFilterOptions = useMemo(() => [
+    { value: 'all', label: t('filters.anyKind') },
+    { value: 'mode', label: t('filters.mode') },
+    { value: 'subagent', label: t('filters.subagent') },
+  ], [t]);
 
   const renderSkeletons = (prefix: string) => (
-    <GallerySkeleton count={6} cardHeight={138} className={`${prefix}-skeleton`} />
+    <GallerySkeleton
+      count={6}
+      cardHeight={148}
+      minCardWidth={300}
+      className={`${prefix}-skeleton`}
+    />
   );
 
   const selectedAgent = useMemo(
@@ -400,7 +400,31 @@ const AgentsHomeView: React.FC = () => {
     }
     return agent.toolCount ?? 0;
   }, [getModeConfig]);
-  const selectedAgentToolCount = selectedAgent ? getDisplayedToolCount(selectedAgent) : 0;
+  const getDisplayedSkillCount = useCallback((agent: AgentWithCapabilities): number => {
+    const configuredTools = agent.agentKind === 'mode'
+      ? (getModeConfig(agent.id)?.enabled_tools ?? agent.defaultTools ?? [])
+      : (agent.defaultTools ?? []);
+    return hasSkillTool(configuredTools)
+      ? getConfiguredEnabledSkillKeys(getAgentSkills(agent.id)).length
+      : 0;
+  }, [getAgentSkills, getModeConfig]);
+  const getDisplayedSubagentCount = useCallback((agent: AgentWithCapabilities): number => {
+    if (agent.agentKind !== 'mode') {
+      return 0;
+    }
+    const configuredTools = getModeConfig(agent.id)?.enabled_tools ?? agent.defaultTools ?? [];
+    return hasTaskTool(configuredTools) ? (agent.visibleSubagentCount ?? 0) : 0;
+  }, [getModeConfig]);
+  const selectedAgentSourceLabel = selectedAgent
+    ? subagentSourceLabel(selectedAgent.source ?? selectedAgent.subagentSource, t)
+    : '';
+  const selectedAgentBadge = selectedAgent
+    ? getAgentBadge(
+      t,
+      selectedAgent.agentKind,
+      selectedAgent.source ?? selectedAgent.subagentSource,
+    )
+    : null;
   const selectedSubagentModelValue = selectedAgent?.agentKind === 'subagent'
     ? subagentModelOverrideValue(selectedAgent.subagentModelOverride)
     : DEFAULT_SUBAGENT_MODEL_OVERRIDE_VALUE;
@@ -412,7 +436,6 @@ const AgentsHomeView: React.FC = () => {
     { label: t('agentCard.modelSelector.inherit'), value: 'inherit' },
     { label: t('agentCard.modelSelector.fast'), value: 'fast' },
     { label: t('agentCard.modelSelector.primary'), value: 'primary' },
-    { label: t('agentCard.modelSelector.auto'), value: 'auto' },
     ...configuredModels
       .filter((model): model is typeof model & { id: string } => (
         typeof model.id === 'string'
@@ -423,7 +446,7 @@ const AgentsHomeView: React.FC = () => {
       .map(buildModelOption),
   ], [buildModelOption, configuredModels, t]);
   const handleSubagentModelChange = useCallback(async (
-    value: string | number | (string | number)[],
+    value: string | number,
   ) => {
     if (
       !selectedAgent
@@ -447,7 +470,7 @@ const AgentsHomeView: React.FC = () => {
   const selectedAgentCapabilityTabs = useMemo(() => {
     const tabs: Array<{
       key: CapabilityTab;
-      icon: typeof Wrench;
+      icon: IconSource;
       label: string;
       count?: string;
     }> = [];
@@ -455,7 +478,7 @@ const AgentsHomeView: React.FC = () => {
     if (selectedAgent?.agentKind === 'subagent' && !selectedAgentIsExternal) {
       tabs.push({
         key: 'model',
-        icon: Cpu,
+        icon: { glyph: Cpu },
         label: t('agentCard.modelSelector.label'),
       });
     }
@@ -472,7 +495,7 @@ const AgentsHomeView: React.FC = () => {
 
       tabs.push({
         key: 'tools',
-        icon: Wrench,
+        icon: { glyph: Wrench },
         label: t('agentsOverview.tools'),
         count: selectedAgent?.agentKind === 'mode'
           ? `${currentToolCount}/${totalToolCount}`
@@ -488,7 +511,7 @@ const AgentsHomeView: React.FC = () => {
           : selectedAgentSkills.length;
       tabs.push({
         key: 'skills',
-        icon: Puzzle,
+        icon: { name: 'extension' },
         label: t('agentsOverview.skills'),
         count: `${currentSkillCount}/${selectedAgentSkillConfigs.length}`,
       });
@@ -500,7 +523,7 @@ const AgentsHomeView: React.FC = () => {
         : selectedAgentEnabledSubagentIds;
       tabs.push({
         key: 'subagents',
-        icon: Bot,
+        icon: { glyph: Bot },
         label: t('agentsOverview.subagents'),
         count: `${currentSubagentIds.length}/${selectedAgentManageableSubagents.length}`,
       });
@@ -528,11 +551,14 @@ const AgentsHomeView: React.FC = () => {
     toolsEditing,
   ]);
   const currentCapabilityTab = useMemo(() => {
-    if (selectedAgentCapabilityTabs.some((tab) => tab.key === activeCapabilityTab)) {
-      return activeCapabilityTab;
+    if (selectedAgentCapabilityTabs.some((tab) => tab.key === activeDetailSection)) {
+      return activeDetailSection as CapabilityTab;
     }
     return selectedAgentCapabilityTabs[0]?.key ?? 'tools';
-  }, [activeCapabilityTab, selectedAgentCapabilityTabs]);
+  }, [activeDetailSection, selectedAgentCapabilityTabs]);
+  const currentCapabilityMeta = selectedAgentCapabilityTabs.find(
+    (tab) => tab.key === currentCapabilityTab,
+  );
   const canManageCurrentCapability = selectedAgent?.agentKind === 'mode'
     || (
       currentCapabilityTab === 'skills'
@@ -560,21 +586,25 @@ const AgentsHomeView: React.FC = () => {
 
   const openAgentDetails = useCallback((agent: AgentWithCapabilities) => {
     setSelectedAgentId(agent.id);
-    setActiveCapabilityTab(null);
+    setActiveDetailSection('basic');
     resetEditState();
   }, [resetEditState]);
 
   const closeAgentDetails = useCallback(() => {
     setSelectedAgentId(null);
-    setActiveCapabilityTab(null);
+    setActiveDetailSection('basic');
     resetEditState();
   }, [resetEditState]);
 
   useEffect(() => {
-    if (!selectedAgentCapabilityTabs.some((tab) => tab.key === activeCapabilityTab)) {
-      setActiveCapabilityTab(selectedAgentCapabilityTabs[0]?.key ?? null);
+    if (
+      activeDetailSection !== 'basic'
+      && activeDetailSection !== 'behavior'
+      && !selectedAgentCapabilityTabs.some((tab) => tab.key === activeDetailSection)
+    ) {
+      setActiveDetailSection('basic');
     }
-  }, [activeCapabilityTab, selectedAgentCapabilityTabs]);
+  }, [activeDetailSection, selectedAgentCapabilityTabs]);
 
   const handleDeleteCustomAgent = useCallback(async () => {
     if (!selectedAgent) return;
@@ -616,207 +646,139 @@ const AgentsHomeView: React.FC = () => {
 
   return (
     <GalleryLayout
-      className="bitfun-agents-scene"
+      className="openbitfun-agents-scene"
       data-testid="agent-skill-panel"
-      data-bf-scene="agents"
-      data-bf-part="root"
+      data-openbitfun-scene="agents"
+      data-openbitfun-part="root"
     >
       <GalleryPageHeader
         title={t('page.title')}
         subtitle={t('page.subtitle')}
-        extraContent={(
-          <div className="gallery-anchor-bar" data-bf-scene="agents" data-bf-part="anchorBar">
-            <button
-              type="button"
-              className="gallery-anchor-btn"
-              onClick={() => scrollToZone('core-agents-zone')}
-              data-testid="agents-anchor-core"
-            >
-              {t('nav.coreAgents')}
-            </button>
-            <button
-              type="button"
-              className="gallery-anchor-btn"
-              onClick={() => scrollToZone('agents-zone')}
-              data-testid="agents-anchor-custom"
-            >
-              {t('nav.agents')}
-            </button>
-          </div>
-        )}
         actions={(
           <>
-            <Search
+            <SearchField
+              className="openbitfun-agents-scene__search"
               value={searchQuery}
-              onChange={setSearchQuery}
+              onValueChange={setSearchQuery}
+              leadingIcon={<Icon name="search" size="sm" aria-hidden />}
               placeholder={t('page.searchPlaceholder')}
-              size="small"
-              clearable
-              prefixIcon={<></>}
-              suffixContent={(
-                <button
-                  type="button"
-                  className="gallery-search-btn"
-                  aria-label={t('page.searchPlaceholder')}
-                  data-testid="agents-search-btn"
-                >
-                  <SearchIcon size={14} />
-                </button>
-              )}
+              aria-label={t('page.searchPlaceholder')}
+              size="sm"
+              clearLabel={searchQuery ? tComponents('search.clear') : undefined}
+              onClear={searchQuery ? () => setSearchQuery('') : undefined}
+              data-testid="agents-search"
             />
+            <Button
+              variant="fill"
+              size="sm"
+              leadingIcon={<Icon name="plus" size="sm" />}
+              onClick={openCreateAgent}
+              data-testid="agents-create-agent-btn"
+            >
+              {t('page.newAgent')}
+            </Button>
           </>
         )}
       />
 
-      <div className="gallery-zones" data-bf-scene="agents" data-bf-part="zones" data-testid="agent-list">
-        <GalleryZone
-          id="core-agents-zone"
-          data-testid="agents-core-zone"
-          title={t('coreAgentsZone.title')}
-          subtitle={t('coreAgentsZone.subtitle')}
-          tools={(
-            <span className="gallery-zone-count">{coreAgents.length}</span>
-          )}
-        >
-          {loading ? (
-            <GallerySkeleton
-              count={3}
-              cardHeight={160}
-              minCardWidth={360}
-              className="core-agent-skeleton"
-            />
-          ) : coreAgents.length === 0 ? (
-            <GalleryEmpty
-              icon={<Cpu size={32} strokeWidth={1.5} />}
-              message={t('coreAgentsZone.empty')}
-              testId="agent-list-empty"
-            />
-          ) : (
-            <GalleryGrid minCardWidth={360} data-bf-scene="agents" data-bf-part="coreGrid">
-              {coreAgents.map((agent, index) => (
-                <CoreAgentCard
-                  key={agent.id}
-                  agent={agent}
-                  index={index}
-                  meta={coreAgentMeta[agent.id] ?? { role: agent.name, ...DEFAULT_CORE_AGENT_ACCENT }}
-                  toolCount={getDisplayedToolCount(agent)}
-                  skillCount={hasSkillTool(
-                    agent.agentKind === 'mode'
-                      ? (getModeConfig(agent.id)?.enabled_tools ?? agent.defaultTools ?? [])
-                      : (agent.defaultTools ?? []),
-                  )
-                    ? getConfiguredEnabledSkillKeys(getAgentSkills(agent.id)).length
-                    : 0}
-                  subagentCount={agent.agentKind === 'mode' && hasTaskTool(getModeConfig(agent.id)?.enabled_tools ?? agent.defaultTools ?? [])
-                    ? (agent.visibleSubagentCount ?? 0)
-                    : 0}
-                  onOpenDetails={openAgentDetails}
-                  disabledReason={
-                    agent.id === 'ComputerUse' && !computerUseEnabled
-                      ? t('coreAgentsZone.computerUseDisabledBadge')
-                      : undefined
-                  }
-                />
-              ))}
-            </GalleryGrid>
-          )}
-        </GalleryZone>
+      <div className="gallery-zones" data-openbitfun-scene="agents" data-openbitfun-part="zones" data-testid="agent-list">
+        <AgentHarnessOverview />
 
         <GalleryZone
           id="agents-zone"
-          data-testid="agents-custom-zone"
+          data-testid="agents-catalog-zone"
           title={t('agentsZone.title')}
           subtitle={t('agentsZone.subtitle')}
           tools={(
             <>
-              <div className="bitfun-agents-scene__agent-filters" data-bf-scene="agents" data-bf-part="filters">
-                <div className="bitfun-agents-scene__agent-filter-group">
-                  <span className="bitfun-agents-scene__agent-filter-label">
+              <div className="openbitfun-agents-scene__agent-filters" data-openbitfun-scene="agents" data-openbitfun-part="filters">
+                <div
+                  className="openbitfun-agents-scene__agent-filter-group"
+                  data-testid="agents-source-filter"
+                >
+                  <span className="openbitfun-agents-scene__agent-filter-label">
                     {t('filters.source')}
                   </span>
-                  {levelFilters.map(({ key, label, count }) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className={[
-                        'gallery-cat-chip',
-                        agentFilterLevel === key && 'gallery-cat-chip--active',
-                      ].filter(Boolean).join(' ')}
-                      onClick={() => setAgentFilterLevel(agentFilterLevel === key ? 'all' : key)}
-                      data-testid="agents-source-filter"
-                      data-agent-source={key}
-                    >
-                      <span>{label}</span>
-                      <span className="gallery-filter-count">{count}</span>
-                    </button>
-                  ))}
+                  <Select
+                    className="openbitfun-agents-scene__agent-filter-select"
+                    size="sm"
+                    value={agentFilterLevel}
+                    options={sourceFilterOptions}
+                    aria-label={t('filters.source')}
+                    onValueChange={(value) => setAgentFilterLevel(
+                      normalizeSelectValue(value) as AgentFilterLevel,
+                    )}
+                  />
                 </div>
-                <div className="bitfun-agents-scene__agent-filter-group">
-                  <span className="bitfun-agents-scene__agent-filter-label">
+                <div
+                  className="openbitfun-agents-scene__agent-filter-group"
+                  data-testid="agents-kind-filter"
+                >
+                  <span className="openbitfun-agents-scene__agent-filter-label">
                     {t('filters.kind')}
                   </span>
-                  {typeFilters.map(({ key, label, count }) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className={[
-                        'gallery-cat-chip',
-                        agentFilterType === key && 'gallery-cat-chip--active',
-                      ].filter(Boolean).join(' ')}
-                      onClick={() => setAgentFilterType(agentFilterType === key ? 'all' : key)}
-                      data-testid="agents-kind-filter"
-                      data-agent-kind={key}
-                    >
-                      <span>{label}</span>
-                      <span className="gallery-filter-count">{count}</span>
-                    </button>
-                  ))}
+                  <Select
+                    className="openbitfun-agents-scene__agent-filter-select"
+                    size="sm"
+                    value={agentFilterType}
+                    options={typeFilterOptions}
+                    aria-label={t('filters.kind')}
+                    onValueChange={(value) => setAgentFilterType(
+                      normalizeSelectValue(value) as AgentFilterType,
+                    )}
+                  />
                 </div>
               </div>
-              <button
-                type="button"
-                className="gallery-action-btn gallery-action-btn--primary"
-                onClick={openCreateAgent}
-                data-testid="agents-create-agent-btn"
-              >
-                <Plus size={15} />
-                <span>{t('page.newAgent')}</span>
-              </button>
-              <span className="gallery-zone-count">{visibleAgents.length}</span>
+              <span className="gallery-zone-count">{catalogAgents.length}</span>
             </>
           )}
         >
           {loading ? renderSkeletons('agent') : null}
 
-          {!loading && visibleAgents.length === 0 ? (
+          {!loading && catalogAgents.length === 0 ? (
             <GalleryEmpty
-              icon={<Bot size={32} strokeWidth={1.5} />}
+              icon={{ glyph: Bot }}
               message={allAgents.length === 0 ? t('agentsZone.empty.noAgents') : t('agentsZone.empty.noMatch')}
               testId="agent-list-empty"
             />
           ) : null}
 
-          {!loading && visibleAgents.length > 0 ? (
-            <GalleryGrid minCardWidth={360}>
-              {visibleAgents.map((agent, index) => (
-                <AgentCard
-                  key={agent.id}
-                  agent={agent}
-                  index={index}
-                  toolCount={getDisplayedToolCount(agent)}
-                  skillCount={hasSkillTool(
-                    agent.agentKind === 'mode'
-                      ? (getModeConfig(agent.id)?.enabled_tools ?? agent.defaultTools ?? [])
-                      : (agent.defaultTools ?? []),
-                  )
-                    ? getConfiguredEnabledSkillKeys(getAgentSkills(agent.id)).length
-                    : 0}
-                  subagentCount={agent.agentKind === 'mode' && hasTaskTool(getModeConfig(agent.id)?.enabled_tools ?? agent.defaultTools ?? [])
-                    ? (agent.visibleSubagentCount ?? 0)
-                    : 0}
-                  onOpenDetails={openAgentDetails}
-                />
-              ))}
+          {!loading && catalogAgents.length > 0 ? (
+            <GalleryGrid
+              minCardWidth={300}
+              data-openbitfun-scene="agents"
+              data-openbitfun-part="catalogGrid"
+            >
+              {catalogAgents.map((agent, index) => {
+                const commonCardProps = {
+                  agent,
+                  index,
+                  toolCount: getDisplayedToolCount(agent),
+                  skillCount: getDisplayedSkillCount(agent),
+                  subagentCount: getDisplayedSubagentCount(agent),
+                  onOpenDetails: openAgentDetails,
+                };
+
+                if (CORE_AGENT_IDS.has(agent.id)) {
+                  return (
+                    <CoreAgentCard
+                      key={agent.id}
+                      {...commonCardProps}
+                      meta={coreAgentMeta[agent.id] ?? {
+                        role: agent.name,
+                        ...DEFAULT_CORE_AGENT_ACCENT,
+                      }}
+                      disabledReason={
+                        agent.id === 'ComputerUse' && !computerUseEnabled
+                          ? t('coreAgentsZone.computerUseDisabledBadge')
+                          : undefined
+                      }
+                    />
+                  );
+                }
+
+                return <AgentCard key={agent.id} {...commonCardProps} />;
+              })}
             </GalleryGrid>
           ) : null}
         </GalleryZone>
@@ -825,32 +787,22 @@ const AgentsHomeView: React.FC = () => {
       <GalleryDetailModal
         isOpen={Boolean(selectedAgent)}
         onClose={closeAgentDetails}
-        icon={selectedAgent ? React.createElement(
-          AGENT_ICON_MAP[(selectedAgent.iconKey ?? 'bot') as keyof typeof AGENT_ICON_MAP] ?? Bot,
-          { size: 24, strokeWidth: 1.7 },
-        ) : <Bot size={24} />}
+        icon={selectedAgent
+          ? <Icon {...(AGENT_ICON_MAP[(selectedAgent.iconKey ?? 'bot') as keyof typeof AGENT_ICON_MAP] ?? { glyph: Bot })} size="lg" />
+          : <Icon glyph={Bot} size="lg" />}
         iconGradient={selectedAgent ? getCardGradient(selectedAgent.id || selectedAgent.name) : undefined}
         title={selectedAgent?.name ?? ''}
+        titlePlacement="hero"
+        size="2xl"
+        stableHeight
         badges={selectedAgent ? (
           <>
-            <Badge
-              variant={
-                getAgentBadge(
-                  t,
-                  selectedAgent.agentKind,
-                  selectedAgent.source ?? selectedAgent.subagentSource,
-                ).variant
-              }
+            <StatusPill
+              tone={selectedAgentBadge?.variant ?? 'neutral'}
+              leading={<Icon glyph={selectedAgent.agentKind === 'mode' ? Cpu : Bot} />}
             >
-              {selectedAgent.agentKind === 'mode' ? <Cpu size={10} /> : <Bot size={10} />}
-              {
-                getAgentBadge(
-                  t,
-                  selectedAgent.agentKind,
-                  selectedAgent.source ?? selectedAgent.subagentSource,
-                ).label
-              }
-            </Badge>
+              {selectedAgentBadge?.label}
+            </StatusPill>
           </>
         ) : null}
         description={selectedAgent
@@ -862,62 +814,189 @@ const AgentsHomeView: React.FC = () => {
         closeButtonTestId="agent-detail-close"
         meta={selectedAgent ? (
           <>
-            <span>{t('agentCard.meta.tools', { count: selectedAgentToolCount })}</span>
+            <span>{selectedAgentSourceLabel}</span>
             {selectedAgent.externalProviderLabel ? (
               <span>{t('agentCard.meta.externalProvider', { provider: selectedAgent.externalProviderLabel })}</span>
             ) : null}
             {selectedAgent.supportsFollowUp === false ? (
               <span>{t('agentCard.meta.singleRun')}</span>
             ) : null}
-            {selectedAgentHasSkillTool ? (
-              <span>{t('agentCard.meta.skills', {
-                count: selectedAgent.agentKind === 'mode'
-                  ? selectedAgentRuntimeSkillCount
-                  : selectedAgentSkills.length,
-              })}</span>
-            ) : null}
-            {selectedAgent.agentKind === 'mode' && selectedAgentHasTaskTool ? (
-              <span>{t('agentCard.meta.subagents', { count: selectedAgentManageableSubagents.filter((subagent) => subagent.effectiveEnabled).length })}</span>
-            ) : null}
           </>
+        ) : null}
+        heroActions={selectedAgent && canManageCustomAgent ? (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              leadingIcon={<Icon name="edit" size="lg" />}
+              onClick={() => {
+                const id = selectedAgent.id;
+                closeAgentDetails();
+                openEditAgent(id);
+              }}
+            >
+              {t('agentsOverview.editAgent')}
+            </Button>
+            <Tooltip content={t('agentsOverview.deleteAgent')}>
+              <IconButton
+                aria-label={t('agentsOverview.deleteAgent')}
+                size="sm"
+                loading={deletingAgent}
+                onClick={() => void handleDeleteCustomAgent()}
+                icon={<Icon name="delete" size="sm" />}
+              />
+            </Tooltip>
+          </>
+        ) : selectedAgent && selectedAgentIsExternal ? (
+          <Button
+            variant="outline"
+            size="sm"
+            leadingIcon={<Icon name="extension" size="lg" />}
+            onClick={() => {
+              closeAgentDetails();
+              openEcosystemCompatibility({ ownerSurface: 'external-sources' });
+            }}
+          >
+            {t('agentsOverview.manageExternalAgent')}
+          </Button>
         ) : null}
       >
         {selectedAgent ? (
-          <>
-            <div className="agent-card__cap-grid">
-              {selectedAgent.capabilities.map((cap) => (
-                <div key={cap.category} className="agent-card__cap-row">
-                  <span
-                    className="agent-card__cap-label"
-                    style={{ color: CAPABILITY_ACCENT[cap.category] }}
+          <div className="agent-card__configuration" data-testid="agent-detail-configuration">
+                <nav className="agent-card__config-nav" aria-label={t('agentsOverview.detail.configuration')}>
+                  <button data-overflow-trigger
+                    type="button"
+                    className={`agent-card__config-nav-item${activeDetailSection === 'basic' ? ' is-active' : ''}`}
+                    aria-current={activeDetailSection === 'basic' ? 'page' : undefined}
+                    onClick={() => setActiveDetailSection('basic')}
                   >
-                    {getCapabilityLabel(t, cap.category)}
+                    <Icon glyph={FileText} size="sm" />
+                    <OverflowText>{t('agentsOverview.detail.basicInfo')}</OverflowText>
+                  </button>
+                  <button data-overflow-trigger
+                    type="button"
+                    className={`agent-card__config-nav-item${activeDetailSection === 'behavior' ? ' is-active' : ''}`}
+                    aria-current={activeDetailSection === 'behavior' ? 'page' : undefined}
+                    onClick={() => setActiveDetailSection('behavior')}
+                  >
+                    <Icon glyph={MessageSquareText} size="sm" />
+                    <OverflowText>{t('agentsOverview.detail.behaviorContext')}</OverflowText>
+                    <OverflowText className="agent-card__config-nav-count">{selectedAgent.capabilities.length}</OverflowText>
+                  </button>
+                  <div className="agent-card__config-nav-divider" />
+                  {selectedAgentCapabilityTabs.map((tab) => {
+                    const tabIcon = tab.icon;
+                    const isActive = activeDetailSection === tab.key;
+                    return (
+                      <button data-overflow-trigger
+                        key={tab.key}
+                        type="button"
+                        className={`agent-card__config-nav-item${isActive ? ' is-active' : ''}`}
+                        aria-current={isActive ? 'page' : undefined}
+                        data-detail-section={tab.key}
+                        onClick={() => setActiveDetailSection(tab.key)}
+                      >
+                        <Icon {...tabIcon} size="sm" />
+                        <OverflowText>{tab.label}</OverflowText>
+                        {tab.count ? <OverflowText className="agent-card__config-nav-count">{tab.count}</OverflowText> : null}
+                      </button>
+                    );
+                  })}
+                </nav>
+
+                <ScrollArea className="agent-card__config-main">
+                  {activeDetailSection === 'basic' ? (
+                    <section className="agent-card__config-panel" data-testid="agent-detail-basic-section">
+                      <div className="agent-card__config-panel-head">
+                        <div>
+                          <h3>{t('agentsOverview.detail.basicInfo')}</h3>
+                          <p>{t('agentsOverview.detail.basicInfoHint')}</p>
+                        </div>
+                      </div>
+                      <div className="agent-card__field-grid">
+                        <div className="agent-card__field">
+                          <OverflowText>{t('agentsOverview.detail.name')}</OverflowText>
+                          <strong><OverflowText>{selectedAgent.name}</OverflowText></strong>
+                        </div>
+                        <div className="agent-card__field">
+                          <OverflowText>{t('agentsOverview.detail.source')}</OverflowText>
+                          <strong><OverflowText>{selectedAgentSourceLabel}</OverflowText></strong>
+                        </div>
+                        <div className="agent-card__field">
+                          <OverflowText>{t('agentsOverview.detail.type')}</OverflowText>
+                          <strong><OverflowText>{selectedAgentBadge?.label}</OverflowText></strong>
+                        </div>
+                        <div className="agent-card__field">
+                          <OverflowText>{t('agentsOverview.detail.followUp')}</OverflowText>
+                          <strong><OverflowText>
+                            {selectedAgent.supportsFollowUp === false
+                              ? t('agentsOverview.detail.unsupported')
+                              : t('agentsOverview.detail.supported')}
+                          </OverflowText></strong>
+                        </div>
+                        <div className="agent-card__field agent-card__field--wide">
+                          <OverflowText>{t('agentsOverview.detail.description')}</OverflowText>
+                          <p>{getAgentDescription(t, selectedAgent)}</p>
+                        </div>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {activeDetailSection === 'behavior' ? (
+                    <div className="agent-card__config-panel" data-testid="agent-detail-behavior-section">
+                      <div className="agent-card__config-panel-head">
+                        <div>
+                          <h3>{t('agentsOverview.detail.behaviorContext')}</h3>
+                          <p>{t('agentsOverview.detail.behaviorContextHint')}</p>
+                        </div>
+                      </div>
+                      <div
+              className="agent-card__section agent-card__section--capabilities"
+              data-testid="agent-detail-capabilities-section"
+            >
+              <div className="agent-card__section-head">
+                <div className="agent-card__section-title">
+                  <span>{t('agentsOverview.capabilities')}</span>
+                  <span className="agent-card__section-count">
+                    {selectedAgent.capabilities.length}
                   </span>
-                  <div className="agent-card__cap-bar">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                      <span
-                        key={i}
-                        className="agent-card__cap-pip"
-                        style={i < cap.level ? { backgroundColor: CAPABILITY_ACCENT[cap.category] } : undefined}
-                      />
-                    ))}
-                  </div>
-                  <span className="agent-card__cap-level">{cap.level}/5</span>
                 </div>
-              ))}
+              </div>
+              <div className="agent-card__cap-grid">
+                {selectedAgent.capabilities.map((cap) => (
+                  <div key={cap.category} className="agent-card__cap-row">
+                    <OverflowText
+                      className="agent-card__cap-label"
+                      style={{ color: CAPABILITY_ACCENT[cap.category] }}
+                    >
+                      {getCapabilityLabel(t, cap.category)}
+                    </OverflowText>
+                    <div className="agent-card__cap-bar">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <span
+                          key={i}
+                          className="agent-card__cap-pip"
+                          style={i < cap.level ? { backgroundColor: CAPABILITY_ACCENT[cap.category] } : undefined}
+                        />
+                      ))}
+                    </div>
+                    <span className="agent-card__cap-level">{cap.level}/5</span>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {selectedAgent.agentKind === 'mode' && selectedAgentUsesSharedProfile ? (
-              <div className="agent-card__section" data-bf-scene="agents" data-bf-part="detailSection">
+              <div className="agent-card__section" data-openbitfun-scene="agents" data-openbitfun-part="detailSection">
                 <div className="agent-card__section-head">
                   <div className="agent-card__section-title">
                     <span>{t('agentsOverview.sharedProfileLabel')}</span>
                   </div>
                 </div>
                 <div className="agent-card__chip-grid">
-                  <span className="agent-card__chip">
+                  <span className="agent-card__chip"><OverflowText>
                     {selectedAgentModeProfile?.profileLabel ?? t('agentsOverview.sharedProfileDefaultLabel')}
-                  </span>
+                  </OverflowText></span>
                 </div>
                 <p className="agent-card__section-note">
                   {t('agentsOverview.sharedProfileDescription', {
@@ -926,91 +1005,84 @@ const AgentsHomeView: React.FC = () => {
                 </p>
               </div>
             ) : null}
+                    </div>
+                  ) : null}
 
-            {selectedAgentCapabilityTabs.length > 0 ? (
+                  {selectedAgentCapabilityTabs.some((tab) => tab.key === activeDetailSection) ? (
               <div className="agent-card__section" data-testid="agent-detail-tools-section">
-                <div className="agent-card__section-head">
-                  <div className="agent-card__tab-list" role="tablist" aria-label={t('agentsOverview.capabilities')}>
-                    {selectedAgentCapabilityTabs.map((tab) => {
-                      const TabIcon = tab.icon;
-                      const isActive = tab.key === currentCapabilityTab;
-                      return (
-                        <button
-                          key={tab.key}
-                          type="button"
-                          role="tab"
-                          aria-selected={isActive}
-                          className={`agent-card__tab${isActive ? ' is-active' : ''}`}
-                          onClick={() => setActiveCapabilityTab(tab.key)}
-                        >
-                          <TabIcon size={12} />
-                          <span>{tab.label}</span>
-                          {isActive && tab.count ? (
-                            <span className="agent-card__tab-count">{tab.count}</span>
-                          ) : null}
-                        </button>
-                      );
-                    })}
+                <div className="agent-card__section-head agent-card__section-head--tabs">
+                  <div className="agent-card__section-title">
+                    {currentCapabilityMeta ? <Icon {...currentCapabilityMeta.icon} size="sm" /> : null}
+                    <span>{currentCapabilityMeta?.label}</span>
+                    {currentCapabilityMeta?.count ? (
+                      <span className="agent-card__section-count">{currentCapabilityMeta.count}</span>
+                    ) : null}
                   </div>
                   {canManageCurrentCapability ? (
                     <div className="agent-card__section-actions">
                       {isCurrentTabEditing ? (
                         <>
-                          <IconButton
-                            size="small"
-                            variant="ghost"
-                            tooltip={
+                          <Tooltip content={
                               currentCapabilityTab === 'tools'
                                 ? t('agentsOverview.toolsReset')
                                 : currentCapabilityTab === 'skills'
                                   ? t('agentsOverview.reset')
                                   : t('agentsOverview.reset')
-                            }
-                            onClick={async () => {
-                              if (currentCapabilityTab === 'tools') {
-                                await handleResetTools(selectedAgent.id);
-                                setToolsEditing(false);
-                                setPendingTools(null);
-                                return;
+                            }>
+                            <IconButton
+                              aria-label={
+                                currentCapabilityTab === 'tools'
+                                  ? t('agentsOverview.toolsReset')
+                                  : currentCapabilityTab === 'skills'
+                                    ? t('agentsOverview.reset')
+                                    : t('agentsOverview.reset')
                               }
-                              if (currentCapabilityTab === 'skills') {
-                                await handleResetSkills(selectedAgent.id);
-                                setSkillsEditing(false);
-                                setPendingSkills(null);
-                                return;
-                              }
-                              setSavingSubagents(true);
-                              try {
-                                const currentEnabledIds = new Set(selectedAgentEnabledSubagentIds);
-                                const defaultEnabledIds = new Set(selectedAgentDefaultEnabledSubagentIds);
-                                const changedSubagents = selectedAgentEditableSubagents.filter((subagent) =>
-                                  currentEnabledIds.has(subagent.id) !== defaultEnabledIds.has(subagent.id));
-
-                                if (changedSubagents.length === 0) {
-                                  setSubagentsEditing(false);
-                                  setPendingSubagentIds(null);
+                              size="sm"
+                              onClick={async () => {
+                                if (currentCapabilityTab === 'tools') {
+                                  await handleResetTools(selectedAgent.id);
+                                  setToolsEditing(false);
+                                  setPendingTools(null);
                                   return;
                                 }
-
-                                for (const subagent of changedSubagents) {
-                                  await handleSetSubagentEnabled(
-                                    selectedAgent.id,
-                                    subagent.id,
-                                    defaultEnabledIds.has(subagent.id),
-                                  );
+                                if (currentCapabilityTab === 'skills') {
+                                  await handleResetSkills(selectedAgent.id);
+                                  setSkillsEditing(false);
+                                  setPendingSkills(null);
+                                  return;
                                 }
-                              } finally {
-                                setSavingSubagents(false);
-                                setSubagentsEditing(false);
-                                setPendingSubagentIds(null);
-                              }
-                            }}
-                          >
-                            <RotateCcw size={12} />
-                          </IconButton>
+                                setSavingSubagents(true);
+                                try {
+                                  const currentEnabledIds = new Set(selectedAgentEnabledSubagentIds);
+                                  const defaultEnabledIds = new Set(selectedAgentDefaultEnabledSubagentIds);
+                                  const changedSubagents = selectedAgentEditableSubagents.filter((subagent) =>
+                                    currentEnabledIds.has(subagent.id) !== defaultEnabledIds.has(subagent.id));
+
+                                  if (changedSubagents.length === 0) {
+                                    setSubagentsEditing(false);
+                                    setPendingSubagentIds(null);
+                                    return;
+                                  }
+
+                                  for (const subagent of changedSubagents) {
+                                    await handleSetSubagentEnabled(
+                                      selectedAgent.id,
+                                      subagent.id,
+                                      defaultEnabledIds.has(subagent.id),
+                                    );
+                                  }
+                                } finally {
+                                  setSavingSubagents(false);
+                                  setSubagentsEditing(false);
+                                  setPendingSubagentIds(null);
+                                }
+                              }}
+                              icon={<Icon glyph={RotateCcw} />}
+                            />
+                          </Tooltip>
                           <Button
-                            variant="ghost"
-                            size="small"
+                            variant="outline"
+                            size="sm"
                             onClick={() => {
                               if (currentCapabilityTab === 'tools') {
                                 setToolsEditing(false);
@@ -1029,9 +1101,9 @@ const AgentsHomeView: React.FC = () => {
                             {t('agentsOverview.cancel')}
                           </Button>
                           <Button
-                            variant="primary"
-                            size="small"
-                            isLoading={
+                            variant="fill"
+                            size="sm"
+                            loading={
                               currentCapabilityTab === 'tools'
                                 ? savingTools
                                 : currentCapabilityTab === 'skills'
@@ -1132,19 +1204,14 @@ const AgentsHomeView: React.FC = () => {
                 {currentCapabilityTab === 'model'
                 && selectedAgent.agentKind === 'subagent'
                 && !selectedAgentIsExternal ? (
-                  <Select
-                    size="small"
-                    searchable
-                    className="bitfun-agents-scene__subagent-model-select model-select-presentation__select"
-                    dropdownClassName="model-select-presentation__dropdown"
-                    dropdownMode="inline"
+                  <Combobox
+                    size="sm"
+                    className="openbitfun-agents-scene__subagent-model-select"
                     options={subagentModelOptions}
                     value={selectedSubagentModelValue}
-                    onChange={(value) => void handleSubagentModelChange(value)}
-                    renderOption={renderModelOption}
-                    renderValue={renderModelValue}
+                    onValueChange={(value) => void handleSubagentModelChange(value)}
                     disabled={savingSubagentModel}
-                    triggerTestId="agent-detail-subagent-model-select"
+                    data-testid="agent-detail-subagent-model-select"
                   />
                 ) : null}
 
@@ -1215,7 +1282,7 @@ const AgentsHomeView: React.FC = () => {
                             fields={tooltipFields}
                           >
                             <span className="agent-card__tooltip-trigger">
-                              <button
+                              <button data-overflow-trigger
                                 type="button"
                                 className={`agent-card__token${isOn ? ' is-on' : ''}${isExternal ? ' is-readonly' : ''}`}
                                 disabled={isExternal}
@@ -1233,9 +1300,9 @@ const AgentsHomeView: React.FC = () => {
                                   });
                                 }}
                               >
-                                <span className="agent-card__token-name">
+                                <OverflowText className="agent-card__token-name">
                                   {subagent.name}{isExternal ? ` · ${t('filters.external')}` : ''}
-                                </span>
+                                </OverflowText>
                               </button>
                             </span>
                           </AgentCapabilityTooltip>
@@ -1262,7 +1329,7 @@ const AgentsHomeView: React.FC = () => {
                               description={subagent.description}
                               fields={tooltipFields}
                             >
-                              <span className="agent-card__chip">{subagent.name}</span>
+                              <span className="agent-card__chip"><OverflowText>{subagent.name}</OverflowText></span>
                             </AgentCapabilityTooltip>
                           );
                         })
@@ -1272,62 +1339,8 @@ const AgentsHomeView: React.FC = () => {
                 ) : null}
               </div>
             ) : null}
-            {canManageCustomAgent ? (
-              <div className="agent-card__section">
-                <div className="agent-card__section-head">
-                  <div className="agent-card__section-title">
-                    <span>{t('agentsOverview.customActions')}</span>
-                  </div>
-                </div>
-                <div className="agent-card__section-actions" style={{ gap: 8 }}>
-                  <Button
-                    variant="secondary"
-                    size="small"
-                    onClick={() => {
-                      const id = selectedAgent?.id;
-                      closeAgentDetails();
-                      if (id) openEditAgent(id);
-                    }}
-                  >
-                    <Pencil size={12} style={{ marginRight: 6 }} />
-                    {t('agentsOverview.editAgent')}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="small"
-                    isLoading={deletingAgent}
-                    onClick={() => void handleDeleteCustomAgent()}
-                  >
-                    <Trash2 size={12} style={{ marginRight: 6 }} />
-                    {t('agentsOverview.deleteAgent')}
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-            {(selectedAgent.source ?? selectedAgent.subagentSource) === 'external' ? (
-              <div className="agent-card__section">
-                <div className="agent-card__section-head">
-                  <div className="agent-card__section-title">
-                    <span>{t('agentsOverview.externalActions')}</span>
-                  </div>
-                </div>
-                <div className="agent-card__section-actions">
-                  <Button
-                    variant="secondary"
-                    size="small"
-                    onClick={() => {
-                      setSettingsTab('external-sources');
-                      closeAgentDetails();
-                      openScene('settings');
-                    }}
-                  >
-                    <Puzzle size={12} style={{ marginRight: 6 }} />
-                    {t('agentsOverview.manageExternalAgent')}
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </>
+              </ScrollArea>
+            </div>
         ) : null}
       </GalleryDetailModal>
     </GalleryLayout>
@@ -1345,7 +1358,7 @@ const AgentsScene: React.FC = () => {
 
   if (page === 'createAgent') {
     return (
-      <div className="bitfun-agents-scene bitfun-agents-scene--page" data-bf-scene="agents" data-bf-part="root">
+      <div className="openbitfun-agents-scene openbitfun-agents-scene--page" data-openbitfun-scene="agents" data-openbitfun-part="root">
         <CreateAgentPage />
       </div>
     );

@@ -6,7 +6,8 @@ pub mod fs;
 pub mod pipeline;
 pub mod search;
 pub mod shell;
+#[cfg(feature = "shell-analysis")]
+pub mod shell_analysis;
 pub mod util;
 #[cfg(feature = "web-readable")]
 pub mod web_readable;
-pub mod web_search;

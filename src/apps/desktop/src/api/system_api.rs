@@ -5,22 +5,23 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::api::app_state::AppState;
 use crate::startup_trace::DesktopStartupTrace;
-use bitfun_core::service::system;
+use openbitfun_core::service::system;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Position, Size, State};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::UpdaterExt;
 
 /// Emitted during `install_update` download; matches `installUpdateWithProgress` / frontend listener.
-const UPDATE_PROGRESS_EVENT: &str = "bitfun-update-progress";
+const UPDATE_PROGRESS_EVENT: &str = "openbitfun-update-progress";
 
 /// Updater origins, in configured (fallback) order. Kept in step with
 /// `scripts/desktop-tauri-build.mjs`, which bakes the same pair into the bundle.
-const GITHUB_UPDATER_ENDPOINT: &str = match option_env!("BITFUN_UPDATER_PRIMARY_ENDPOINT") {
+const GITHUB_UPDATER_ENDPOINT: &str = match option_env!("OPENBITFUN_UPDATER_PRIMARY_ENDPOINT") {
     Some(endpoint) => endpoint,
-    None => "https://github.com/GCWing/BitFun/releases/latest/download/latest.json",
+    None => "https://github.com/GCWing/OpenBitFun/releases/latest/download/latest.json",
 };
-const OPENBITFUN_UPDATER_ENDPOINT: &str = match option_env!("BITFUN_UPDATER_FALLBACK_ENDPOINT") {
+const OPENBITFUN_UPDATER_ENDPOINT: &str = match option_env!("OPENBITFUN_UPDATER_FALLBACK_ENDPOINT")
+{
     Some(endpoint) => endpoint,
     None => "https://openbitfun.com/release/latest.json",
 };
@@ -53,6 +54,7 @@ struct UpdaterManifestInfo {
 /// lives inside it, so fetching bytes by hand and calling `Update::install`
 /// would silently skip signature checking.
 async fn updater_endpoints_by_policy() -> Vec<tauri::Url> {
+    crate::ensure_rustls_crypto_provider();
     let client = match reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(5))
         .read_timeout(PROBE_WINDOW)
@@ -203,7 +205,9 @@ async fn probe_endpoint_throughput(client: &reqwest::Client, url: &str) -> u64 {
 
 /// Build an updater whose endpoints are ordered by measured throughput.
 /// Falls back to the bundled configuration if the builder rejects them.
-async fn ranked_updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
+pub(super) async fn ranked_updater(
+    app: &AppHandle,
+) -> Result<tauri_plugin_updater::Updater, String> {
     let endpoints = updater_endpoints_by_policy().await;
     let builder = app.updater_builder();
     let builder = match builder.endpoints(endpoints) {
@@ -216,7 +220,9 @@ async fn ranked_updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater
             app.updater_builder()
         }
     };
-    builder.build().map_err(|error| error.to_string())
+    crate::api::update_api::with_update_exit_cleanup(builder, app)
+        .build()
+        .map_err(|error| error.to_string())
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -232,6 +238,8 @@ pub struct SystemInfoResponse {
     pub platform: String,
     pub arch: String,
     pub os_version: Option<String>,
+    #[serde(default)]
+    pub home_dir: Option<String>,
 }
 
 #[tauri::command]
@@ -242,6 +250,7 @@ pub async fn get_system_info() -> Result<SystemInfoResponse, String> {
         platform: info.platform,
         arch: info.arch,
         os_version: info.os_version,
+        home_dir: info.home_dir,
     })
 }
 
@@ -317,8 +326,8 @@ pub async fn install_update(app: AppHandle, request: InstallUpdateRequest) -> Re
     let progress = Arc::new(Mutex::new((0u64, None::<u64>)));
     let progress_chunk = Arc::clone(&progress);
     let app_chunk = app_handle.clone();
-    update
-        .download_and_install(
+    let bytes = update
+        .download(
             move |chunk_len, content_len| {
                 let (downloaded, total) = {
                     let mut g = progress_chunk
@@ -351,7 +360,10 @@ pub async fn install_update(app: AppHandle, request: InstallUpdateRequest) -> Re
             },
         )
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || update.install(bytes).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[derive(Debug, Deserialize)]
@@ -477,10 +489,21 @@ pub async fn check_commands_exist(
         .collect())
 }
 
+/// Runs a process on the controller. A remote workspace working directory is refused because this
+/// command has no SSH transport: honouring it locally would run the process on the wrong machine.
 #[tauri::command]
 pub async fn run_system_command(
     request: RunCommandRequest,
 ) -> Result<CommandOutputResponse, String> {
+    if let Some(cwd) = request.cwd.as_deref() {
+        if openbitfun_core::service::remote_ssh::workspace_state::is_remote_path(cwd.trim()).await {
+            return Err(format!(
+                "run_system_command cannot execute '{}' in remote workspace directory '{}': this command spawns controller-local processes only; local filesystem fallback was not attempted",
+                request.command, cwd
+            ));
+        }
+    }
+
     let env_vars: Option<Vec<(String, String)>> = request
         .env
         .map(|vars| vars.into_iter().map(|v| (v.key, v.value)).collect());
@@ -571,6 +594,7 @@ pub struct ToggleMainWindowFullscreenResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StartupWindowControlAction {
+    GetState,
     Minimize,
     ToggleMaximize,
     Close,
@@ -580,6 +604,12 @@ pub enum StartupWindowControlAction {
 #[serde(rename_all = "camelCase")]
 pub struct StartupWindowControlRequest {
     pub action: StartupWindowControlAction,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartupWindowControlResponse {
+    pub is_maximized: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -700,19 +730,20 @@ pub async fn startup_window_control(
     startup_trace: State<'_, DesktopStartupTrace>,
     app: tauri::AppHandle,
     request: StartupWindowControlRequest,
-) -> Result<(), String> {
+) -> Result<StartupWindowControlResponse, String> {
     let Some(window) = app.get_webview_window("main") else {
         return Err("Main window not found".to_string());
     };
 
+    let mut is_maximized = window.is_maximized().unwrap_or(false);
     match request.action {
+        StartupWindowControlAction::GetState => {}
         StartupWindowControlAction::Minimize => {
             window.minimize().map_err(|error| {
                 format!("Failed to minimize main window during startup: {}", error)
             })?;
         }
         StartupWindowControlAction::ToggleMaximize => {
-            let is_maximized = window.is_maximized().unwrap_or(false);
             if is_maximized {
                 window.unmaximize().map_err(|error| {
                     format!("Failed to restore main window during startup: {}", error)
@@ -722,6 +753,7 @@ pub async fn startup_window_control(
                     format!("Failed to maximize main window during startup: {}", error)
                 })?;
             }
+            is_maximized = !is_maximized;
         }
         StartupWindowControlAction::Close => {
             let behavior = state
@@ -751,7 +783,7 @@ pub async fn startup_window_control(
         }
     }
 
-    Ok(())
+    Ok(StartupWindowControlResponse { is_maximized })
 }
 
 /// Toggle OS-level fullscreen for the Desktop main window.
@@ -886,17 +918,171 @@ pub async fn send_system_notification(
     app: tauri::AppHandle,
     request: SendNotificationRequest,
 ) -> Result<(), String> {
-    use tauri_plugin_notification::NotificationExt;
-
-    let mut builder = app.notification().builder().title(&request.title);
-    if let Some(body) = &request.body {
-        builder = builder.body(body);
+    #[cfg(target_os = "windows")]
+    {
+        // The Tauri notification plugin drops notify-rust's response handle after
+        // showing a Windows toast, so its body-click activation cannot be observed.
+        return send_clickable_windows_notification(app, request);
     }
-    builder.show().map_err(|e| e.to_string())
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        use tauri_plugin_notification::NotificationExt;
+
+        let mut builder = app.notification().builder().title(&request.title);
+        if let Some(body) = &request.body {
+            builder = builder.body(body);
+        }
+        builder.show().map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn send_clickable_windows_notification(
+    app: tauri::AppHandle,
+    request: SendNotificationRequest,
+) -> Result<(), String> {
+    let mut notification = notify_rust::Notification::new();
+    notification.summary(&request.title);
+    if let Some(body) = &request.body {
+        notification.body(body);
+    }
+
+    if should_use_configured_notification_app_id() {
+        notification.app_id(&app.config().identifier);
+    }
+
+    let handle = notification.show().map_err(|error| error.to_string())?;
+    // Waiting for a toast click is blocking; keep it off both the UI thread and
+    // the async executor while retaining the response handle until dismissal.
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) =
+            handle.wait_for_response(move |response: &notify_rust::NotificationResponse| {
+                if !notification_response_activates_main_window(response) {
+                    return;
+                }
+
+                let app_for_window = app.clone();
+                if let Err(error) = app.run_on_main_thread(move || {
+                    activate_main_window_from_notification(&app_for_window);
+                }) {
+                    log::warn!(
+                        "Failed to schedule main window activation from notification: {}",
+                        error
+                    );
+                }
+            })
+        {
+            log::warn!("Failed to observe Windows notification response: {}", error);
+        }
+    });
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn should_use_configured_notification_app_id() -> bool {
+    use std::path::MAIN_SEPARATOR;
+
+    // Match the Tauri plugin's development behavior. A Cargo-built executable
+    // has no installed Windows shortcut that registers OpenBitFun's AppUserModelID.
+    let Ok(executable) = tauri::utils::platform::current_exe() else {
+        return false;
+    };
+    let Some(executable_dir) = executable.parent() else {
+        return false;
+    };
+    let executable_dir = executable_dir.display().to_string();
+
+    !executable_dir.ends_with(format!("{MAIN_SEPARATOR}target{MAIN_SEPARATOR}debug").as_str())
+        && !executable_dir
+            .ends_with(format!("{MAIN_SEPARATOR}target{MAIN_SEPARATOR}release").as_str())
+}
+
+#[cfg(target_os = "windows")]
+fn notification_response_activates_main_window(
+    response: &notify_rust::NotificationResponse,
+) -> bool {
+    matches!(
+        response,
+        notify_rust::NotificationResponse::Default
+            | notify_rust::NotificationResponse::Action(_)
+            | notify_rust::NotificationResponse::Reply(_)
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn activate_main_window_from_notification(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        log::warn!("Failed to activate main window from notification: main window not found");
+        return;
+    };
+
+    if let Err(error) = window.unminimize() {
+        log::warn!(
+            "Failed to unminimize main window from notification: {}",
+            error
+        );
+    }
+    if let Err(error) = window.show() {
+        log::warn!("Failed to show main window from notification: {}", error);
+    }
+    if let Err(error) = window.set_focus() {
+        log::warn!("Failed to focus main window from notification: {}", error);
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn system_info_home_contract_accepts_legacy_and_reports_serving_host() {
+        let legacy =
+            serde_json::json!({"platform": "windows", "arch": "x86_64", "osVersion": null});
+        let old: super::SystemInfoResponse = serde_json::from_value(legacy).unwrap();
+        assert!(old.home_dir.is_none());
+        let round_trip: super::SystemInfoResponse =
+            serde_json::from_value(serde_json::to_value(old).unwrap()).unwrap();
+        assert_eq!(round_trip.platform, "windows");
+        assert!(round_trip.home_dir.is_none());
+
+        let response = serde_json::to_value(super::get_system_info().await.unwrap()).unwrap();
+        assert_eq!(
+            response["homeDir"],
+            serde_json::json!(super::system::get_system_info().home_dir)
+        );
+        assert!(response.get("home_dir").is_none());
+    }
+
+    #[test]
+    fn startup_window_control_contract_exposes_the_native_maximize_state() {
+        let request: super::StartupWindowControlRequest =
+            serde_json::from_value(serde_json::json!({ "action": "get_state" }))
+                .expect("get_state request");
+        assert!(matches!(
+            request.action,
+            super::StartupWindowControlAction::GetState
+        ));
+
+        let response = super::StartupWindowControlResponse { is_maximized: true };
+        assert_eq!(
+            serde_json::to_value(response).expect("serialize response"),
+            serde_json::json!({ "isMaximized": true })
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn notification_body_click_activates_main_window_but_dismissal_does_not() {
+        use notify_rust::{CloseReason, NotificationResponse};
+
+        assert!(super::notification_response_activates_main_window(
+            &NotificationResponse::Default
+        ));
+        assert!(!super::notification_response_activates_main_window(
+            &NotificationResponse::Closed(CloseReason::Dismissed)
+        ));
+    }
+
     /// The probe reads `platforms[<key>].url` out of `latest.json`; if this key
     /// stops matching what scripts/generate-tauri-latest-json.mjs emits, every
     /// probe silently scores 0 and ranking degrades to the configured order.
@@ -923,11 +1109,11 @@ mod tests {
     fn updater_uses_mirror_only_for_a_slow_github_and_the_same_release() {
         let github = UpdaterManifestInfo {
             version: "1.2.3".into(),
-            package_url: "https://github.example/bitfun.tar.gz".into(),
+            package_url: "https://github.example/openbitfun.tar.gz".into(),
         };
         let synchronized_mirror = UpdaterManifestInfo {
             version: "1.2.3".into(),
-            package_url: "https://mirror.example/bitfun.tar.gz".into(),
+            package_url: "https://mirror.example/openbitfun.tar.gz".into(),
         };
         let stale_mirror = UpdaterManifestInfo {
             version: "1.2.2".into(),
@@ -981,5 +1167,42 @@ mod tests {
         assert!(transition.next_fullscreen);
         assert!(!transition.should_apply_monitor_bounds_after_enter);
         assert!(transition.next_restore_maximized_after_fullscreen);
+    }
+}
+
+#[cfg(test)]
+mod remote_guard_tests {
+    use super::{run_system_command, RunCommandRequest};
+    use openbitfun_core::service::remote_ssh::workspace_state::init_remote_workspace_manager;
+
+    const REMOTE_ROOT: &str = "/remote-audit-run-command";
+    const CONNECTION_ID: &str = "remote-audit-run-command-connection";
+
+    #[tokio::test]
+    async fn run_system_command_refuses_remote_working_directory() {
+        init_remote_workspace_manager()
+            .register_remote_workspace(
+                REMOTE_ROOT.to_string(),
+                CONNECTION_ID.to_string(),
+                "remote-audit-run-command".to_string(),
+                "remote-audit-run-command.invalid".to_string(),
+            )
+            .await;
+
+        let error = run_system_command(RunCommandRequest {
+            command: "git".to_string(),
+            args: vec!["status".to_string()],
+            cwd: Some(format!("{REMOTE_ROOT}/repo")),
+            env: None,
+        })
+        .await
+        .expect_err("remote working directory must be refused");
+
+        assert!(error.starts_with("run_system_command cannot execute 'git'"));
+        assert!(error.contains("local filesystem fallback was not attempted"));
+
+        init_remote_workspace_manager()
+            .unregister_remote_workspace(CONNECTION_ID, REMOTE_ROOT)
+            .await;
     }
 }

@@ -7,13 +7,13 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 
-use bitfun_core::infrastructure::try_get_path_manager_arc;
-use bitfun_core::service::remote_ssh::workspace_state::{
+use openbitfun_core::infrastructure::try_get_path_manager_arc;
+use openbitfun_core::service::remote_ssh::workspace_state::{
     get_remote_workspace_manager, init_remote_workspace_manager,
 };
-use bitfun_core::service::runtime::RuntimeManager;
-use bitfun_core::service::terminal::TerminalEvent;
-use bitfun_core::service::terminal::{
+use openbitfun_core::service::runtime::RuntimeManager;
+use openbitfun_core::service::terminal::TerminalEvent;
+use openbitfun_core::service::terminal::{
     AcknowledgeRequest as CoreAcknowledgeRequest, CloseSessionRequest as CoreCloseSessionRequest,
     CommandCompletionReason as CoreCommandCompletionReason,
     CreateSessionRequest as CoreCreateSessionRequest,
@@ -48,7 +48,7 @@ impl TerminalState {
         if !*initialized {
             let mut config = TerminalConfig::default();
 
-            // Set scripts directory to app data dir: {config_dir}/bitfun/temp/scripts
+            // Set scripts directory to app data dir: {config_dir}/openbitfun/temp/scripts
             let scripts_dir = Self::get_scripts_dir();
             config.shell_integration.scripts_dir = Some(scripts_dir);
 
@@ -65,7 +65,7 @@ impl TerminalState {
                 }
             }
 
-            // Prepend BitFun-managed runtime dirs to PATH so Bash/Skill commands can
+            // Prepend OpenBitFun-managed runtime dirs to PATH so Bash/Skill commands can
             // run on machines without preinstalled dev tools.
             if let Ok(runtime_manager) = RuntimeManager::new() {
                 let current_path = std::env::var("PATH").ok();
@@ -92,7 +92,7 @@ impl TerminalState {
     fn get_scripts_dir() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("bitfun")
+            .join(openbitfun_core_types::product_identity::data_namespace())
             .join("temp")
             .join("scripts")
     }
@@ -128,6 +128,8 @@ pub struct SessionResponse {
     pub name: String,
     pub shell_type: String,
     pub cwd: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_cwd: Option<String>,
     pub pid: Option<u32>,
     pub status: String,
     pub cols: u16,
@@ -146,6 +148,7 @@ impl From<CoreSessionResponse> for SessionResponse {
             name: resp.name,
             shell_type: format!("{:?}", resp.shell_type),
             cwd: resp.cwd,
+            initial_cwd: resp.initial_cwd,
             pid: resp.pid,
             status: resp.status,
             cols: resp.cols,
@@ -372,7 +375,7 @@ fn remote_terminal_signal_bytes(signal: &str) -> Option<&'static [u8]> {
 
 async fn spawn_remote_pty_session(
     app: &AppHandle,
-    terminal_manager: &bitfun_core::service::remote_ssh::RemoteTerminalManager,
+    terminal_manager: &openbitfun_core::service::remote_ssh::RemoteTerminalManager,
     connection_id: &str,
     request: &CreateSessionRequest,
     initial_cwd: Option<&str>,
@@ -399,6 +402,7 @@ async fn spawn_remote_pty_session(
         name: session.name,
         shell_type: "Remote".to_string(),
         cwd: session.cwd.clone(),
+        initial_cwd: Some(session.cwd.clone()),
         pid: session.pid,
         status: format!("{:?}", session.status),
         cols: session.cols,
@@ -554,6 +558,7 @@ pub async fn terminal_get(
                     id: session.id,
                     name: session.name,
                     shell_type: "Remote".to_string(),
+                    initial_cwd: Some(session.cwd.clone()),
                     cwd: session.cwd,
                     pid: session.pid,
                     status: format!("{:?}", session.status),
@@ -590,6 +595,7 @@ pub async fn terminal_list(
                 id: s.id,
                 name: s.name,
                 shell_type: "Remote".to_string(),
+                initial_cwd: Some(s.cwd.clone()),
                 cwd: s.cwd,
                 pid: s.pid,
                 status: format!("{:?}", s.status),
@@ -893,8 +899,25 @@ pub async fn terminal_has_shell_integration(
     Ok(api.has_shell_integration(&session_id).await)
 }
 
+/// Shuts down every PTY this desktop owns, on the controller and on any connected SSH host.
+///
+/// Remote sessions live in the remote terminal manager, so stopping only the local API would leave
+/// shells running on the host after the caller was told everything was shut down.
 #[tauri::command]
 pub async fn terminal_shutdown_all(state: State<'_, TerminalState>) -> Result<(), String> {
+    if let Some(remote_manager) = get_remote_workspace_manager() {
+        if let Some(terminal_manager) = remote_manager.get_terminal_manager().await {
+            for session in terminal_manager.list_sessions().await {
+                if let Err(error) = terminal_manager.close_session(&session.id).await {
+                    warn!(
+                        "Failed to close remote terminal session during shutdown_all: session_id={}, error={}",
+                        session.id, error
+                    );
+                }
+            }
+        }
+    }
+
     let api = state.get_or_init_api().await?;
     api.shutdown_all().await;
 

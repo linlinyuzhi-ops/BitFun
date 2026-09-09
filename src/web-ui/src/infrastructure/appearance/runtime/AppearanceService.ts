@@ -14,6 +14,7 @@ import {
 } from '../sync/AppearanceSync';
 import {
   SYSTEM_APPEARANCE_ID,
+  APPEARANCE_SCHEMA_VERSION,
   type AppearanceCatalogEntry,
   type AppearanceImportOptions,
   type AppearanceMarketOrigin,
@@ -48,18 +49,18 @@ interface ApplySelectionOptions {
 declare global {
   // Injected by the desktop webview initialization script before the frontend
   // bundle runs. Both values are single-use startup hints.
-  var __BITFUN_BOOTSTRAP_APPEARANCE_ID__: string | undefined;
-  var __BITFUN_BOOTSTRAP_APPEARANCE_SELECTION__: string | undefined;
+  var __OPENBITFUN_BOOTSTRAP_APPEARANCE_ID__: string | undefined;
+  var __OPENBITFUN_BOOTSTRAP_APPEARANCE_SELECTION__: string | undefined;
 }
 
 function consumeBootstrapAppearance(): {
   resolvedId?: string;
   selection?: AppearanceSelectionId;
 } {
-  const resolvedId = globalThis.__BITFUN_BOOTSTRAP_APPEARANCE_ID__;
-  const selection = globalThis.__BITFUN_BOOTSTRAP_APPEARANCE_SELECTION__;
-  delete globalThis.__BITFUN_BOOTSTRAP_APPEARANCE_ID__;
-  delete globalThis.__BITFUN_BOOTSTRAP_APPEARANCE_SELECTION__;
+  const resolvedId = globalThis.__OPENBITFUN_BOOTSTRAP_APPEARANCE_ID__;
+  const selection = globalThis.__OPENBITFUN_BOOTSTRAP_APPEARANCE_SELECTION__;
+  delete globalThis.__OPENBITFUN_BOOTSTRAP_APPEARANCE_ID__;
+  delete globalThis.__OPENBITFUN_BOOTSTRAP_APPEARANCE_SELECTION__;
   return {
     resolvedId: typeof resolvedId === 'string' && resolvedId.trim() ? resolvedId.trim() : undefined,
     selection: typeof selection === 'string' && selection.trim() ? selection.trim() : undefined,
@@ -67,7 +68,12 @@ function consumeBootstrapAppearance(): {
 }
 
 function importedCatalogEntry(value: StoredAppearanceCatalogEntry): AppearanceCatalogEntry {
-  return { ...value, source: 'imported' };
+  const {
+    schemaVersion: _schemaVersion,
+    archiveSchemaVersion: _archiveSchemaVersion,
+    ...entry
+  } = value;
+  return { ...entry, source: 'imported' };
 }
 
 function errorMessage(error: unknown): string {
@@ -174,6 +180,14 @@ export class AppearanceService {
     return this.snapshot;
   }
 
+  hasAppliedPendingSelection(id: AppearanceSelectionId): boolean {
+    if (this.snapshot.status !== 'applying' || this.snapshot.pendingSelectionId !== id) {
+      return false;
+    }
+    const resolvedId = id === SYSTEM_APPEARANCE_ID ? getSystemAppearanceId() : id;
+    return this.runtime.getSnapshot()?.id === resolvedId;
+  }
+
   getPackage(id: string): Promise<AppearancePackage | null> {
     const builtin = getBuiltinAppearance(id);
     if (builtin) return Promise.resolve(builtin);
@@ -202,6 +216,12 @@ export class AppearanceService {
       persist: true,
       publish: true,
     }));
+  }
+
+  /** Apply state that was already persisted by another product-control port. */
+  async reconcilePersistedState(): Promise<void> {
+    await this.initialize();
+    await this.enqueueMutation(() => this.reconcileExternalState());
   }
 
   async importPackage(
@@ -331,7 +351,7 @@ export class AppearanceService {
   }
 
   async exportPackage(id: string): Promise<ArrayBuffer> {
-    const stored = await this.storage.get(id);
+    const stored = await this.getStoredPackage(id);
     if (!stored) throw new Error(`Imported appearance package not found: ${id}`);
     return stored.archive.slice(0);
   }
@@ -568,7 +588,7 @@ export class AppearanceService {
   private async resolvePackage(id: string): Promise<AppearanceSource | null> {
     const builtin = getBuiltinAppearance(id);
     if (builtin) return { pkg: builtin, assets: {} };
-    const stored = await this.storage.get(id);
+    const stored = await this.getStoredPackage(id);
     return stored ? {
       pkg: composeAppearancePackage(stored.manifest),
       assets: stored.assets,
@@ -577,8 +597,21 @@ export class AppearanceService {
   }
 
   private async loadCatalog(): Promise<readonly AppearanceCatalogEntry[]> {
-    const imported = (await this.storage.listCatalog()).map(importedCatalogEntry);
+    const entries = await this.storage.listCatalog();
+    const imported = entries.map(importedCatalogEntry);
     return [...builtinAppearanceCatalog, ...imported];
+  }
+
+  private async getStoredPackage(id: string): Promise<StoredAppearancePackage | null> {
+    const stored = await this.storage.get(id);
+    if (!stored) return null;
+    if (stored.manifest.schemaVersion !== APPEARANCE_SCHEMA_VERSION
+      || stored.archiveSchemaVersion !== APPEARANCE_SCHEMA_VERSION) {
+      throw new Error(
+        `Stored Appearance ${id} uses an unsupported schema and must be imported again`,
+      );
+    }
+    return stored;
   }
 
   private attachSystemListener(): void {

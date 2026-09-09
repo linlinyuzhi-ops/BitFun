@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Globe, RefreshCw } from 'lucide-react';
+import { OverflowText, Icon, IconButton, Input } from '@openbitfun/ui';
+import { AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { IconButton } from '@/component-library';
 import { createLogger } from '@/shared/utils/logger';
 import { useSceneStore } from '@/app/stores/sceneStore';
 import { useEmbeddedBrowserWebview } from './useEmbeddedBrowserWebview';
@@ -30,58 +30,51 @@ const BrowserScene: React.FC = () => {
     <div
       className="browser-scene"
       data-testid="browser-panel"
-      data-bf-scene="browser"
-      data-bf-part="root"
-      data-bf-state={browser.isLoading ? 'loading' : undefined}
+      data-openbitfun-scene="browser"
+      data-openbitfun-part="root"
+      data-openbitfun-state={browser.isLoading ? 'loading' : undefined}
     >
       <form
         className="browser-scene__toolbar"
         onSubmit={handleSubmit}
         data-testid="browser-panel-title"
-        data-bf-scene="browser"
-        data-bf-part="toolbar"
+        data-openbitfun-scene="browser"
+        data-openbitfun-part="toolbar"
       >
         <IconButton
           type="button"
-          variant="ghost"
-          size="small"
+          size="sm"
           onClick={browser.goBack}
           aria-label={t('nav.back')}
+          icon={<Icon name="chevron-left" size="lg" />}
           data-testid="browser-back-button"
-        >
-          <ChevronLeft size={14} />
-        </IconButton>
+        />
         <IconButton
           type="button"
-          variant="ghost"
-          size="small"
+          size="sm"
           onClick={browser.goForward}
           aria-label={t('nav.forward')}
+          icon={<Icon name="chevron-right" size="lg" />}
           data-testid="browser-forward-button"
-        >
-          <ChevronRight size={14} />
-        </IconButton>
+        />
         <IconButton
           type="button"
-          variant="ghost"
-          size="small"
+          size="sm"
           onClick={browser.reload}
           disabled={browser.isLoading}
           aria-label={t('actions.refresh')}
+          icon={(
+            <Icon name="refresh" size="lg" className={browser.isLoading ? 'browser-scene__spinning' : undefined} data-testid={browser.isLoading ? 'browser-loading-indicator' : undefined} />
+          )}
           data-testid="browser-refresh-button"
-        >
-          <RefreshCw
-            size={14}
-            className={browser.isLoading ? 'browser-scene__spinning' : undefined}
-            data-testid={browser.isLoading ? 'browser-loading-indicator' : undefined}
-          />
-        </IconButton>
+        />
         <div className="browser-scene__address">
-          <Globe size={16} />
-          <input
+          <Input
+            className="browser-scene__address-field"
             type="text"
             value={browser.inputValue}
-            onChange={(event) => browser.setInputValue(event.target.value)}
+            onValueChange={browser.setInputValue}
+            leading={<Icon name="browser" size="md" />}
             placeholder={t('browserView.addressPlaceholder', { exampleUrl: 'https://example.com' })}
             spellCheck={false}
             data-testid="browser-url-input"
@@ -90,13 +83,13 @@ const BrowserScene: React.FC = () => {
       </form>
 
       {browser.error ? (
-        <div className="browser-scene__error" data-testid="browser-error-message" data-bf-scene="browser" data-bf-part="error">
+        <div className="browser-scene__error" data-testid="browser-error-message" data-openbitfun-scene="browser" data-openbitfun-part="error">
           <AlertTriangle size={16} />
           <span>{browser.error}</span>
         </div>
       ) : null}
 
-      <div className="browser-scene__content" data-testid="browser-page-frame" data-bf-scene="browser" data-bf-part="content">
+      <div className="browser-scene__content" data-testid="browser-page-frame" data-openbitfun-scene="browser" data-openbitfun-part="content">
         {!browser.isTauri ? (
           <iframe
             className="browser-scene__iframe"
@@ -111,8 +104,8 @@ const BrowserScene: React.FC = () => {
             data-webview-label={browser.webviewLabel}
           >
             <div className="browser-scene__webview-placeholder">
-              <Globe size={20} />
-              <span data-testid="browser-current-url">{browser.currentUrl}</span>
+              <Icon name="browser" size="lg" />
+              <OverflowText data-testid="browser-current-url">{browser.currentUrl}</OverflowText>
             </div>
           </div>
         )}

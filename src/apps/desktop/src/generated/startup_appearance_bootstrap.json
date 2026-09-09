@@ -1,20 +1,30 @@
 {
   "schemaVersion": 1,
-  "defaultLightAppearanceId": "bitfun-light",
-  "defaultDarkAppearanceId": "bitfun-dark",
+  "defaultLightAppearanceId": "openbitfun-light",
+  "defaultDarkAppearanceId": "openbitfun-dark",
   "appearances": [
     {
-      "id": "bitfun-light",
-      "bgPrimary": "#f3f3f5",
+      "id": "openbitfun-light",
+      "bgPrimary": "#f8f8f9",
       "bgSecondary": "#ffffff",
       "bgScene": "#ffffff",
       "isLight": true,
-      "textPrimary": "#1e293b",
-      "textMuted": "#64748b",
-      "accentColor": "#64748b"
+      "textPrimary": "rgba(0, 0, 0, 0.80)",
+      "textMuted": "#6a6a6a",
+      "accentColor": "#101a27"
     },
     {
-      "id": "bitfun-slate",
+      "id": "openbitfun-monochrome",
+      "bgPrimary": "#1c1c1f",
+      "bgSecondary": "#262626",
+      "bgScene": "#ffffff",
+      "isLight": true,
+      "textPrimary": "#f3f3f5",
+      "textMuted": "#858585",
+      "accentColor": "#f3f3f5"
+    },
+    {
+      "id": "openbitfun-slate",
       "bgPrimary": "#1c1c1f",
       "bgSecondary": "#262626",
       "bgScene": "#262626",
@@ -24,7 +34,7 @@
       "accentColor": "#94a3b8"
     },
     {
-      "id": "bitfun-dark",
+      "id": "openbitfun-dark",
       "bgPrimary": "#0e0e10",
       "bgSecondary": "#1c1c1f",
       "bgScene": "#1c1c1f",
@@ -34,19 +44,19 @@
       "accentColor": "#60a5fa"
     },
     {
-      "id": "bitfun-midnight",
-      "bgPrimary": "#2b2d30",
-      "bgSecondary": "#1c1c1f",
+      "id": "openbitfun-midnight",
+      "bgPrimary": "#1c1c1f",
+      "bgSecondary": "#313335",
       "bgScene": "#2b2d30",
       "isLight": false,
       "textPrimary": "#c8c8c8",
-      "textMuted": "#6f737a",
+      "textMuted": "#a1a1aa",
       "accentColor": "#60a5fa"
     },
     {
-      "id": "bitfun-china-style",
-      "bgPrimary": "#faf8f0",
-      "bgSecondary": "#f5f3e8",
+      "id": "openbitfun-china-style",
+      "bgPrimary": "#f0ede0",
+      "bgSecondary": "#faf8f0",
       "bgScene": "#faf8f0",
       "isLight": true,
       "textPrimary": "#1c1c1f",
@@ -54,17 +64,17 @@
       "accentColor": "#2e5e8a"
     },
     {
-      "id": "bitfun-china-night",
+      "id": "openbitfun-china-night",
       "bgPrimary": "#1c1c1f",
-      "bgSecondary": "#212019",
-      "bgScene": "#1c1c1f",
+      "bgSecondary": "#313335",
+      "bgScene": "#262626",
       "isLight": false,
       "textPrimary": "#e8e8e8",
-      "textMuted": "#928f89",
+      "textMuted": "#a1a1aa",
       "accentColor": "#73a5cc"
     },
     {
-      "id": "bitfun-cyber",
+      "id": "openbitfun-cyber",
       "bgPrimary": "#0e0e10",
       "bgSecondary": "#1c1c1f",
       "bgScene": "#1c1c1f",
@@ -74,13 +84,13 @@
       "accentColor": "#00e6ff"
     },
     {
-      "id": "bitfun-tokyo-night",
+      "id": "openbitfun-tokyo-night",
       "bgPrimary": "#1a1b26",
-      "bgSecondary": "#1e202e",
-      "bgScene": "#1a1b26",
+      "bgSecondary": "#2f334d",
+      "bgScene": "#24283b",
       "isLight": false,
       "textPrimary": "#c0caf5",
-      "textMuted": "#787c99",
+      "textMuted": "#9aa5ce",
       "accentColor": "#7aa2f7"
     }
   ]

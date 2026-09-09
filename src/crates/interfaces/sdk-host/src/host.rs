@@ -19,6 +19,19 @@ use bitfun_agent_runtime::user_questions::USER_INPUT_AVAILABLE_CONTEXT_KEY;
 use bitfun_core_types::ErrorCategory;
 use bitfun_events::{AgenticEvent, ToolEventData};
 use futures_util::{stream::FuturesUnordered, FutureExt, StreamExt};
+use openbitfun_agent_runtime::sdk::{
+    AgentDialogTurnRequest, AgentInputAttachment, AgentRuntime, AgentSessionCreateRequest,
+    AgentSessionCreateResult, AgentSessionDeleteRequest, AgentSessionModelUpdateRequest,
+    AgentSessionReleaseRequest, AgentSessionRestoreRequest, AgentSessionWorkspaceRequest,
+    AgentSubmissionSource, AgentTurnCancellationRequest, AgentTurnSettlementRequest,
+    AgentTurnSettlementResult, AgentTurnSettlementStatus, DialogSubmissionPolicy,
+    DialogSubmitOutcome, PermissionReply, PermissionReplySource, PermissionRequest,
+    PermissionRequestEvent, PermissionRequestSourceKind, PortError, PortErrorKind, RuntimeError,
+    TurnTokenUsage, AUTO_APPROVE_ASK_CONTEXT_KEY,
+};
+use openbitfun_agent_runtime::user_questions::USER_INPUT_AVAILABLE_CONTEXT_KEY;
+use openbitfun_core_types::ErrorCategory;
+use openbitfun_events::{AgenticEvent, ToolEventData};
 use tokio::sync::{mpsc, oneshot, Mutex, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 use tokio::time::{timeout, Instant};
@@ -38,7 +51,7 @@ use crate::protocol::{
     METHOD_SHUTDOWN, NOTIFICATION_QUERY_EVENT, NOTIFICATION_QUERY_RESULT, PROTOCOL_VERSION,
 };
 
-const DEFAULT_SESSION_NAME: &str = "BitFun SDK query";
+const DEFAULT_SESSION_NAME: &str = "OpenBitFun SDK query";
 const DEFAULT_AGENT: &str = "agentic";
 const DEFAULT_TURN_SETTLEMENT_TIMEOUT_MS: u64 = 5_000;
 const PERMISSION_REJECTION_TIMEOUT_MS: u64 = 2_000;
@@ -246,8 +259,7 @@ struct QueryLease {
 }
 
 #[derive(Default)]
-struct QueryOutputBuffer {
-    text: String,
+struct QueryEventBudget {
     wire_bytes: usize,
     structured_attempt: Option<QueryOutputAttempt>,
 }
@@ -810,7 +822,7 @@ impl SdkHostConnection {
         .await;
         match result {
             Ok(Ok(_))
-            | Ok(Err(RuntimeError::Port(bitfun_runtime_ports::PortError {
+            | Ok(Err(RuntimeError::Port(openbitfun_runtime_ports::PortError {
                 kind: PortErrorKind::NotFound,
                 ..
             }))) => true,
@@ -1035,6 +1047,7 @@ impl SdkHostConnection {
                         .session_name
                         .unwrap_or_else(|| DEFAULT_SESSION_NAME.to_string()),
                     agent_type: params.agent.unwrap_or_else(|| DEFAULT_AGENT.to_string()),
+                    agent_route_key: None,
                     workspace_path: Some(workspace_path.clone()),
                     project_workspace_path: None,
                     execution_target: None,
@@ -1253,6 +1266,7 @@ impl SdkHostConnection {
                                 .agent
                                 .clone()
                                 .unwrap_or_else(|| DEFAULT_AGENT.to_string()),
+                            agent_route_key: None,
                             workspace_path: Some(workspace_path.clone()),
                             project_workspace_path: None,
                             execution_target: None,
@@ -1692,7 +1706,9 @@ impl SdkHostConnection {
                     }
                 }
                 if let Some((status, error)) = terminal {
-                    connection.finish_query(&lease, status, error, true).await;
+                    connection
+                        .finish_query(&lease, status, error, true, false)
+                        .await;
                     return;
                 }
             }
@@ -2077,7 +2093,7 @@ impl SdkHostConnection {
                 };
                 for query in queries {
                     query.stop_forwarding.cancel();
-                    self.finish_query(&query, QueryTerminalStatus::Cancelled, None, true)
+                    self.finish_query(&query, QueryTerminalStatus::Cancelled, None, true, false)
                         .await;
                 }
                 self.send_success(
@@ -2164,7 +2180,7 @@ impl SdkHostConnection {
             .get(session_id)
             .cloned()
             .ok_or_else(|| {
-                bitfun_runtime_ports::PortError::new(
+                openbitfun_runtime_ports::PortError::new(
                     PortErrorKind::NotAvailable,
                     "sessionId must be created or resumed on this SDK Host connection before starting a Query",
                 )
@@ -2186,7 +2202,7 @@ impl SdkHostConnection {
         let (result_tx, result_rx) = oneshot::channel();
         let mut connection_state = state.lock().await;
         if connection_state.shutting_down {
-            return Err(bitfun_runtime_ports::PortError::new(
+            return Err(openbitfun_runtime_ports::PortError::new(
                 PortErrorKind::Cancelled,
                 "SDK Host connection is shutting down",
             )
@@ -2242,7 +2258,7 @@ impl SdkHostConnection {
             });
         drop(connection_state);
         result_rx.await.map_err(|_| {
-            RuntimeError::from(bitfun_runtime_ports::PortError::new(
+            RuntimeError::from(openbitfun_runtime_ports::PortError::new(
                 PortErrorKind::Backend,
                 "SDK Host Session creation task ended without a result",
             ))
@@ -2604,6 +2620,7 @@ impl SdkHostConnection {
         status: QueryTerminalStatus,
         error: Option<QueryResultError>,
         emit_result: bool,
+        preserve_host_failure: bool,
     ) {
         if !lease.finish_once() {
             return;
@@ -2628,7 +2645,11 @@ impl SdkHostConnection {
                 }),
         )
         .await;
-        let settlement_confirmed = matches!(settlement, Ok(Ok(())));
+        let settlement_result = match settlement {
+            Ok(Ok(result)) => Some(result),
+            Ok(Err(_)) | Err(_) => None,
+        };
+        let settlement_confirmed = settlement_result.is_some();
         {
             let mut state = self.inner.state.lock().await;
             state.queries.remove(&lease.query_id);
@@ -2646,7 +2667,14 @@ impl SdkHostConnection {
             return;
         }
         if emit_result {
-            self.send_query_result(lease, status, error).await;
+            self.send_query_result(
+                lease,
+                status,
+                error,
+                settlement_result.expect("confirmed settlement result"),
+                preserve_host_failure,
+            )
+            .await;
         }
     }
 
@@ -2655,6 +2683,8 @@ impl SdkHostConnection {
         lease: &QueryLease,
         mut status: QueryTerminalStatus,
         mut error: Option<QueryResultError>,
+        settlement: AgentTurnSettlementResult,
+        preserve_host_failure: bool,
     ) -> bool {
         if !lease.emit_output {
             return true;
@@ -2757,8 +2787,14 @@ impl SdkHostConnection {
                 );
             }
         }
-        self.finish_query(lease, QueryTerminalStatus::Failed, Some(error), emit_result)
-            .await;
+        self.finish_query(
+            lease,
+            QueryTerminalStatus::Failed,
+            Some(error),
+            emit_result,
+            true,
+        )
+        .await;
     }
 
     async fn reject_permission_and_finish(
@@ -3413,7 +3449,42 @@ mod runtime_error_tests {
         QueryOutputBuffer,
     };
     use crate::protocol::{ErrorCode, RecoveryAction};
-    use bitfun_agent_runtime::sdk::{PortError, PortErrorKind, RuntimeError};
+    use openbitfun_agent_runtime::sdk::{PortError, PortErrorKind, RuntimeError};
+
+    #[test]
+    fn local_image_input_accepts_supported_paths_and_rejects_urls() {
+        assert!(is_local_image_path("screenshots/failure.PNG"));
+        assert!(!is_local_image_path("https://example.com/failure.png"));
+        assert!(!is_local_image_path("screenshots/failure.svg"));
+        assert!(!is_local_image_path("  "));
+    }
+
+    #[test]
+    fn structured_event_budget_keeps_only_the_last_model_attempt() {
+        let attempt = |round_id: &str| QueryOutputAttempt {
+            round_id: round_id.to_string(),
+            attempt_id: Some(format!("{round_id}-attempt")),
+            attempt_index: Some(0),
+        };
+        let mut budget = QueryEventBudget::default();
+
+        assert!(budget.observe(r#"{"draft":true}"#, Some(attempt("round-1"))));
+        let first_attempt_bytes = budget.wire_bytes;
+        assert!(budget.observe(r#"{"final":true}"#, Some(attempt("round-2"))));
+
+        assert_eq!(budget.wire_bytes, first_attempt_bytes);
+    }
+
+    #[test]
+    fn plain_event_budget_still_aggregates_model_rounds() {
+        let mut budget = QueryEventBudget::default();
+
+        assert!(budget.observe("first", None));
+        let first_bytes = budget.wire_bytes;
+        assert!(budget.observe("second", None));
+
+        assert!(budget.wire_bytes > first_bytes);
+    }
 
     #[test]
     fn local_image_input_accepts_supported_paths_and_rejects_urls() {

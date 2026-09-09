@@ -1,7 +1,7 @@
 #[cfg(feature = "mcp-bridge")]
-use bitfun_agent_tools::validate_mcp_tool_bridge_input;
+use openbitfun_agent_tools::validate_mcp_tool_bridge_input;
 #[cfg(feature = "acp-bridge")]
-use bitfun_agent_tools::{
+use openbitfun_agent_tools::{
     acp_external_agent_tool_input_schema, build_acp_external_agent_tool_definition,
     build_acp_external_agent_tool_name, build_acp_external_agent_tool_result,
     normalize_name_for_acp_tool_part, render_acp_external_agent_rejected_message,
@@ -9,28 +9,30 @@ use bitfun_agent_tools::{
     render_acp_external_agent_use_message, validate_acp_external_agent_tool_input,
     AcpExternalAgentToolDefinitionInput, ACP_TOOL_PREFIX, ACP_TOOL_SUFFIX,
 };
-use bitfun_agent_tools::{
-    build_bitfun_runtime_uri, build_get_tool_spec_assistant_detail,
-    build_get_tool_spec_detail_result, build_get_tool_spec_duplicate_load_hint,
-    build_get_tool_spec_duplicate_load_result, build_prompt_visible_tool_manifest_definitions,
+use openbitfun_agent_tools::{
+    build_get_tool_spec_assistant_detail, build_get_tool_spec_detail_result,
+    build_get_tool_spec_duplicate_load_hint, build_get_tool_spec_duplicate_load_result,
+    build_openbitfun_runtime_uri, build_prompt_visible_tool_manifest_definitions,
     build_tool_execution_timeout_presentation, build_tool_path_policy_denial_message,
     build_tool_runtime_artifact_reference, build_tool_session_runtime_artifact_reference,
     call_deferred_tool_description, call_deferred_tool_input_schema,
     collect_loaded_deferred_tool_specs, effective_tool_invocation, get_tool_spec_input_schema,
     get_tool_spec_is_concurrency_safe, get_tool_spec_is_readonly, get_tool_spec_short_description,
-    is_bitfun_runtime_uri, is_remote_posix_path_within_root,
+    is_openbitfun_runtime_uri, is_remote_posix_path_within_root,
     is_tool_path_allowed_by_resolved_roots, normalize_host_path, normalize_runtime_relative_path,
-    parse_bitfun_current_session_uri, parse_bitfun_runtime_uri, posix_resolve_path_with_workspace,
-    posix_style_path_is_absolute, render_get_tool_spec_tool_use_message,
-    resolve_contextual_tool_manifest, resolve_contextual_tool_manifest_from_provider,
-    resolve_get_tool_spec_detail, resolve_get_tool_spec_detail_from_provider,
+    parse_openbitfun_current_session_uri, parse_openbitfun_runtime_uri,
+    posix_resolve_path_with_workspace, posix_style_path_is_absolute,
+    render_get_tool_spec_tool_use_message, resolve_contextual_tool_manifest,
+    resolve_contextual_tool_manifest_from_provider, resolve_get_tool_spec_detail,
+    resolve_get_tool_spec_detail_from_provider,
     resolve_get_tool_spec_execution_result_from_provider, resolve_host_path_with_workspace,
     resolve_readonly_enabled_tools, resolve_tool_manifest_policy, resolve_tool_path_with_context,
     resolve_tool_path_with_context_roots, resolve_workspace_tool_path,
     sort_tool_manifest_definitions, summarize_get_tool_spec_deferred_tools,
-    tool_path_is_effectively_absolute, validate_deferred_tool_usage, validate_get_tool_spec_input,
-    validate_tool_allowed_by_list, validate_tool_execution_admission, CallDeferredToolInputError,
-    DynamicMcpToolInfo, DynamicToolInfo, GetToolSpecDeferredToolSummary, GetToolSpecExecutionError,
+    tool_path_is_effectively_absolute, tool_restrictions_for_delegation_policy,
+    validate_deferred_tool_usage, validate_get_tool_spec_input, validate_tool_allowed_by_list,
+    validate_tool_execution_admission, CallDeferredToolInputError, DynamicMcpToolInfo,
+    DynamicToolInfo, GetToolSpecDeferredToolSummary, GetToolSpecExecutionError,
     GetToolSpecExecutionPlan, GetToolSpecLoadObservation, GetToolSpecRuntime, InputValidator,
     LoadedDeferredToolSpec, PromptVisibleToolManifestItem, ResolvedToolInvocation,
     ToolContextFacts, ToolExecutionAdmissionRejection, ToolExecutionAdmissionRequest, ToolExposure,
@@ -38,7 +40,7 @@ use bitfun_agent_tools::{
     ToolPathOperation, ToolPathResolution, ToolRenderOptions, ToolResult, ToolRuntimeRestrictions,
     ToolWorkspaceKind, ValidationResult, CALL_DEFERRED_TOOL_NAME, GET_TOOL_SPEC_TOOL_NAME,
 };
-use bitfun_agent_tools::{
+use openbitfun_agent_tools::{
     build_invalid_tool_call_error_message, build_normal_tool_json_repair_notice,
     build_permission_denied_tool_presentation, build_tool_execution_error_presentation,
     build_user_rejected_tool_presentation, build_user_rejected_tool_presentation_with_instruction,
@@ -48,25 +50,21 @@ use bitfun_agent_tools::{
     USER_STEERING_INTERRUPTED_MESSAGE,
 };
 #[cfg(feature = "mcp-bridge")]
-use bitfun_agent_tools::{
+use openbitfun_agent_tools::{
     build_mcp_tool_bridge_definition, build_mcp_tool_bridge_name, build_mcp_tool_bridge_result,
     mcp_tool_bridge_dynamic_tool_info, mcp_tool_bridge_short_description, normalize_name_for_mcp,
     render_mcp_tool_bridge_rejected_message, render_mcp_tool_bridge_result_message,
     render_mcp_tool_bridge_use_message, McpToolBridgeBehaviorHints, McpToolBridgeDefinitionInput,
     MCP_TOOL_DELIMITER, MCP_TOOL_PREFIX,
 };
-use bitfun_agent_tools::{
+use openbitfun_agent_tools::{
     build_persisted_tool_output_message, count_tool_result_lines, file_tool_guidance_message,
     generate_tool_result_preview, is_file_tool_guidance_message,
     sanitize_tool_result_file_component, select_tool_result_indices_for_persistence,
     tool_result_is_persisted_output, PersistedToolOutput, ToolResultPersistenceCandidate,
     FILE_TOOL_GUIDANCE_PREFIX, PERSISTED_OUTPUT_TAG, TOOL_RESULT_PREVIEW_CHARS,
 };
-use bitfun_agent_tools::{
-    file_read_facts_are_fresh, file_read_facts_content_matches, normalize_tool_file_content,
-    FileReadFreshnessFacts,
-};
-use bitfun_agent_tools::{
+use openbitfun_agent_tools::{
     materialize_static_tool_provider_groups, ContextualToolManifestItem, DynamicToolDescriptor,
     DynamicToolProvider, GetToolSpecCatalogProvider, PortResult, PortableToolContextProvider,
     StaticToolMaterializationError, StaticToolProvider, StaticToolProviderFactory,
@@ -200,7 +198,7 @@ fn call_deferred_tool_contract_rejects_non_object_arguments() {
 
 #[test]
 fn call_deferred_tool_input_serializes_canonical_wire_shape() {
-    let parsed = bitfun_agent_tools::parse_call_deferred_tool_input(&json!({
+    let parsed = openbitfun_agent_tools::parse_call_deferred_tool_input(&json!({
         "tool_name": "CreatePlan",
         "overview": "outside",
         "args": {
@@ -395,6 +393,8 @@ fn acp_external_agent_bridge_preserves_tool_contract() {
         build_acp_external_agent_tool_definition(AcpExternalAgentToolDefinitionInput {
             client_id: "codex",
             display_name: Some("Codex"),
+            subagent_description: None,
+            best_for: None,
             read_only: false,
         });
 
@@ -411,6 +411,21 @@ fn acp_external_agent_bridge_preserves_tool_contract() {
     );
     assert!(!definition.read_only);
 
+    let profiled_definition =
+        build_acp_external_agent_tool_definition(AcpExternalAgentToolDefinitionInput {
+            client_id: "codex",
+            display_name: Some("Codex"),
+            subagent_description: Some("Implements complex code changes"),
+            best_for: Some("Cross-file refactors and difficult debugging"),
+            read_only: false,
+        });
+    assert!(profiled_definition
+        .description
+        .contains("Role: Implements complex code changes."));
+    assert!(profiled_definition
+        .description
+        .contains("Best suited for: Cross-file refactors and difficult debugging."));
+
     assert_eq!(
         acp_external_agent_tool_input_schema(),
         json!({
@@ -422,7 +437,7 @@ fn acp_external_agent_bridge_preserves_tool_contract() {
                 },
                 "workspace_path": {
                     "type": "string",
-                    "description": "Optional absolute workspace path. Defaults to the current BitFun workspace."
+                    "description": "Optional absolute workspace path. Defaults to the current OpenBitFun workspace."
                 },
                 "timeout_seconds": {
                     "type": "integer",
@@ -692,7 +707,7 @@ fn write_tail_closure_notice_preserves_write_like_guidance() {
     assert!(is_write_like_tool_name("write_notebook"));
     assert!(!is_write_like_tool_name("Read"));
 
-    let notice = bitfun_agent_tools::build_write_tail_closure_notice("Write");
+    let notice = openbitfun_agent_tools::build_write_tail_closure_notice("Write");
 
     assert!(notice.contains("latest Read result"));
     assert!(notice.contains("use Edit to add only the missing continuation"));
@@ -787,6 +802,7 @@ fn runtime_restrictions_keep_allow_deny_semantics_without_core_dependency() {
         denied_tool_names: ["Write"].into_iter().map(str::to_string).collect(),
         denied_tool_messages: Default::default(),
         path_policy: Default::default(),
+        miniapp_context_scope: None,
     };
 
     assert!(restrictions.is_tool_allowed("Read"));
@@ -830,6 +846,23 @@ fn runtime_restrictions_surface_custom_deny_messages() {
         denied.to_string(),
         "Recursive subagent delegation is blocked. Use direct tools instead."
     );
+}
+
+#[test]
+fn delegation_restrictions_cover_all_agent_spawn_surfaces() {
+    let restrictions = tool_restrictions_for_delegation_policy(
+        openbitfun_runtime_ports::DelegationPolicy::top_level().spawn_child(),
+    );
+
+    for tool_name in ["Task", "AgentSpawn"] {
+        let denied = restrictions
+            .ensure_tool_allowed(tool_name)
+            .expect_err("agent spawning should be denied for child delegation");
+        assert_eq!(
+            denied.to_string(),
+            "Recursive subagent delegation is blocked. Use direct tools instead."
+        );
+    }
 }
 
 #[test]
@@ -906,68 +939,10 @@ fn file_tool_guidance_marker_is_provider_neutral() {
 }
 
 #[test]
-fn file_read_freshness_policy_preserves_read_edit_write_guardrails() {
-    let full_read = FileReadFreshnessFacts {
-        content: "alpha\r\n",
-        timestamp_ms: 100,
-        is_full_file_read: true,
-    };
-
-    assert_eq!(normalize_tool_file_content("alpha\r\n"), "alpha");
-    assert!(file_read_facts_content_matches(full_read, "alpha\n"));
-    assert!(file_read_facts_are_fresh(full_read, "alpha\n", Some(200)));
-    assert!(!file_read_facts_are_fresh(full_read, "beta\n", Some(200)));
-    assert!(file_read_facts_are_fresh(full_read, "beta\n", Some(50)));
-    assert!(!file_read_facts_are_fresh(full_read, "beta\n", None));
-
-    let partial_read = FileReadFreshnessFacts {
-        content: "middle\n",
-        timestamp_ms: 100,
-        is_full_file_read: false,
-    };
-    assert!(!file_read_facts_content_matches(partial_read, "middle\n"));
-    assert!(!file_read_facts_are_fresh(
-        partial_read,
-        "full file\n",
-        Some(200)
-    ));
-    assert!(file_read_facts_are_fresh(partial_read, "full file\n", None));
-}
-
-#[test]
-fn file_read_freshness_tolerates_read_tool_trailing_newline_reconstruction_gap() {
-    // The cached "last Read result" content is rebuilt from cat -n-style
-    // output via a line-split/join, which drops a trailing newline even when
-    // the file on disk ends with one. Remote workspaces have no mtime to
-    // short-circuit this comparison, so every full-file Edit/Write on a
-    // trailing-newline file (the common case) must still be considered fresh.
-    let cached_without_trailing_newline = FileReadFreshnessFacts {
-        content: "alpha\nbeta",
-        timestamp_ms: 100,
-        is_full_file_read: true,
-    };
-
-    assert!(file_read_facts_content_matches(
-        cached_without_trailing_newline,
-        "alpha\nbeta\n"
-    ));
-    assert!(file_read_facts_are_fresh(
-        cached_without_trailing_newline,
-        "alpha\nbeta\n",
-        None
-    ));
-    assert!(!file_read_facts_are_fresh(
-        cached_without_trailing_newline,
-        "alpha\ngamma\n",
-        None
-    ));
-}
-
-#[test]
 fn persisted_tool_output_message_keeps_reference_preview_and_metadata_shape() {
     let rendered = build_persisted_tool_output_message(
         &PersistedToolOutput {
-            reference: "bitfun-runtime://session/session-1/tool-results/bash_1.txt".to_string(),
+            reference: "openbitfun-runtime://session/session-1/tool-results/bash_1.txt".to_string(),
             original_chars: 12_345,
             line_count: 7,
             preview: "first lines".to_string(),
@@ -1042,6 +1017,7 @@ fn runtime_restrictions_keep_current_snake_case_wire_shape() {
         "allowed_tool_names": ["Read"],
         "denied_tool_names": ["Write"],
         "path_policy": {
+            "read_roots": ["context"],
             "write_roots": ["src"],
             "edit_roots": ["docs"],
             "delete_roots": ["target/generated"]
@@ -1052,6 +1028,7 @@ fn runtime_restrictions_keep_current_snake_case_wire_shape() {
         serde_json::from_value(value.clone()).expect("deserialize restrictions");
     assert!(restrictions.is_tool_allowed("Read"));
     assert!(!restrictions.is_tool_allowed("Write"));
+    assert_eq!(restrictions.path_policy.read_roots, vec!["context"]);
     assert_eq!(restrictions.path_policy.write_roots, vec!["src"]);
     assert_eq!(restrictions.path_policy.edit_roots, vec!["docs"]);
     assert_eq!(
@@ -1061,6 +1038,26 @@ fn runtime_restrictions_keep_current_snake_case_wire_shape() {
 
     let round_trip = serde_json::to_value(&restrictions).expect("serialize restrictions");
     assert_eq!(round_trip, value);
+}
+
+#[test]
+fn runtime_restrictions_accept_legacy_path_policy_without_read_roots() {
+    let legacy = json!({
+        "allowed_tool_names": ["Read"],
+        "denied_tool_names": [],
+        "path_policy": {
+            "write_roots": ["src"],
+            "edit_roots": [],
+            "delete_roots": []
+        }
+    });
+    let restrictions: ToolRuntimeRestrictions =
+        serde_json::from_value(legacy).expect("legacy restrictions should deserialize");
+    assert!(restrictions.path_policy.read_roots.is_empty());
+    assert!(restrictions.miniapp_context_scope.is_none());
+    let round_trip = serde_json::to_value(restrictions).expect("serialize restrictions");
+    assert!(round_trip["path_policy"].get("read_roots").is_none());
+    assert!(round_trip.get("miniapp_context_scope").is_none());
 }
 
 #[test]
@@ -1078,8 +1075,8 @@ fn path_resolution_contract_keeps_backend_and_runtime_helpers() {
 
     let runtime_root = PathBuf::from("/runtime/workspace");
     let runtime = ToolPathResolution {
-        requested_path: "bitfun://runtime/workspace-1/logs/tool.txt".to_string(),
-        logical_path: "bitfun://runtime/workspace-1/logs/tool.txt".to_string(),
+        requested_path: "openbitfun://runtime/workspace-1/logs/tool.txt".to_string(),
+        logical_path: "openbitfun://runtime/workspace-1/logs/tool.txt".to_string(),
         resolved_path: runtime_root
             .join("logs")
             .join("tool.txt")
@@ -1094,7 +1091,7 @@ fn path_resolution_contract_keeps_backend_and_runtime_helpers() {
     assert!(runtime.is_runtime_artifact());
     assert_eq!(
         runtime.logical_child_path(&runtime_root.join("logs").join("tool.txt")),
-        Some("bitfun://runtime/workspace-1/logs/tool.txt".to_string())
+        Some("openbitfun://runtime/workspace-1/logs/tool.txt".to_string())
     );
     assert_eq!(
         runtime.logical_child_path(&PathBuf::from("/outside/tool.txt")),
@@ -1194,7 +1191,7 @@ fn tool_path_resolution_owner_preserves_runtime_uri_scope_and_backend() {
     let runtime_root = PathBuf::from("/runtime/workspace");
 
     let resolution = resolve_tool_path_with_context(
-        "bitfun://runtime/workspace-123/plans/demo.plan.md",
+        "openbitfun://runtime/workspace-123/plans/demo.plan.md",
         Some("/home/project"),
         true,
         Some("workspace-123"),
@@ -1204,11 +1201,11 @@ fn tool_path_resolution_owner_preserves_runtime_uri_scope_and_backend() {
 
     assert_eq!(
         resolution.requested_path,
-        "bitfun://runtime/workspace-123/plans/demo.plan.md"
+        "openbitfun://runtime/workspace-123/plans/demo.plan.md"
     );
     assert_eq!(
         resolution.logical_path,
-        "bitfun://runtime/workspace-123/plans/demo.plan.md"
+        "openbitfun://runtime/workspace-123/plans/demo.plan.md"
     );
     assert_eq!(
         PathBuf::from(&resolution.resolved_path),
@@ -1226,7 +1223,7 @@ fn tool_path_resolution_owner_preserves_runtime_uri_scope_and_backend() {
 fn tool_path_resolution_owner_resolves_current_session_uri() {
     let session_root = PathBuf::from("/runtime/workspace/sessions/session-123");
     let resolution = resolve_tool_path_with_context_roots(
-        "bitfun://current-session/artifacts/compression-transcripts/12-a3f9.txt",
+        "openbitfun://current-session/artifacts/compression-transcripts/12-a3f9.txt",
         Some("/home/project"),
         true,
         Some("workspace-123"),
@@ -1251,14 +1248,16 @@ fn tool_path_resolution_owner_resolves_current_session_uri() {
                 .join("compression-transcripts")
                 .join("child.txt")
         ),
-        Some("bitfun://current-session/artifacts/compression-transcripts/child.txt".to_string())
+        Some(
+            "openbitfun://current-session/artifacts/compression-transcripts/child.txt".to_string()
+        )
     );
 }
 
 #[test]
 fn current_session_uri_contract_rejects_missing_context_escape_and_unknown_authority() {
     let missing = resolve_tool_path_with_context_roots(
-        "bitfun://current-session/artifacts/file.txt",
+        "openbitfun://current-session/artifacts/file.txt",
         None,
         false,
         None,
@@ -1271,16 +1270,17 @@ fn current_session_uri_contract_rejects_missing_context_escape_and_unknown_autho
         "A current session is required to resolve session artifacts"
     );
 
-    let escape =
-        parse_bitfun_current_session_uri("bitfun://current-session/artifacts/../secret.txt")
-            .expect_err("parent escape should be rejected");
+    let escape = parse_openbitfun_current_session_uri(
+        "openbitfun://current-session/artifacts/../secret.txt",
+    )
+    .expect_err("parent escape should be rejected");
     assert_eq!(
         escape.to_string(),
         "Runtime artifact path cannot escape its root"
     );
 
     let unknown = resolve_tool_path_with_context_roots(
-        "bitfun://other/artifacts/file.txt",
+        "openbitfun://other/artifacts/file.txt",
         Some("/repo"),
         false,
         None,
@@ -1294,7 +1294,7 @@ fn current_session_uri_contract_rejects_missing_context_escape_and_unknown_autho
 #[test]
 fn tool_path_resolution_owner_rejects_mismatched_runtime_scope() {
     let err = resolve_tool_path_with_context(
-        "bitfun://runtime/workspace-456/plans/demo.plan.md",
+        "openbitfun://runtime/workspace-456/plans/demo.plan.md",
         Some("/home/project"),
         true,
         Some("workspace-123"),
@@ -1330,7 +1330,7 @@ fn tool_path_resolution_owner_selects_workspace_backend_semantics() {
 #[test]
 fn tool_path_absolute_contract_keeps_remote_posix_and_runtime_uri_semantics() {
     assert!(tool_path_is_effectively_absolute(
-        "bitfun://runtime/current/logs/tool.txt",
+        "openbitfun://runtime/current/logs/tool.txt",
         false
     ));
     assert!(tool_path_is_effectively_absolute(
@@ -1346,13 +1346,13 @@ fn tool_path_absolute_contract_keeps_remote_posix_and_runtime_uri_semantics() {
 
 #[test]
 fn runtime_uri_contract_is_provider_neutral_and_normalized() {
-    let uri = build_bitfun_runtime_uri("workspace-123", r"plans\demo.plan.md")
+    let uri = build_openbitfun_runtime_uri("workspace-123", r"plans\demo.plan.md")
         .expect("runtime URI should build");
 
-    assert_eq!(uri, "bitfun://runtime/workspace-123/plans/demo.plan.md");
-    assert!(is_bitfun_runtime_uri(&uri));
+    assert_eq!(uri, "openbitfun://runtime/workspace-123/plans/demo.plan.md");
+    assert!(is_openbitfun_runtime_uri(&uri));
 
-    let parsed = parse_bitfun_runtime_uri(&uri).expect("runtime URI should parse");
+    let parsed = parse_openbitfun_runtime_uri(&uri).expect("runtime URI should parse");
     assert_eq!(parsed.workspace_scope, "workspace-123");
     assert_eq!(parsed.relative_path, "plans/demo.plan.md");
     assert_eq!(
@@ -1364,7 +1364,7 @@ fn runtime_uri_contract_is_provider_neutral_and_normalized() {
 
 #[test]
 fn runtime_uri_contract_rejects_escape_and_invalid_scope() {
-    let escape = build_bitfun_runtime_uri("workspace-123", "../secret.txt")
+    let escape = build_openbitfun_runtime_uri("workspace-123", "../secret.txt")
         .expect_err("runtime URI should reject parent directory escape");
     assert_eq!(
         escape.to_string(),
@@ -1372,14 +1372,14 @@ fn runtime_uri_contract_rejects_escape_and_invalid_scope() {
     );
 
     let empty_scope =
-        build_bitfun_runtime_uri("  ", "logs/tool.txt").expect_err("scope should be required");
+        build_openbitfun_runtime_uri("  ", "logs/tool.txt").expect_err("scope should be required");
     assert_eq!(
         empty_scope.to_string(),
         "Runtime URI workspace scope cannot be empty"
     );
 
     let unsupported =
-        parse_bitfun_runtime_uri("/tmp/result.txt").expect_err("non-runtime URI should fail");
+        parse_openbitfun_runtime_uri("/tmp/result.txt").expect_err("non-runtime URI should fail");
     assert_eq!(
         unsupported.to_string(),
         "Unsupported runtime URI: /tmp/result.txt"
@@ -1398,7 +1398,7 @@ fn runtime_artifact_reference_owner_preserves_remote_uri_shape() {
 
     assert_eq!(
         reference,
-        "bitfun://runtime/workspace-123/plans/demo.plan.md"
+        "openbitfun://runtime/workspace-123/plans/demo.plan.md"
     );
 }
 
@@ -1437,7 +1437,7 @@ fn runtime_artifact_reference_owner_preserves_session_prefix_and_rejects_escape(
 
     assert_eq!(
         session_reference,
-        "bitfun://runtime/workspace-123/sessions/session-1/tool-results/result.json"
+        "openbitfun://runtime/workspace-123/sessions/session-1/tool-results/result.json"
     );
 
     let runtime_root = PathBuf::from("/runtime/workspace");
@@ -1926,9 +1926,9 @@ fn prompt_visible_manifest_builder_omits_deferred_tools_from_provider_manifest()
             json!({ "type": "object", "properties": { "path": { "type": "string" } } }),
         )),
         PromptVisibleToolManifestItem::Direct(ToolManifestDefinition::new(
-            "Bash",
+            "ExecCommand",
             "Run shell commands.",
-            json!({ "type": "object", "properties": { "command": { "type": "string" } } }),
+            json!({ "type": "object", "properties": { "cmd": { "type": "string" } } }),
         )),
     ]);
 
@@ -1937,11 +1937,11 @@ fn prompt_visible_manifest_builder_omits_deferred_tools_from_provider_manifest()
             .iter()
             .map(|definition| definition.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["Bash", "Read"]
+        vec!["ExecCommand", "Read"]
     );
     assert_eq!(definitions[0].description, "Run shell commands.");
     assert_eq!(
-        definitions[0].parameters["properties"]["command"]["type"],
+        definitions[0].parameters["properties"]["cmd"]["type"],
         json!("string")
     );
 }
@@ -2060,7 +2060,7 @@ fn get_tool_spec_contract_builds_duplicate_load_result() {
 
 #[test]
 fn get_tool_spec_contract_builds_detail_result() {
-    let result = build_get_tool_spec_detail_result(&bitfun_agent_tools::GetToolSpecDetail {
+    let result = build_get_tool_spec_detail_result(&openbitfun_agent_tools::GetToolSpecDetail {
         tool_name: "Git".to_string(),
         description: "Use <repo> & inspect changes.".to_string(),
         input_schema: json!({
@@ -2103,9 +2103,11 @@ fn get_tool_spec_contract_builds_detail_result() {
 #[test]
 fn get_tool_spec_contract_plans_duplicate_load_without_core_context() {
     let input = json!({ "tool_name": "WebFetch" });
-    let plan =
-        bitfun_agent_tools::resolve_get_tool_spec_execution_plan(&input, &["WebFetch".to_string()])
-            .expect("duplicate load should be planned");
+    let plan = openbitfun_agent_tools::resolve_get_tool_spec_execution_plan(
+        &input,
+        &["WebFetch".to_string()],
+    )
+    .expect("duplicate load should be planned");
 
     let GetToolSpecExecutionPlan::DuplicateLoad(result) = plan else {
         panic!("expected duplicate-load plan");
@@ -2132,9 +2134,11 @@ fn get_tool_spec_contract_plans_duplicate_load_without_core_context() {
 #[test]
 fn get_tool_spec_contract_plans_detail_load_without_resolving_product_detail() {
     let input = json!({ "tool_name": "Git" });
-    let plan =
-        bitfun_agent_tools::resolve_get_tool_spec_execution_plan(&input, &["WebFetch".to_string()])
-            .expect("detail load should be planned");
+    let plan = openbitfun_agent_tools::resolve_get_tool_spec_execution_plan(
+        &input,
+        &["WebFetch".to_string()],
+    )
+    .expect("detail load should be planned");
 
     let GetToolSpecExecutionPlan::LoadDetail { tool_name } = plan else {
         panic!("expected detail-load plan");
@@ -2145,7 +2149,7 @@ fn get_tool_spec_contract_plans_detail_load_without_resolving_product_detail() {
 
 #[test]
 fn get_tool_spec_contract_rejects_missing_tool_name_in_execution_plan() {
-    let err = bitfun_agent_tools::resolve_get_tool_spec_execution_plan(&json!({}), &[])
+    let err = openbitfun_agent_tools::resolve_get_tool_spec_execution_plan(&json!({}), &[])
         .expect_err("missing tool name should be rejected");
 
     assert_eq!(err, GetToolSpecExecutionError::MissingToolName);
@@ -2566,7 +2570,9 @@ impl ToolDecorator<Arc<RegistryMarkerTool>> for RegistryMarkerDecorator {
 
 struct RegistryMarkerSnapshotWrapper;
 
-impl bitfun_agent_tools::SnapshotToolWrapper<RegistryMarkerTool> for RegistryMarkerSnapshotWrapper {
+impl openbitfun_agent_tools::SnapshotToolWrapper<RegistryMarkerTool>
+    for RegistryMarkerSnapshotWrapper
+{
     fn wrap_for_snapshot_tracking(&self, tool: Arc<RegistryMarkerTool>) -> Arc<RegistryMarkerTool> {
         Arc::new(RegistryMarkerTool {
             name: format!("snapshot_{}", tool.name),
@@ -2617,7 +2623,7 @@ fn generic_tool_registry_applies_decorator_to_static_provider_tools() {
 #[test]
 fn generic_snapshot_tool_decorator_delegates_to_snapshot_wrapper_port() {
     let decorator: ToolDecoratorRef<RegistryMarkerTool> = Arc::new(
-        bitfun_agent_tools::SnapshotToolDecorator::new(Arc::new(RegistryMarkerSnapshotWrapper)),
+        openbitfun_agent_tools::SnapshotToolDecorator::new(Arc::new(RegistryMarkerSnapshotWrapper)),
     );
     let providers = vec![StaticToolProviderGroup::new(
         "core-basic",
@@ -2764,7 +2770,7 @@ fn manifest_policy_tools_from_registry_snapshot_preserve_exposure_and_availabili
         .collect();
 
     let policy_tools =
-        bitfun_agent_tools::build_tool_manifest_policy_tools(&tools, &available_tool_names);
+        openbitfun_agent_tools::build_tool_manifest_policy_tools(&tools, &available_tool_names);
 
     assert_eq!(
         policy_tools,

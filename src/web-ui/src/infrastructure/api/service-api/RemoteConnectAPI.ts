@@ -20,22 +20,59 @@ export interface ConnectionMethodInfo {
   description: string;
 }
 
+export type RemotePairingState =
+  | 'idle'
+  | 'waiting_for_scan'
+  | 'handshaking'
+  | 'verifying'
+  | 'connected'
+  | 'disconnected'
+  | { failed: { reason: string } };
+
+export function remotePairingStateName(
+  state: RemotePairingState | null | undefined,
+): Exclude<RemotePairingState, { failed: { reason: string } }> | 'failed' {
+  if (state === null || state === undefined) return 'idle';
+  return typeof state === 'string' ? state : 'failed';
+}
+
+export function remotePairingFailureReason(
+  state: RemotePairingState | null | undefined,
+): string | null {
+  return typeof state === 'object' && state !== null
+    ? state.failed.reason
+    : null;
+}
+
+/** Fresh results use Rust's externally tagged enum; restored status uses a Debug string. */
+export type RemoteConnectionMethod =
+  | string
+  | { lan: { ip: string | null } }
+  | { custom_server: { url: string } };
+
 export interface ConnectionResult {
-  method: string;
+  method: RemoteConnectionMethod;
   qr_data: string | null;
   qr_svg: string | null;
   qr_url: string | null;
   bot_pairing_code: string | null;
   bot_link: string | null;
-  pairing_state: string;
+  pairing_state: RemotePairingState;
 }
 
 export interface RemoteConnectStatus {
   is_connected: boolean;
-  pairing_state: string;
+  pairing_state: RemotePairingState;
   active_method: string | null;
   peer_device_name: string | null;
   peer_user_id: string | null;
+  /** Added by hosts that track authenticated account-route control heartbeats. */
+  account_control_connected?: boolean;
+  /** Relay of the live account route; independent of the temporary QR invitation. */
+  account_control_relay_url?: string | null;
+  /** Heartbeat leases for browser pages, not a count of physical devices. */
+  account_control_clients?: Array<{ id: string; name: string }>;
+  account_control_has_unidentified_clients?: boolean;
   bot_connected: string | null;
   bot_verbose_mode: boolean;
 }

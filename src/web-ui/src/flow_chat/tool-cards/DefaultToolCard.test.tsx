@@ -19,10 +19,6 @@ vi.mock('react-i18next', async () => {
   };
 });
 
-vi.mock('../../component-library', () => ({
-  ToolProcessingDots: () => <span data-testid="tool-processing-dots" />,
-}));
-
 const config: ToolCardConfig = {
   toolName: 'WebFetch',
   displayName: 'WebFetch',
@@ -124,7 +120,9 @@ describe('DefaultToolCard', () => {
       );
     });
 
-    const card = container.querySelector('.compact-tool-card');
+    const card = container.querySelector(
+      '[data-openbitfun-component="flow-chat-tool-card"][data-openbitfun-part="surface"][data-openbitfun-attention="ambient"]',
+    );
     expect(card).not.toBeNull();
 
     act(() => {

@@ -4,14 +4,17 @@
 //! and provider-neutral review-platform response semantics. Concrete HTTP
 //! transport lives in `review_platform_http`.
 
+use crate::repository_trust::{
+    is_untrusted_repository_message, normalize_trust_path, untrusted_repository_path_from_message,
+};
 use crate::review_platform_http::{
     send_json as send_review_json, send_json_response as send_review_json_response,
     send_json_response_bounded as send_review_json_response_bounded,
     send_text_bounded as send_review_text_bounded, ReviewHttpClient, ReviewHttpError,
     ReviewHttpHeaders, ReviewHttpRequest, ReviewJsonResponse, ReviewTextResponse,
 };
-use bitfun_services_core::process_manager;
 use futures::{stream, StreamExt};
+use openbitfun_services_core::process_manager;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -22,7 +25,10 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex as AsyncMutex;
 
+mod gitee;
+
 pub const REVIEW_PLATFORM_TOKEN_FILE_NAME: &str = "review-platform-tokens.json";
+const REVIEW_PLATFORM_TOKEN_SCHEMA_VERSION: u16 = 1;
 
 const USER_AGENT_VALUE: &str = "ReviewPlatform";
 const ACCEPT_HEADER: &str = "accept";
@@ -63,6 +69,11 @@ static TOKEN_STORE_TEMP_NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic:
 pub enum ReviewPlatformError {
     #[error("Invalid repository path: {0}")]
     InvalidRepository(String),
+    #[error("Repository ownership is not trusted: {repository_path}")]
+    RepositoryUntrusted {
+        repository_path: String,
+        detail: String,
+    },
     #[error("Remote not found: {0}")]
     RemoteNotFound(String),
     #[error("Unsupported review platform: {0}")]
@@ -83,12 +94,45 @@ pub enum ReviewPlatformError {
     TargetIsPullRequest { issue_id: String },
 }
 
+impl ReviewPlatformError {
+    pub fn untrusted_repository_path(&self) -> Option<&str> {
+        match self {
+            Self::RepositoryUntrusted {
+                repository_path, ..
+            } => Some(repository_path),
+            _ => None,
+        }
+    }
+}
+
+/// Stable boundary error for a repository ownership rejection.
+pub fn untrusted_repository_error_message(repository_path: &str) -> String {
+    crate::repository_trust::untrusted_repository_error_message(repository_path)
+}
+
+/// Classifies a failed Git probe without making Review Platform depend on the
+/// full Git capability feature.
+pub fn classify_git_command_failure(repository_path: &str, message: String) -> ReviewPlatformError {
+    if is_untrusted_repository_message(&message) {
+        let repository_path = untrusted_repository_path_from_message(&message)
+            .or_else(|| normalize_trust_path(repository_path))
+            .unwrap_or_else(|| repository_path.to_string());
+        return ReviewPlatformError::RepositoryUntrusted {
+            repository_path,
+            detail: message,
+        };
+    }
+
+    ReviewPlatformError::InvalidRepository(message)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewPlatformKind {
     Github,
     Gitlab,
     Gitcode,
+    Gitee,
     Unknown,
 }
 
@@ -98,6 +142,7 @@ impl ReviewPlatformKind {
             Self::Github => "github",
             Self::Gitlab => "gitlab",
             Self::Gitcode => "gitcode",
+            Self::Gitee => "gitee",
             Self::Unknown => "unknown",
         }
     }
@@ -226,6 +271,7 @@ pub struct ReviewPlatformCiItem {
 #[serde(rename_all = "camelCase")]
 pub struct ReviewPlatformPullRequest {
     pub id: String,
+    /// Remote binding for aggregated lists, not the provider's internal PR ID.
     pub provider_id: Option<String>,
     pub number: i64,
     pub title: String,
@@ -239,6 +285,10 @@ pub struct ReviewPlatformPullRequest {
     pub web_url: String,
     pub additions: i32,
     pub deletions: i32,
+    /// Whether line totals are complete and safe to present, including zero.
+    /// None preserves the behavior of providers and payloads predating this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_stats_known: Option<bool>,
     pub changed_files: i32,
     /// Whether `changed_files` is safe to present as an actual count.
     /// Older payloads predate the unknown state and are treated as known.
@@ -379,6 +429,8 @@ pub struct ReviewPlatformPullRequestDetail {
     pub files: Vec<ReviewPlatformFile>,
     pub commits: Vec<ReviewPlatformCommit>,
     pub threads: Vec<ReviewPlatformThread>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -403,6 +455,8 @@ pub struct ReviewPlatformPullRequestDetailPage {
     pub threads: Vec<ReviewPlatformThread>,
     pub section: ReviewPlatformDetailSection,
     pub pagination: ReviewPlatformPagination,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limitations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -426,6 +480,21 @@ pub struct ReviewPlatformCapabilities {
     pub can_request_changes: bool,
     pub can_merge: bool,
     pub supports_draft_review: bool,
+    /// Repository-wide list filters supported by this host/provider. An absent
+    /// field on an older host must not be treated as server-side filtering.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supported_pull_request_states: Vec<ReviewPlatformListState>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewPlatformListState {
+    #[default]
+    All,
+    Open,
+    Draft,
+    Merged,
+    Closed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -544,7 +613,7 @@ pub struct ReviewPlatformWorkspaceSnapshot {
 ///
 /// Review-platform only touches the workspace for repository discovery
 /// (`git rev-parse --show-toplevel`, `git remote -v`); provider data itself is
-/// fetched over HTTP from the host running BitFun. Remote SSH workspaces are
+/// fetched over HTTP from the host running OpenBitFun. Remote SSH workspaces are
 /// therefore fully supported as long as the product runtime can execute those
 /// Git probes on the remote host, which is what this port injects.
 #[async_trait::async_trait]
@@ -595,8 +664,14 @@ struct WorkspaceGitScope {
     remote: bool,
 }
 
+/// Test-only classifier that treats every path as local. Production hosts
+/// must inject a remote-aware classifier; a classifier that answers `false`
+/// for a remote workspace would run Git probes against the controller
+/// filesystem, which is the silent local fallback the remote scenarios forbid.
+#[cfg(test)]
 struct LocalOnlyReviewPlatformWorkspaceClassifier;
 
+#[cfg(test)]
 #[async_trait::async_trait]
 impl ReviewPlatformWorkspaceClassifier for LocalOnlyReviewPlatformWorkspaceClassifier {
     async fn is_remote_workspace_path(&self, _path: &str) -> bool {
@@ -662,7 +737,11 @@ impl ProviderIssueIdentity {
             platform,
             host: normalize_provider_host(host)?,
             project_path: normalize_project_path(platform, project_path)?,
-            issue_id: normalize_provider_item_id(issue_id, "Issue")?,
+            issue_id: if platform == ReviewPlatformKind::Gitee {
+                gitee::normalize_issue_number(issue_id)?
+            } else {
+                normalize_provider_item_id(issue_id, "Issue")?
+            },
         })
     }
 }
@@ -719,15 +798,25 @@ impl ReviewPlatformAuthTokens {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StoredReviewPlatformTokens {
+    schema_version: u16,
     #[serde(default)]
     tokens: HashMap<String, StoredReviewPlatformToken>,
 }
 
+impl Default for StoredReviewPlatformTokens {
+    fn default() -> Self {
+        Self {
+            schema_version: REVIEW_PLATFORM_TOKEN_SCHEMA_VERSION,
+            tokens: HashMap::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StoredReviewPlatformToken {
     token: String,
     updated_at: String,
@@ -750,8 +839,10 @@ impl ReviewPlatformService {
         }
     }
 
-    /// Creates a local-only owner for services tests and local Git-only hosts.
-    pub fn new_local_only(token_store_path: PathBuf) -> Self {
+    /// Creates a local-only owner for services tests. Production hosts must
+    /// use [`Self::new`] with a remote-aware classifier.
+    #[cfg(test)]
+    pub(crate) fn new_local_only(token_store_path: PathBuf) -> Self {
         Self::new(
             token_store_path,
             Arc::new(LocalOnlyReviewPlatformWorkspaceClassifier),
@@ -879,7 +970,25 @@ impl ReviewPlatformService {
         page: Option<u32>,
         per_page: Option<u32>,
     ) -> Result<ReviewPlatformWorkspaceSnapshot, ReviewPlatformError> {
-        self.workspace_snapshot_internal(repository_path, remote_id, page, per_page, true)
+        self.workspace_snapshot_with_state(
+            repository_path,
+            remote_id,
+            page,
+            per_page,
+            ReviewPlatformListState::All,
+        )
+        .await
+    }
+
+    pub async fn workspace_snapshot_with_state(
+        &self,
+        repository_path: &str,
+        remote_id: Option<&str>,
+        page: Option<u32>,
+        per_page: Option<u32>,
+        state: ReviewPlatformListState,
+    ) -> Result<ReviewPlatformWorkspaceSnapshot, ReviewPlatformError> {
+        self.workspace_snapshot_internal(repository_path, remote_id, page, per_page, true, state)
             .await
     }
 
@@ -888,8 +997,15 @@ impl ReviewPlatformService {
         repository_path: &str,
         remote_id: Option<&str>,
     ) -> Result<ReviewPlatformWorkspaceSnapshot, ReviewPlatformError> {
-        self.workspace_snapshot_internal(repository_path, remote_id, None, None, false)
-            .await
+        self.workspace_snapshot_internal(
+            repository_path,
+            remote_id,
+            None,
+            None,
+            false,
+            ReviewPlatformListState::All,
+        )
+        .await
     }
 
     async fn workspace_snapshot_internal(
@@ -899,6 +1015,7 @@ impl ReviewPlatformService {
         page: Option<u32>,
         per_page: Option<u32>,
         include_pull_requests: bool,
+        state: ReviewPlatformListState,
     ) -> Result<ReviewPlatformWorkspaceSnapshot, ReviewPlatformError> {
         let pagination_request = PullRequestPagination::new(page, per_page);
         let auth_tokens = self.load_stored_tokens().await?;
@@ -926,6 +1043,17 @@ impl ReviewPlatformService {
                     .as_deref()
                     .unwrap_or("Unsupported remote provider"),
             ));
+        }
+
+        if state != ReviewPlatformListState::All
+            && !capabilities_for_remote(&remote)
+                .supported_pull_request_states
+                .contains(&state)
+        {
+            return Err(ReviewPlatformError::UnsupportedPlatform(format!(
+                "{} does not support repository-wide pull request state filtering on this host",
+                platform_label(remote.platform)
+            )));
         }
 
         if remote.platform == ReviewPlatformKind::Gitcode
@@ -1012,7 +1140,10 @@ impl ReviewPlatformService {
                 auth_challenge: None,
             });
         }
-        match provider.list_pull_requests(&ctx, pagination_request).await {
+        match provider
+            .list_pull_requests_with_state(&ctx, pagination_request, state)
+            .await
+        {
             Ok(page) => Ok(ReviewPlatformWorkspaceSnapshot {
                 remotes,
                 selected_remote_id: Some(remote.id.clone()),
@@ -1396,7 +1527,7 @@ impl ReviewPlatformService {
     ) -> bool {
         if !matches!(
             platform,
-            ReviewPlatformKind::Github | ReviewPlatformKind::Gitlab
+            ReviewPlatformKind::Github | ReviewPlatformKind::Gitlab | ReviewPlatformKind::Gitee
         ) {
             return false;
         }
@@ -1426,7 +1557,7 @@ impl ReviewPlatformService {
     ) -> Result<(), ReviewPlatformError> {
         if platform == ReviewPlatformKind::Github {
             return Err(ReviewPlatformError::Api(format!(
-                "GitHub tokens are not stored by BitFun. Authenticate the local GitHub CLI with `gh auth login --hostname {}`.",
+                "GitHub tokens are not stored by OpenBitFun. Authenticate the local GitHub CLI with `gh auth login --hostname {}`.",
                 normalize_provider_host(host)?
             )));
         }
@@ -1438,12 +1569,10 @@ impl ReviewPlatformService {
         }
         let key = token_key(platform, host)
             .ok_or_else(|| ReviewPlatformError::UnsupportedPlatform(host.to_string()))?;
-        let _transaction = self.token_store_lock.lock().await;
-        let (mut stored, _) =
-            canonicalize_stored_tokens(self.load_stored_token_file_unlocked().await?);
-        stored.tokens.retain(|stored_key, _| {
-            normalize_stored_token_key(stored_key).as_deref() != Some(key.as_str())
-        });
+        let store = self.token_store_owner(platform, host)?;
+        let _transaction = store.token_store_lock.lock().await;
+        let mut stored = store.load_stored_token_file_unlocked().await?;
+        stored.tokens.remove(&key);
         stored.tokens.insert(
             key,
             StoredReviewPlatformToken {
@@ -1451,7 +1580,7 @@ impl ReviewPlatformService {
                 updated_at: chrono::Utc::now().to_rfc3339(),
             },
         );
-        self.save_stored_token_file_unlocked(&stored).await
+        store.save_stored_token_file_unlocked(&stored).await
     }
 
     pub async fn clear_auth_token(
@@ -1467,13 +1596,30 @@ impl ReviewPlatformService {
         }
         let key = token_key(platform, host)
             .ok_or_else(|| ReviewPlatformError::UnsupportedPlatform(host.to_string()))?;
-        let _transaction = self.token_store_lock.lock().await;
-        let (mut stored, _) =
-            canonicalize_stored_tokens(self.load_stored_token_file_unlocked().await?);
-        stored.tokens.retain(|stored_key, _| {
-            normalize_stored_token_key(stored_key).as_deref() != Some(key.as_str())
-        });
-        self.save_stored_token_file_unlocked(&stored).await
+        let store = self.token_store_owner(platform, host)?;
+        let _transaction = store.token_store_lock.lock().await;
+        let mut stored = store.load_stored_token_file_unlocked().await?;
+        stored.tokens.remove(&key);
+        store.save_stored_token_file_unlocked(&stored).await
+    }
+
+    fn token_store_owner(
+        &self,
+        platform: ReviewPlatformKind,
+        host: &str,
+    ) -> Result<Self, ReviewPlatformError> {
+        let path = if platform == ReviewPlatformKind::Gitee {
+            if normalize_provider_host(host)? != "gitee.com" {
+                return Err(ReviewPlatformError::UnsupportedPlatform(host.to_string()));
+            }
+            // Older hosts reject unknown authority keys in the shared v1 file.
+            // Keep Gitee additive across upgrades and downgrades, using the same
+            // atomic persistence and per-path locking as existing providers.
+            self.token_store_path.with_extension("gitee.json")
+        } else {
+            self.token_store_path.clone()
+        };
+        Ok(Self::new(path, self.workspace_classifier.clone()))
     }
 }
 
@@ -1484,6 +1630,21 @@ trait ReviewProvider: Sync {
         ctx: &ProviderContext,
         pagination: PullRequestPagination,
     ) -> Result<ReviewPlatformPullRequestPage, ReviewPlatformError>;
+
+    async fn list_pull_requests_with_state(
+        &self,
+        ctx: &ProviderContext,
+        pagination: PullRequestPagination,
+        state: ReviewPlatformListState,
+    ) -> Result<ReviewPlatformPullRequestPage, ReviewPlatformError> {
+        if state != ReviewPlatformListState::All {
+            return Err(ReviewPlatformError::UnsupportedPlatform(format!(
+                "{} pull request state filtering",
+                platform_label(ctx.remote.platform)
+            )));
+        }
+        self.list_pull_requests(ctx, pagination).await
+    }
 
     async fn pull_request_detail(
         &self,
@@ -1568,6 +1729,7 @@ trait ReviewProvider: Sync {
             ReviewPlatformDetailSection::Reviews => thread_total,
         };
         Ok(ReviewPlatformPullRequestDetailPage {
+            limitations: detail.limitations,
             pull_request: detail.pull_request,
             body: detail.body,
             ci,
@@ -1680,6 +1842,7 @@ fn provider_for(platform: ReviewPlatformKind) -> &'static dyn ReviewProvider {
         ReviewPlatformKind::Github => &GithubProvider,
         ReviewPlatformKind::Gitlab => &GitlabProvider,
         ReviewPlatformKind::Gitcode => &GitcodeProvider,
+        ReviewPlatformKind::Gitee => &gitee::GiteeProvider,
         ReviewPlatformKind::Unknown => &UnsupportedProvider,
     }
 }
@@ -1953,6 +2116,7 @@ impl ReviewProvider for GithubProvider {
         pull_request.checks = checks;
 
         Ok(ReviewPlatformPullRequestDetail {
+            limitations: Vec::new(),
             body: value_string(&detail, "body"),
             pull_request,
             ci,
@@ -2249,6 +2413,7 @@ async fn github_pull_request_detail_page(
     }
 
     Ok(ReviewPlatformPullRequestDetailPage {
+        limitations: Vec::new(),
         pull_request,
         body: value_string(&detail, "body"),
         ci,
@@ -2491,6 +2656,7 @@ async fn gitlab_pull_request_detail(
     pull_request.checks = summarize_ci_items(&ci);
 
     Ok(ReviewPlatformPullRequestDetail {
+        limitations: Vec::new(),
         body: value_string(&detail, "description"),
         pull_request,
         ci,
@@ -2616,6 +2782,7 @@ async fn gitlab_pull_request_detail_page(
     }
 
     Ok(ReviewPlatformPullRequestDetailPage {
+        limitations: Vec::new(),
         pull_request,
         body: value_string(&detail, "description"),
         ci,
@@ -2925,6 +3092,7 @@ async fn gitcode_pull_request_detail_page(
     }
 
     Ok(ReviewPlatformPullRequestDetailPage {
+        limitations: Vec::new(),
         body: first_non_empty(&[
             value_string(&detail, "body"),
             value_string(&detail, "description"),
@@ -3057,6 +3225,7 @@ impl ReviewProvider for GitcodeProvider {
         }
 
         Ok(ReviewPlatformPullRequestDetail {
+            limitations: Vec::new(),
             body: first_non_empty(&[
                 value_string(&detail, "body"),
                 value_string(&detail, "description"),
@@ -3759,7 +3928,10 @@ fn normalize_project_path(
             })
     };
     if segments.len() < 2
-        || (platform == ReviewPlatformKind::Github && segments.len() != 2)
+        || (matches!(
+            platform,
+            ReviewPlatformKind::Github | ReviewPlatformKind::Gitee
+        ) && segments.len() != 2)
         || segments.iter().any(|segment| segment_is_invalid(segment))
     {
         return Err(ReviewPlatformError::Api(
@@ -3768,7 +3940,7 @@ fn normalize_project_path(
     }
     if !matches!(
         platform,
-        ReviewPlatformKind::Github | ReviewPlatformKind::Gitlab
+        ReviewPlatformKind::Github | ReviewPlatformKind::Gitlab | ReviewPlatformKind::Gitee
     ) {
         return Err(ReviewPlatformError::UnsupportedPlatform(
             platform_label(platform).to_string(),
@@ -3819,7 +3991,9 @@ fn provider_context_for_identity_with_trust(
         .flatten();
     let public_anonymous_host = matches!(
         (platform, host.as_str()),
-        (ReviewPlatformKind::Github, "github.com") | (ReviewPlatformKind::Gitlab, "gitlab.com")
+        (ReviewPlatformKind::Github, "github.com")
+            | (ReviewPlatformKind::Gitlab, "gitlab.com")
+            | (ReviewPlatformKind::Gitee, "gitee.com")
     );
     if platform != ReviewPlatformKind::Github
         && !public_anonymous_host
@@ -3866,6 +4040,7 @@ fn provider_context_for_identity_with_trust(
         (ReviewPlatformKind::Github, "github.com") => "https://api.github.com".to_string(),
         (ReviewPlatformKind::Github, _) => format!("https://{host}/api/v3"),
         (ReviewPlatformKind::Gitlab, _) => format!("https://{host}/api/v4"),
+        (ReviewPlatformKind::Gitee, "gitee.com") => "https://gitee.com/api/v5".to_string(),
         _ => return Err(ReviewPlatformError::UnsupportedPlatform(host)),
     };
     Ok(ProviderContext {
@@ -3921,6 +4096,20 @@ fn issue_request_plan(
         ));
     }
     let (issue_url, comments_url, comments_query) = match identity.platform {
+        ReviewPlatformKind::Gitee => {
+            let issue_url = format!(
+                "{}/repos/{}/{}/issues/{}",
+                context.api_base_url,
+                urlencoding::encode(&context.remote.owner),
+                urlencoding::encode(&context.remote.repository_name),
+                identity.issue_id
+            );
+            (
+                issue_url.clone(),
+                format!("{issue_url}/comments"),
+                Vec::new(),
+            )
+        }
         ReviewPlatformKind::Github => {
             let issue_url = format!(
                 "{}/repos/{}/{}/issues/{}",
@@ -3972,6 +4161,7 @@ async fn acquire_issue_evidence(
     let page = plan.pagination.page.to_string();
     let per_page = plan.pagination.per_page.to_string();
     match identity.platform {
+        ReviewPlatformKind::Gitee => gitee::acquire_issue_evidence(context, identity, &plan).await,
         ReviewPlatformKind::Github => {
             let issue =
                 github_api_get_json(context, &plan.issue_url, &[], MAX_ISSUE_RESPONSE_BYTES)
@@ -4139,6 +4329,10 @@ fn provider_context(
         (ReviewPlatformKind::Github, host) => format!("https://{host}/api/v3"),
         (ReviewPlatformKind::Gitlab, host) => format!("https://{host}/api/v4"),
         (ReviewPlatformKind::Gitcode, _) => "https://api.gitcode.com/api/v5".to_string(),
+        (ReviewPlatformKind::Gitee, "gitee.com") => "https://gitee.com/api/v5".to_string(),
+        (ReviewPlatformKind::Gitee, _) => {
+            return Err(ReviewPlatformError::UnsupportedPlatform(remote.host));
+        }
         (ReviewPlatformKind::Unknown, _) => {
             return Err(ReviewPlatformError::UnsupportedPlatform(remote.host));
         }
@@ -4169,6 +4363,7 @@ fn env_token_for_platform(platform: ReviewPlatformKind) -> Option<String> {
         ReviewPlatformKind::Github => &[],
         ReviewPlatformKind::Gitlab => &["GITLAB_TOKEN", "GITLAB_PRIVATE_TOKEN"],
         ReviewPlatformKind::Gitcode => &["GITCODE_TOKEN"],
+        ReviewPlatformKind::Gitee => &["GITEE_TOKEN"],
         ReviewPlatformKind::Unknown => &[],
     };
     names.iter().find_map(|name| {
@@ -4217,6 +4412,7 @@ fn normalize_stored_token_key(key: &str) -> Option<String> {
         "github" => ReviewPlatformKind::Github,
         "gitlab" => ReviewPlatformKind::Gitlab,
         "gitcode" => ReviewPlatformKind::Gitcode,
+        "gitee" => ReviewPlatformKind::Gitee,
         _ => return None,
     };
     token_key(platform, host)
@@ -4278,45 +4474,46 @@ fn token_store_lock_registry_entries_for_test(marker: &str) -> usize {
         .count()
 }
 
-fn canonicalize_stored_tokens(
-    stored: StoredReviewPlatformTokens,
-) -> (StoredReviewPlatformTokens, bool) {
-    let original = stored.clone();
-    let mut entries = stored.tokens.into_iter().collect::<Vec<_>>();
-    entries.sort_by(|left, right| left.0.cmp(&right.0));
-    let mut passthrough = HashMap::new();
-    let mut normalized: HashMap<String, (bool, StoredReviewPlatformToken)> = HashMap::new();
-    for (raw_key, mut entry) in entries {
-        let Some(canonical_key) = normalize_stored_token_key(&raw_key) else {
-            passthrough.insert(raw_key, entry);
-            continue;
-        };
+fn validate_current_stored_tokens(
+    stored: &StoredReviewPlatformTokens,
+) -> Result<(), ReviewPlatformError> {
+    if stored.schema_version != REVIEW_PLATFORM_TOKEN_SCHEMA_VERSION {
+        return Err(ReviewPlatformError::Parse(format!(
+            "Review platform token store schema {} is not supported by OpenBitFun 1.0.0; use the explicit data migration tool instead",
+            stored.schema_version
+        )));
+    }
+
+    for (raw_key, entry) in &stored.tokens {
+        let canonical_key = normalize_stored_token_key(raw_key).ok_or_else(|| {
+            ReviewPlatformError::Parse(format!(
+                "Review platform token store contains invalid authority '{raw_key}'"
+            ))
+        })?;
+        if canonical_key != *raw_key {
+            return Err(ReviewPlatformError::Parse(format!(
+                "Review platform token authority '{raw_key}' is not canonical OpenBitFun data; use the explicit data migration tool instead"
+            )));
+        }
         if canonical_key.starts_with("github:") {
-            continue;
+            return Err(ReviewPlatformError::Parse(
+                "The review platform token store contains a pre-OpenBitFun GitHub token; use the explicit data migration tool or authenticate with the GitHub CLI"
+                    .to_string(),
+            ));
         }
-        entry.token = entry.token.trim().to_string();
-        if entry.token.is_empty() {
-            continue;
+        if entry.token.is_empty() || entry.token.trim() != entry.token {
+            return Err(ReviewPlatformError::Parse(format!(
+                "Review platform token authority '{raw_key}' contains a non-canonical token value"
+            )));
         }
-        let is_canonical = raw_key == canonical_key;
-        match normalized.entry(canonical_key) {
-            std::collections::hash_map::Entry::Vacant(slot) => {
-                slot.insert((is_canonical, entry));
-            }
-            std::collections::hash_map::Entry::Occupied(mut slot)
-                if is_canonical && !slot.get().0 =>
-            {
-                slot.insert((true, entry));
-            }
-            std::collections::hash_map::Entry::Occupied(_) => {}
+        if entry.updated_at.trim().is_empty() {
+            return Err(ReviewPlatformError::Parse(format!(
+                "Review platform token authority '{raw_key}' is missing its update timestamp"
+            )));
         }
     }
-    passthrough.extend(normalized.into_iter().map(|(key, (_, entry))| (key, entry)));
-    let canonical = StoredReviewPlatformTokens {
-        tokens: passthrough,
-    };
-    let changed = canonical != original;
-    (canonical, changed)
+
+    Ok(())
 }
 
 async fn get_repository_root(repository_path: &str) -> Result<String, ReviewPlatformError> {
@@ -4371,7 +4568,7 @@ async fn execute_git_command(
     } else {
         String::from_utf8_lossy(&output.stderr).to_string()
     };
-    Err(ReviewPlatformError::InvalidRepository(message))
+    Err(classify_git_command_failure(current_dir, message))
 }
 
 fn review_evidence_error(error: ReviewPlatformError, resource: &str) -> ReviewPlatformError {
@@ -5012,24 +5209,30 @@ fn normalize_repository_root(root: &str) -> String {
 
 impl ReviewPlatformService {
     async fn load_stored_tokens(&self) -> Result<ReviewPlatformAuthTokens, ReviewPlatformError> {
-        let _transaction = self.token_store_lock.lock().await;
-        let (stored, migrated) =
-            canonicalize_stored_tokens(self.load_stored_token_file_unlocked().await?);
-        if migrated {
-            self.save_stored_token_file_unlocked(&stored).await?;
+        let mut stored = {
+            let _transaction = self.token_store_lock.lock().await;
+            self.load_stored_token_file_unlocked().await?
+        };
+        let gitee_store = self.token_store_owner(ReviewPlatformKind::Gitee, "gitee.com")?;
+        let gitee_tokens = {
+            let _transaction = gitee_store.token_store_lock.lock().await;
+            gitee_store.load_stored_token_file_unlocked().await?
+        };
+        if gitee_tokens
+            .tokens
+            .keys()
+            .any(|key| key != "gitee:gitee.com")
+        {
+            return Err(ReviewPlatformError::Parse(
+                "Gitee token store contains an unexpected provider authority".to_string(),
+            ));
         }
+        stored.tokens.extend(gitee_tokens.tokens);
         Ok(ReviewPlatformAuthTokens {
             tokens: stored
                 .tokens
                 .into_iter()
-                .filter_map(|(key, entry)| {
-                    let token = entry.token.trim().to_string();
-                    if token.is_empty() {
-                        None
-                    } else {
-                        normalize_stored_token_key(&key).map(|key| (key, token))
-                    }
-                })
+                .map(|(key, entry)| (key, entry.token))
                 .collect(),
         })
     }
@@ -5039,8 +5242,24 @@ impl ReviewPlatformService {
     ) -> Result<StoredReviewPlatformTokens, ReviewPlatformError> {
         let path = self.token_store_path();
         match fs::read_to_string(path).await {
-            Ok(content) => serde_json::from_str::<StoredReviewPlatformTokens>(&content)
-                .map_err(|error| ReviewPlatformError::Parse(error.to_string())),
+            Ok(content) => {
+                let value = serde_json::from_str::<Value>(&content)
+                    .map_err(|error| ReviewPlatformError::Parse(error.to_string()))?;
+                let schema_version = value
+                    .get("schemaVersion")
+                    .and_then(Value::as_u64)
+                    .and_then(|version| u16::try_from(version).ok());
+                if schema_version != Some(REVIEW_PLATFORM_TOKEN_SCHEMA_VERSION) {
+                    return Err(ReviewPlatformError::Parse(
+                        "Review platform token store is not in the OpenBitFun 1.0.0 format; use the explicit data migration tool instead"
+                            .to_string(),
+                    ));
+                }
+                let stored = serde_json::from_value::<StoredReviewPlatformTokens>(value)
+                    .map_err(|error| ReviewPlatformError::Parse(error.to_string()))?;
+                validate_current_stored_tokens(&stored)?;
+                Ok(stored)
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 Ok(StoredReviewPlatformTokens::default())
             }
@@ -5252,6 +5471,7 @@ fn empty_snapshot(
             can_request_changes: false,
             can_merge: false,
             supports_draft_review: false,
+            supported_pull_request_states: Vec::new(),
         },
         message: if message.trim().is_empty() {
             None
@@ -5336,11 +5556,17 @@ fn capabilities_for_remote(_remote: &ReviewPlatformRemote) -> ReviewPlatformCapa
     ReviewPlatformCapabilities {
         can_create_review: matches!(
             platform,
-            ReviewPlatformKind::Github | ReviewPlatformKind::Gitlab | ReviewPlatformKind::Gitcode
+            ReviewPlatformKind::Github
+                | ReviewPlatformKind::Gitlab
+                | ReviewPlatformKind::Gitcode
+                | ReviewPlatformKind::Gitee
         ),
         can_create_pull_request: matches!(
             platform,
-            ReviewPlatformKind::Github | ReviewPlatformKind::Gitlab | ReviewPlatformKind::Gitcode
+            ReviewPlatformKind::Github
+                | ReviewPlatformKind::Gitlab
+                | ReviewPlatformKind::Gitcode
+                | ReviewPlatformKind::Gitee
         ),
         can_reply_to_thread: matches!(
             platform,
@@ -5349,12 +5575,29 @@ fn capabilities_for_remote(_remote: &ReviewPlatformRemote) -> ReviewPlatformCapa
         can_resolve_thread: matches!(platform, ReviewPlatformKind::Gitlab),
         can_approve: matches!(
             platform,
-            ReviewPlatformKind::Github | ReviewPlatformKind::Gitlab | ReviewPlatformKind::Gitcode
+            ReviewPlatformKind::Github
+                | ReviewPlatformKind::Gitlab
+                | ReviewPlatformKind::Gitcode
+                | ReviewPlatformKind::Gitee
         ),
-        can_revoke_approval: matches!(platform, ReviewPlatformKind::Gitlab),
+        can_revoke_approval: matches!(
+            platform,
+            ReviewPlatformKind::Gitlab | ReviewPlatformKind::Gitee
+        ),
         can_request_changes: matches!(platform, ReviewPlatformKind::Github),
         can_merge: false,
         supports_draft_review: matches!(platform, ReviewPlatformKind::Github),
+        supported_pull_request_states: if platform == ReviewPlatformKind::Gitee {
+            vec![
+                ReviewPlatformListState::All,
+                ReviewPlatformListState::Open,
+                ReviewPlatformListState::Draft,
+                ReviewPlatformListState::Merged,
+                ReviewPlatformListState::Closed,
+            ]
+        } else {
+            Vec::new()
+        },
     }
 }
 
@@ -5363,6 +5606,7 @@ fn platform_label(platform: ReviewPlatformKind) -> &'static str {
         ReviewPlatformKind::Github => "GitHub",
         ReviewPlatformKind::Gitlab => "GitLab",
         ReviewPlatformKind::Gitcode => "GitCode",
+        ReviewPlatformKind::Gitee => "Gitee",
         ReviewPlatformKind::Unknown => "Git",
     }
 }
@@ -5374,6 +5618,7 @@ fn required_scopes_for_platform(platform: ReviewPlatformKind) -> Vec<String> {
             vec!["read_api".to_string(), "api for write actions".to_string()]
         }
         ReviewPlatformKind::Gitcode => vec!["pull_request".to_string()],
+        ReviewPlatformKind::Gitee => vec!["pull_requests".to_string(), "projects".to_string()],
         ReviewPlatformKind::Unknown => Vec::new(),
     }
 }
@@ -6030,6 +6275,7 @@ fn parse_remote(
         "github.com" => ReviewPlatformKind::Github,
         "gitlab.com" => ReviewPlatformKind::Gitlab,
         "gitcode.com" => ReviewPlatformKind::Gitcode,
+        "gitee.com" => ReviewPlatformKind::Gitee,
         _ => auth_tokens
             .registered_platform_for_host(&host)
             .unwrap_or(ReviewPlatformKind::Unknown),
@@ -6577,6 +6823,7 @@ fn gitlab_pull_request_from_value(value: &Value) -> ReviewPlatformPullRequest {
         web_url: value_string(value, "web_url"),
         additions: 0,
         deletions: 0,
+        line_stats_known: None,
         changed_files,
         changed_file_count_known: true,
         comments: value_i64(value, "user_notes_count") as i32,
@@ -7468,6 +7715,42 @@ mod tests {
     };
     use tokio::fs;
 
+    #[test]
+    fn git_ownership_rejection_keeps_a_stable_repository_trust_contract() {
+        let detail = concat!(
+            "fatal: detected dubious ownership in repository at '/srv/shared/repo'\n",
+            "To add an exception for this directory, call:\n",
+            "git config --global --add safe.directory /srv/shared/repo",
+        );
+
+        let error = classify_git_command_failure("/srv/controller/path", detail.to_string());
+
+        assert!(matches!(
+            error,
+            ReviewPlatformError::RepositoryUntrusted {
+                ref repository_path,
+                detail: ref captured_detail,
+            } if repository_path == "/srv/shared/repo" && captured_detail == detail
+        ));
+        assert_eq!(error.untrusted_repository_path(), Some("/srv/shared/repo"));
+        assert_eq!(
+            untrusted_repository_error_message("/srv/shared/repo"),
+            "git_repository_untrusted: /srv/shared/repo"
+        );
+    }
+
+    #[test]
+    fn ordinary_git_failure_remains_an_invalid_repository_error() {
+        let error =
+            classify_git_command_failure("/srv/project", "fatal: not a git repository".to_string());
+
+        assert!(matches!(
+            error,
+            ReviewPlatformError::InvalidRepository(ref detail)
+                if detail == "fatal: not a git repository"
+        ));
+    }
+
     struct AlwaysRemoteWorkspace;
 
     #[async_trait::async_trait]
@@ -7521,7 +7804,7 @@ mod tests {
             .expect("system clock should be after unix epoch")
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "bitfun-review-platform-{name}-{}-{id}.json",
+            "openbitfun-review-platform-{name}-{}-{id}.json",
             std::process::id()
         ))
     }
@@ -7703,30 +7986,40 @@ mod tests {
         assert!(!path.exists());
     }
 
-    #[test]
-    fn legacy_github_tokens_are_removed_during_canonicalization() {
-        let (stored, changed) = canonicalize_stored_tokens(StoredReviewPlatformTokens {
-            tokens: HashMap::from([
-                (
-                    "github:github.com".to_string(),
-                    StoredReviewPlatformToken {
-                        token: "legacy-github-token".to_string(),
-                        updated_at: "2026-07-14T00:00:00Z".to_string(),
-                    },
-                ),
-                (
-                    "gitlab:gitlab.com".to_string(),
-                    StoredReviewPlatformToken {
-                        token: "gitlab-token".to_string(),
-                        updated_at: "2026-07-14T00:00:00Z".to_string(),
-                    },
-                ),
-            ]),
-        });
+    #[tokio::test]
+    async fn pre_openbitfun_github_token_is_rejected_without_modifying_store() {
+        let path = temp_token_store_path("pre-openbitfun-github-token");
+        let original = serde_json::to_vec(&json!({
+            "schemaVersion": 1,
+            "tokens": {
+                "github:github.com": {
+                    "token": "pre-openbitfun-github-token",
+                    "updatedAt": "2026-07-14T00:00:00Z"
+                },
+                "gitlab:gitlab.com": {
+                    "token": "gitlab-token",
+                    "updatedAt": "2026-07-14T00:00:00Z"
+                }
+            }
+        }))
+        .expect("token fixture should serialize");
+        fs::write(&path, &original)
+            .await
+            .expect("token fixture should be written");
+        let service = ReviewPlatformService::new_local_only(path.clone());
 
-        assert!(changed);
-        assert!(!stored.tokens.contains_key("github:github.com"));
-        assert!(stored.tokens.contains_key("gitlab:gitlab.com"));
+        let error = service
+            .load_stored_tokens()
+            .await
+            .expect_err("pre-OpenBitFun GitHub token must require explicit migration");
+
+        assert!(error.to_string().contains("pre-OpenBitFun"), "{error}");
+        assert!(error.to_string().contains("migration tool"), "{error}");
+        assert_eq!(
+            fs::read(&path).await.expect("read unchanged store"),
+            original
+        );
+        let _ = fs::remove_file(path).await;
     }
 
     #[test]
@@ -7821,99 +8114,73 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn loaded_legacy_token_authorities_are_normalized() {
-        let path = temp_token_store_path("legacy-token-authority");
-        fs::write(
-            &path,
-            serde_json::to_vec(&json!({
-                "tokens": {
-                    "gitlab:GitLab.COM.": {
-                        "token": "legacy-token",
-                        "updatedAt": "2026-07-11T00:00:00Z"
-                    }
+    async fn noncanonical_stored_token_authority_is_rejected_without_modification() {
+        let path = temp_token_store_path("noncanonical-token-authority");
+        let original = serde_json::to_vec(&json!({
+            "schemaVersion": 1,
+            "tokens": {
+                "gitlab:GitLab.COM.": {
+                    "token": "noncanonical-token",
+                    "updatedAt": "2026-07-11T00:00:00Z"
                 }
-            }))
-            .expect("legacy token fixture should serialize"),
-        )
-        .await
-        .expect("legacy token fixture should be written");
+            }
+        }))
+        .expect("noncanonical token fixture should serialize");
+        fs::write(&path, &original)
+            .await
+            .expect("noncanonical token fixture should be written");
         let service = ReviewPlatformService::new_local_only(path.clone());
 
-        let tokens = service
+        let error = service
             .load_stored_tokens()
             .await
-            .expect("legacy token store should load");
+            .expect_err("noncanonical token authority must require explicit migration");
 
+        assert!(error.to_string().contains("not canonical"), "{error}");
+        assert!(error.to_string().contains("migration tool"), "{error}");
         assert_eq!(
-            tokens.get(ReviewPlatformKind::Gitlab, "gitlab.com"),
-            Some("legacy-token")
+            fs::read(&path).await.expect("read unchanged store"),
+            original
         );
         let _ = fs::remove_file(path).await;
     }
 
     #[tokio::test]
-    async fn canonical_token_wins_legacy_conflict_and_migration_is_persisted() {
-        let path = temp_token_store_path("canonical-token-conflict");
-        fs::write(
-            &path,
-            serde_json::to_vec(&json!({
-                "tokens": {
-                    "gitlab:GitLab.COM.": {
-                        "token": "legacy-token",
-                        "updatedAt": "2026-07-12T00:00:00Z"
-                    },
-                    "gitlab:gitlab.com": {
-                        "token": "canonical-token",
-                        "updatedAt": "2026-07-11T00:00:00Z"
-                    }
+    async fn canonical_and_noncanonical_token_conflict_is_not_rewritten() {
+        let path = temp_token_store_path("noncanonical-token-conflict");
+        let original = serde_json::to_vec(&json!({
+            "schemaVersion": 1,
+            "tokens": {
+                "gitlab:GitLab.COM.": {
+                    "token": "noncanonical-token",
+                    "updatedAt": "2026-07-12T00:00:00Z"
+                },
+                "gitlab:gitlab.com": {
+                    "token": "canonical-token",
+                    "updatedAt": "2026-07-11T00:00:00Z"
                 }
-            }))
-            .expect("conflicting token fixture should serialize"),
-        )
-        .await
-        .expect("conflicting token fixture should be written");
+            }
+        }))
+        .expect("conflicting token fixture should serialize");
+        fs::write(&path, &original)
+            .await
+            .expect("conflicting token fixture should be written");
         let service = ReviewPlatformService::new_local_only(path.clone());
 
-        let tokens = service
+        let load_error = service
             .load_stored_tokens()
             .await
-            .expect("conflicting token store should migrate");
-        assert_eq!(
-            tokens.get(ReviewPlatformKind::Gitlab, "gitlab.com"),
-            Some("canonical-token")
-        );
-        let migrated: StoredReviewPlatformTokens = serde_json::from_slice(
-            &fs::read(&path)
-                .await
-                .expect("migrated token file should be readable"),
-        )
-        .expect("migrated token file should parse");
-        assert_eq!(migrated.tokens.len(), 1);
-        assert_eq!(
-            migrated
-                .tokens
-                .get("gitlab:gitlab.com")
-                .map(|entry| entry.token.as_str()),
-            Some("canonical-token")
-        );
+            .expect_err("conflicting token store must not be normalized on load");
+        assert!(load_error.to_string().contains("not canonical"));
 
-        service
+        let update_error = service
             .update_auth_token(ReviewPlatformKind::Gitlab, "GITLAB.COM.", "new-token")
             .await
-            .expect("canonical token update should succeed");
-        let updated: StoredReviewPlatformTokens = serde_json::from_slice(
-            &fs::read(&path)
-                .await
-                .expect("updated token file should be readable"),
-        )
-        .expect("updated token file should parse");
-        assert_eq!(updated.tokens.len(), 1);
+            .expect_err("write operations must not repair a noncanonical store");
+        assert!(update_error.to_string().contains("not canonical"));
         assert_eq!(
-            updated
-                .tokens
-                .get("gitlab:gitlab.com")
-                .map(|entry| entry.token.as_str()),
-            Some("new-token")
+            fs::read(&path).await.expect("read unchanged store"),
+            original
         );
         let _ = fs::remove_file(path).await;
     }
@@ -8046,7 +8313,7 @@ mod tests {
         let service = ReviewPlatformService::new(path, runtime.clone());
 
         let snapshot = service
-            .workspace_context("/srv/projects/bitfun", None)
+            .workspace_context("/srv/projects/openbitfun", None)
             .await
             .expect("remote workspace context should resolve through remote git");
 
@@ -8070,12 +8337,12 @@ mod tests {
             commands,
             vec![
                 (
-                    "/srv/projects/bitfun".to_string(),
-                    "/srv/projects/bitfun".to_string(),
+                    "/srv/projects/openbitfun".to_string(),
+                    "/srv/projects/openbitfun".to_string(),
                     vec!["rev-parse".to_string(), "--show-toplevel".to_string()],
                 ),
                 (
-                    "/srv/projects/bitfun".to_string(),
+                    "/srv/projects/openbitfun".to_string(),
                     "/srv/projects".to_string(),
                     vec!["remote".to_string(), "-v".to_string()],
                 ),
@@ -8093,7 +8360,7 @@ mod tests {
         assert!(
             service
                 .repository_trusts_provider_identity(
-                    "/srv/projects/bitfun",
+                    "/srv/projects/openbitfun",
                     ReviewPlatformKind::Gitlab,
                     "gitlab.com",
                     "example/repo",
@@ -8147,7 +8414,7 @@ mod tests {
     #[tokio::test]
     async fn repository_root_accepts_nested_and_file_paths() {
         let root = std::env::temp_dir().join(format!(
-            "bitfun-review-platform-git-root-{}-{}",
+            "openbitfun-review-platform-git-root-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)

@@ -9,6 +9,7 @@ import type {
   SemanticColors,
   AppearancePalette,
 } from './AppearancePalette';
+import { getDesignSystemThemeString } from './designSystemThemeValues';
 
 export const STATIC_BLACK = '#000000';
 export const STATIC_WHITE = '#ffffff';
@@ -61,16 +62,6 @@ export interface SecondaryAccentScaleInput {
   alpha?: Partial<Record<100 | 200, number | string>>;
 }
 
-export interface SemanticColorsInput {
-  success: string;
-  warning: string;
-  error: string;
-  info: string;
-  bgAlpha?: number | string;
-  borderAlpha?: number | string;
-  overrides?: Partial<SemanticColors>;
-}
-
 export function createAccentScale(input: AccentScaleInput): AccentColors {
   const hover = input.hover ?? input.base;
   const alpha = {
@@ -113,93 +104,20 @@ export function createSecondaryAccentScale(input: SecondaryAccentScaleInput): Se
   };
 }
 
-export function createSemanticColors(input: SemanticColorsInput): SemanticColors {
-  const bgAlpha = input.bgAlpha ?? 0.1;
-  const borderAlpha = input.borderAlpha ?? 0.3;
-
+export function createSemanticColors(mode: AppearancePalette['type']): SemanticColors {
   return {
-    success: input.success,
-    successBg: rgbaFromHex(input.success, bgAlpha),
-    successBorder: rgbaFromHex(input.success, borderAlpha),
-    warning: input.warning,
-    warningBg: rgbaFromHex(input.warning, bgAlpha),
-    warningBorder: rgbaFromHex(input.warning, borderAlpha),
-    error: input.error,
-    errorBg: rgbaFromHex(input.error, bgAlpha),
-    errorBorder: rgbaFromHex(input.error, borderAlpha),
-    info: input.info,
-    infoBg: rgbaFromHex(input.info, bgAlpha),
-    infoBorder: rgbaFromHex(input.info, borderAlpha),
-    ...input.overrides,
-  };
-}
-
-export function createStandardTypography(): AppearancePalette['typography'] {
-  return {
-    font: {
-      sans: "'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif",
-      mono: "'JetBrains Mono', 'FiraCode', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'Cascadia Mono', 'Cascadia Code', Consolas, 'Liberation Mono', 'Courier New', monospace",
-    },
-    weight: {
-      normal: 400,
-      medium: 500,
-      semibold: 600,
-    },
-    size: {
-      xs: '12px',
-      sm: '13px',
-      base: '14px',
-      lg: '15px',
-      xl: '16px',
-      '2xl': '18px',
-      '3xl': '22px',
-      '4xl': '26px',
-    },
-    lineHeight: {
-      tight: 1.2,
-      base: 1.5,
-      relaxed: 1.6,
-    },
-  };
-}
-
-export function createExpressiveTypography(): AppearancePalette['typography'] {
-  return {
-    ...createStandardTypography(),
-    lineHeight: {
-      tight: 1.3,
-      base: 1.5,
-      relaxed: 1.65,
-    },
-  };
-}
-
-export function createChinaTypography(): AppearancePalette['typography'] {
-  return {
-    font: {
-      sans: "'Noto Sans SC', 'Source Han Sans CN', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif",
-      mono: "'Source Han Mono CN', 'Noto Sans Mono CJK SC', 'JetBrains Mono', 'FiraCode', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'Cascadia Mono', 'Cascadia Code', Consolas, 'Liberation Mono', 'Courier New', monospace",
-    },
-    weight: {
-      normal: 400,
-      medium: 500,
-      semibold: 600,
-    },
-    size: {
-      xs: '12px',
-      sm: '13px',
-      base: '14px',
-      lg: '15px',
-      xl: '16px',
-      '2xl': '18px',
-      '3xl': '22px',
-      '4xl': '26px',
-    },
-    lineHeight: {
-      tight: 1.3,
-      base: 1.6,
-      relaxed: 1.8,
-    },
+    success: getDesignSystemThemeString(mode, 'color.status.success.content'),
+    successBg: getDesignSystemThemeString(mode, 'color.status.success.surface'),
+    successBorder: getDesignSystemThemeString(mode, 'color.status.success.border'),
+    warning: getDesignSystemThemeString(mode, 'color.status.warning.content'),
+    warningBg: getDesignSystemThemeString(mode, 'color.status.warning.surface'),
+    warningBorder: getDesignSystemThemeString(mode, 'color.status.warning.border'),
+    error: getDesignSystemThemeString(mode, 'color.status.danger.content'),
+    errorBg: getDesignSystemThemeString(mode, 'color.status.danger.surface'),
+    errorBorder: getDesignSystemThemeString(mode, 'color.status.danger.border'),
+    info: getDesignSystemThemeString(mode, 'color.status.info.content'),
+    infoBg: getDesignSystemThemeString(mode, 'color.status.info.surface'),
+    infoBorder: getDesignSystemThemeString(mode, 'color.status.info.border'),
   };
 }
 
@@ -280,11 +198,16 @@ export function createDarkNeutralElement(): ElementBackgrounds {
 }
 
 export function createGitColors(
-  config: Omit<GitColors, 'staged'> & Partial<Pick<GitColors, 'staged'>>,
+  mode: AppearancePalette['type'],
+  config: Pick<GitColors, 'branch' | 'branchBg'>,
 ): GitColors {
+  const added = getDesignSystemThemeString(mode, 'color.codeChange.added');
   return {
     ...config,
-    staged: config.staged ?? config.added,
+    added,
+    deleted: getDesignSystemThemeString(mode, 'color.codeChange.removed'),
+    staged: added,
+    changes: getDesignSystemThemeString(mode, 'color.status.warning.emphasis'),
   };
 }
 

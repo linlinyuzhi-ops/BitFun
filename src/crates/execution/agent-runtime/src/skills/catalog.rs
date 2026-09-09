@@ -3,8 +3,12 @@ pub(super) enum BuiltinSkillGroup {
     Office,
     Meta,
     MiniApp,
+    Creation,
     ComputerUse,
     Canvas,
+    Debugging,
+    Coordination,
+    Planning,
     Gstack,
 }
 
@@ -14,8 +18,12 @@ impl BuiltinSkillGroup {
             Self::Office => "office",
             Self::Meta => "meta",
             Self::MiniApp => "miniapp",
+            Self::Creation => "creation",
             Self::ComputerUse => "computer-use",
             Self::Canvas => "canvas",
+            Self::Debugging => "debugging",
+            Self::Coordination => "coordination",
+            Self::Planning => "planning",
             Self::Gstack => "gstack",
         }
     }
@@ -41,11 +49,11 @@ pub(super) const BUILTIN_SKILL_SPECS: &[BuiltinSkillSpec] = &[
         group: BuiltinSkillGroup::Canvas,
     },
     BuiltinSkillSpec {
-        dir_name: "bitfun-canvas",
+        dir_name: "openbitfun-canvas",
         group: BuiltinSkillGroup::Canvas,
     },
     BuiltinSkillSpec {
-        dir_name: "create-bitfun-skin",
+        dir_name: "create-openbitfun-skin",
         group: BuiltinSkillGroup::Meta,
     },
     BuiltinSkillSpec {
@@ -57,8 +65,24 @@ pub(super) const BUILTIN_SKILL_SPECS: &[BuiltinSkillSpec] = &[
         group: BuiltinSkillGroup::Meta,
     },
     BuiltinSkillSpec {
+        dir_name: "debug",
+        group: BuiltinSkillGroup::Debugging,
+    },
+    BuiltinSkillSpec {
+        dir_name: "multitask",
+        group: BuiltinSkillGroup::Coordination,
+    },
+    BuiltinSkillSpec {
+        dir_name: "plan",
+        group: BuiltinSkillGroup::Planning,
+    },
+    BuiltinSkillSpec {
         dir_name: "miniapp-dev",
         group: BuiltinSkillGroup::MiniApp,
+    },
+    BuiltinSkillSpec {
+        dir_name: "openbitfun-frontend-dev",
+        group: BuiltinSkillGroup::Creation,
     },
     BuiltinSkillSpec {
         dir_name: "gstack-autoplan",

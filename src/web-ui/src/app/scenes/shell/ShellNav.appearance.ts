@@ -4,10 +4,10 @@ export const shellNavAppearanceDescriptor: AppearanceSurfaceDescriptor = {
   parts: [
     { id: 'root' }, { id: 'header' }, { id: 'title' }, { id: 'headerActions' },
     { id: 'splitButton' }, { id: 'menu' }, { id: 'menuItem' },
-    { id: 'content' }, { id: 'empty' }, { id: 'list' },
+    { id: 'empty' }, { id: 'list' },
   ],
   states: [
-    { id: 'active', selector: { kind: 'self', suffix: '[data-bf-state~="active"]' } },
-    { id: 'selected', selector: { kind: 'self', suffix: '[data-bf-state~="selected"]' } },
+    { id: 'active', selector: { kind: 'self', suffix: '[data-openbitfun-state~="active"]' } },
+    { id: 'selected', selector: { kind: 'self', suffix: '[data-openbitfun-state~="selected"]' } },
   ],
 };

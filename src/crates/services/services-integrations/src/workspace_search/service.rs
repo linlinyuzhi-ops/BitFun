@@ -450,11 +450,20 @@ impl WorkspaceSearchService {
         let delay = self.session_idle_grace;
         let service = Arc::downgrade(self);
         tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
-            let Some(service) = service.upgrade() else {
+            let Some(current_service) = service.upgrade() else {
                 return;
             };
-            service.release_repo_if_idle(repo_root).await;
+            let Some(expected_epoch) = current_service
+                .sessions
+                .read()
+                .await
+                .get(&repo_root)
+                .map(|entry| entry.activity_epoch.load(Ordering::Relaxed))
+            else {
+                return;
+            };
+            drop(current_service);
+            release_repo_after_delay(service, repo_root, expected_epoch, delay).await;
         });
     }
 
@@ -722,7 +731,8 @@ impl WorkspaceSearchService {
         if let Err(error) = self.hooks.ensure_workspace_ready(&repo_root).await {
             log::warn!(
                 target: FLASHGREP_LOG_TARGET,
-                "Failed to ensure workspace .gitignore ignores .bitfun before search warmup: path={}, error={}",
+                "Failed to ensure workspace .gitignore ignores {} before search warmup: path={}, error={}",
+                openbitfun_services_core::product_identity::hidden_data_directory(),
                 repo_root.display(),
                 error
             );
@@ -911,10 +921,18 @@ impl WorkspaceSearchService {
             .read()
             .await
             .get(&repo_root)
-            .map(|entry| entry.activity_epoch.load(Ordering::Relaxed))
-        else {
-            return;
-        };
+            .map(|entry| entry.session.clone());
+        if let Some(session) = active_session {
+            if session
+                .status()
+                .await
+                .map(|status| status.active_task_id.is_some())
+                .unwrap_or(false)
+            {
+                self.schedule_repo_release(repo_root);
+                return;
+            }
+        }
 
         let active_session = self
             .sessions
@@ -1199,11 +1217,19 @@ fn push_exe_relative_bundle_candidates(
 
     if cfg!(target_os = "linux") {
         for binary_name in binary_names {
-            push_candidate(exe_dir.join("../lib/bitfun/flashgrep").join(binary_name));
-            push_candidate(exe_dir.join("../share/bitfun/flashgrep").join(binary_name));
             push_candidate(
                 exe_dir
-                    .join("../share/com.bitfun.desktop/flashgrep")
+                    .join("../lib/openbitfun/flashgrep")
+                    .join(binary_name),
+            );
+            push_candidate(
+                exe_dir
+                    .join("../share/openbitfun/flashgrep")
+                    .join(binary_name),
+            );
+            push_candidate(
+                exe_dir
+                    .join("../share/com.openbitfun.desktop/flashgrep")
                     .join(binary_name),
             );
         }
@@ -1547,7 +1573,7 @@ mod tests {
 
     #[test]
     fn glob_scope_preprocessing_extracts_static_pattern_prefix() {
-        let repo_root = std::env::temp_dir().join("bitfun-workspace-search-test-repo");
+        let repo_root = std::env::temp_dir().join("openbitfun-workspace-search-test-repo");
         let search_path = repo_root.join("workspace");
         let (walk_root, pattern) = derive_glob_walk_root(&search_path, "src/*.rs");
 
@@ -1561,7 +1587,7 @@ mod tests {
 
     #[test]
     fn glob_results_are_relative_to_effective_walk_root() {
-        let repo_root = std::env::temp_dir().join("bitfun-workspace-search-test-repo");
+        let repo_root = std::env::temp_dir().join("openbitfun-workspace-search-test-repo");
         let walk_root = repo_root.join("src");
 
         assert_eq!(

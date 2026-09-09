@@ -5,36 +5,41 @@
 //! session restore, terminal pre-warm, remote image conversion, and runtime-port
 //! implementations until a reviewed port/provider migration proves equivalence.
 
-use bitfun_agent_runtime::sdk::{
+#[cfg(feature = "remote-connect")]
+use log::{debug, info};
+use openbitfun_agent_runtime::sdk::{
     AgentEventSource, AgentInteractionResponsePort, AgentModeCatalogEntry, AgentModeCatalogPort,
     AgentModeCatalogQuery, AgentRuntime, AgentRuntimeBuilder, AgentSessionCompactionPort,
     AgentSessionForkPort, AgentSessionLineagePort, AgentSessionModePort, AgentSessionModelPort,
-    AgentSessionRestorePort, AgentSessionRevertPort, AgentSessionUsagePort,
-    AgentTurnSettlementPort, RuntimeError,
+    AgentSessionRestorePort, AgentSessionRestoreRequest, AgentSessionRestoreResult,
+    AgentSessionRevertPort, AgentSessionUsagePort, AgentTurnSettlementPort, RuntimeError,
 };
 #[cfg(feature = "remote-connect")]
-use bitfun_agent_runtime::sdk::{
+use openbitfun_agent_runtime::sdk::{
     AgentSessionModelSelection, AgentSessionModelSelectionUpdateRequest,
     AgentSessionModelUpdateRequest,
 };
-use bitfun_events::AgenticEvent;
-use bitfun_runtime_ports::{
+use openbitfun_events::AgenticEvent;
+#[cfg(feature = "remote-connect")]
+use openbitfun_runtime_ports::{
+    AgentDialogSteerRequest, AgentInputAttachment, AgentSubmissionSource,
+    AgentTurnCancellationRequest, DialogSteerOutcome, PermissionPolicyPreset,
+    RemoteControlStatePort, RemoteControlStateRequest, RemoteControlStateSnapshot,
+    RemoteSessionWorkspaceIdentity, RuntimeServiceCapability, RuntimeServicePort,
+    ToolPermissionConfig,
+};
+use openbitfun_runtime_ports::{
     AgentDialogTurnPort, AgentDialogTurnRequest, AgentLifecycleDeliveryPort,
-    AgentLocalCommandTurnPort, AgentSessionClosePort, AgentSessionManagementPort,
-    AgentSessionRevertRequest, AgentSessionRevertResult, AgentSessionRollbackToTurnOutcome,
-    AgentSessionRollbackToTurnRequest, AgentSubmissionPort, AgentThreadGoalManagementPort,
-    AgentTurnCancellationPort, AgentUserShellCommandPort, AgentWorkspaceReferencePort,
-    SessionStoragePathRequest, SessionStorePort,
+    AgentLocalCommandTurnPort, AgentSessionClosePort, AgentSessionCreateRequest,
+    AgentSessionCreateResult, AgentSessionManagementPort, AgentSessionRevertRequest,
+    AgentSessionRevertResult, AgentSessionRollbackToTurnOutcome, AgentSessionRollbackToTurnRequest,
+    AgentSubmissionPort, AgentSubmissionRequest, AgentSubmissionResult,
+    AgentThreadGoalManagementPort, AgentTurnCancellationPort, AgentUserShellCommandPort,
+    AgentWorkspaceReferencePort, PortError, PortErrorKind, PortResult, SessionStoragePathRequest,
+    SessionStorePort,
 };
 #[cfg(feature = "remote-connect")]
-use bitfun_runtime_ports::{
-    AgentInputAttachment, AgentSessionCreateRequest, AgentSubmissionSource,
-    AgentTurnCancellationRequest, PermissionPolicyPreset, RemoteControlStatePort,
-    RemoteControlStateRequest, RemoteControlStateSnapshot, RemoteSessionWorkspaceIdentity,
-    RuntimeServiceCapability, RuntimeServicePort, ToolPermissionConfig,
-};
-#[cfg(feature = "remote-connect")]
-use bitfun_services_integrations::remote_connect::{
+use openbitfun_services_integrations::remote_connect::{
     agent_input_attachment_from_remote_image_context, build_remote_chat_messages,
     build_remote_model_catalog,
     normalize_remote_model_selection as normalize_remote_model_selection_contract,
@@ -44,18 +49,17 @@ use bitfun_services_integrations::remote_connect::{
     RemoteChatHistoryTextItem, RemoteChatHistoryThinkingItem, RemoteChatHistoryToolCall,
     RemoteChatHistoryToolItem, RemoteChatHistoryTurn, RemoteConnectSubmissionSource,
     RemoteDefaultModelsConfig, RemoteDialogQueuePriority, RemoteDialogResolvedSubmission,
-    RemoteDialogRuntimeHost, RemoteDialogSchedulerOutcomeFact, RemoteDialogSubmissionPolicy,
-    RemoteDialogSubmitOutcome, RemoteDialogWorkspaceBinding, RemoteImageContext,
-    RemoteInitialSyncRuntimeHost, RemoteInteractionRuntimeHost, RemoteModelCapabilityFact,
-    RemoteModelCatalog, RemoteModelCatalogFacts, RemoteModelFacts, RemotePermissionMode,
-    RemotePollRuntimeHost, RemoteRecentWorkspaceFacts, RemoteSessionMetadata,
-    RemoteSessionModelSelection, RemoteSessionRuntimeHost, RemoteSessionStateTracker,
-    RemoteSessionTrackerHost, RemoteTerminalPrewarmRequest, RemoteWorkspaceFacts,
-    RemoteWorkspaceFileRuntimeHost, RemoteWorkspaceKind as RemoteConnectWorkspaceKind,
-    RemoteWorkspaceRuntimeHost, RemoteWorkspaceUpdate,
+    RemoteDialogRuntimeHost, RemoteDialogSchedulerOutcomeFact, RemoteDialogSteerOutcome,
+    RemoteDialogSteerRequest, RemoteDialogSubmissionPolicy, RemoteDialogSubmitOutcome,
+    RemoteDialogWorkspaceBinding, RemoteImageContext, RemoteInitialSyncRuntimeHost,
+    RemoteInteractionRuntimeHost, RemoteModelCapabilityFact, RemoteModelCatalog,
+    RemoteModelCatalogFacts, RemoteModelFacts, RemotePermissionMode, RemotePollRuntimeHost,
+    RemoteRecentWorkspaceFacts, RemoteSessionMetadata, RemoteSessionModelSelection,
+    RemoteSessionRuntimeHost, RemoteSessionStateTracker, RemoteSessionTrackerHost,
+    RemoteTerminalPrewarmRequest, RemoteWorkspaceFacts, RemoteWorkspaceFileRuntimeHost,
+    RemoteWorkspaceKind as RemoteConnectWorkspaceKind, RemoteWorkspaceRuntimeHost,
+    RemoteWorkspaceUpdate,
 };
-#[cfg(feature = "remote-connect")]
-use log::{debug, info};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -87,6 +91,283 @@ use crate::service::remote_connect::remote_server::RemoteExecutionDispatcher;
 use crate::service::config::types::{AIConfig, GlobalConfig, ModelCapability};
 #[cfg(feature = "remote-connect")]
 use crate::service::session::{DialogTurnData, ToolItemIdentityExt, TurnStatus};
+
+#[cfg(feature = "opencode-plugin-host")]
+#[derive(Clone)]
+struct ConfiguredPluginSubmissionPort {
+    inner: Arc<dyn AgentSubmissionPort>,
+    coordinator: Arc<ConversationCoordinator>,
+}
+
+#[cfg(feature = "opencode-plugin-host")]
+impl ConfiguredPluginSubmissionPort {
+    async fn try_ensure_workspace(request: &AgentSessionCreateRequest) -> PortResult<()> {
+        let Some(execution_root) = configured_plugin_execution_root(request)? else {
+            return Ok(());
+        };
+        crate::plugin_host::ensure_configured_plugin_instance(
+            crate::plugin_host::PluginHostLaunchPolicy::Enabled,
+            execution_root.clone(),
+            execution_root,
+            request.workspace_id.clone(),
+        )
+        .await
+        .map(|_| ())
+        .map_err(|error| PortError::new(PortErrorKind::Backend, error.to_string()))
+    }
+
+    async fn ensure_workspace(request: &AgentSessionCreateRequest) {
+        if let Err(error) = Self::try_ensure_workspace(request).await {
+            let workspace = request
+                .execution_target
+                .as_ref()
+                .map(|target| Path::new(&target.root_path))
+                .or_else(|| request.workspace_path.as_deref().map(Path::new));
+            crate::plugin_host::report_configured_plugin_activation_failure(
+                "session creation",
+                workspace,
+                error,
+            )
+            .await;
+        }
+    }
+
+    async fn try_ensure_session(&self, session_id: &str) -> PortResult<()> {
+        let Some(session) = self
+            .coordinator
+            .get_session_manager()
+            .get_session(session_id)
+        else {
+            return Ok(());
+        };
+        let Some(execution_root) = configured_plugin_root_from_session_facts(
+            session.config.workspace_path.as_deref(),
+            session.config.execution_target.as_ref(),
+            session.config.remote_connection_id.as_deref(),
+            session.config.remote_ssh_host.as_deref(),
+        )?
+        else {
+            return Ok(());
+        };
+        crate::plugin_host::ensure_configured_plugin_instance(
+            crate::plugin_host::PluginHostLaunchPolicy::Enabled,
+            execution_root.clone(),
+            execution_root,
+            session.config.workspace_id.clone(),
+        )
+        .await
+        .map(|_| ())
+        .map_err(|error| PortError::new(PortErrorKind::Backend, error.to_string()))
+    }
+
+    async fn ensure_session(&self, session_id: &str) {
+        if let Err(error) = self.try_ensure_session(session_id).await {
+            crate::plugin_host::report_configured_plugin_activation_failure(
+                "existing session",
+                None,
+                error,
+            )
+            .await;
+        }
+    }
+}
+
+#[cfg(feature = "opencode-plugin-host")]
+fn configured_plugin_execution_root(
+    request: &AgentSessionCreateRequest,
+) -> PortResult<Option<std::path::PathBuf>> {
+    configured_plugin_root_from_session_facts(
+        request.workspace_path.as_deref(),
+        request.execution_target.as_ref(),
+        request.remote_connection_id.as_deref(),
+        request.remote_ssh_host.as_deref(),
+    )
+}
+
+#[cfg(feature = "opencode-plugin-host")]
+fn configured_plugin_root_from_session_facts(
+    workspace_path: Option<&str>,
+    execution_target: Option<&openbitfun_core_types::SessionExecutionTarget>,
+    remote_connection_id: Option<&str>,
+    remote_ssh_host: Option<&str>,
+) -> PortResult<Option<std::path::PathBuf>> {
+    if remote_connection_id.is_some() || remote_ssh_host.is_some() {
+        return Ok(None);
+    }
+    execution_target
+        .map(|target| target.root_path.as_str())
+        .or(workspace_path)
+        .map(std::path::PathBuf::from)
+        .map(Some)
+        .ok_or_else(|| {
+            PortError::new(
+                PortErrorKind::InvalidRequest,
+                "workspace_path is required to initialize configured plugins",
+            )
+        })
+}
+
+#[cfg(feature = "opencode-plugin-host")]
+#[async_trait::async_trait]
+impl AgentSubmissionPort for ConfiguredPluginSubmissionPort {
+    async fn create_session(
+        &self,
+        request: AgentSessionCreateRequest,
+    ) -> PortResult<AgentSessionCreateResult> {
+        Self::ensure_workspace(&request).await;
+        self.inner.create_session(request).await
+    }
+
+    async fn create_session_with_id(
+        &self,
+        session_id: String,
+        request: AgentSessionCreateRequest,
+    ) -> PortResult<AgentSessionCreateResult> {
+        Self::ensure_workspace(&request).await;
+        self.inner.create_session_with_id(session_id, request).await
+    }
+
+    async fn create_transient_session_with_id(
+        &self,
+        session_id: String,
+        request: AgentSessionCreateRequest,
+    ) -> PortResult<AgentSessionCreateResult> {
+        Self::ensure_workspace(&request).await;
+        self.inner
+            .create_transient_session_with_id(session_id, request)
+            .await
+    }
+
+    async fn submit_message(
+        &self,
+        request: AgentSubmissionRequest,
+    ) -> PortResult<AgentSubmissionResult> {
+        // Every existing-session turn is a recovery trigger. The ensure call
+        // is idempotent while the Host is healthy and republishes the same
+        // workspace generation after a process loss before execution resumes.
+        self.ensure_session(&request.session_id).await;
+        self.inner.submit_message(request).await
+    }
+
+    async fn resolve_session_agent_type(&self, session_id: &str) -> PortResult<Option<String>> {
+        self.inner.resolve_session_agent_type(session_id).await
+    }
+}
+
+fn configured_plugin_submission_port(
+    coordinator: Arc<ConversationCoordinator>,
+) -> Arc<dyn AgentSubmissionPort> {
+    #[cfg(feature = "opencode-plugin-host")]
+    {
+        let inner: Arc<dyn AgentSubmissionPort> = coordinator.clone();
+        Arc::new(ConfiguredPluginSubmissionPort { inner, coordinator })
+    }
+    #[cfg(not(feature = "opencode-plugin-host"))]
+    {
+        coordinator
+    }
+}
+
+#[cfg(feature = "opencode-plugin-host")]
+#[derive(Clone)]
+struct ConfiguredPluginSessionRestorePort {
+    inner: Arc<dyn AgentSessionRestorePort>,
+    submission: ConfiguredPluginSubmissionPort,
+}
+
+#[cfg(feature = "opencode-plugin-host")]
+#[async_trait::async_trait]
+impl AgentSessionRestorePort for ConfiguredPluginSessionRestorePort {
+    async fn restore_session(
+        &self,
+        request: AgentSessionRestoreRequest,
+    ) -> PortResult<AgentSessionRestoreResult> {
+        let restored = self.inner.restore_session(request).await?;
+        // The restored Session owns the authoritative execution target,
+        // including managed worktrees. Do not publish a plugin generation for
+        // the storage-path hint before that target has been reconstructed.
+        self.submission
+            .ensure_session(&restored.session.session_id)
+            .await;
+        Ok(restored)
+    }
+}
+
+fn configured_plugin_session_restore_port(
+    coordinator: Arc<ConversationCoordinator>,
+) -> Arc<dyn AgentSessionRestorePort> {
+    #[cfg(feature = "opencode-plugin-host")]
+    {
+        let inner: Arc<dyn AgentSessionRestorePort> = coordinator.clone();
+        let submission_inner: Arc<dyn AgentSubmissionPort> = coordinator.clone();
+        Arc::new(ConfiguredPluginSessionRestorePort {
+            inner,
+            submission: ConfiguredPluginSubmissionPort {
+                inner: submission_inner,
+                coordinator,
+            },
+        })
+    }
+    #[cfg(not(feature = "opencode-plugin-host"))]
+    {
+        coordinator
+    }
+}
+
+#[cfg(feature = "opencode-plugin-host")]
+struct ConfiguredPluginDialogTurnPort {
+    inner: Arc<dyn AgentDialogTurnPort>,
+    submission: ConfiguredPluginSubmissionPort,
+}
+
+#[cfg(feature = "opencode-plugin-host")]
+#[async_trait::async_trait]
+impl AgentDialogTurnPort for ConfiguredPluginDialogTurnPort {
+    async fn submit_dialog_turn(
+        &self,
+        request: AgentDialogTurnRequest,
+    ) -> PortResult<DialogSubmitOutcome> {
+        self.submission.ensure_session(&request.session_id).await;
+        self.inner.submit_dialog_turn(request).await
+    }
+
+    async fn steer_dialog_turn(
+        &self,
+        request: openbitfun_runtime_ports::AgentDialogSteerRequest,
+    ) -> PortResult<openbitfun_runtime_ports::DialogSteerOutcome> {
+        self.inner.steer_dialog_turn(request).await
+    }
+
+    async fn recover_interrupted_turn(
+        &self,
+        request: openbitfun_runtime_ports::AgentDialogTurnRecoveryRequest,
+    ) -> PortResult<openbitfun_runtime_ports::AgentDialogTurnRecoveryOutcome> {
+        self.submission.ensure_session(&request.session_id).await;
+        self.inner.recover_interrupted_turn(request).await
+    }
+}
+
+fn configured_plugin_dialog_turn_port(
+    coordinator: Arc<ConversationCoordinator>,
+    inner: Arc<dyn AgentDialogTurnPort>,
+) -> Arc<dyn AgentDialogTurnPort> {
+    #[cfg(feature = "opencode-plugin-host")]
+    {
+        let submission_inner: Arc<dyn AgentSubmissionPort> = coordinator.clone();
+        Arc::new(ConfiguredPluginDialogTurnPort {
+            inner,
+            submission: ConfiguredPluginSubmissionPort {
+                inner: submission_inner,
+                coordinator,
+            },
+        })
+    }
+    #[cfg(not(feature = "opencode-plugin-host"))]
+    {
+        let _ = coordinator;
+        inner
+    }
+}
 
 #[cfg(feature = "remote-connect")]
 fn current_workspace_path() -> Option<std::path::PathBuf> {
@@ -123,7 +404,7 @@ fn remote_workspace_kind(
 #[cfg(feature = "remote-connect")]
 fn git_branch_for_workspace_path(path: &std::path::Path) -> Option<String> {
     let path_str = path.to_string_lossy();
-    bitfun_services_integrations::git::execute_git_command_sync(
+    openbitfun_services_integrations::git::execute_git_command_sync(
         &path_str,
         &["rev-parse", "--abbrev-ref", "HEAD"],
     )
@@ -203,6 +484,48 @@ async fn open_workspace_with_snapshot(
         remote_connection_id,
         remote_ssh_host,
     })
+}
+
+#[cfg(feature = "remote-connect")]
+async fn ensure_remote_workspace_runtime_ownership(
+    coordinator: &ConversationCoordinator,
+    workspace_path: &std::path::Path,
+    remote_connection_id: Option<&str>,
+    remote_ssh_host: Option<&str>,
+) -> Result<(), String> {
+    if let Some(connection_id) = remote_connection_id {
+        let workspace_service = crate::service::workspace::get_global_workspace_service()
+            .ok_or_else(|| "Workspace service not available".to_string())?;
+        coordinator
+            .ensure_known_remote_workspace_runtime_ownership(
+                workspace_service.as_ref(),
+                workspace_path,
+                connection_id,
+                remote_ssh_host,
+            )
+            .await
+            .map_err(|error| error.to_string())
+    } else {
+        coordinator
+            .ensure_workspace_runtime_ownership(workspace_path, None, remote_ssh_host)
+            .map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(feature = "remote-connect")]
+async fn ensure_remote_binding_runtime_ownership(
+    coordinator: &ConversationCoordinator,
+    binding: &WorkspaceBinding,
+) -> Result<(), String> {
+    ensure_remote_workspace_runtime_ownership(
+        coordinator,
+        binding.logical_workspace_path(),
+        binding.connection_id(),
+        binding
+            .is_remote()
+            .then_some(binding.session_identity.hostname.as_str()),
+    )
+    .await
 }
 
 #[cfg(feature = "remote-connect")]
@@ -338,6 +661,10 @@ fn remote_chat_history_turn_from_core_turn(turn: &DialogTurnData) -> RemoteChatH
                         id: item.tool_call.id.clone(),
                         input: item.effective_input().clone(),
                     },
+                    result: item
+                        .tool_result
+                        .as_ref()
+                        .map(|result| result.result.clone()),
                     has_result: item.tool_result.is_some(),
                     status: item.status.clone(),
                     duration_ms: item.duration_ms,
@@ -356,6 +683,14 @@ fn remote_chat_history_turn_from_core_turn(turn: &DialogTurnData) -> RemoteChatH
         user_timestamp_ms: turn.user_message.timestamp,
         user_images: user_projection.images,
         is_in_progress: turn.status == TurnStatus::InProgress,
+        status: match &turn.status {
+            TurnStatus::InProgress => "active",
+            TurnStatus::Completed => "done",
+            TurnStatus::Error => "failed",
+            TurnStatus::Cancelled => "cancelled",
+        }
+        .to_string(),
+        error: turn.error.clone(),
         start_time_ms: turn.start_time,
         rounds,
     }
@@ -469,12 +804,13 @@ fn core_agent_runtime_builder(
     session_restore: Arc<dyn AgentSessionRestorePort>,
     local_command_turn: Arc<dyn AgentLocalCommandTurnPort>,
     user_shell_command: Arc<dyn AgentUserShellCommandPort>,
-    transcript_reader: Arc<dyn bitfun_runtime_ports::SessionTranscriptReader>,
+    transcript_reader: Arc<dyn openbitfun_runtime_ports::SessionTranscriptReader>,
     thread_goal_management: Arc<dyn AgentThreadGoalManagementPort>,
     cancellation: Arc<dyn AgentTurnCancellationPort>,
     interaction_response: Arc<dyn AgentInteractionResponsePort>,
+    hook_registry: openbitfun_agent_runtime::native_hooks::RuntimeHookRegistry,
 ) -> Result<AgentRuntimeBuilder, String> {
-    let agent_registry: Arc<dyn bitfun_agent_runtime::sdk::RuntimeAgentRegistry> =
+    let agent_registry: Arc<dyn openbitfun_agent_runtime::sdk::RuntimeAgentRegistry> =
         crate::agentic::agents::get_agent_registry();
     let mode_catalog: Arc<dyn AgentModeCatalogPort> = Arc::new(CoreAgentModeCatalogPort);
     Ok(AgentRuntimeBuilder::new()
@@ -492,6 +828,7 @@ fn core_agent_runtime_builder(
         .with_cancellation_port(cancellation)
         .with_interaction_response_port(interaction_response)
         .with_permission_request_manager(crate::product_runtime::core_permission_request_manager()?)
+        .with_hook_registry(hook_registry)
         .with_agent_registry(agent_registry)
         .with_mode_catalog(mode_catalog))
 }
@@ -503,7 +840,7 @@ impl AgentModeCatalogPort for CoreAgentModeCatalogPort {
     async fn list_modes(
         &self,
         query: AgentModeCatalogQuery,
-    ) -> bitfun_runtime_ports::PortResult<Vec<AgentModeCatalogEntry>> {
+    ) -> openbitfun_runtime_ports::PortResult<Vec<AgentModeCatalogEntry>> {
         let workspace = query.workspace_root.as_deref().map(Path::new);
         #[cfg(feature = "external-sources")]
         let external_supported = if query.include_external {
@@ -535,6 +872,7 @@ impl AgentModeCatalogPort for CoreAgentModeCatalogPort {
             .into_iter()
             .map(|mode| AgentModeCatalogEntry {
                 id: mode.id,
+                route_key: mode.key,
                 description: mode.description,
                 model_id: mode.model,
                 is_external: mode.source == crate::agentic::agents::AgentSource::External,
@@ -561,26 +899,26 @@ impl ScheduledSessionManagementPort {
         &self,
         request: AgentSessionRevertRequest,
         undo: bool,
-    ) -> bitfun_runtime_ports::PortResult<AgentSessionRevertResult> {
-        bitfun_core_types::validate_session_id(&request.session_id).map_err(|message| {
-            bitfun_runtime_ports::PortError::new(
-                bitfun_runtime_ports::PortErrorKind::InvalidRequest,
+    ) -> openbitfun_runtime_ports::PortResult<AgentSessionRevertResult> {
+        openbitfun_core_types::validate_session_id(&request.session_id).map_err(|message| {
+            openbitfun_runtime_ports::PortError::new(
+                openbitfun_runtime_ports::PortErrorKind::InvalidRequest,
                 message,
             )
         })?;
         if request.remote_connection_id.is_some() || request.remote_ssh_host.is_some() {
-            return Err(bitfun_runtime_ports::PortError::new(
-                bitfun_runtime_ports::PortErrorKind::NotAvailable,
+            return Err(openbitfun_runtime_ports::PortError::new(
+                openbitfun_runtime_ports::PortErrorKind::NotAvailable,
                 "Session undo and redo are unavailable for remote workspaces",
             ));
         }
         self.coordinator
             .local_revert_workspace(&request.session_id)
             .map_err(|error| {
-                if matches!(&error, crate::util::errors::BitFunError::Validation(message) if message == "Session undo and redo are unavailable for remote workspaces")
+                if matches!(&error, crate::util::errors::OpenBitFunError::Validation(message) if message == "Session undo and redo are unavailable for remote workspaces")
                 {
-                    bitfun_runtime_ports::PortError::new(
-                        bitfun_runtime_ports::PortErrorKind::NotAvailable,
+                    openbitfun_runtime_ports::PortError::new(
+                        openbitfun_runtime_ports::PortErrorKind::NotAvailable,
                         error.to_string(),
                     )
                 } else {
@@ -626,14 +964,14 @@ impl ScheduledSessionManagementPort {
         }
         let transcript = self
             .coordinator
-            .read_session_transcript_locked(bitfun_runtime_ports::SessionTranscriptRequest {
+            .read_session_transcript_locked(openbitfun_runtime_ports::SessionTranscriptRequest {
                 session_id: request.session_id.clone(),
                 turn_id: None,
             })
             .await
         .map_err(|error| {
-            bitfun_runtime_ports::PortError::new(
-                bitfun_runtime_ports::PortErrorKind::OutcomeUnknown,
+            openbitfun_runtime_ports::PortError::new(
+                openbitfun_runtime_ports::PortErrorKind::OutcomeUnknown,
                 format!(
                     "Session revert completed but the authoritative transcript could not be read: {error}"
                 ),
@@ -660,30 +998,30 @@ impl AgentSessionRevertPort for ScheduledSessionManagementPort {
     async fn undo_session(
         &self,
         request: AgentSessionRevertRequest,
-    ) -> bitfun_runtime_ports::PortResult<AgentSessionRevertResult> {
+    ) -> openbitfun_runtime_ports::PortResult<AgentSessionRevertResult> {
         self.apply_session_revert(request, true).await
     }
 
     async fn redo_session(
         &self,
         request: AgentSessionRevertRequest,
-    ) -> bitfun_runtime_ports::PortResult<AgentSessionRevertResult> {
+    ) -> openbitfun_runtime_ports::PortResult<AgentSessionRevertResult> {
         self.apply_session_revert(request, false).await
     }
 
     async fn rollback_session_to_turn(
         &self,
         request: AgentSessionRollbackToTurnRequest,
-    ) -> bitfun_runtime_ports::PortResult<AgentSessionRollbackToTurnOutcome> {
-        bitfun_core_types::validate_session_id(&request.session_id).map_err(|message| {
-            bitfun_runtime_ports::PortError::new(
-                bitfun_runtime_ports::PortErrorKind::InvalidRequest,
+    ) -> openbitfun_runtime_ports::PortResult<AgentSessionRollbackToTurnOutcome> {
+        openbitfun_core_types::validate_session_id(&request.session_id).map_err(|message| {
+            openbitfun_runtime_ports::PortError::new(
+                openbitfun_runtime_ports::PortErrorKind::InvalidRequest,
                 message,
             )
         })?;
         if request.remote_connection_id.is_some() || request.remote_ssh_host.is_some() {
-            return Err(bitfun_runtime_ports::PortError::new(
-                bitfun_runtime_ports::PortErrorKind::NotAvailable,
+            return Err(openbitfun_runtime_ports::PortError::new(
+                openbitfun_runtime_ports::PortErrorKind::NotAvailable,
                 "Session rollback is unavailable for remote workspaces",
             ));
         }
@@ -785,7 +1123,7 @@ impl AgentSessionRevertPort for ScheduledSessionManagementPort {
         }
         let (transcript, reload_reason) = match self
             .coordinator
-            .read_session_transcript_locked(bitfun_runtime_ports::SessionTranscriptRequest {
+            .read_session_transcript_locked(openbitfun_runtime_ports::SessionTranscriptRequest {
                 session_id: request.session_id.clone(),
                 turn_id: None,
             })
@@ -793,7 +1131,7 @@ impl AgentSessionRevertPort for ScheduledSessionManagementPort {
         {
             Ok(transcript) => (transcript, None),
             Err(error) => (
-                bitfun_runtime_ports::SessionTranscript {
+                openbitfun_runtime_ports::SessionTranscript {
                     session_id: request.session_id.clone(),
                     messages: Vec::new(),
                 },
@@ -830,7 +1168,7 @@ impl AgentDialogTurnPort for RejectBusyAgentDialogTurnPort {
     async fn submit_dialog_turn(
         &self,
         request: AgentDialogTurnRequest,
-    ) -> bitfun_runtime_ports::PortResult<DialogSubmitOutcome> {
+    ) -> openbitfun_runtime_ports::PortResult<DialogSubmitOutcome> {
         self.0
             .submit_agent_dialog_turn_reject_if_busy(request)
             .await
@@ -838,8 +1176,8 @@ impl AgentDialogTurnPort for RejectBusyAgentDialogTurnPort {
 
     async fn steer_dialog_turn(
         &self,
-        request: bitfun_runtime_ports::AgentDialogSteerRequest,
-    ) -> bitfun_runtime_ports::PortResult<bitfun_runtime_ports::DialogSteerOutcome> {
+        request: openbitfun_runtime_ports::AgentDialogSteerRequest,
+    ) -> openbitfun_runtime_ports::PortResult<openbitfun_runtime_ports::DialogSteerOutcome> {
         AgentDialogTurnPort::steer_dialog_turn(self.0.as_ref(), request).await
     }
 }
@@ -848,18 +1186,19 @@ impl AgentDialogTurnPort for RejectBusyAgentDialogTurnPort {
 impl AgentSessionManagementPort for ScheduledSessionManagementPort {
     async fn list_sessions(
         &self,
-        request: bitfun_runtime_ports::AgentSessionListRequest,
-    ) -> bitfun_runtime_ports::PortResult<Vec<bitfun_runtime_ports::AgentSessionSummary>> {
+        request: openbitfun_runtime_ports::AgentSessionListRequest,
+    ) -> openbitfun_runtime_ports::PortResult<Vec<openbitfun_runtime_ports::AgentSessionSummary>>
+    {
         AgentSessionManagementPort::list_sessions(self.coordinator.as_ref(), request).await
     }
 
     async fn delete_session(
         &self,
-        request: bitfun_runtime_ports::AgentSessionDeleteRequest,
-    ) -> bitfun_runtime_ports::PortResult<()> {
-        bitfun_core_types::validate_session_id(&request.session_id).map_err(|message| {
-            bitfun_runtime_ports::PortError::new(
-                bitfun_runtime_ports::PortErrorKind::InvalidRequest,
+        request: openbitfun_runtime_ports::AgentSessionDeleteRequest,
+    ) -> openbitfun_runtime_ports::PortResult<()> {
+        openbitfun_core_types::validate_session_id(&request.session_id).map_err(|message| {
+            openbitfun_runtime_ports::PortError::new(
+                openbitfun_runtime_ports::PortErrorKind::InvalidRequest,
                 message,
             )
         })?;
@@ -872,8 +1211,8 @@ impl AgentSessionManagementPort for ScheduledSessionManagementPort {
             .await
             .map(|resolution| resolution.effective_storage_path)
             .map_err(|error| {
-                bitfun_runtime_ports::PortError::new(
-                    bitfun_runtime_ports::PortErrorKind::InvalidRequest,
+                openbitfun_runtime_ports::PortError::new(
+                    openbitfun_runtime_ports::PortErrorKind::InvalidRequest,
                     error.to_string(),
                 )
             })?;
@@ -881,8 +1220,8 @@ impl AgentSessionManagementPort for ScheduledSessionManagementPort {
             .get_session_manager()
             .validate_session_storage_path_binding(&request.session_id, &storage_path)
             .map_err(|error| {
-                bitfun_runtime_ports::PortError::new(
-                    bitfun_runtime_ports::PortErrorKind::InvalidRequest,
+                openbitfun_runtime_ports::PortError::new(
+                    openbitfun_runtime_ports::PortErrorKind::InvalidRequest,
                     error.to_string(),
                 )
             })?;
@@ -896,57 +1235,58 @@ impl AgentSessionManagementPort for ScheduledSessionManagementPort {
             .await
             .map_err(|error| {
                 let kind = match error {
-                    crate::util::errors::BitFunError::Validation(_) => {
-                        bitfun_runtime_ports::PortErrorKind::InvalidRequest
+                    crate::util::errors::OpenBitFunError::Validation(_) => {
+                        openbitfun_runtime_ports::PortErrorKind::InvalidRequest
                     }
-                    crate::util::errors::BitFunError::NotFound(_) => {
-                        bitfun_runtime_ports::PortErrorKind::NotFound
+                    crate::util::errors::OpenBitFunError::NotFound(_) => {
+                        openbitfun_runtime_ports::PortErrorKind::NotFound
                     }
-                    crate::util::errors::BitFunError::Timeout(_) => {
-                        bitfun_runtime_ports::PortErrorKind::Timeout
+                    crate::util::errors::OpenBitFunError::Timeout(_) => {
+                        openbitfun_runtime_ports::PortErrorKind::Timeout
                     }
-                    crate::util::errors::BitFunError::Cancelled(_) => {
-                        bitfun_runtime_ports::PortErrorKind::Cancelled
+                    crate::util::errors::OpenBitFunError::Cancelled(_) => {
+                        openbitfun_runtime_ports::PortErrorKind::Cancelled
                     }
-                    crate::util::errors::BitFunError::SessionInUse { .. } => {
-                        bitfun_runtime_ports::PortErrorKind::SessionInUse
+                    crate::util::errors::OpenBitFunError::SessionInUse { .. } => {
+                        openbitfun_runtime_ports::PortErrorKind::SessionInUse
                     }
-                    crate::util::errors::BitFunError::OutcomeUnknown(_) => {
-                        bitfun_runtime_ports::PortErrorKind::OutcomeUnknown
+                    crate::util::errors::OpenBitFunError::OutcomeUnknown(_) => {
+                        openbitfun_runtime_ports::PortErrorKind::OutcomeUnknown
                     }
-                    _ => bitfun_runtime_ports::PortErrorKind::Backend,
+                    _ => openbitfun_runtime_ports::PortErrorKind::Backend,
                 };
-                bitfun_runtime_ports::PortError::new(kind, error.to_string())
+                openbitfun_runtime_ports::PortError::new(kind, error.to_string())
             })?;
         AgentSessionManagementPort::delete_session(self.coordinator.as_ref(), request).await
     }
 
     async fn rename_session(
         &self,
-        request: bitfun_runtime_ports::AgentSessionRenameRequest,
-    ) -> bitfun_runtime_ports::PortResult<()> {
+        request: openbitfun_runtime_ports::AgentSessionRenameRequest,
+    ) -> openbitfun_runtime_ports::PortResult<()> {
         AgentSessionManagementPort::rename_session(self.coordinator.as_ref(), request).await
     }
 
     async fn archive_session(
         &self,
-        request: bitfun_runtime_ports::AgentSessionArchiveRequest,
-    ) -> bitfun_runtime_ports::PortResult<()> {
+        request: openbitfun_runtime_ports::AgentSessionArchiveRequest,
+    ) -> openbitfun_runtime_ports::PortResult<()> {
         AgentSessionManagementPort::archive_session(self.coordinator.as_ref(), request).await
     }
 
     async fn set_session_archived(
         &self,
-        request: bitfun_runtime_ports::AgentSessionArchiveStateRequest,
-    ) -> bitfun_runtime_ports::PortResult<()> {
+        request: openbitfun_runtime_ports::AgentSessionArchiveStateRequest,
+    ) -> openbitfun_runtime_ports::PortResult<()> {
         AgentSessionManagementPort::set_session_archived(self.coordinator.as_ref(), request).await
     }
 
     async fn resolve_session_workspace_binding(
         &self,
-        request: bitfun_runtime_ports::AgentSessionWorkspaceRequest,
-    ) -> bitfun_runtime_ports::PortResult<Option<bitfun_runtime_ports::AgentSessionWorkspaceBinding>>
-    {
+        request: openbitfun_runtime_ports::AgentSessionWorkspaceRequest,
+    ) -> openbitfun_runtime_ports::PortResult<
+        Option<openbitfun_runtime_ports::AgentSessionWorkspaceBinding>,
+    > {
         AgentSessionManagementPort::resolve_session_workspace_binding(
             self.coordinator.as_ref(),
             request,
@@ -1053,30 +1393,30 @@ impl AgentSessionClosePort for ScheduledSessionManagementPort {
 }
 
 fn map_session_close_error(
-    error: crate::util::errors::BitFunError,
-) -> bitfun_runtime_ports::PortError {
+    error: crate::util::errors::OpenBitFunError,
+) -> openbitfun_runtime_ports::PortError {
     let kind = match &error {
-        crate::util::errors::BitFunError::Validation(_) => {
-            bitfun_runtime_ports::PortErrorKind::InvalidRequest
+        crate::util::errors::OpenBitFunError::Validation(_) => {
+            openbitfun_runtime_ports::PortErrorKind::InvalidRequest
         }
-        crate::util::errors::BitFunError::NotFound(_) => {
-            bitfun_runtime_ports::PortErrorKind::NotFound
+        crate::util::errors::OpenBitFunError::NotFound(_) => {
+            openbitfun_runtime_ports::PortErrorKind::NotFound
         }
-        crate::util::errors::BitFunError::Timeout(_) => {
-            bitfun_runtime_ports::PortErrorKind::Timeout
+        crate::util::errors::OpenBitFunError::Timeout(_) => {
+            openbitfun_runtime_ports::PortErrorKind::Timeout
         }
-        crate::util::errors::BitFunError::Cancelled(_) => {
-            bitfun_runtime_ports::PortErrorKind::Cancelled
+        crate::util::errors::OpenBitFunError::Cancelled(_) => {
+            openbitfun_runtime_ports::PortErrorKind::Cancelled
         }
-        crate::util::errors::BitFunError::SessionInUse { .. } => {
-            bitfun_runtime_ports::PortErrorKind::SessionInUse
+        crate::util::errors::OpenBitFunError::SessionInUse { .. } => {
+            openbitfun_runtime_ports::PortErrorKind::SessionInUse
         }
-        crate::util::errors::BitFunError::OutcomeUnknown(_) => {
-            bitfun_runtime_ports::PortErrorKind::OutcomeUnknown
+        crate::util::errors::OpenBitFunError::OutcomeUnknown(_) => {
+            openbitfun_runtime_ports::PortErrorKind::OutcomeUnknown
         }
-        _ => bitfun_runtime_ports::PortErrorKind::Backend,
+        _ => openbitfun_runtime_ports::PortErrorKind::Backend,
     };
-    bitfun_runtime_ports::PortError::new(kind, error.to_string())
+    openbitfun_runtime_ports::PortError::new(kind, error.to_string())
 }
 
 fn scheduled_session_management_port(
@@ -1238,14 +1578,14 @@ impl CoreServiceAgentRuntime {
             catalog.reasoning_binding_catalog(
                 models_dev.sha256.clone(),
                 match models_dev.source {
-                    bitfun_services_integrations::models_dev::ModelsDevSnapshotSource::Cache => {
-                        bitfun_core_types::ModelsDevCatalogSource::Cache
+                    openbitfun_services_integrations::models_dev::ModelsDevSnapshotSource::Cache => {
+                        openbitfun_core_types::ModelsDevCatalogSource::Cache
                     }
-                    bitfun_services_integrations::models_dev::ModelsDevSnapshotSource::Bundled => {
-                        bitfun_core_types::ModelsDevCatalogSource::Bundle
+                    openbitfun_services_integrations::models_dev::ModelsDevSnapshotSource::Bundled => {
+                        openbitfun_core_types::ModelsDevCatalogSource::Bundle
                     }
-                    bitfun_services_integrations::models_dev::ModelsDevSnapshotSource::Empty => {
-                        bitfun_core_types::ModelsDevCatalogSource::Empty
+                    openbitfun_services_integrations::models_dev::ModelsDevSnapshotSource::Empty => {
+                        openbitfun_core_types::ModelsDevCatalogSource::Empty
                     }
                 },
             )
@@ -1254,14 +1594,14 @@ impl CoreServiceAgentRuntime {
             models_dev.catalog.as_deref(),
             models_dev.sha256.clone(),
             match models_dev.source {
-                bitfun_services_integrations::models_dev::ModelsDevSnapshotSource::Cache => {
-                    bitfun_core_types::ProviderCatalogSource::Cache
+                openbitfun_services_integrations::models_dev::ModelsDevSnapshotSource::Cache => {
+                    openbitfun_core_types::ProviderCatalogSource::Cache
                 }
-                bitfun_services_integrations::models_dev::ModelsDevSnapshotSource::Bundled => {
-                    bitfun_core_types::ProviderCatalogSource::Bundle
+                openbitfun_services_integrations::models_dev::ModelsDevSnapshotSource::Bundled => {
+                    openbitfun_core_types::ProviderCatalogSource::Bundle
                 }
-                bitfun_services_integrations::models_dev::ModelsDevSnapshotSource::Empty => {
-                    bitfun_core_types::ProviderCatalogSource::Bitfun
+                openbitfun_services_integrations::models_dev::ModelsDevSnapshotSource::Empty => {
+                    openbitfun_core_types::ProviderCatalogSource::OpenBitFun
                 }
             },
         );
@@ -1350,7 +1690,7 @@ impl CoreServiceAgentRuntime {
                 .as_ref()
                 .ok_or_else(|| "Config service not available".to_string())?;
             let concrete_model_id = match normalized_model_id.as_str() {
-                "auto" | "primary" => ai_config.resolve_model_selection("primary"),
+                "primary" => ai_config.resolve_model_selection("primary"),
                 "fast" => ai_config.resolve_model_selection("fast"),
                 model_id => ai_config.resolve_model_reference(model_id),
             }
@@ -1374,16 +1714,17 @@ impl CoreServiceAgentRuntime {
             }
         }
 
+        let binding = Self::resolve_session_workspace_binding(session_id)
+            .await
+            .ok_or_else(|| {
+                format!("Session workspace binding not available for session: {session_id}")
+            })?;
+        ensure_remote_binding_runtime_ownership(coordinator, &binding).await?;
         if coordinator
             .get_session_manager()
             .get_session(session_id)
             .is_none()
         {
-            let Some(binding) = Self::resolve_session_workspace_binding(session_id).await else {
-                return Err(format!(
-                    "Session workspace binding not available for session: {session_id}"
-                ));
-            };
             coordinator
                 .restore_session_for_workspace(
                     session_storage_request_from_binding(&binding),
@@ -1421,7 +1762,8 @@ impl CoreServiceAgentRuntime {
                 .map_err(Self::runtime_error_message)?;
         }
 
-        let model_changed = previous_model_id.as_deref().unwrap_or("auto") != normalized_model_id;
+        let model_changed =
+            previous_model_id.as_deref().unwrap_or("primary") != normalized_model_id;
         if model_changed
             && coordinator
                 .get_session_manager()
@@ -1468,19 +1810,20 @@ impl CoreServiceAgentRuntime {
     pub(crate) fn agent_runtime(
         coordinator: Arc<ConversationCoordinator>,
     ) -> Result<AgentRuntime, String> {
-        let submission: Arc<dyn AgentSubmissionPort> = coordinator.clone();
+        let submission = configured_plugin_submission_port(coordinator.clone());
         let session_management: Arc<dyn AgentSessionManagementPort> = coordinator.clone();
         let workspace_references: Arc<dyn AgentWorkspaceReferencePort> = coordinator.clone();
         let session_mode: Arc<dyn AgentSessionModePort> = coordinator.clone();
         let session_model: Arc<dyn AgentSessionModelPort> = coordinator.clone();
-        let session_restore: Arc<dyn AgentSessionRestorePort> = coordinator.clone();
+        let session_restore = configured_plugin_session_restore_port(coordinator.clone());
         let local_command_turn: Arc<dyn AgentLocalCommandTurnPort> = coordinator.clone();
         let user_shell_command: Arc<dyn AgentUserShellCommandPort> = coordinator.clone();
-        let transcript_reader: Arc<dyn bitfun_runtime_ports::SessionTranscriptReader> =
+        let transcript_reader: Arc<dyn openbitfun_runtime_ports::SessionTranscriptReader> =
             coordinator.clone();
         let thread_goal_management: Arc<dyn AgentThreadGoalManagementPort> = coordinator.clone();
         let cancellation: Arc<dyn AgentTurnCancellationPort> = coordinator.clone();
         let session_compaction: Arc<dyn AgentSessionCompactionPort> = coordinator.clone();
+        let hook_registry = coordinator.hook_registry().clone();
         let interaction_response: Arc<dyn AgentInteractionResponsePort> = coordinator;
         core_agent_runtime_builder(
             submission,
@@ -1496,6 +1839,7 @@ impl CoreServiceAgentRuntime {
             thread_goal_management,
             cancellation,
             interaction_response,
+            hook_registry,
         )?
         .build()
         .map_err(|error| error.to_string())
@@ -1505,7 +1849,7 @@ impl CoreServiceAgentRuntime {
         coordinator: Arc<ConversationCoordinator>,
         scheduler: Arc<DialogScheduler>,
     ) -> Result<AgentRuntime, String> {
-        let submission: Arc<dyn AgentSubmissionPort> = coordinator.clone();
+        let submission = configured_plugin_submission_port(coordinator.clone());
         let session_management =
             scheduled_session_management_port(coordinator.clone(), scheduler.clone());
         let workspace_references: Arc<dyn AgentWorkspaceReferencePort> = coordinator.clone();
@@ -1513,16 +1857,18 @@ impl CoreServiceAgentRuntime {
         let session_revert = scheduled_session_revert_port(coordinator.clone(), scheduler.clone());
         let session_mode: Arc<dyn AgentSessionModePort> = coordinator.clone();
         let session_model: Arc<dyn AgentSessionModelPort> = coordinator.clone();
-        let session_restore: Arc<dyn AgentSessionRestorePort> = coordinator.clone();
+        let session_restore = configured_plugin_session_restore_port(coordinator.clone());
         let local_command_turn: Arc<dyn AgentLocalCommandTurnPort> = coordinator.clone();
         let user_shell_command: Arc<dyn AgentUserShellCommandPort> = coordinator.clone();
-        let transcript_reader: Arc<dyn bitfun_runtime_ports::SessionTranscriptReader> =
+        let transcript_reader: Arc<dyn openbitfun_runtime_ports::SessionTranscriptReader> =
             coordinator.clone();
         let thread_goal_management: Arc<dyn AgentThreadGoalManagementPort> = coordinator.clone();
         let cancellation: Arc<dyn AgentTurnCancellationPort> = coordinator.clone();
         let session_compaction: Arc<dyn AgentSessionCompactionPort> = coordinator.clone();
-        let interaction_response: Arc<dyn AgentInteractionResponsePort> = coordinator;
-        let dialog_turn: Arc<dyn AgentDialogTurnPort> = scheduler.clone();
+        let hook_registry = coordinator.hook_registry().clone();
+        let interaction_response: Arc<dyn AgentInteractionResponsePort> = coordinator.clone();
+        let dialog_turn =
+            configured_plugin_dialog_turn_port(coordinator.clone(), scheduler.clone());
         let lifecycle_delivery: Arc<dyn AgentLifecycleDeliveryPort> = scheduler;
         core_agent_runtime_builder(
             submission,
@@ -1538,6 +1884,7 @@ impl CoreServiceAgentRuntime {
             thread_goal_management,
             cancellation,
             interaction_response,
+            hook_registry,
         )?
         .with_session_close_port(session_close)
         .with_session_revert_port(session_revert)
@@ -1551,21 +1898,22 @@ impl CoreServiceAgentRuntime {
         coordinator: Arc<ConversationCoordinator>,
         scheduler: Arc<DialogScheduler>,
     ) -> Result<AgentRuntime, String> {
-        let submission: Arc<dyn AgentSubmissionPort> = coordinator.clone();
+        let submission = configured_plugin_submission_port(coordinator.clone());
         let session_management =
             scheduled_session_management_port(coordinator.clone(), scheduler.clone());
         let workspace_references: Arc<dyn AgentWorkspaceReferencePort> = coordinator.clone();
         let session_revert = scheduled_session_revert_port(coordinator.clone(), scheduler.clone());
         let session_mode: Arc<dyn AgentSessionModePort> = coordinator.clone();
         let session_model: Arc<dyn AgentSessionModelPort> = coordinator.clone();
-        let session_restore: Arc<dyn AgentSessionRestorePort> = coordinator.clone();
+        let session_restore = configured_plugin_session_restore_port(coordinator.clone());
         let local_command_turn: Arc<dyn AgentLocalCommandTurnPort> = coordinator.clone();
         let user_shell_command: Arc<dyn AgentUserShellCommandPort> = coordinator.clone();
-        let transcript_reader: Arc<dyn bitfun_runtime_ports::SessionTranscriptReader> =
+        let transcript_reader: Arc<dyn openbitfun_runtime_ports::SessionTranscriptReader> =
             coordinator.clone();
         let thread_goal_management: Arc<dyn AgentThreadGoalManagementPort> = coordinator.clone();
         let cancellation: Arc<dyn AgentTurnCancellationPort> = coordinator.clone();
         let session_compaction: Arc<dyn AgentSessionCompactionPort> = coordinator.clone();
+        let hook_registry = coordinator.hook_registry().clone();
         let interaction_response: Arc<dyn AgentInteractionResponsePort> = coordinator;
         let lifecycle_delivery: Arc<dyn AgentLifecycleDeliveryPort> = scheduler;
         core_agent_runtime_builder(
@@ -1582,6 +1930,7 @@ impl CoreServiceAgentRuntime {
             thread_goal_management,
             cancellation,
             interaction_response,
+            hook_registry,
         )?
         .with_session_revert_port(session_revert)
         .with_lifecycle_delivery_port(lifecycle_delivery)
@@ -1598,7 +1947,7 @@ impl CoreServiceAgentRuntime {
         session_usage: Arc<dyn AgentSessionUsagePort>,
         session_lineage: Arc<dyn AgentSessionLineagePort>,
     ) -> Result<AgentRuntime, String> {
-        let submission: Arc<dyn AgentSubmissionPort> = coordinator.clone();
+        let submission = configured_plugin_submission_port(coordinator.clone());
         let session_management =
             scheduled_session_management_port(coordinator.clone(), scheduler.clone());
         let workspace_references: Arc<dyn AgentWorkspaceReferencePort> = coordinator.clone();
@@ -1606,9 +1955,11 @@ impl CoreServiceAgentRuntime {
         let session_mode: Arc<dyn AgentSessionModePort> = coordinator.clone();
         let session_model: Arc<dyn AgentSessionModelPort> = coordinator.clone();
         let session_compaction: Arc<dyn AgentSessionCompactionPort> = coordinator.clone();
+        let session_restore = configured_plugin_session_restore_port(coordinator.clone());
         let local_command_turn: Arc<dyn AgentLocalCommandTurnPort> = coordinator.clone();
-        let interaction_response: Arc<dyn AgentInteractionResponsePort> = coordinator;
-        let dialog_turn: Arc<dyn AgentDialogTurnPort> = scheduler.clone();
+        let interaction_response: Arc<dyn AgentInteractionResponsePort> = coordinator.clone();
+        let dialog_turn =
+            configured_plugin_dialog_turn_port(coordinator.clone(), scheduler.clone());
         let cancellation: Arc<dyn AgentTurnCancellationPort> = scheduler;
 
         AgentRuntimeBuilder::new()
@@ -1619,6 +1970,7 @@ impl CoreServiceAgentRuntime {
             .with_session_mode_port(session_mode)
             .with_session_model_port(session_model)
             .with_session_compaction_port(session_compaction)
+            .with_session_restore_port(session_restore)
             .with_local_command_turn_port(local_command_turn)
             .with_dialog_turn_port(dialog_turn)
             .with_cancellation_port(cancellation)
@@ -1637,23 +1989,25 @@ impl CoreServiceAgentRuntime {
         coordinator: Arc<ConversationCoordinator>,
         scheduler: Arc<DialogScheduler>,
     ) -> Result<AgentRuntime, String> {
-        let submission: Arc<dyn AgentSubmissionPort> = coordinator.clone();
+        let submission = configured_plugin_submission_port(coordinator.clone());
         let session_management =
             scheduled_session_management_port(coordinator.clone(), scheduler.clone());
         let workspace_references: Arc<dyn AgentWorkspaceReferencePort> = coordinator.clone();
         let session_revert = scheduled_session_revert_port(coordinator.clone(), scheduler.clone());
         let session_mode: Arc<dyn AgentSessionModePort> = coordinator.clone();
         let session_model: Arc<dyn AgentSessionModelPort> = coordinator.clone();
-        let session_restore: Arc<dyn AgentSessionRestorePort> = coordinator.clone();
+        let session_restore = configured_plugin_session_restore_port(coordinator.clone());
         let local_command_turn: Arc<dyn AgentLocalCommandTurnPort> = coordinator.clone();
         let user_shell_command: Arc<dyn AgentUserShellCommandPort> = coordinator.clone();
-        let transcript_reader: Arc<dyn bitfun_runtime_ports::SessionTranscriptReader> =
+        let transcript_reader: Arc<dyn openbitfun_runtime_ports::SessionTranscriptReader> =
             coordinator.clone();
         let thread_goal_management: Arc<dyn AgentThreadGoalManagementPort> = coordinator.clone();
         let session_compaction: Arc<dyn AgentSessionCompactionPort> = coordinator.clone();
-        let interaction_response: Arc<dyn AgentInteractionResponsePort> = coordinator;
+        let hook_registry = coordinator.hook_registry().clone();
+        let interaction_response: Arc<dyn AgentInteractionResponsePort> = coordinator.clone();
         let cancellation: Arc<dyn AgentTurnCancellationPort> = scheduler.clone();
-        let dialog_turn: Arc<dyn AgentDialogTurnPort> = scheduler.clone();
+        let dialog_turn =
+            configured_plugin_dialog_turn_port(coordinator.clone(), scheduler.clone());
         let lifecycle_delivery: Arc<dyn AgentLifecycleDeliveryPort> = scheduler;
         core_agent_runtime_builder(
             submission,
@@ -1669,6 +2023,7 @@ impl CoreServiceAgentRuntime {
             thread_goal_management,
             cancellation,
             interaction_response,
+            hook_registry,
         )?
         .with_session_revert_port(session_revert)
         .with_dialog_turn_port(dialog_turn)
@@ -1756,7 +2111,8 @@ impl CoreServiceAgentRuntime {
         session_lineage: Option<Arc<dyn AgentSessionLineagePort>>,
         services: bitfun_runtime_services::RuntimeServices,
     ) -> Result<AgentRuntime, String> {
-        let submission: Arc<dyn AgentSubmissionPort> = coordinator.clone();
+        let dialog_turn = configured_plugin_dialog_turn_port(coordinator.clone(), dialog_turn);
+        let submission = configured_plugin_submission_port(coordinator.clone());
         let session_management =
             scheduled_session_management_port(coordinator.clone(), scheduler.clone());
         let workspace_references: Arc<dyn AgentWorkspaceReferencePort> = coordinator.clone();
@@ -1764,13 +2120,14 @@ impl CoreServiceAgentRuntime {
         let session_revert = scheduled_session_revert_port(coordinator.clone(), scheduler.clone());
         let session_mode: Arc<dyn AgentSessionModePort> = coordinator.clone();
         let session_model: Arc<dyn AgentSessionModelPort> = coordinator.clone();
-        let session_restore: Arc<dyn AgentSessionRestorePort> = coordinator.clone();
+        let session_restore = configured_plugin_session_restore_port(coordinator.clone());
         let local_command_turn: Arc<dyn AgentLocalCommandTurnPort> = coordinator.clone();
         let user_shell_command: Arc<dyn AgentUserShellCommandPort> = coordinator.clone();
-        let transcript_reader: Arc<dyn bitfun_runtime_ports::SessionTranscriptReader> =
+        let transcript_reader: Arc<dyn openbitfun_runtime_ports::SessionTranscriptReader> =
             coordinator.clone();
         let thread_goal_management: Arc<dyn AgentThreadGoalManagementPort> = coordinator.clone();
         let session_compaction: Arc<dyn AgentSessionCompactionPort> = coordinator.clone();
+        let hook_registry = coordinator.hook_registry().clone();
         let interaction_response: Arc<dyn AgentInteractionResponsePort> = coordinator;
         let cancellation: Arc<dyn AgentTurnCancellationPort> = scheduler.clone();
         let lifecycle_delivery: Arc<dyn AgentLifecycleDeliveryPort> = scheduler;
@@ -1789,6 +2146,7 @@ impl CoreServiceAgentRuntime {
             thread_goal_management,
             cancellation,
             interaction_response,
+            hook_registry,
         )?
         .with_session_close_port(session_close)
         .with_session_revert_port(session_revert)
@@ -1845,7 +2203,7 @@ impl crate::agentic::events::EventSubscriber for CoreRemoteSessionStateTrackerSu
     async fn on_event(
         &self,
         event: &crate::agentic::events::AgenticEvent,
-    ) -> bitfun_agent_runtime::event_bus::EventSubscriberResult {
+    ) -> openbitfun_agent_runtime::event_bus::EventSubscriberResult {
         self.0.handle_agentic_event(event);
         Ok(())
     }
@@ -1912,6 +2270,39 @@ impl<'a> CoreRemoteDialogRuntimeHost<'a> {
             coordinator,
             runtime,
         })
+    }
+
+    pub(crate) async fn steer_dialog(
+        &self,
+        request: RemoteDialogSteerRequest<ImageContextData>,
+    ) -> Result<RemoteDialogSteerOutcome, String> {
+        let attachments = request
+            .image_contexts
+            .into_iter()
+            .map(agent_input_attachment_from_image_context)
+            .collect();
+        self.runtime
+            .steer_dialog_turn(AgentDialogSteerRequest {
+                session_id: request.session_id,
+                turn_id: request.turn_id,
+                content: request.content,
+                display_content: request.display_content,
+                attachments,
+                metadata: request.metadata,
+            })
+            .await
+            .map(|outcome| match outcome {
+                DialogSteerOutcome::Buffered {
+                    session_id,
+                    turn_id,
+                    steering_id,
+                } => RemoteDialogSteerOutcome {
+                    session_id,
+                    turn_id,
+                    steering_id,
+                },
+            })
+            .map_err(CoreServiceAgentRuntime::runtime_error_message)
     }
 }
 
@@ -2066,6 +2457,13 @@ impl RemoteDialogRuntimeHost for CoreRemoteDialogRuntimeHost<'_> {
         session_id: &str,
         workspace: RemoteDialogWorkspaceBinding,
     ) -> Result<(), String> {
+        ensure_remote_workspace_runtime_ownership(
+            self.coordinator.as_ref(),
+            std::path::Path::new(&workspace.workspace_path),
+            workspace.remote_connection_id.as_deref(),
+            workspace.remote_ssh_host.as_deref(),
+        )
+        .await?;
         self.coordinator
             .restore_session_for_workspace(
                 SessionStoragePathRequest {
@@ -2083,6 +2481,20 @@ impl RemoteDialogRuntimeHost for CoreRemoteDialogRuntimeHost<'_> {
     fn prewarm_remote_terminal(&self, request: RemoteTerminalPrewarmRequest) {
         use terminal_core::session::SessionSource;
         use terminal_core::{TerminalApi, TerminalBindingOptions};
+
+        let Some(session) = self
+            .coordinator
+            .get_session_manager()
+            .get_session(&request.session_id)
+        else {
+            return;
+        };
+        if session.config.remote_connection_id.is_some() || session.config.remote_ssh_host.is_some()
+        {
+            // SSH execution prepares its terminal through RemoteExecPort. The
+            // local terminal binding has no target identity and must not run here.
+            return;
+        }
 
         let sid = request.session_id;
         let binding_workspace_for_terminal = request.binding_workspace;
@@ -2103,9 +2515,7 @@ impl RemoteDialogRuntimeHost for CoreRemoteDialogRuntimeHost<'_> {
                         working_directory: workspace,
                         session_id: Some(sid.clone()),
                         session_name: Some(name),
-                        env: Some(
-                            crate::agentic::tools::implementations::bash_tool::BashTool::noninteractive_env(),
-                        ),
+                        env: Some(tool_runtime::shell::noninteractive_terminal_env()),
                         source: Some(SessionSource::Agent),
                         ..Default::default()
                     },
@@ -2143,6 +2553,15 @@ impl RemoteDialogRuntimeHost for CoreRemoteDialogRuntimeHost<'_> {
         let remote_ssh_host = binding_workspace
             .as_ref()
             .and_then(|binding| binding.remote_ssh_host.clone());
+        if let Some(path) = workspace_path.as_deref() {
+            ensure_remote_workspace_runtime_ownership(
+                self.coordinator.as_ref(),
+                std::path::Path::new(path),
+                remote_connection_id.as_deref(),
+                remote_ssh_host.as_deref(),
+            )
+            .await?;
+        }
 
         self.runtime
             .submit_dialog_turn(AgentDialogTurnRequest {
@@ -2320,6 +2739,12 @@ impl RemoteSessionRuntimeHost for CoreRemoteSessionRuntimeHost {
     }
 
     async fn ensure_session_loaded(&self, session_id: &str) -> Result<(), String> {
+        let binding = CoreServiceAgentRuntime::resolve_session_workspace_binding(session_id)
+            .await
+            .ok_or_else(|| {
+                format!("Session workspace binding not available for session: {session_id}")
+            })?;
+        ensure_remote_binding_runtime_ownership(self.coordinator.as_ref(), &binding).await?;
         if self
             .coordinator
             .get_session_manager()
@@ -2329,14 +2754,6 @@ impl RemoteSessionRuntimeHost for CoreRemoteSessionRuntimeHost {
             return Ok(());
         }
 
-        let Some(binding) =
-            CoreServiceAgentRuntime::resolve_session_workspace_binding(session_id).await
-        else {
-            return Err(format!(
-                "Session workspace binding not available for session: {}",
-                session_id
-            ));
-        };
         self.coordinator
             .restore_session_for_workspace(
                 session_storage_request_from_binding(&binding),
@@ -2376,17 +2793,7 @@ impl RemoteSessionRuntimeHost for CoreRemoteSessionRuntimeHost {
             .ok_or_else(|| {
                 format!("Session workspace binding not available for session: {session_id}")
             })?;
-        self.coordinator
-            .ensure_workspace_runtime_ownership(
-                binding.logical_workspace_path(),
-                binding.connection_id(),
-                if binding.is_remote() {
-                    Some(binding.session_identity.hostname.as_str())
-                } else {
-                    None
-                },
-            )
-            .map_err(|error| error.to_string())?;
+        ensure_remote_binding_runtime_ownership(self.coordinator.as_ref(), &binding).await?;
         self.coordinator
             .delete_session(session_storage_dir, session_id)
             .await
@@ -2456,7 +2863,10 @@ impl RemotePollRuntimeHost for CoreRemotePollRuntimeHost<'_> {
 impl RemoteInteractionRuntimeHost for CoreRemoteInteractionRuntimeHost {
     async fn confirm_tool(&self, tool_id: &str) -> Result<(), String> {
         self.coordinator()?
-            .reply_to_tool(tool_id, bitfun_agent_runtime::sdk::PermissionReply::Once)
+            .reply_to_tool(
+                tool_id,
+                openbitfun_agent_runtime::sdk::PermissionReply::Once,
+            )
             .await
             .map_err(|error| error.to_string())
     }
@@ -2465,7 +2875,7 @@ impl RemoteInteractionRuntimeHost for CoreRemoteInteractionRuntimeHost {
         self.coordinator()?
             .reply_to_tool(
                 tool_id,
-                bitfun_agent_runtime::sdk::PermissionReply::Reject {
+                openbitfun_agent_runtime::sdk::PermissionReply::Reject {
                     feedback: Some(reason),
                 },
             )
@@ -2570,6 +2980,7 @@ impl RemoteCancelRuntimeHost for CoreRemoteCancelRuntimeHost {
             .ok_or_else(|| {
                 format!("Session workspace binding not available for session: {session_id}")
             })?;
+        ensure_remote_binding_runtime_ownership(self.coordinator.as_ref(), &binding).await?;
         self.coordinator
             .restore_session_for_workspace(
                 session_storage_request_from_binding(&binding),
@@ -2601,24 +3012,99 @@ impl RemoteCancelRuntimeHost for CoreRemoteCancelRuntimeHost {
 mod tests {
     use std::collections::HashSet;
 
-    use bitfun_runtime_ports::SessionTranscriptReader;
+    use openbitfun_runtime_ports::SessionTranscriptReader;
 
     use super::*;
     use crate::service::session::{
         DialogTurnData, DialogTurnKind, ModelRoundData, TextItemData, ThinkingItemData,
         ToolCallData, ToolItemData, TurnStatus, UserMessageData,
     };
-    use crate::BitFunError;
+    use crate::OpenBitFunError;
+
+    #[cfg(feature = "opencode-plugin-host")]
+    fn plugin_session_request() -> AgentSessionCreateRequest {
+        AgentSessionCreateRequest {
+            session_name: "session".to_string(),
+            agent_type: "Code".to_string(),
+            agent_route_key: None,
+            workspace_path: Some("project".to_string()),
+            project_workspace_path: None,
+            execution_target: Some(openbitfun_core_types::SessionExecutionTarget::local(
+                "project-worktree",
+            )),
+            workspace_id: Some("workspace-a".to_string()),
+            remote_connection_id: None,
+            remote_ssh_host: None,
+            model_id: None,
+            metadata: serde_json::Map::new(),
+        }
+    }
+
+    #[cfg(feature = "opencode-plugin-host")]
+    #[test]
+    fn configured_plugins_bind_to_the_session_execution_root() {
+        let request = plugin_session_request();
+
+        assert_eq!(
+            configured_plugin_execution_root(&request).expect("local execution root"),
+            Some(std::path::PathBuf::from("project-worktree"))
+        );
+    }
+
+    #[cfg(feature = "opencode-plugin-host")]
+    #[test]
+    fn configured_plugins_do_not_execute_for_remote_sessions() {
+        let mut request = plugin_session_request();
+        request.remote_connection_id = Some("remote-a".to_string());
+
+        assert_eq!(
+            configured_plugin_execution_root(&request).expect("remote session is supported"),
+            None
+        );
+    }
+
+    #[cfg(feature = "opencode-plugin-host")]
+    #[test]
+    fn configured_plugins_recover_from_the_persisted_session_execution_root() {
+        let target = openbitfun_core_types::SessionExecutionTarget::local("restored-worktree");
+
+        assert_eq!(
+            configured_plugin_root_from_session_facts(Some("project"), Some(&target), None, None,)
+                .expect("restored local execution root"),
+            Some(std::path::PathBuf::from("restored-worktree"))
+        );
+        assert_eq!(
+            configured_plugin_root_from_session_facts(
+                Some("/remote/project"),
+                None,
+                Some("remote-a"),
+                None,
+            )
+            .expect("remote session remains outside the local Host"),
+            None
+        );
+    }
+
+    #[cfg(feature = "opencode-plugin-host")]
+    #[tokio::test]
+    async fn configured_plugin_failure_does_not_block_native_session_creation() {
+        let mut request = plugin_session_request();
+        request.workspace_path = None;
+        request.execution_target = None;
+
+        let outcome: () = ConfiguredPluginSubmissionPort::ensure_workspace(&request).await;
+        assert_eq!(outcome, ());
+    }
 
     #[test]
     fn session_close_preserves_writer_conflicts() {
-        let error = map_session_close_error(BitFunError::SessionInUse {
+        let error = map_session_close_error(OpenBitFunError::SessionInUse {
             session_id: "session-1".to_string(),
         });
 
         assert_eq!(
             error.kind,
-            bitfun_runtime_ports::PortErrorKind::SessionInUse
+            openbitfun_runtime_ports::PortErrorKind::SessionInUse
         );
     }
 
@@ -2713,7 +3199,7 @@ mod tests {
             .nth(1)
             .and_then(|source| source.split("fn remove_tracker").next())
             .expect("remote session delete");
-        assert!(delete.contains("ensure_workspace_runtime_ownership"));
+        assert!(delete.contains("ensure_remote_binding_runtime_ownership"));
     }
 
     #[test]
@@ -2818,6 +3304,36 @@ mod tests {
         assert!(builder
             .contains("let session_mode: Arc<dyn AgentSessionModePort> = coordinator.clone();"));
         assert!(builder.contains(".with_session_mode_port(session_mode)"));
+        assert!(builder.contains(
+            "let session_restore = configured_plugin_session_restore_port(coordinator.clone());"
+        ));
+        assert!(builder.contains(".with_session_restore_port(session_restore)"));
+        assert!(builder.contains("configured_plugin_dialog_turn_port("));
+    }
+
+    #[cfg(feature = "opencode-plugin-host")]
+    #[test]
+    fn configured_dialog_turn_port_recovers_plugins_before_session_execution() {
+        let source = include_str!("service_agent_runtime.rs");
+        let body = source
+            .split("impl AgentDialogTurnPort for ConfiguredPluginDialogTurnPort")
+            .nth(1)
+            .and_then(|source| source.split("fn configured_plugin_dialog_turn_port").next())
+            .expect("configured plugin dialog turn port");
+
+        for method in ["submit_dialog_turn", "recover_interrupted_turn"] {
+            let method_body = body
+                .split(&format!("async fn {method}"))
+                .nth(1)
+                .expect("dialog method implementation");
+            let ensure = method_body
+                .find("self.submission.ensure_session")
+                .expect("plugin recovery gate");
+            let delegate = method_body
+                .find(&format!("self.inner.{method}"))
+                .expect("dialog delegate");
+            assert!(ensure < delegate, "{method} must recover plugins first");
+        }
     }
 
     #[test]
@@ -2874,15 +3390,15 @@ mod tests {
     fn core_service_agent_runtime_owner_normalizes_remote_session_model_ids() {
         assert_eq!(
             normalize_remote_session_model_id(None),
-            Some("auto".to_string())
+            Some("primary".to_string())
         );
         assert_eq!(
             normalize_remote_session_model_id(Some("")),
-            Some("auto".to_string())
+            Some("primary".to_string())
         );
         assert_eq!(
             normalize_remote_session_model_id(Some("  default  ")),
-            Some("auto".to_string())
+            Some("primary".to_string())
         );
         assert_eq!(
             normalize_remote_session_model_id(Some(" model-1 ")),
@@ -2893,12 +3409,8 @@ mod tests {
     #[test]
     fn core_service_agent_runtime_owner_normalizes_remote_model_selection_aliases() {
         assert_eq!(
-            normalize_remote_model_selection("auto", None).unwrap(),
-            "auto"
-        );
-        assert_eq!(
             normalize_remote_model_selection("default", None).unwrap(),
-            "auto"
+            "primary"
         );
         assert_eq!(
             normalize_remote_model_selection("primary", None).unwrap(),
@@ -2963,6 +3475,7 @@ mod tests {
 
         assert_eq!(messages[1].role, "assistant");
         assert_eq!(messages[1].content, "visible text");
+        assert_eq!(messages[1].status.as_deref(), Some("done"));
         assert_eq!(messages[1].thinking.as_deref(), Some("visible thought"));
         let items = messages[1].items.as_ref().expect("assistant items");
         assert_eq!(items.len(), 3);
@@ -2985,7 +3498,36 @@ mod tests {
         assert_eq!(messages[0].role, "user");
         assert_eq!(messages[1].role, "assistant");
         assert_eq!(messages[1].content, "visible text");
+        assert_eq!(messages[1].status.as_deref(), Some("active"));
         assert_eq!(messages[1].tools.as_ref().unwrap()[0].status, "running");
+    }
+
+    #[test]
+    fn core_service_agent_runtime_owner_does_not_project_an_empty_assistant_shell() {
+        let mut turn = remote_history_test_turn(TurnStatus::InProgress, None);
+        turn.model_rounds.clear();
+
+        let messages = remote_chat_messages_from_turns(&[turn]);
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[0].turn_id.as_deref(), Some("turn-1"));
+    }
+
+    #[test]
+    fn core_service_agent_runtime_owner_preserves_failed_remote_turn_error() {
+        let mut turn = remote_history_test_turn(TurnStatus::Error, None);
+        turn.error = Some("AI client could not reach the configured proxy".to_string());
+
+        let messages = remote_chat_messages_from_turns(&[turn]);
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1].turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(messages[1].status.as_deref(), Some("failed"));
+        assert_eq!(
+            messages[1].error.as_deref(),
+            Some("AI client could not reach the configured proxy")
+        );
     }
 
     #[test]
@@ -3083,6 +3625,7 @@ mod tests {
                 thinking_items: vec![ThinkingItemData {
                     id: "thinking-1".to_string(),
                     content: "visible thought".to_string(),
+                    reasoning_kind: None,
                     is_streaming: false,
                     is_collapsed: false,
                     timestamp: 1_105,

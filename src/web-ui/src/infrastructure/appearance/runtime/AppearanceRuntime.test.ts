@@ -4,22 +4,22 @@ import { AppearanceRegistry } from '../registry/AppearanceRegistry';
 import type {
   AppearancePackage,
   AppearanceRendererAdapter,
-  CssTokenAppearanceSettings,
+  ThemeTokenAppearanceSettings,
 } from '../types';
 import { AppearanceRuntime } from './AppearanceRuntime';
 
 function pkg(id: string, background: string): AppearancePackage {
   return {
-    schema: 'bitfun.appearance',
-    schemaVersion: 1,
+    schema: 'openbitfun.appearance',
+    schemaVersion: 2,
     id,
     name: id,
     version: '1.0.0',
     mode: 'dark',
     renderers: {
-      'css-tokens': {
+      'theme-tokens': {
         version: 1,
-        settings: { tokens: {}, background },
+        settings: { tokens: { '--openbitfun-color-surface-canvas': background } },
       },
     },
   };
@@ -40,13 +40,13 @@ describe('AppearanceRuntime', () => {
   });
 
   it('commits revisions atomically and rolls renderer adapters back on failure', async () => {
-    const calls: Array<Readonly<CssTokenAppearanceSettings> | undefined> = [];
-    const adapter: AppearanceRendererAdapter<'css-tokens'> = {
-      id: 'css-tokens',
+    const calls: Array<Readonly<ThemeTokenAppearanceSettings> | undefined> = [];
+    const adapter: AppearanceRendererAdapter<'theme-tokens'> = {
+      id: 'theme-tokens',
       validate: () => [],
       apply: async next => {
         calls.push(next ? { ...next } : undefined);
-        if (next?.background === 'fail') throw new Error('renderer failed');
+        if (next?.tokens['--openbitfun-color-surface-canvas'] === 'fail') throw new Error('renderer failed');
       },
     };
     const registry = new AppearanceRegistry().registerRenderer(adapter).freeze();
@@ -55,14 +55,14 @@ describe('AppearanceRuntime', () => {
     runtime.subscribe(listener);
 
     await runtime.initialize(pkg('test.first', 'first'));
-    expect(document.documentElement.getAttribute('data-bf-appearance')).toBe('test.first');
-    expect(document.querySelectorAll('style[data-bf-appearance-runtime]')).toHaveLength(1);
+    expect(document.documentElement.getAttribute('data-openbitfun-appearance')).toBe('test.first');
+    expect(document.querySelectorAll('style[data-openbitfun-appearance-runtime]')).toHaveLength(1);
 
     await expect(runtime.applyPackage(pkg('test.second', 'fail'))).rejects.toThrow('renderer failed');
     expect(runtime.getSnapshot()?.id).toBe('test.first');
-    expect(document.documentElement.getAttribute('data-bf-appearance')).toBe('test.first');
-    expect(document.querySelectorAll('style[data-bf-appearance-runtime]')).toHaveLength(1);
-    expect(calls.at(-1)).toEqual({ tokens: {}, background: 'first' });
+    expect(document.documentElement.getAttribute('data-openbitfun-appearance')).toBe('test.first');
+    expect(document.querySelectorAll('style[data-openbitfun-appearance-runtime]')).toHaveLength(1);
+    expect(calls.at(-1)).toEqual({ tokens: { '--openbitfun-color-surface-canvas': 'first' } });
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
@@ -74,8 +74,8 @@ describe('AppearanceRuntime', () => {
       .freeze();
     const runtime = new AppearanceRuntime(registry);
     const assetPackage: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: 2,
       id: 'test.assets',
       name: 'Assets',
       version: '1.0.0',
@@ -104,7 +104,7 @@ describe('AppearanceRuntime', () => {
       },
     });
     expect(createObjectURL).toHaveBeenCalledTimes(1);
-    expect(document.head.textContent).toContain('--bf-appearance-asset-background: url("blob:test-background")');
+    expect(document.head.textContent).toContain('--openbitfun-appearance-asset-background: url("blob:test-background")');
 
     await runtime.applyPackage({ ...assetPackage, id: 'test.assets-next', assets: undefined, components: undefined });
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:test-background');
@@ -118,8 +118,8 @@ describe('AppearanceRuntime', () => {
       .freeze();
     const runtime = new AppearanceRuntime(registry);
     const assetPackage: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: 2,
       id: 'test.assets',
       name: 'Assets',
       version: '1.0.0',
@@ -164,8 +164,8 @@ describe('AppearanceRuntime', () => {
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
     const runtime = new AppearanceRuntime(new AppearanceRegistry().freeze());
     const assetPackage: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: 2,
       id: 'test.video-background',
       name: 'Video Background',
       version: '1.0.0',
@@ -189,22 +189,22 @@ describe('AppearanceRuntime', () => {
       fit: 'cover',
       position: 'center',
     });
-    expect(snapshot.cssText).not.toContain('--bf-appearance-asset-motion');
-    expect(snapshot.cssText).toContain('--bf-appearance-asset-poster');
+    expect(snapshot.cssText).not.toContain('--openbitfun-appearance-asset-motion');
+    expect(snapshot.cssText).toContain('--openbitfun-appearance-asset-poster');
   });
 
   it('keeps a staged revision inactive until renderer transactions commit', async () => {
     const observations: Array<{ rootRevision: string | null; stagedCss: string }> = [];
-    const adapter: AppearanceRendererAdapter<'css-tokens'> = {
-      id: 'css-tokens',
+    const adapter: AppearanceRendererAdapter<'theme-tokens'> = {
+      id: 'theme-tokens',
       validate: () => [],
       apply: next => {
-        if (next?.background !== 'second') return;
+        if (next?.tokens['--openbitfun-color-surface-canvas'] !== 'second') return;
         const stagedStyle = document.querySelector<HTMLStyleElement>(
-          'style[data-bf-appearance-runtime="2"]',
+          'style[data-openbitfun-appearance-runtime="2"]',
         );
         observations.push({
-          rootRevision: document.documentElement.getAttribute('data-bf-appearance-revision'),
+          rootRevision: document.documentElement.getAttribute('data-openbitfun-appearance-revision'),
           stagedCss: stagedStyle?.textContent ?? '',
         });
       },
@@ -218,28 +218,28 @@ describe('AppearanceRuntime', () => {
 
     expect(observations).toEqual([expect.objectContaining({ rootRevision: '1' })]);
     expect(observations[0].stagedCss).toContain(
-      '[data-bf-appearance="test.same-id"][data-bf-appearance-revision="2"]',
+      '[data-openbitfun-appearance="test.same-id"][data-openbitfun-appearance-revision="2"]',
     );
-    expect(document.documentElement.getAttribute('data-bf-appearance-revision')).toBe('2');
-    expect(document.querySelectorAll('style[data-bf-appearance-runtime]')).toHaveLength(1);
+    expect(document.documentElement.getAttribute('data-openbitfun-appearance-revision')).toBe('2');
+    expect(document.querySelectorAll('style[data-openbitfun-appearance-runtime]')).toHaveLength(1);
   });
 
   it('applies normal cascade after legacy styles and reserves important for explicit overrides', async () => {
-    document.head.innerHTML = '<style>.legacy-button { color: rgb(255, 0, 0); }</style>';
-    document.body.innerHTML = '<button class="legacy-button" data-bf-component="button" data-bf-part="root">Run</button>';
+    document.head.innerHTML = '<style>.legacy-gallery { color: rgb(255, 0, 0); }</style>';
+    document.body.innerHTML = '<div class="legacy-gallery" data-openbitfun-component="gallery-layout" data-openbitfun-part="root">Run</div>';
     const registry = new AppearanceRegistry()
-      .registerComponent({ id: 'button', parts: [{ id: 'root' }] })
+      .registerComponent({ id: 'gallery-layout', parts: [{ id: 'root' }] })
       .freeze();
     const runtime = new AppearanceRuntime(registry);
     const basePackage: AppearancePackage = {
-      schema: 'bitfun.appearance',
-      schemaVersion: 1,
+      schema: 'openbitfun.appearance',
+      schemaVersion: 2,
       id: 'test.computed-style',
       name: 'Computed Style',
       version: '1.0.0',
       mode: 'dark',
       components: {
-        button: {
+        'gallery-layout': {
           parts: {
             root: { base: { color: { kind: 'hex', value: '#00ff00' } } },
           },
@@ -248,14 +248,14 @@ describe('AppearanceRuntime', () => {
     };
 
     await runtime.initialize(basePackage);
-    const button = document.querySelector('button') as HTMLButtonElement;
-    expect(window.getComputedStyle(button).color).toBe('rgb(0, 255, 0)');
+    const gallery = document.querySelector('[data-openbitfun-component="gallery-layout"]') as HTMLDivElement;
+    expect(window.getComputedStyle(gallery).color).toBe('rgb(0, 255, 0)');
 
-    button.style.color = 'rgb(255, 0, 0)';
+    gallery.style.color = 'rgb(255, 0, 0)';
     await runtime.applyPackage({
       ...basePackage,
       components: {
-        button: {
+        'gallery-layout': {
           parts: {
             root: {
               cascade: 'override',
@@ -265,6 +265,6 @@ describe('AppearanceRuntime', () => {
         },
       },
     });
-    expect(window.getComputedStyle(button).color).toBe('rgb(0, 0, 255)');
+    expect(window.getComputedStyle(gallery).color).toBe('rgb(0, 0, 255)');
   });
 });

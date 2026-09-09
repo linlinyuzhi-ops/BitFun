@@ -3,8 +3,8 @@
 //! Uses the official `rmcp` Rust SDK to implement the MCP Streamable HTTP client transport.
 
 use super::types::{
-    InitializeResult as BitFunInitializeResult, MCPToolResult, PromptsGetResult, PromptsListResult,
-    ResourcesListResult, ResourcesReadResult, ToolsListResult,
+    InitializeResult as OpenBitFunInitializeResult, MCPToolResult, PromptsGetResult,
+    PromptsListResult, ResourcesListResult, ResourcesReadResult, ToolsListResult,
 };
 use crate::mcp::auth::build_authorization_manager;
 use crate::mcp::config::normalize_mcp_authorization_value;
@@ -49,11 +49,11 @@ use tokio::sync::Mutex;
 use sse_stream::{Sse, SseStream};
 
 #[derive(Clone)]
-struct BitFunRmcpClientHandler {
+struct OpenBitFunRmcpClientHandler {
     info: ClientInfo,
 }
 
-impl ClientHandler for BitFunRmcpClientHandler {
+impl ClientHandler for OpenBitFunRmcpClientHandler {
     fn get_info(&self) -> ClientInfo {
         self.info.clone()
     }
@@ -107,20 +107,20 @@ impl ClientHandler for BitFunRmcpClientHandler {
 
 enum ClientState {
     Connecting {
-        transport: Option<StreamableHttpClientTransport<BitFunStreamableHttpClient>>,
+        transport: Option<StreamableHttpClientTransport<OpenBitFunStreamableHttpClient>>,
     },
     Ready {
-        service: Arc<RunningService<RoleClient, BitFunRmcpClientHandler>>,
+        service: Arc<RunningService<RoleClient, OpenBitFunRmcpClientHandler>>,
     },
 }
 
 #[derive(Clone)]
-struct BitFunStreamableHttpClient {
+struct OpenBitFunStreamableHttpClient {
     client: reqwest::Client,
     oauth_manager: Option<Arc<Mutex<AuthorizationManager>>>,
 }
 
-impl BitFunStreamableHttpClient {
+impl OpenBitFunStreamableHttpClient {
     async fn resolve_auth_token(
         &self,
         auth_token: Option<String>,
@@ -148,7 +148,7 @@ fn apply_custom_headers(
     request_builder
 }
 
-impl StreamableHttpClient for BitFunStreamableHttpClient {
+impl StreamableHttpClient for OpenBitFunStreamableHttpClient {
     type Error = reqwest::Error;
 
     async fn get_stream(
@@ -385,7 +385,7 @@ impl RemoteMCPTransport {
         if !header_map.contains_key(USER_AGENT) {
             header_map.insert(
                 USER_AGENT,
-                HeaderValue::from_static("BitFun-MCP-Client/1.0"),
+                HeaderValue::from_static("OpenBitFun-MCP-Client/1.0"),
             );
         }
 
@@ -420,7 +420,7 @@ impl RemoteMCPTransport {
             None
         };
 
-        let http_client = reqwest::Client::builder()
+        let http_client = crate::reqwest_client_builder()
             .connect_timeout(Duration::from_secs(10))
             .danger_accept_invalid_certs(false)
             .tls_backend_rustls()
@@ -428,11 +428,11 @@ impl RemoteMCPTransport {
             .build()
             .unwrap_or_else(|e| {
                 warn!("Failed to create HTTP client, using default config: {}", e);
-                reqwest::Client::new()
+                crate::reqwest_client()
             });
 
         let transport = StreamableHttpClientTransport::with_client(
-            BitFunStreamableHttpClient {
+            OpenBitFunStreamableHttpClient {
                 client: http_client,
                 oauth_manager: oauth_manager.clone(),
             },
@@ -490,7 +490,7 @@ impl RemoteMCPTransport {
 
     async fn service(
         &self,
-    ) -> MCPRuntimeResult<Arc<RunningService<RoleClient, BitFunRmcpClientHandler>>> {
+    ) -> MCPRuntimeResult<Arc<RunningService<RoleClient, OpenBitFunRmcpClientHandler>>> {
         let guard = self.state.lock().await;
         match &*guard {
             ClientState::Ready { service } => Ok(Arc::clone(service)),
@@ -505,7 +505,7 @@ impl RemoteMCPTransport {
         &self,
         client_name: &str,
         client_version: &str,
-    ) -> MCPRuntimeResult<BitFunInitializeResult> {
+    ) -> MCPRuntimeResult<OpenBitFunInitializeResult> {
         let mut guard = self.state.lock().await;
         match &mut *guard {
             ClientState::Ready { service } => {
@@ -521,7 +521,7 @@ impl RemoteMCPTransport {
                     ));
                 };
 
-                let handler = BitFunRmcpClientHandler {
+                let handler = OpenBitFunRmcpClientHandler {
                     info: create_mcp_client_info(client_name, client_version),
                 };
 
@@ -562,8 +562,28 @@ impl RemoteMCPTransport {
             fut,
             "MCP ping timeout".to_string(),
         )
-        .await?
-        .map_err(|e| MCPRuntimeError::mcp(format!("MCP ping failed: {}", e)))?;
+        .await?;
+
+        let result = match result {
+            // Some reachable HTTP servers (including Huawei Developer Knowledge)
+            // omit ping. Verify a supported read-only operation instead of
+            // putting an otherwise usable connection into a reconnect loop.
+            Err(rmcp::service::ServiceError::McpError(error))
+                if error.code == rmcp::model::ErrorCode::METHOD_NOT_FOUND
+                    && service
+                        .peer()
+                        .peer_info()
+                        .is_some_and(|info| info.capabilities.tools.is_some()) =>
+            {
+                debug!("MCP server does not implement ping; checking tools/list");
+                self.list_tools(None).await.map_err(|error| {
+                    MCPRuntimeError::mcp(format!("MCP health check tools/list failed: {}", error))
+                })?;
+                return Ok(());
+            }
+            other => other
+                .map_err(|error| MCPRuntimeError::mcp(format!("MCP ping failed: {}", error)))?,
+        };
 
         match result {
             rmcp::model::ServerResult::EmptyResult(_) => Ok(()),

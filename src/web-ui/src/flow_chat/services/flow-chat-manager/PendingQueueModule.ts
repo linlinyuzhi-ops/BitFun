@@ -13,7 +13,7 @@
  */
 
 import { createLogger } from '@/shared/utils/logger';
-import type { DialogTurn, QueuedMessage } from '../../types/flow-chat';
+import type { DialogTurn, QueuedComposerDraft, QueuedMessage } from '../../types/flow-chat';
 import {
   getActiveSurfaceId,
   onSurfaceActivated,
@@ -23,11 +23,7 @@ import {
 
 const log = createLogger('PendingQueueModule');
 
-const STORAGE_PREFIX = 'flowChat.pendingQueue.';
-// Keep peer records outside the legacy prefix. Older builds interpret every
-// key under STORAGE_PREFIX as a local session id, so nesting peer data there
-// would make a downgrade load encoded peer queues as bogus local sessions.
-const PEER_STORAGE_PREFIX = 'flowChat.peerPendingQueue.v1.';
+const STORAGE_PREFIX = 'openbitfun.flowChat.pendingQueue.v1.';
 const MAX_QUEUE_DEPTH = 20;
 
 const LIVE_TURN_STATUSES = new Set<DialogTurn['status']>([
@@ -67,6 +63,7 @@ export interface EnqueueInput {
   agentType?: string;
   imageContexts?: unknown[];
   imageDisplayData?: unknown[];
+  composerDraft?: QueuedComposerDraft;
   userMessageMetadata?: Record<string, unknown>;
   /**
    * How many times this content has already been auto-restored from a failed
@@ -120,11 +117,7 @@ class PendingQueueManager {
   }
 
   private storageKey(sessionId: string, surfaceId: DeviceSurfaceId): string {
-    if (surfaceId === 'local') {
-      // Keep the legacy local key so an older BitFun install can still read it.
-      return STORAGE_PREFIX + sessionId;
-    }
-    return PEER_STORAGE_PREFIX + encodeURIComponent(JSON.stringify([surfaceId, sessionId]));
+    return STORAGE_PREFIX + encodeURIComponent(JSON.stringify([surfaceId, sessionId]));
   }
 
   private sessionIdsForSurface(surfaceId: DeviceSurfaceId): string[] {
@@ -151,24 +144,19 @@ class PendingQueueManager {
     try {
       for (let i = 0; i < window.localStorage.length; i++) {
         const key = window.localStorage.key(i);
-        if (
-          !key
-          || (!key.startsWith(STORAGE_PREFIX) && !key.startsWith(PEER_STORAGE_PREFIX))
-        ) {
+        if (!key || !key.startsWith(STORAGE_PREFIX)) {
           continue;
         }
-        let surfaceId: DeviceSurfaceId = 'local';
-        let sessionId = key.slice(STORAGE_PREFIX.length);
-        if (key.startsWith(PEER_STORAGE_PREFIX)) {
-          const encoded = key.slice(PEER_STORAGE_PREFIX.length);
-          try {
-            [surfaceId, sessionId] = JSON.parse(decodeURIComponent(encoded)) as [string, string];
-            if (!surfaceId || !sessionId) {
-              continue;
-            }
-          } catch {
+        const encoded = key.slice(STORAGE_PREFIX.length);
+        let surfaceId: DeviceSurfaceId;
+        let sessionId: string;
+        try {
+          [surfaceId, sessionId] = JSON.parse(decodeURIComponent(encoded)) as [string, string];
+          if (!surfaceId || !sessionId) {
             continue;
           }
+        } catch {
+          continue;
         }
         const raw = window.localStorage.getItem(key);
         if (!raw) continue;
@@ -235,6 +223,13 @@ class PendingQueueManager {
       agentType: input.agentType,
       imageContexts: input.imageContexts,
       imageDisplayData: input.imageDisplayData,
+      composerDraft: input.composerDraft
+        ? {
+            value: input.composerDraft.value,
+            contexts: [...input.composerDraft.contexts],
+            pendingLargePastes: { ...input.composerDraft.pendingLargePastes },
+          }
+        : undefined,
       userMessageMetadata: input.userMessageMetadata,
     };
     items.push(item);
@@ -272,21 +267,6 @@ class PendingQueueManager {
     this.persist(sessionId, surfaceId);
     this.notifySurface(surfaceId, sessionId);
     return removed;
-  }
-
-  update(
-    sessionId: string,
-    id: string,
-    patch: Partial<Pick<QueuedMessage, 'content' | 'displayMessage'>>,
-  ): boolean {
-    const items = this.queues.get(this.queueKey(sessionId));
-    if (!items) return false;
-    const idx = items.findIndex(item => item.id === id);
-    if (idx === -1) return false;
-    items[idx] = { ...items[idx], ...patch, timestamp: Date.now() };
-    this.persist(sessionId);
-    this.notify(sessionId);
-    return true;
   }
 
   remove(sessionId: string, id: string): boolean {

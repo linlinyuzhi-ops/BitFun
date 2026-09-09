@@ -1,7 +1,7 @@
 import React from 'react';
-import { Check, Copy } from 'lucide-react';
+
 import { useTranslation } from 'react-i18next';
-import { IconButton, Tooltip } from '../../component-library';
+import { IconButton, Tooltip, Icon, OverflowText } from '@openbitfun/ui';
 import { useCopyTextAction } from '../hooks/useCopyTextAction';
 import './CopyableTextPreview.scss';
 
@@ -9,6 +9,8 @@ interface CopyableTextPreviewProps extends React.HTMLAttributes<HTMLElement> {
   text?: string | null;
   emptyText: React.ReactNode;
   as?: 'span' | 'code';
+  /** Preserve full resource details instead of using single-line overflow. */
+  multiline?: boolean;
   className?: string;
   tooltipContent?: React.ReactNode;
   tooltipPlacement?: 'top' | 'bottom' | 'left' | 'right';
@@ -18,6 +20,7 @@ export const CopyableTextPreview = React.forwardRef<HTMLElement, CopyableTextPre
   text,
   emptyText,
   as = 'span',
+  multiline = false,
   className,
   tooltipContent,
   tooltipPlacement = 'bottom',
@@ -26,8 +29,11 @@ export const CopyableTextPreview = React.forwardRef<HTMLElement, CopyableTextPre
   const { t } = useTranslation('flow-chat');
   const content = text?.trim()
     ? text
-    : <span className="copyable-text-preview__empty" data-bf-component="copyable-text-preview" data-bf-part="empty">{emptyText}</span>;
-  const resolvedClassName = `copyable-text-preview${className ? ` ${className}` : ''}`;
+    : <span className="copyable-text-preview__empty" data-openbitfun-component="copyable-text-preview" data-openbitfun-part="empty">{emptyText}</span>;
+  const resolvedClassName = `copyable-text-preview${multiline ? ' copyable-text-preview--multiline' : ''}${className ? ` ${className}` : ''}`;
+  const preview = multiline ? content : (
+    <OverflowText title={tooltipContent ? '' : undefined}>{content}</OverflowText>
+  );
   const copyText = typeof tooltipContent === 'string' && tooltipContent.trim()
     ? tooltipContent
     : undefined;
@@ -39,12 +45,12 @@ export const CopyableTextPreview = React.forwardRef<HTMLElement, CopyableTextPre
   });
   const copyTooltip = copied ? t('toolCards.common.copied') : t('toolCards.common.copy');
   const node = as === 'code' ? (
-    <code ref={ref} className={resolvedClassName} {...restProps} data-bf-component="copyable-text-preview" data-bf-part="root">
-      {content}
+    <code ref={ref} className={resolvedClassName} {...restProps} data-openbitfun-component="copyable-text-preview" data-openbitfun-part="root">
+      {preview}
     </code>
   ) : (
-    <span ref={ref} className={resolvedClassName} {...restProps} data-bf-component="copyable-text-preview" data-bf-part="root">
-      {content}
+    <span ref={ref} className={resolvedClassName} {...restProps} data-openbitfun-component="copyable-text-preview" data-openbitfun-part="root">
+      {preview}
     </span>
   );
 
@@ -55,22 +61,22 @@ export const CopyableTextPreview = React.forwardRef<HTMLElement, CopyableTextPre
   return (
     <Tooltip
       content={
-        <div className="copyable-text-preview-tooltip-content" data-bf-component="copyable-text-preview" data-bf-part="tooltipContent">
-          <span className="copyable-text-preview-tooltip-content__text" data-bf-component="copyable-text-preview" data-bf-part="tooltipText">{tooltipContent}</span>
+        <div className="copyable-text-preview-tooltip-content" data-openbitfun-component="copyable-text-preview" data-openbitfun-part="tooltipContent">
+          <span className="copyable-text-preview-tooltip-content__text" data-openbitfun-component="copyable-text-preview" data-openbitfun-part="tooltipText">{tooltipContent}</span>
           {copyText && (
-            <IconButton
-              className={`copyable-text-preview-tooltip__copy${copied ? ' copied' : ''}`}
-              data-bf-component="copyable-text-preview"
-              data-bf-part="copyAction"
-              data-bf-state={copied ? 'copied' : undefined}
-              variant="ghost"
-              size="xs"
-              onClick={copy}
-              tooltip={copyTooltip}
-              aria-label={copyTooltip}
-            >
-              {copied ? <Check size={12} /> : <Copy size={12} />}
-            </IconButton>
+            <Tooltip content={copyTooltip}>
+              <IconButton
+                className={`copyable-text-preview-tooltip__copy${copied ? ' copied' : ''}`}
+                data-openbitfun-component="copyable-text-preview"
+                data-openbitfun-part="copyAction"
+                data-openbitfun-state={copied ? 'copied' : undefined}
+                variant="quiet"
+                size="xs"
+                onClick={copy}
+                icon={copied ? <Icon name="check-line" size="xs" /> : <Icon name="duplicate" size="xs" />}
+                aria-label={copyTooltip}
+              />
+            </Tooltip>
           )}
         </div>
       }

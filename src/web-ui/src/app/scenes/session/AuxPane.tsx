@@ -7,6 +7,7 @@
 
 import { forwardRef, useEffect, useRef, useImperativeHandle, useCallback } from 'react';
 import { ContentCanvas, useCanvasStore } from '../../components/panels/content-canvas';
+import { GlobalSearchContent } from '../../global-search/GlobalSearchRoot';
 import {
   switchAgentCanvasWorkspace,
   removeAgentCanvasSnapshot,
@@ -130,7 +131,7 @@ const AuxPane = forwardRef<AuxPaneRef, AuxPaneProps>(
     }, []);
 
     return (
-      <div data-bf-component="aux-pane" data-bf-part="root" className="bitfun-aux-pane">
+      <div data-openbitfun-component="aux-pane" data-openbitfun-part="root" className="openbitfun-aux-pane">
         <ContentCanvas
           workspacePath={workspacePath}
           mode="agent"
@@ -138,6 +139,8 @@ const AuxPane = forwardRef<AuxPaneRef, AuxPaneProps>(
           onInteraction={handleInteraction}
           onBeforeClose={handleBeforeClose}
           terminalResizeSuspended={terminalResizeSuspended}
+          missionControlEnabled={false}
+          emptyState={<GlobalSearchContent active={isSceneActive} variant="embedded" />}
         />
       </div>
     );

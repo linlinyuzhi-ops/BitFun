@@ -1,5 +1,5 @@
 import React from 'react';
-import { MarkdownRenderer } from '@/component-library';
+import { MarkdownRenderer } from '@/infrastructure/markdown';
 import { useI18n } from '@/infrastructure/i18n';
 import { splitMarkdownFrontmatter } from '../utils/markdownFrontmatter';
 import './Preview.scss';
@@ -14,10 +14,10 @@ export const Preview: React.FC<PreviewProps> = ({ value, basePath }) => {
   const frontmatter = splitMarkdownFrontmatter(value);
 
   return (
-    <div className="m-editor-preview" data-bf-component="editor-tool" data-bf-part="meditorPreview">
+    <div className="m-editor-preview" data-openbitfun-component="editor-tool" data-openbitfun-part="meditorPreview">
       <div className="m-editor-preview-content">
         {frontmatter && (
-          <section className="m-editor-preview-frontmatter" data-bf-component="editor-tool" data-bf-part="meditorFrontmatter">
+          <section className="m-editor-preview-frontmatter" data-openbitfun-component="editor-tool" data-openbitfun-part="meditorFrontmatter">
             <header className="m-editor-preview-frontmatter__header">
               <span className="m-editor-preview-frontmatter__label">
                 {t('editor.meditor.frontmatter.label')}

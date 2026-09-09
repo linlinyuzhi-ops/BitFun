@@ -6,10 +6,10 @@
 use crate::agentic::tools::framework::{
     PermissionIntent, Tool, ToolRenderOptions, ToolResult, ToolUseContext, ValidationResult,
 };
-use crate::util::errors::{BitFunError, BitFunResult};
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use async_trait::async_trait;
-use bitfun_services_core::markdown::expand_prompt_template_arguments_with_names;
 use log::debug;
+use openbitfun_services_core::markdown::expand_prompt_template_arguments_with_names;
 use serde_json::{json, Value};
 
 // Use skills module
@@ -36,7 +36,7 @@ How to use skills:
 - Examples:
   - `command: "writing-skills"` - invoke the writing-skills skill
   - `command: "review", arguments: "src/main.rs carefully"` - invoke a skill with arguments
-  - `command: "user::bitfun-system::ppt-design"` - invoke a specific built-in skill by stable key
+  - `command: "user::openbitfun-system::ppt-design"` - invoke a specific built-in skill by stable key
 
 Important:
 - Only use skills listed in the current skill listing's <available_skills> section, unless a trusted host task explicitly supplies an exact stable key or the user's message contains an exact `[$skill-name]` invocation
@@ -102,7 +102,7 @@ Important:
             && context.and_then(|c| c.ws_fs()).is_none()
         {
             section.push_str(
-                "\n\nRemote workspace note: Project-level skills on the server could not be indexed because workspace I/O is unavailable. Only user-level skills are shown; BitFun will not fall back to scanning the remote path on the local filesystem.",
+                "\n\nRemote workspace note: Project-level skills on the server could not be indexed because workspace I/O is unavailable. Only user-level skills are shown; OpenBitFun will not fall back to scanning the remote path on the local filesystem.",
             );
         }
         Some(section)
@@ -115,7 +115,7 @@ impl Tool for SkillTool {
         "Skill"
     }
 
-    async fn description(&self) -> BitFunResult<String> {
+    async fn description(&self) -> OpenBitFunResult<String> {
         Ok(self.render_description())
     }
 
@@ -126,7 +126,7 @@ impl Tool for SkillTool {
     async fn description_with_context(
         &self,
         _context: Option<&ToolUseContext>,
-    ) -> BitFunResult<String> {
+    ) -> OpenBitFunResult<String> {
         Ok(self.render_description())
     }
 
@@ -136,7 +136,7 @@ impl Tool for SkillTool {
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The skill name or stable key. E.g., \"writing-skills\" or \"user::bitfun-system::ppt-design\""
+                    "description": "The skill name or stable key. E.g., \"writing-skills\" or \"user::openbitfun-system::ppt-design\""
                 },
                 "arguments": {
                     "type": "string",
@@ -160,13 +160,13 @@ impl Tool for SkillTool {
         &self,
         input: &Value,
         _context: &ToolUseContext,
-    ) -> BitFunResult<Vec<PermissionIntent>> {
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
         let skill_name = input
             .get("command")
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|skill_name| !skill_name.is_empty())
-            .ok_or_else(|| BitFunError::validation("command is required".to_string()))?;
+            .ok_or_else(|| OpenBitFunError::validation("command is required".to_string()))?;
         Ok(vec![PermissionIntent::new(
             "skill",
             vec![skill_name.to_string()],
@@ -222,11 +222,11 @@ impl Tool for SkillTool {
         &self,
         input: &Value,
         context: &ToolUseContext,
-    ) -> BitFunResult<Vec<ToolResult>> {
+    ) -> OpenBitFunResult<Vec<ToolResult>> {
         let skill_name = input
             .get("command")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| BitFunError::tool("command is required".to_string()))?;
+            .ok_or_else(|| OpenBitFunError::tool("command is required".to_string()))?;
 
         debug!("Skill tool executing skill: {}", skill_name);
 
@@ -313,6 +313,8 @@ impl Tool for SkillTool {
                 "skill_name": skill_data.name,
                 "skill_key": skill_data.key,
                 "source_slot": skill_data.source_slot,
+                "source_id": skill_data.source_id,
+                "source_label": skill_data.source_label,
                 "description": skill_data.description,
                 "location": location_str,
                 "content": skill_data.content,
@@ -358,7 +360,7 @@ mod tests {
         }
 
         async fn read_file_text(&self, path: &str) -> anyhow::Result<String> {
-            if path == "/remote/project/.bitfun/skills/remote-only/SKILL.md" {
+            if path == "/remote/project/.openbitfun/skills/remote-only/SKILL.md" {
                 return Ok(r#"---
 name: remote-only-skill-for-test
 description: Remote project skill visible only through workspace services.
@@ -378,30 +380,32 @@ Use the remote project skill.
         async fn exists(&self, path: &str) -> anyhow::Result<bool> {
             Ok(matches!(
                 path,
-                "/remote/project/.bitfun/skills"
-                    | "/remote/project/.bitfun/skills/remote-only"
-                    | "/remote/project/.bitfun/skills/remote-only/SKILL.md"
+                "/remote/project/.openbitfun/skills"
+                    | "/remote/project/.openbitfun/skills/remote-only"
+                    | "/remote/project/.openbitfun/skills/remote-only/SKILL.md"
             ))
         }
 
         async fn is_file(&self, path: &str) -> anyhow::Result<bool> {
-            Ok(path == "/remote/project/.bitfun/skills/remote-only/SKILL.md")
+            Ok(path == "/remote/project/.openbitfun/skills/remote-only/SKILL.md")
         }
 
         async fn is_dir(&self, path: &str) -> anyhow::Result<bool> {
             Ok(matches!(
                 path,
-                "/remote/project/.bitfun/skills" | "/remote/project/.bitfun/skills/remote-only"
+                "/remote/project/.openbitfun/skills"
+                    | "/remote/project/.openbitfun/skills/remote-only"
             ))
         }
 
         async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<WorkspaceDirEntry>> {
-            if path == "/remote/project/.bitfun/skills" {
+            if path == "/remote/project/.openbitfun/skills" {
                 return Ok(vec![WorkspaceDirEntry {
                     name: "remote-only".to_string(),
-                    path: "/remote/project/.bitfun/skills/remote-only".to_string(),
+                    path: "/remote/project/.openbitfun/skills/remote-only".to_string(),
                     is_dir: true,
                     is_symlink: false,
+                    modified: None,
                 }]);
             }
             Ok(vec![])
@@ -471,6 +475,7 @@ Use the remote project skill.
                     path: "/remote/project/.claude/skills/remote-review".to_string(),
                     is_dir: true,
                     is_symlink: false,
+                    modified: None,
                 }]);
             }
             Ok(vec![])
@@ -489,7 +494,7 @@ Use the remote project skill.
             custom_data: Default::default(),
             computer_use_host: None,
             runtime_tool_restrictions: Default::default(),
-            runtime_handles: bitfun_runtime_ports::ToolRuntimeHandles::new(None, None),
+            runtime_handles: openbitfun_runtime_ports::ToolRuntimeHandles::new(None, None),
         }
     }
 
@@ -504,7 +509,7 @@ Use the remote project skill.
     #[tokio::test]
     async fn skill_call_expands_arguments_in_loaded_prompt() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let skill_dir = temp.path().join(".bitfun/skills/argument-skill");
+        let skill_dir = temp.path().join(".openbitfun/skills/argument-skill");
         fs::create_dir_all(&skill_dir).expect("skill directory");
         fs::write(
             skill_dir.join("SKILL.md"),
@@ -538,6 +543,75 @@ Use the remote project skill.
             .as_deref()
             .unwrap_or_default()
             .contains(expected));
+    }
+
+    #[tokio::test]
+    async fn explicit_skill_call_returns_original_name_and_source_metadata() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let skill_dir = temp.path().join(".codex/skills/deep-research");
+        fs::create_dir_all(skill_dir.join("agents")).expect("skill agents directory");
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: deep-research\ndescription: Academic research workflow.\n---\n\nResearch the topic.\n",
+        )
+        .expect("skill markdown");
+        fs::write(
+            skill_dir.join("agents/openai.yaml"),
+            "interface:\n  display_name: \"Academic Deep Research\"\npolicy:\n  allow_implicit_invocation: false\n",
+        )
+        .expect("skill interface metadata");
+        let mut context = local_context(temp.path().to_path_buf());
+        context.agent_type = Some("DeepResearch".to_string());
+
+        let results = SkillTool::new()
+            .call_impl(&json!({ "command": "deep-research" }), &context)
+            .await
+            .expect("explicit-only skill should remain directly loadable");
+
+        let ToolResult::Result { data, .. } = &results[0] else {
+            panic!("expected result payload");
+        };
+        assert_eq!(data["skill_name"], "deep-research");
+        assert!(data.get("skill_display_name").is_none());
+        assert_eq!(data["source_slot"], "codex");
+        assert_eq!(data["source_id"], "codex");
+        assert_eq!(data["source_label"], "Codex");
+    }
+
+    #[tokio::test]
+    async fn native_deep_research_omits_same_named_skill_only_from_implicit_catalog() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let skill_dir = temp.path().join(".codex/skills/deep-research");
+        fs::create_dir_all(&skill_dir).expect("skill directory");
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: deep-research\ndescription: Research workflow.\n---\n\nResearch the topic.\n",
+        )
+        .expect("skill markdown");
+        let registry = SkillRegistry::global();
+        let resolved = registry
+            .get_resolved_skills_for_workspace(Some(temp.path()), Some("DeepResearch"))
+            .await;
+        let skill = resolved
+            .iter()
+            .find(|skill| skill.name == "deep-research")
+            .expect("same-named skill should remain enabled and discoverable");
+        assert!(skill.allow_implicit_invocation);
+        let implicit = registry
+            .get_implicitly_invocable_skills_for_workspace(Some(temp.path()), Some("DeepResearch"))
+            .await;
+        assert!(!implicit.iter().any(|skill| skill.name == "deep-research"));
+
+        let loaded = registry
+            .find_and_load_skill_by_key_for_workspace(
+                &skill.key,
+                Some(temp.path()),
+                Some("DeepResearch"),
+            )
+            .await
+            .expect("native DeepResearch should still allow explicit stable-key invocation");
+        assert_eq!(loaded.name, "deep-research");
+        assert_eq!(loaded.source_label, "Codex");
     }
 
     #[tokio::test]
@@ -595,7 +669,21 @@ Use the remote project skill.
             .await
             .expect("remote Claude skill should load with the discovery dialect");
         assert_eq!(loaded.name, "remote-review");
+        assert_eq!(loaded.source_id, "claude-code");
+        assert_eq!(loaded.source_label, "Claude Code");
         assert_eq!(loaded.argument_names, ["target", "focus"]);
+
+        let loaded_by_key = registry
+            .find_and_load_skill_by_key_for_remote_workspace(
+                &loaded.key,
+                &ClaudeRemoteFs,
+                "/remote/project",
+                None,
+            )
+            .await
+            .expect("remote skill should retain source metadata when loaded by key");
+        assert_eq!(loaded_by_key.source_id, loaded.source_id);
+        assert_eq!(loaded_by_key.source_label, loaded.source_label);
     }
 
     #[tokio::test]
@@ -621,7 +709,7 @@ Use the remote project skill.
             custom_data: Default::default(),
             computer_use_host: None,
             runtime_tool_restrictions: Default::default(),
-            runtime_handles: bitfun_runtime_ports::ToolRuntimeHandles::new(
+            runtime_handles: openbitfun_runtime_ports::ToolRuntimeHandles::new(
                 Some(WorkspaceServices {
                     fs: Arc::new(FakeRemoteFs),
                     shell: Arc::new(FakeShell),
@@ -663,7 +751,7 @@ Use the remote project skill.
             custom_data: Default::default(),
             computer_use_host: None,
             runtime_tool_restrictions: Default::default(),
-            runtime_handles: bitfun_runtime_ports::ToolRuntimeHandles::new(
+            runtime_handles: openbitfun_runtime_ports::ToolRuntimeHandles::new(
                 Some(WorkspaceServices {
                     fs: Arc::new(FakeRemoteFs),
                     shell: Arc::new(FakeShell),
@@ -711,16 +799,16 @@ Use the remote project skill.
             custom_data: Default::default(),
             computer_use_host: None,
             runtime_tool_restrictions: Default::default(),
-            runtime_handles: bitfun_runtime_ports::ToolRuntimeHandles::new(None, None),
+            runtime_handles: openbitfun_runtime_ports::ToolRuntimeHandles::new(None, None),
         };
 
         let results = SkillTool::new()
             .call_impl(
-                &json!({ "command": "user::bitfun-system::ppt-design" }),
+                &json!({ "command": "user::openbitfun-system::ppt-design" }),
                 &context,
             )
             .await
-            .expect("stable key should load BitFun's built-in ppt-design skill");
+            .expect("stable key should load OpenBitFun's built-in ppt-design skill");
 
         let ToolResult::Result {
             data,
@@ -731,14 +819,16 @@ Use the remote project skill.
             panic!("expected result payload");
         };
         assert_eq!(data["skill_name"], "ppt-design");
-        assert_eq!(data["skill_key"], "user::bitfun-system::ppt-design");
-        assert_eq!(data["source_slot"], "bitfun-system");
+        assert_eq!(data["skill_key"], "user::openbitfun-system::ppt-design");
+        assert_eq!(data["source_slot"], "openbitfun-system");
+        assert_eq!(data["source_id"], "openbitfun");
+        assert_eq!(data["source_label"], "OpenBitFun");
         assert!(data["content"]
             .as_str()
             .unwrap_or_default()
             .contains("references/editable-pptx.md"));
         let assistant = result_for_assistant.as_deref().unwrap_or_default();
-        assert!(assistant.contains("from stable key 'user::bitfun-system::ppt-design'"));
+        assert!(assistant.contains("from stable key 'user::openbitfun-system::ppt-design'"));
         assert!(assistant.contains("<skill_content>\n"));
         assert!(assistant.contains("\n</skill_content>"));
         assert!(assistant.contains("references/editable-pptx.md"));
@@ -754,19 +844,19 @@ Use the remote project skill.
 
         async fn read_file_text(&self, path: &str) -> anyhow::Result<String> {
             match path {
-                "/remote/project/.bitfun/skills/z-last/SKILL.md" => {
+                "/remote/project/.openbitfun/skills/z-last/SKILL.md" => {
                     Ok("---\nname: z-last\ndescription: last\n---\n\nz\n".to_string())
                 }
-                "/remote/project/.bitfun/skills/z-last/agents/openai.yaml" => {
+                "/remote/project/.openbitfun/skills/z-last/agents/openai.yaml" => {
                     Ok("policy:\n  allow_implicit_invocation: false\n".to_string())
                 }
-                "/remote/project/.bitfun/skills/a-first/SKILL.md" => {
+                "/remote/project/.openbitfun/skills/a-first/SKILL.md" => {
                     Ok("---\nname: A-First\ndescription: first\n---\n\na\n".to_string())
                 }
-                "/remote/project/.bitfun/skills/dup-one/SKILL.md" => {
+                "/remote/project/.openbitfun/skills/dup-one/SKILL.md" => {
                     Ok("---\nname: dup\ndescription: dup one\n---\n\none\n".to_string())
                 }
-                "/remote/project/.bitfun/skills/dup-two/SKILL.md" => {
+                "/remote/project/.openbitfun/skills/dup-two/SKILL.md" => {
                     Ok("---\nname: dup\ndescription: dup two\n---\n\ntwo\n".to_string())
                 }
                 _ => anyhow::bail!("not found: {}", path),
@@ -784,51 +874,55 @@ Use the remote project skill.
         async fn is_file(&self, path: &str) -> anyhow::Result<bool> {
             Ok(matches!(
                 path,
-                "/remote/project/.bitfun/skills/z-last/SKILL.md"
-                    | "/remote/project/.bitfun/skills/z-last/agents/openai.yaml"
-                    | "/remote/project/.bitfun/skills/a-first/SKILL.md"
-                    | "/remote/project/.bitfun/skills/dup-one/SKILL.md"
-                    | "/remote/project/.bitfun/skills/dup-two/SKILL.md"
+                "/remote/project/.openbitfun/skills/z-last/SKILL.md"
+                    | "/remote/project/.openbitfun/skills/z-last/agents/openai.yaml"
+                    | "/remote/project/.openbitfun/skills/a-first/SKILL.md"
+                    | "/remote/project/.openbitfun/skills/dup-one/SKILL.md"
+                    | "/remote/project/.openbitfun/skills/dup-two/SKILL.md"
             ))
         }
 
         async fn is_dir(&self, path: &str) -> anyhow::Result<bool> {
             Ok(matches!(
                 path,
-                "/remote/project/.bitfun/skills"
-                    | "/remote/project/.bitfun/skills/z-last"
-                    | "/remote/project/.bitfun/skills/a-first"
-                    | "/remote/project/.bitfun/skills/dup-one"
-                    | "/remote/project/.bitfun/skills/dup-two"
+                "/remote/project/.openbitfun/skills"
+                    | "/remote/project/.openbitfun/skills/z-last"
+                    | "/remote/project/.openbitfun/skills/a-first"
+                    | "/remote/project/.openbitfun/skills/dup-one"
+                    | "/remote/project/.openbitfun/skills/dup-two"
             ))
         }
 
         async fn read_dir(&self, path: &str) -> anyhow::Result<Vec<WorkspaceDirEntry>> {
             match path {
-                "/remote/project/.bitfun/skills" => Ok(vec![
+                "/remote/project/.openbitfun/skills" => Ok(vec![
                     WorkspaceDirEntry {
                         name: "z-last".to_string(),
-                        path: "/remote/project/.bitfun/skills/z-last".to_string(),
+                        path: "/remote/project/.openbitfun/skills/z-last".to_string(),
                         is_dir: true,
                         is_symlink: false,
+                        modified: None,
                     },
                     WorkspaceDirEntry {
                         name: "a-first".to_string(),
-                        path: "/remote/project/.bitfun/skills/a-first".to_string(),
+                        path: "/remote/project/.openbitfun/skills/a-first".to_string(),
                         is_dir: true,
                         is_symlink: false,
+                        modified: None,
                     },
                     WorkspaceDirEntry {
                         name: "dup-two".to_string(),
-                        path: "/remote/project/.bitfun/skills/dup-two".to_string(),
+                        path: "/remote/project/.openbitfun/skills/dup-two".to_string(),
                         is_dir: true,
                         is_symlink: false,
+                        modified: None,
                     },
                     WorkspaceDirEntry {
                         name: "dup-one".to_string(),
-                        path: "/remote/project/.bitfun/skills/dup-one".to_string(),
+                        path: "/remote/project/.openbitfun/skills/dup-one".to_string(),
                         is_dir: true,
                         is_symlink: false,
+                        modified: None,
                     },
                 ]),
                 _ => Ok(vec![]),

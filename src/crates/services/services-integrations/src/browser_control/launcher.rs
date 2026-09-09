@@ -1,9 +1,9 @@
 //! Detect and launch the user's default browser with CDP debug port enabled.
 
 use anyhow::{anyhow, Result};
-use bitfun_services_core::process_manager;
 #[allow(unused_imports)]
 use log::{debug, info};
+use openbitfun_services_core::process_manager;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -85,7 +85,7 @@ impl BrowserLauncher {
     /// Check if a CDP debug port is already listening.
     pub async fn is_cdp_available(port: u16) -> bool {
         let url = format!("http://127.0.0.1:{}/json/version", port);
-        reqwest::Client::new()
+        crate::reqwest_client()
             .get(&url)
             .timeout(std::time::Duration::from_secs(2))
             .send()
@@ -454,7 +454,7 @@ impl BrowserLauncher {
         }
     }
 
-    fn user_profile_debugging_setup_url(kind: &BrowserKind) -> Option<&'static str> {
+    pub fn user_profile_debugging_setup_url(kind: &BrowserKind) -> Option<&'static str> {
         match kind {
             BrowserKind::Chrome => Some("chrome://inspect/#remote-debugging"),
             BrowserKind::Edge => Some("edge://inspect/#remote-debugging"),
@@ -504,39 +504,62 @@ impl BrowserLauncher {
     /// Chromium drops `chrome://` URLs handed to it on the command line and
     /// silently substitutes the New Tab Page, so spawning the executable with
     /// the settings URL looks to the user like "the browser opened and nothing
-    /// happened". macOS can route the URL through the browser's own AppleScript
-    /// `open location` handler, which is not subject to that filter; other
-    /// platforms have no equivalent, so the caller must hand the URL to the
-    /// user instead. Returns whether the page was actually opened.
+    /// happened". On macOS, create and focus the tab through the browser's
+    /// AppleScript dictionary. This is more reliable than `open location`,
+    /// especially while the browser is starting or has no open windows. Keep
+    /// `open location` as a fallback for browser versions whose scripting
+    /// dictionary does not expose tab creation. Other platforms have no
+    /// equivalent, so the caller must hand the URL to the user instead.
+    /// Returns whether the browser accepted one of the open requests.
     fn open_user_profile_debugging_setup(kind: &BrowserKind, setup_url: &str) -> bool {
         #[cfg(target_os = "macos")]
         {
             let Some(app_name) = Self::launch_app_name(kind) else {
                 return false;
             };
-            let script = format!(
-                "tell application \"{}\" to open location \"{}\"",
-                app_name.replace('"', "\\\""),
-                setup_url
-            );
-            match silent_command("osascript").args(["-e", &script]).output() {
-                Ok(output) if output.status.success() => true,
-                Ok(output) => {
-                    debug!(
-                        "Failed to open {} remote debugging settings: {}",
-                        kind,
-                        String::from_utf8_lossy(&output.stderr).trim()
-                    );
-                    false
-                }
-                Err(error) => {
-                    debug!(
-                        "Failed to run osascript for {} remote debugging settings: {}",
-                        kind, error
-                    );
-                    false
+            let app_name = app_name.replace('"', "\\\"");
+            let setup_url = setup_url.replace('"', "\\\"");
+            let scripts = [
+                format!(
+                    "tell application \"{app_name}\"\n\
+                         activate\n\
+                         if (count of windows) is 0 then make new window\n\
+                         tell front window\n\
+                           set setupTab to make new tab at end of tabs with properties {{URL:\"{setup_url}\"}}\n\
+                           set active tab index to (count of tabs)\n\
+                         end tell\n\
+                       end tell"
+                ),
+                format!(
+                    "tell application \"{app_name}\"\n\
+                         activate\n\
+                         open location \"{setup_url}\"\n\
+                       end tell"
+                ),
+            ];
+
+            for (attempt, script) in scripts.iter().enumerate() {
+                match silent_command("osascript").args(["-e", script]).output() {
+                    Ok(output) if output.status.success() => return true,
+                    Ok(output) => {
+                        debug!(
+                            "Failed to open {} remote debugging settings (attempt {}): {}",
+                            kind,
+                            attempt + 1,
+                            String::from_utf8_lossy(&output.stderr).trim()
+                        );
+                    }
+                    Err(error) => {
+                        debug!(
+                            "Failed to run osascript for {} remote debugging settings (attempt {}): {}",
+                            kind,
+                            attempt + 1,
+                            error
+                        );
+                    }
                 }
             }
+            false
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -583,11 +606,11 @@ impl BrowserLauncher {
 
         let instructions = if opened {
             format!(
-                "{kind} opened its Remote debugging settings. Turn on \"Allow remote debugging for this browser instance\" there; the browser remembers this preference for normal future starts. Then connect again and approve BitFun's connection request. This guarded flow uses your current browser profile, including its existing tabs and login state."
+                "{kind} opened its Remote debugging settings. Turn on \"Allow remote debugging for this browser instance\" there; the browser remembers this preference for normal future starts. Then connect again and approve OpenBitFun's connection request. This guarded flow uses your current browser profile, including its existing tabs and login state."
             )
         } else {
             format!(
-                "Open {setup_url} in {kind} and turn on \"Allow remote debugging for this browser instance\"; the browser remembers this preference for normal future starts. Then connect again and approve BitFun's connection request. This guarded flow uses your current browser profile, including its existing tabs and login state."
+                "Open {setup_url} in {kind} and turn on \"Allow remote debugging for this browser instance\"; the browser remembers this preference for normal future starts. Then connect again and approve OpenBitFun's connection request. This guarded flow uses your current browser profile, including its existing tabs and login state."
             )
         };
 
@@ -603,7 +626,7 @@ impl BrowserLauncher {
         dirs::data_local_dir()
             .or_else(dirs::data_dir)
             .unwrap_or_else(std::env::temp_dir)
-            .join("BitFun")
+            .join("OpenBitFun")
     }
 
     fn ensure_managed_user_data_dir(kind: &BrowserKind, root: &Path) -> Result<PathBuf> {
@@ -1088,7 +1111,7 @@ mod tests {
 
     #[test]
     fn managed_user_data_dir_sanitizes_unknown_browser_name() {
-        let root = PathBuf::from("/tmp/bitfun-test");
+        let root = PathBuf::from("/tmp/openbitfun-test");
         let dir = BrowserLauncher::managed_user_data_dir(
             &root,
             &BrowserKind::Unknown("Custom Browser!".to_string()),

@@ -1,7 +1,7 @@
 //! Provider-neutral tool pipeline planning helpers.
 
-use bitfun_events::{ToolEventData, ToolEventIdentity, ToolImageAttachment};
 use dashmap::DashMap;
+use openbitfun_events::{ToolEventData, ToolEventIdentity, ToolImageAttachment};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -197,7 +197,7 @@ pub fn tool_call_concurrency_safe_for_batch(
     same_batch_subagent_call_count: usize,
     subagent_batch_execution_policy: SubagentBatchExecutionPolicy,
 ) -> bool {
-    if tool_name != "Task" {
+    if !matches!(tool_name, "Task" | "AgentSpawn") {
         return tool_is_concurrency_safe;
     }
 
@@ -366,7 +366,7 @@ fn redact_data_url_in_json(value: &mut serde_json::Value) {
 mod tests {
     use super::ToolStateEventKind;
     use super::{sanitize_tool_result_for_event, tool_state_event_data, ToolStateEventFacts};
-    use bitfun_events::{ToolEventData, ToolEventIdentity};
+    use openbitfun_events::{ToolEventData, ToolEventIdentity};
     use serde_json::json;
 
     #[test]
@@ -376,7 +376,7 @@ mod tests {
             state: ToolStateEventKind::Completed {
                 result: json!({ "path": "preview.png" }),
                 result_for_assistant: Some("Image attached".to_string()),
-                image_attachments: Some(vec![bitfun_events::ToolImageAttachment {
+                image_attachments: Some(vec![openbitfun_events::ToolImageAttachment {
                     mime_type: "image/png".to_string(),
                     data_base64: "AAAA".to_string(),
                 }]),

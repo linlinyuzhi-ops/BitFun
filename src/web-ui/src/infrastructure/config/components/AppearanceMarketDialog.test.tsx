@@ -38,26 +38,65 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock('@/component-library', () => ({
-  Button: ({ children, isLoading: _isLoading, iconOnly: _iconOnly, ...props }: any) => (
+vi.mock('@openbitfun/ui', () => ({
+  ScrollArea: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  Icon: ({ name, ...props }: { name: string } & React.HTMLAttributes<HTMLSpanElement>) => <span data-icon={name} {...props} />,
+  OverflowText: ({ children, behavior: _behavior, marqueeActive: _marqueeActive, ...props }: any) => <span {...props}>{children}</span>,
+  Button: ({ children, isLoading: _isLoading, loading: _loading, iconOnly: _iconOnly, ...props }: any) => (
     <button {...props}>{children}</button>
   ),
-  Modal: ({ isOpen, title, titleExtra, children }: any) => isOpen ? (
-    <section role="dialog" aria-label={title}>{titleExtra}{children}</section>
-  ) : null,
-  Search: ({ value, onChange, onSearch, inputAriaLabel }: any) => (
+  Dialog: ({ open, children }: any) => open ? <section role="dialog">{children}</section> : null,
+  DialogBody: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  DialogClose: () => <button type="button" aria-label="Close" />,
+  DialogHeader: ({ children }: React.PropsWithChildren) => <header>{children}</header>,
+  DialogHeading: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  DialogTitle: ({ children }: React.PropsWithChildren) => <h2>{children}</h2>,
+  SearchField: ({ value, onValueChange, onSearch, 'aria-label': ariaLabel }: any) => (
     <input
-      aria-label={inputAriaLabel}
+      aria-label={ariaLabel}
       value={value}
-      onChange={event => onChange(event.target.value)}
+      onChange={event => onValueChange(event.target.value)}
       onKeyDown={event => event.key === 'Enter' && onSearch(event.currentTarget.value)}
     />
   ),
-  Select: () => <div />,
-  Input: ({ label, ...props }: any) => <label>{label}<input {...props} /></label>,
-  Textarea: ({ label, showCount: _showCount, ...props }: any) => (
-    <label>{label}<textarea {...props} /></label>
+  Select: ({ options, onValueChange, ...props }: any) => (
+    <select {...props} onChange={event => onValueChange?.(event.target.value)}>
+      {options.map((option: any) => (
+        <option key={option.value} value={option.value}>{option.label}</option>
+      ))}
+    </select>
   ),
+  Field: ({ label, children }: any) => <label>{label}{children}</label>,
+  Input: ({ leading, trailing, onChange, onValueChange, ...props }: any) => (
+    <span>
+      {leading}
+      <input
+        {...props}
+        onChange={event => {
+          onChange?.(event);
+          onValueChange?.(event.currentTarget.value);
+        }}
+      />
+      {trailing}
+    </span>
+  ),
+  Textarea: ({ label, hint, errorMessage, showCount: _showCount, onChange, onValueChange, ...props }: any) => (
+    <label>
+      {label}
+      <textarea
+        {...props}
+        onChange={event => {
+          onChange?.(event);
+          onValueChange?.(event.currentTarget.value);
+        }}
+      />
+      {hint ?? errorMessage}
+    </label>
+  ),
+  Tooltip: ({ children }: any) => <>{children}</>,
+}));
+
+vi.mock('@/infrastructure/confirm-dialog', () => ({
   confirmDialog: mocks.confirmDialog,
 }));
 
@@ -109,7 +148,7 @@ vi.mock('@/shared/notification-system', () => ({
 }));
 
 vi.mock('@/shared/utils/version', () => ({
-  getVersionInfo: () => ({ version: '0.2.15' }),
+  getVersionInfo: () => ({ version: '1.0.0' }),
 }));
 
 const summary = {
@@ -122,7 +161,7 @@ const summary = {
   mode: 'dark',
   packageVersion: '2.0.0',
   latestRelease: 2,
-  minBitfunVersion: '0.1.0',
+  minOpenBitFunVersion: '1.0.0',
   requiredCapabilities: ['components.v1'],
   owner: { githubId: 1, login: 'studio', avatarUrl: '' },
   previewUrl: `https://market.openbitfun.com/skin/api/v1/artifacts/previews/${'a'.repeat(64)}`,
@@ -135,7 +174,7 @@ const release = {
   listingId: 'listing-1',
   releaseNumber: 2,
   packageVersion: '2.0.0',
-  minBitfunVersion: '0.1.0',
+  minOpenBitFunVersion: '1.0.0',
   packageSha256: 'a'.repeat(64),
   packageSize: 100,
   reviewBundleHash: 'b'.repeat(64),
@@ -158,7 +197,7 @@ describe('AppearanceMarketDialog', () => {
     mocks.downloadRelease.mockReset().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
     mocks.listSubmissions.mockReset().mockResolvedValue([]);
     mocks.chooseSubmissionPackage.mockReset()
-      .mockResolvedValue('/tmp/ocean-night.bitfun-appearance');
+      .mockResolvedValue('/tmp/ocean-night.openbitfun-appearance');
     mocks.submitPackage.mockReset().mockResolvedValue({
       submissionId: 'submission-upload',
       slug: 'ocean-night',
@@ -168,7 +207,7 @@ describe('AppearanceMarketDialog', () => {
       description: 'A calm blue appearance',
       mode: 'dark',
       packageVersion: '1.0.0',
-      minBitfunVersion: '0.2.15',
+      minOpenBitFunVersion: '1.0.0',
       requiredCapabilities: [],
       changelog: 'Initial release.',
       license: { spdxExpression: 'MIT' },
@@ -296,7 +335,7 @@ describe('AppearanceMarketDialog', () => {
       description: 'Candidate package',
       mode: 'dark',
       packageVersion: '2.0.0',
-      minBitfunVersion: '0.1.0',
+      minOpenBitFunVersion: '1.0.0',
       requiredCapabilities: ['components.v1'],
       changelog: 'More polished',
       license: { spdxExpression: 'MIT' },
@@ -341,7 +380,7 @@ describe('AppearanceMarketDialog', () => {
       slug: 'unpublished-skin',
       releaseNumber: 1,
       name: 'Unpublished Skin',
-      minBitfunVersion: '0.2.15',
+      minOpenBitFunVersion: '1.0.0',
       requiredCapabilities: [],
       changelog: 'Initial release',
       license: { spdxExpression: 'MIT' },
@@ -404,9 +443,9 @@ describe('AppearanceMarketDialog', () => {
     await act(async () => submitButton?.click());
 
     await vi.waitFor(() => expect(mocks.submitPackage).toHaveBeenCalledWith({
-      packagePath: '/tmp/ocean-night.bitfun-appearance',
+      packagePath: '/tmp/ocean-night.openbitfun-appearance',
       slug: undefined,
-      minBitfunVersion: '0.2.15',
+      minOpenBitFunVersion: '1.0.0',
       changelog: undefined,
       license: { spdxExpression: 'MIT' },
       repositoryUrl: undefined,

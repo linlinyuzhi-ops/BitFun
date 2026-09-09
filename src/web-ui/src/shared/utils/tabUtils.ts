@@ -7,6 +7,7 @@ import { enqueuePendingTab } from '@/shared/services/pendingTabQueue';
 import { resolveAndFocusOpenTarget } from '@/shared/services/sceneOpenTargetResolver';
 import type { OpenSource } from '@/shared/services/sceneOpenTargetResolver';
 import { TAB_EVENTS } from '@/app/components/panels/content-canvas/types';
+import { parseCanvasArtifactReference } from '@/shared/utils/canvasArtifactReference';
 export type TabTargetMode = 'agent' | 'project' | 'git';
 
 export interface TabCreationOptions {
@@ -19,6 +20,8 @@ export interface TabCreationOptions {
   replaceExisting?: boolean;
   /** Target canvas: agent (AuxPane), project (FileViewer), git (Git scene diff area) */
   mode?: TabTargetMode;
+  /** Rechecked after delayed panel expansion so stale host work cannot open a tab. */
+  isCurrent?: () => boolean;
 }
 
 interface CreateTerminalTabOptions {
@@ -33,9 +36,22 @@ export interface CreateReviewPlatformPullRequestDetailTabOptions {
   title?: string;
 }
 
+export interface OpenCanvasArtifactTabOptions {
+  artifactReference: string;
+  title?: string;
+  source?: string;
+  status?: string;
+  diagnostics?: unknown[];
+  workspacePath?: string;
+  remoteConnectionId?: string;
+  remoteSshHost?: string;
+  sourceMetadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
 function isRightPanelCollapsed(): boolean {
   try {
-    const layoutState = (window as any).__BITFUN_LAYOUT_STATE__;
+    const layoutState = (window as any).__OPENBITFUN_LAYOUT_STATE__;
     return layoutState?.rightPanelCollapsed ?? false;
   } catch {
     return false;
@@ -44,6 +60,7 @@ function isRightPanelCollapsed(): boolean {
 
  
 export function createTab(options: TabCreationOptions): void {
+  if (options.isCurrent && !options.isCurrent()) return;
   const {
     type,
     title,
@@ -73,12 +90,47 @@ export function createTab(options: TabCreationOptions): void {
   if (mode === 'agent' && isRightPanelCollapsed()) {
     window.dispatchEvent(new CustomEvent(TAB_EVENTS.EXPAND_RIGHT_PANEL));
     window.setTimeout(() => {
+      if (options.isCurrent && !options.isCurrent()) return;
       window.dispatchEvent(createTabEvent);
     }, 300);
     return;
   }
 
   window.dispatchEvent(createTabEvent);
+}
+
+/** Open a persisted Canvas artifact through the same panel path as Canvas tool cards. */
+export function openCanvasArtifactTab(options: OpenCanvasArtifactTabOptions): boolean {
+  const artifactReference = options.artifactReference.trim();
+  if (!parseCanvasArtifactReference(artifactReference)) {
+    return false;
+  }
+
+  const duplicateCheckKey = `openbitfun-canvas-${artifactReference}`;
+  createTab({
+    type: 'openbitfun-canvas',
+    title: options.title?.trim() || 'OpenBitFun Canvas',
+    data: {
+      artifactReference,
+      source: options.source,
+      status: options.status,
+      diagnostics: options.diagnostics,
+      workspacePath: options.workspacePath,
+      remoteConnectionId: options.remoteConnectionId,
+      remoteSshHost: options.remoteSshHost,
+      ...(options.sourceMetadata ? { _source: options.sourceMetadata } : {}),
+    },
+    metadata: {
+      duplicateCheckKey,
+      artifactReference,
+      ...options.metadata,
+    },
+    checkDuplicate: true,
+    duplicateCheckKey,
+    replaceExisting: true,
+    mode: 'agent',
+  });
+  return true;
 }
 
  
@@ -409,6 +461,7 @@ export function createTerminalTab(
       isTerminal: true,
       sessionId,
       duplicateCheckKey: `terminal-${sessionId}`,
+      terminalCloseBehavior: 'detach',
     },
     checkDuplicate: true,
     duplicateCheckKey: `terminal-${sessionId}`,
@@ -452,11 +505,12 @@ interface OpenFileTargetContext {
 
 /**
  * Open a file to the best target:
- * - active scene is session: open in agent AuxPane tabs
- * - otherwise: open in file-viewer scene project tabs
+ * - explicit project navigation: open in the file-viewer scene
+ * - contextual open while Session is active: open in agent AuxPane tabs
+ * - otherwise: open in the file-viewer scene
  *
- * This avoids unexpected focus stealing when session is merely opened but
- * not the currently active scene.
+ * Explicit user navigation outranks ambient scene state. This keeps the file
+ * tree deterministic while contextual links avoid unexpected focus stealing.
  */
 export function openFileInBestTarget(
   options: OpenFileInBestTargetOptions,

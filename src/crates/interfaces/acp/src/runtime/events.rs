@@ -7,8 +7,8 @@ use agent_client_protocol::schema::{
     ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
 use agent_client_protocol::{Client, ConnectionTo, Result};
-use bitfun_core::service::session::{ToolItemData, ToolItemIdentityExt};
-use bitfun_events::ToolEventData;
+use openbitfun_core::service::session::{ToolItemData, ToolItemIdentityExt};
+use openbitfun_events::ToolEventData;
 
 pub(super) const PERMISSION_ALLOW_ONCE: &str = "allow_once";
 pub(super) const PERMISSION_REJECT_ONCE: &str = "reject_once";
@@ -215,7 +215,10 @@ fn tool_call_update(tool_event: &ToolEventData) -> Option<ToolCallUpdate> {
             let fields = ToolCallUpdateFields::new().status(ToolCallStatus::Pending);
             if let Ok(wire_input) = serde_json::from_str::<serde_json::Value>(params) {
                 let (tool_name, effective_input) =
-                    bitfun_agent_tools::effective_tool_invocation(&identity.tool_name, &wire_input);
+                    openbitfun_agent_tools::effective_tool_invocation(
+                        &identity.tool_name,
+                        &wire_input,
+                    );
                 if is_write_like_tool(tool_name) {
                     fields
                         .raw_input(sanitize_tool_input(tool_name, effective_input.clone()))
@@ -248,7 +251,7 @@ fn tool_call_update(tool_event: &ToolEventData) -> Option<ToolCallUpdate> {
             identity, params, ..
         } => {
             let (tool_name, effective_input) =
-                bitfun_agent_tools::effective_tool_invocation(&identity.tool_name, params);
+                openbitfun_agent_tools::effective_tool_invocation(&identity.tool_name, params);
             ToolCallUpdateFields::new()
                 .title(tool_title(tool_name))
                 .kind(tool_kind(tool_name))
@@ -281,7 +284,7 @@ fn tool_call_update(tool_event: &ToolEventData) -> Option<ToolCallUpdate> {
             identity, params, ..
         } => {
             let (tool_name, effective_input) =
-                bitfun_agent_tools::effective_tool_invocation(&identity.tool_name, params);
+                openbitfun_agent_tools::effective_tool_invocation(&identity.tool_name, params);
             ToolCallUpdateFields::new()
                 .title(format!("Allow {}?", tool_name))
                 .status(ToolCallStatus::Pending)
@@ -535,8 +538,8 @@ fn value_to_display_text(value: &serde_json::Value) -> String {
 mod tests {
     use super::*;
     use agent_client_protocol::schema::ContentBlock;
-    use bitfun_core::service::session::ToolCallData;
-    use bitfun_events::ToolEventIdentity;
+    use openbitfun_core::service::session::ToolCallData;
+    use openbitfun_events::ToolEventIdentity;
 
     fn identity(tool_name: &str) -> ToolEventIdentity {
         ToolEventIdentity::direct("tool-1", tool_name)
@@ -563,7 +566,7 @@ mod tests {
     fn completed_event_maps_to_completed_update_with_output() {
         let mut seen = HashSet::new();
         let event = ToolEventData::Completed {
-            identity: identity("Bash"),
+            identity: identity("ExecCommand"),
             result: serde_json::json!({ "stdout": "ok" }),
             result_for_assistant: Some("done".to_string()),
             image_attachments: None,
@@ -620,7 +623,7 @@ mod tests {
         let event = ToolEventData::Started {
             identity: ToolEventIdentity::resolved(
                 "tool-1",
-                bitfun_agent_tools::CALL_DEFERRED_TOOL_NAME,
+                openbitfun_agent_tools::CALL_DEFERRED_TOOL_NAME,
                 "Write",
             ),
             params: serde_json::json!({
@@ -1010,7 +1013,7 @@ mod tests {
     fn replay_without_result_defaults_to_in_progress() {
         // No status, no interruption reason: the stored state is indeterminate,
         // so the replayed card stays InProgress (matches live streaming shape).
-        let item = replay_tool_item("tool-1", "Bash", None, None);
+        let item = replay_tool_item("tool-1", "ExecCommand", None, None);
         let update = replay_update(&item);
         assert_eq!(update.fields.status, Some(ToolCallStatus::InProgress));
         assert!(update.fields.raw_output.is_none());
@@ -1019,7 +1022,7 @@ mod tests {
 
     #[test]
     fn replay_with_running_status_stays_in_progress() {
-        let item = replay_tool_item("tool-1", "Bash", Some("running"), None);
+        let item = replay_tool_item("tool-1", "ExecCommand", Some("running"), None);
         let update = replay_update(&item);
         assert_eq!(update.fields.status, Some(ToolCallStatus::InProgress));
     }
@@ -1029,14 +1032,14 @@ mod tests {
         // `build_model_rounds_from_messages` stamps `completed` on tool items
         // whose results live in separate tool_result messages; that is not a
         // terminal-without-result signal, so we must not flip it to Failed.
-        let item = replay_tool_item("tool-1", "Bash", Some("completed"), None);
+        let item = replay_tool_item("tool-1", "ExecCommand", Some("completed"), None);
         let update = replay_update(&item);
         assert_eq!(update.fields.status, Some(ToolCallStatus::InProgress));
     }
 
     #[test]
     fn replay_with_interruption_reason_settles_to_failed() {
-        let item = replay_tool_item("tool-1", "Bash", None, Some("cancelled"));
+        let item = replay_tool_item("tool-1", "ExecCommand", None, Some("cancelled"));
         let update = replay_update(&item);
         assert_eq!(update.fields.status, Some(ToolCallStatus::Failed));
         assert_eq!(
@@ -1056,7 +1059,7 @@ mod tests {
 
     #[test]
     fn replay_with_cancelled_status_settles_to_failed() {
-        let item = replay_tool_item("tool-1", "Bash", Some("cancelled"), None);
+        let item = replay_tool_item("tool-1", "ExecCommand", Some("cancelled"), None);
         let update = replay_update(&item);
         assert_eq!(update.fields.status, Some(ToolCallStatus::Failed));
         assert_eq!(
@@ -1067,7 +1070,7 @@ mod tests {
 
     #[test]
     fn replay_with_error_status_settles_to_failed() {
-        let item = replay_tool_item("tool-1", "Bash", Some("error"), None);
+        let item = replay_tool_item("tool-1", "ExecCommand", Some("error"), None);
         let update = replay_update(&item);
         assert_eq!(update.fields.status, Some(ToolCallStatus::Failed));
         assert_eq!(
@@ -1078,7 +1081,7 @@ mod tests {
 
     #[test]
     fn replay_interruption_reason_takes_precedence_over_running_status() {
-        let item = replay_tool_item("tool-1", "Bash", Some("running"), Some("aborted"));
+        let item = replay_tool_item("tool-1", "ExecCommand", Some("running"), Some("aborted"));
         let update = replay_update(&item);
         assert_eq!(update.fields.status, Some(ToolCallStatus::Failed));
         assert_eq!(
@@ -1089,7 +1092,7 @@ mod tests {
 
     #[test]
     fn replay_with_blank_interruption_reason_falls_back_to_status() {
-        let item = replay_tool_item("tool-1", "Bash", Some("cancelled"), Some("   "));
+        let item = replay_tool_item("tool-1", "ExecCommand", Some("cancelled"), Some("   "));
         let update = replay_update(&item);
         assert_eq!(update.fields.status, Some(ToolCallStatus::Failed));
         assert_eq!(

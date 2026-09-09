@@ -6,8 +6,7 @@
 use bitfun_agent_workflows::deep_research::{
     renumber_research_report, ResearchCitationDisplayMapEntry,
 };
-use bitfun_runtime_ports::WorkspaceFileSystem;
-use log::{debug, info, warn};
+use openbitfun_runtime_ports::WorkspaceFileSystem;
 use serde_json::json;
 use std::fmt;
 use std::path::PathBuf;
@@ -61,7 +60,7 @@ pub struct RenumberStats {
 /// fire-and-await without affecting the surrounding agent flow.
 ///
 /// Operates on the per-session WORK_DIR at
-/// `<workspace>/.bitfun/sessions/<session_id>/research/`, where both the
+/// `<workspace>/.openbitfun/sessions/<session_id>/research/`, where both the
 /// report and the audit files live.
 pub async fn run_for_session_workspace(
     fs: &dyn WorkspaceFileSystem,
@@ -70,7 +69,12 @@ pub async fn run_for_session_workspace(
 ) {
     let work_dir = fs.join_path(
         workspace_root,
-        &[".bitfun", "sessions", session_id, "research"],
+        &[
+            openbitfun_core_types::product_identity::hidden_data_directory(),
+            "sessions",
+            session_id,
+            "research",
+        ],
     );
     let report_path = fs.join_path(&work_dir, &["report.md"]);
 
@@ -238,7 +242,7 @@ fn workspace_io_error(error: anyhow::Error) -> std::io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitfun_runtime_ports::{WorkspaceDirEntry, WorkspaceFileSystem, WorkspacePathKind};
+    use openbitfun_runtime_ports::{WorkspaceDirEntry, WorkspaceFileSystem, WorkspacePathKind};
     use std::collections::HashMap;
     use std::env;
     use std::path::Path;
@@ -291,6 +295,7 @@ mod tests {
                     path: entry.path().to_string_lossy().to_string(),
                     is_dir: metadata.is_dir(),
                     is_symlink: metadata.file_type().is_symlink(),
+                    modified: metadata.modified().ok(),
                 });
             }
             Ok(entries)
@@ -415,7 +420,7 @@ mod tests {
                 .expect("system clock before unix epoch")
                 .as_nanos();
             let path =
-                env::temp_dir().join(format!("bitfun-citation-renumber-{}-{}", label, unique));
+                env::temp_dir().join(format!("openbitfun-citation-renumber-{}-{}", label, unique));
             std::fs::create_dir_all(&path).unwrap();
             Self(path)
         }
@@ -512,7 +517,7 @@ cit_005 | claim c | url=u3 | authority=medium
 
         let work_dir = dir
             .path()
-            .join(".bitfun")
+            .join(openbitfun_core_types::product_identity::hidden_data_directory())
             .join("sessions")
             .join("incomplete-session")
             .join("research");
@@ -528,7 +533,7 @@ cit_005 | claim c | url=u3 | authority=medium
 
         let work_dir = dir
             .path()
-            .join(".bitfun")
+            .join(openbitfun_core_types::product_identity::hidden_data_directory())
             .join("sessions")
             .join(session_id)
             .join("research");
@@ -572,7 +577,10 @@ Para 1 references cit_005 first. Para 2 references cit_001.
         let fs = RecordingWorkspaceFs::default();
         let workspace_root = "/root/project";
         let session_id = "remote-session";
-        let work_dir = format!("{workspace_root}/.bitfun/sessions/{session_id}/research");
+        let work_dir = format!(
+            "{workspace_root}/{}/sessions/{session_id}/research",
+            openbitfun_core_types::product_identity::hidden_data_directory()
+        );
         let report_path = format!("{work_dir}/report.md");
         let citations_path = format!("{work_dir}/citations.md");
         let display_map_path = format!("{work_dir}/display_map.json");
@@ -613,7 +621,7 @@ Para 1 references cit_005 first. Para 2 references cit_001.
         let session_id = "remote-session";
         let host_work_dir = host_workspace
             .path()
-            .join(".bitfun")
+            .join(openbitfun_core_types::product_identity::hidden_data_directory())
             .join("sessions")
             .join(session_id)
             .join("research");
@@ -637,7 +645,13 @@ Para 1 references cit_005 first. Para 2 references cit_001.
                 "exists:{}",
                 remote_fs.join_path(
                     &workspace_root,
-                    &[".bitfun", "sessions", session_id, "research", "report.md"]
+                    &[
+                        openbitfun_core_types::product_identity::hidden_data_directory(),
+                        "sessions",
+                        session_id,
+                        "research",
+                        "report.md"
+                    ]
                 )
             )]
         );

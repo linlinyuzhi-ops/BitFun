@@ -2,11 +2,11 @@
  * WorkspaceBody — main workspace container.
  *
  * Left-right layout:
- *   .nav-area   (240px, flex-column)
- *     NavBar        (38px — back/forward + drag + WindowControls)
+ *   .nav-area   (300px default, flex-column)
+ *     NavBar        (45px — back/forward + drag + WindowControls)
  *     NavPanel      (flex:1 — navigation sidebar)
  *   .scene-area (flex:1, flex-column)
- *     SceneBar      (38px — scene tab strip)
+ *     SceneTopBar   (scene tabs + active-scene chrome + WindowControls)
  *     SceneViewport (flex:1 — active scene content)
  */
 
@@ -14,13 +14,15 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useCurrentWorkspace } from '../../infrastructure/contexts/WorkspaceContext';
 import { NavBar } from '../components/NavBar';
 import NavPanel from '../components/NavPanel/NavPanel';
-import { SceneBar } from '../components/SceneBar';
+import { SceneChromeProvider, SceneTopBar } from '../components/SceneTopBar';
 import { SceneViewport } from '../scenes';
+import TerminalActionBridge from '../scenes/terminal/TerminalActionBridge';
 import { useApp } from '../hooks/useApp';
+import { useSceneStore } from '../stores/sceneStore';
 import './WorkspaceBody.scss';
 
-const NAV_DEFAULT_WIDTH = 240;
-const NAV_MIN_WIDTH = 240;
+const NAV_DEFAULT_WIDTH = 300;
+const NAV_MIN_WIDTH = 216;
 const NAV_MAX_WIDTH = 480;
 const COLLAPSE_THRESHOLD = 64;
 
@@ -47,6 +49,7 @@ const WorkspaceBody: React.FC<WorkspaceBodyProps> = ({
 }) => {
   const { workspace: currentWorkspace } = useCurrentWorkspace();
   const { state, toggleLeftPanel } = useApp();
+  const activeSceneId = useSceneStore(sceneState => sceneState.activeTabId);
   const isNavCollapsed = state.layout.leftPanelCollapsed;
   const [navWidth, setNavWidth] = useState(NAV_DEFAULT_WIDTH);
   const navAreaRef = useRef<HTMLDivElement>(null);
@@ -70,8 +73,8 @@ const WorkspaceBody: React.FC<WorkspaceBodyProps> = ({
     let hasCollapsed = false;
     let frameId: number | null = null;
 
-    document.body.classList.add('bitfun-is-dragging-nav-collapse');
-    document.body.classList.add('bitfun-is-resizing-nav');
+    document.body.classList.add('openbitfun-is-dragging-nav-collapse');
+    document.body.classList.add('openbitfun-is-resizing-nav');
 
     // During the drag we bypass React entirely: write the --nav-width CSS
     // variable straight to the two elements that consume it (rAF-merged).
@@ -108,7 +111,7 @@ const WorkspaceBody: React.FC<WorkspaceBodyProps> = ({
         cancelAnimationFrame(frameId);
         frameId = null;
       }
-      // Flush the final width synchronously, while `bitfun-is-resizing-nav`
+      // Flush the final width synchronously, while `openbitfun-is-resizing-nav`
       // still suppresses the width transition. Without this, a drop that lands
       // between two animation frames leaves the DOM at the last painted width:
       // React only rewrites the inline var when `navWidth` actually changes, so
@@ -116,8 +119,8 @@ const WorkspaceBody: React.FC<WorkspaceBodyProps> = ({
       // sync with state, and any other drop would glide to its final width
       // ($motion-base) while the divider's `left` jumps instantly.
       applyWidth();
-      document.body.classList.remove('bitfun-is-dragging-nav-collapse');
-      document.body.classList.remove('bitfun-is-resizing-nav');
+      document.body.classList.remove('openbitfun-is-dragging-nav-collapse');
+      document.body.classList.remove('openbitfun-is-resizing-nav');
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
       dragCleanupRef.current = null;
@@ -132,13 +135,13 @@ const WorkspaceBody: React.FC<WorkspaceBodyProps> = ({
 
   return (
     <div
-      className={`bitfun-workspace-body${isEntering ? ' is-entering' : ''}${isExiting ? ' is-exiting' : ''} ${className}`}
-      data-bf-scene="workbench"
-      data-bf-part="workspace"
-      data-bf-state={isNavCollapsed ? 'collapsed' : undefined}
+      className={`openbitfun-workspace-body${isEntering ? ' is-entering' : ''}${isExiting ? ' is-exiting' : ''} ${className}`}
+      data-openbitfun-scene="workbench"
+      data-openbitfun-part="workspace"
+      data-openbitfun-state={isNavCollapsed ? 'collapsed' : undefined}
     >
       {isNavCollapsed && (
-        <div className="bitfun-workspace-body__collapsed-nav" data-bf-scene="workbench" data-bf-part="collapsedNav">
+        <div className="openbitfun-workspace-body__collapsed-nav" data-openbitfun-scene="workbench" data-openbitfun-part="collapsedNav">
           <NavBar isCollapsed onExpandNav={toggleLeftPanel} onMaximize={onMaximize} />
         </div>
       )}
@@ -146,42 +149,55 @@ const WorkspaceBody: React.FC<WorkspaceBodyProps> = ({
       {/* Left: nav history bar + navigation sidebar — always rendered for slide animation */}
       <div
         ref={navAreaRef}
-        className={`bitfun-workspace-body__nav-area${isNavCollapsed ? ' is-collapsed' : ''}`}
+        className={`openbitfun-workspace-body__nav-area${isNavCollapsed ? ' is-collapsed' : ''}`}
         style={isNavCollapsed ? undefined : { '--nav-width': `${navWidth}px` } as React.CSSProperties}
-        data-bf-scene="workbench"
-        data-bf-part="navArea"
-        data-bf-state={isNavCollapsed ? 'collapsed' : undefined}
+        data-openbitfun-scene="workbench"
+        data-openbitfun-part="navArea"
+        data-openbitfun-state={isNavCollapsed ? 'collapsed' : undefined}
       >
         <NavBar onExpandNav={toggleLeftPanel} onMaximize={onMaximize} />
-        <NavPanel className="bitfun-workspace-body__nav-panel" />
+        <NavPanel className="openbitfun-workspace-body__nav-panel" />
+        <div data-openbitfun-creation-slot="sidebar-footer" />
       </div>
+
+      <TerminalActionBridge />
 
       {/* Resize divider — placed at workspace-body level to avoid overflow:hidden clipping */}
       {!isNavCollapsed && (
         <div
           ref={navDividerRef}
-          className="bitfun-workspace-body__nav-divider"
+          className="openbitfun-workspace-body__nav-divider"
           style={{ '--nav-width': `${navWidth}px` } as React.CSSProperties}
           onMouseDown={handleNavCollapseDragStart}
           role="separator"
           aria-hidden="true"
-          data-bf-scene="workbench"
-          data-bf-part="navDivider"
+          data-openbitfun-scene="workbench"
+          data-openbitfun-part="navDivider"
         />
       )}
 
-      {/* Right: scene tab bar + scene content */}
-      <div className="bitfun-workspace-body__scene-area" data-bf-scene="workbench" data-bf-part="sceneArea">
-        <SceneBar
-          onMinimize={onMinimize}
-          onMaximize={onMaximize}
-          onClose={onClose}
-          isMaximized={isMaximized}
-        />
-        <SceneViewport
-          workspacePath={currentWorkspace?.rootPath}
-          isEntering={isEntering}
-        />
+      {/* Right: visual scene surface + any shell-level overlay */}
+      <div className="openbitfun-workspace-body__scene-area" data-openbitfun-scene="workbench" data-openbitfun-part="sceneArea">
+        <div
+          className="openbitfun-workspace-body__scene-surface"
+          data-openbitfun-scene="workbench"
+          data-openbitfun-part="sceneSurface"
+        >
+          <SceneChromeProvider activeSceneId={activeSceneId}>
+            <div data-openbitfun-creation-slot="scene-header" />
+            <SceneTopBar
+              onMinimize={onMinimize}
+              onMaximize={onMaximize}
+              onClose={onClose}
+              isMaximized={isMaximized}
+            />
+            <SceneViewport
+              workspacePath={currentWorkspace?.rootPath}
+              isEntering={isEntering}
+            />
+            <div data-openbitfun-creation-slot="scene-footer" />
+          </SceneChromeProvider>
+        </div>
         {sceneOverlay}
       </div>
     </div>

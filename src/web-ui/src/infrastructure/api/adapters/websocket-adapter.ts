@@ -26,6 +26,8 @@ import type {
   ResetAgentProfileConfigMessage,
   ResetAgentProfileConfigResponse,
   RunResponse,
+  SearchSessionContentMessage,
+  SearchSessionContentResponse,
   SetAgentProfileConfigMessage,
   SetAgentProfileConfigResponse,
   SubmitDialogTurnBody,
@@ -37,7 +39,7 @@ const log = createLogger('WebSocketAdapter');
 /**
  * Typed mapping from the frontend's snake_case agent commands to the app-server
  * JSON-RPC method names, carrying the request/response types from the generated
- * schema (`@/generated/api`, source: `bitfun-app-server-protocol`).
+ * schema (`@/generated/api`, source: `openbitfun-app-server-protocol`).
  *
  * The service layer (`AgentAPI` and friends) speaks Tauri command names
  * (`create_session`, `start_dialog_turn`, ...) because that is the desktop
@@ -100,6 +102,11 @@ export const AGENT_COMMAND_SCHEMA = {
   cancel_dialog_turn: {
     method: 'agent/cancelTurn',
     response: null as unknown as RunResponse,
+  },
+  search_session_content: {
+    method: 'search/sessionContent',
+    request: null as unknown as SearchSessionContentMessage,
+    response: null as unknown as SearchSessionContentResponse,
   },
   // Permission surface: the reply/list/grants operations map to the app-server
   // permission methods. `subscribe_permission_requests` has no direct
@@ -169,7 +176,7 @@ export const AGENT_COMMAND_SCHEMA = {
   // also uses -- no service injection, mirroring the static `GitService`
   // pattern. `get_config`/`get_configs` carry the not-found -> undefined
   // contract the frontend `ConfigAPI` depends on: the app-server
-  // `config_get_error` helper puts the `BitFunError::NotFound` Display text
+  // `config_get_error` helper puts the `OpenBitFunError::NotFound` Display text
   // into the JSON-RPC `message`, so `ConfigAPI.getConfig`'s substring match
   // (`not found:` + `config path` + `'<path>'`) hits and swallows the error
   // the same way it does on desktop. `get_skill_configs` (workspace
@@ -192,6 +199,9 @@ export const AGENT_COMMAND_SCHEMA = {
   },
   set_config: { method: 'config/setConfig' },
   save_cloud_speech_config: { method: 'config/saveCloudSpeechConfig' },
+  get_web_search_credential_status: { method: 'config/getWebSearchCredentialStatus' },
+  save_web_search_credential: { method: 'config/saveWebSearchCredential' },
+  clear_web_search_credential: { method: 'config/clearWebSearchCredential' },
   validate_config: { method: 'config/validateConfig' },
   i18n_get_current_language: { method: 'i18n/getCurrentLanguage' },
   i18n_set_language: { method: 'i18n/setLanguage' },

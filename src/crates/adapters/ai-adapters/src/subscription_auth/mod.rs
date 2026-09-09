@@ -1,15 +1,18 @@
 //! In-app subscription authentication.
 //!
-//! Lets BitFun sign in to another product's subscription (Codex/ChatGPT,
-//! Antigravity/Google, OpenCode) with an OpenCode-style in-app OAuth flow,
+//! Lets OpenBitFun sign in to another product's subscription (Codex/ChatGPT,
+//! Antigravity/Google, OpenCode, xAI/SuperGrok, Hermes/Nous Portal) with an in-app OAuth flow,
 //! and use the resulting tokens to authenticate AI requests. Secret material
-//! is stored in the operating-system credential vault; the local JSON file
-//! contains non-secret account metadata only.
+//! is stored separately from the non-secret account metadata. macOS uses a
+//! prompt-free encrypted local vault; other platforms use their native store.
 //!
 //! There is no upgrade path for the previous Codex/Gemini CLI disk-scan import.
 
 mod antigravity;
 mod codex;
+mod device_flow;
+mod grok;
+mod hermes;
 mod jwt;
 mod oauth_server;
 mod opencode;
@@ -31,13 +34,26 @@ use tokio_util::sync::CancellationToken;
 /// Maximum lifetime of a pending login session (matches OpenCode).
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
-/// One of the subscription providers BitFun can sign in to.
+/// OpenCode release whose built-in subscription protocols these adapters mirror.
+pub(crate) const OPENCODE_COMPAT_VERSION: &str = "1.18.29";
+
+/// One of the subscription providers OpenBitFun can sign in to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubscriptionProvider {
     Codex,
     Antigravity,
     Opencode,
+    Grok,
+    Hermes,
+}
+
+/// User-visible authorization method supported by a subscription provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubscriptionLoginMethod {
+    Browser,
+    Device,
 }
 
 /// Transport policy shared by subscription-auth requests.
@@ -61,7 +77,13 @@ impl SubscriptionHttpOptions {
 
 impl SubscriptionProvider {
     /// All providers, in display order.
-    pub const ALL: [SubscriptionProvider; 3] = [Self::Codex, Self::Antigravity, Self::Opencode];
+    pub const ALL: [SubscriptionProvider; 5] = [
+        Self::Codex,
+        Self::Antigravity,
+        Self::Opencode,
+        Self::Grok,
+        Self::Hermes,
+    ];
 
     /// Stable store key / serde tag for this provider.
     pub fn key(self) -> &'static str {
@@ -69,6 +91,8 @@ impl SubscriptionProvider {
             Self::Codex => "codex",
             Self::Antigravity => "antigravity",
             Self::Opencode => "opencode",
+            Self::Grok => "grok",
+            Self::Hermes => "hermes",
         }
     }
 
@@ -78,6 +102,8 @@ impl SubscriptionProvider {
             "codex" => Some(Self::Codex),
             "antigravity" => Some(Self::Antigravity),
             "opencode" => Some(Self::Opencode),
+            "grok" => Some(Self::Grok),
+            "hermes" => Some(Self::Hermes),
             _ => None,
         }
     }
@@ -86,7 +112,9 @@ impl SubscriptionProvider {
         match self {
             Self::Codex => "Codex (ChatGPT)",
             Self::Antigravity => "Antigravity (Google)",
-            Self::Opencode => "OpenCode",
+            Self::Opencode => "OpenCode (Go/Zen)",
+            Self::Grok => "xAI (SuperGrok)",
+            Self::Hermes => "Hermes (Nous Portal)",
         }
         .to_string()
     }
@@ -96,7 +124,46 @@ impl SubscriptionProvider {
             Self::Codex => codex::suggested(),
             Self::Antigravity => antigravity::suggested(),
             Self::Opencode => opencode::suggested(),
+            Self::Grok => grok::suggested(),
+            Self::Hermes => hermes::suggested(),
         }
+    }
+
+    /// Login methods exposed by the provider, in preferred display order.
+    pub fn login_methods(self) -> &'static [SubscriptionLoginMethod] {
+        use SubscriptionLoginMethod::{Browser, Device};
+
+        match self {
+            Self::Codex => &[Browser, Device],
+            Self::Antigravity => &[Browser],
+            Self::Opencode | Self::Grok | Self::Hermes => &[Device],
+        }
+    }
+
+    fn supports_login_method(self, method: SubscriptionLoginMethod) -> bool {
+        self.login_methods().contains(&method)
+    }
+}
+
+/// Returns a runtime-only model replacement for blank or retired subscription
+/// model ids. Persisted user configuration remains untouched, while existing
+/// installs keep working when a provider removes an old default slug.
+pub fn runtime_model_override(
+    provider: SubscriptionProvider,
+    configured_model: &str,
+) -> Option<&'static str> {
+    let model = configured_model.trim();
+    if model.is_empty() {
+        return Some(provider.suggested().2);
+    }
+    match (provider, model) {
+        // OpenBitFun used this as its original Codex subscription default. It is
+        // no longer in OpenCode's current ChatGPT subscription model set.
+        (SubscriptionProvider::Codex, "gpt-5-codex") => Some("gpt-5.5"),
+        // The retired Grok proxy exposed an unversioned coding-model alias;
+        // xAI's standard Responses API now publishes the versioned model id.
+        (SubscriptionProvider::Grok, "grok-build") => Some("grok-build-0.1"),
+        _ => None,
     }
 }
 
@@ -143,11 +210,14 @@ pub struct SubscriptionAccount {
     /// Unix seconds when the current credential expires (for UI display).
     pub expires_at: Option<i64>,
     pub connected: bool,
+    /// Authorization methods this provider currently supports.
+    #[serde(default)]
+    pub login_methods: Vec<SubscriptionLoginMethod>,
     /// The account was known previously, but its secret is absent from the
-    /// system credential vault. The UI should ask the user to sign in again.
+    /// credential vault. The UI should ask the user to sign in again.
     #[serde(default)]
     pub reauthentication_required: bool,
-    /// The system credential vault is currently locked or unavailable. Unlike
+    /// The credential vault is currently unavailable. Unlike
     /// a missing entry, this is retryable and should not request re-login.
     #[serde(default)]
     pub vault_unavailable: bool,
@@ -158,14 +228,23 @@ pub struct SubscriptionAccount {
     /// Empty for subscription providers that expose only one fixed endpoint.
     #[serde(default)]
     pub api_offerings: Vec<SubscriptionApiOffering>,
+    /// Provider-owned page where the user can start or manage a subscription.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub management_url: Option<String>,
 }
 
 /// Structured sign-out result. Metadata removal determines connection state;
-/// native-vault deletion may be queued for a later retry.
+/// credential deletion may be queued for a later retry.
 #[derive(Debug, Clone, Serialize)]
 pub struct SubscriptionLogoutResult {
     pub cleanup_pending: bool,
     pub warning: Option<String>,
+}
+
+/// Durable account epoch used to invalidate cached model clients after login,
+/// logout, refresh, or profile changes, including changes from another host process.
+pub async fn credential_revision(provider: SubscriptionProvider) -> Result<u64> {
+    store::credential_revision(provider.key()).await
 }
 
 /// Runtime-resolved credential that overrides fields in the AI client config.
@@ -184,11 +263,58 @@ pub struct ResolvedCredential {
     pub expires_at: Option<i64>,
 }
 
+impl ResolvedCredential {
+    /// Applies account-owned authentication to a transient client configuration.
+    /// Saved API-key headers and replace mode must not suppress OAuth auth, or
+    /// select a different account after login/refresh. HTTP names ignore case.
+    pub fn apply_to(self, config: &mut crate::types::AIConfig) -> Option<i64> {
+        config.api_key = self.api_key;
+        if let Some(base_url) = self.base_url {
+            config.base_url = base_url;
+        }
+        if let Some(request_url) = self.request_url {
+            config.request_url = request_url;
+        }
+        if let Some(format) = self.format {
+            config.format = format;
+        }
+        let mut headers = config.custom_headers.take().unwrap_or_default();
+        headers.retain(|name, _| {
+            ![
+                "authorization",
+                "x-api-key",
+                "x-goog-api-key",
+                "content-type",
+                "anthropic-version",
+                "chatgpt-account-id",
+                "x-openai-internal-codex-residency",
+                "x-org-id",
+                "session-id",
+                "session_id",
+                "x-client-request-id",
+                "x-opencode-session",
+                "x-grok-conv-id",
+            ]
+            .iter()
+            .any(|reserved| name.eq_ignore_ascii_case(reserved))
+                && !self
+                    .extra_headers
+                    .keys()
+                    .any(|required| name.eq_ignore_ascii_case(required))
+        });
+        headers.extend(self.extra_headers);
+        config.custom_headers = (!headers.is_empty()).then_some(headers);
+        config.custom_headers_mode = Some("merge".to_string());
+        self.expires_at
+    }
+}
+
 /// Returned by `start_login`; contains what the UI needs to guide the user.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoginStartResult {
     pub provider: SubscriptionProvider,
     pub session_id: String,
+    pub method: SubscriptionLoginMethod,
     pub authorization_url: String,
     pub user_code: Option<String>,
     pub instructions: String,
@@ -210,6 +336,7 @@ pub struct LoginSessionSnapshot {
     pub provider: SubscriptionProvider,
     pub session_id: String,
     pub status: LoginStatus,
+    pub method: Option<SubscriptionLoginMethod>,
     pub authorization_url: Option<String>,
     pub user_code: Option<String>,
     pub instructions: Option<String>,
@@ -219,6 +346,7 @@ pub struct LoginSessionSnapshot {
 
 /// Internal handle returned by each provider's `begin_login`.
 pub(crate) struct StartedLogin {
+    pub method: SubscriptionLoginMethod,
     pub authorization_url: String,
     pub user_code: Option<String>,
     pub instructions: String,
@@ -229,6 +357,7 @@ struct SessionState {
     /// Client-generated UUID used to correlate start/status/cancel commands.
     session_id: String,
     status: LoginStatus,
+    method: Option<SubscriptionLoginMethod>,
     authorization_url: Option<String>,
     user_code: Option<String>,
     instructions: Option<String>,
@@ -245,6 +374,7 @@ impl SessionState {
             provider,
             session_id: self.session_id.clone(),
             status: self.status,
+            method: self.method,
             authorization_url: self.authorization_url.clone(),
             user_code: self.user_code.clone(),
             instructions: self.instructions.clone(),
@@ -281,6 +411,7 @@ pub(crate) fn build_http_client(
     options: &SubscriptionHttpOptions,
     provider: &str,
 ) -> Result<reqwest::Client> {
+    openbitfun_services_core::tls_provider::ensure_ring_crypto_provider();
     let mut builder = reqwest::Client::builder()
         .tls_backend_rustls()
         .timeout(Duration::from_secs(30))
@@ -317,16 +448,20 @@ pub(crate) fn store_lock(provider: SubscriptionProvider) -> &'static tokio::sync
     static CODEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     static ANTIGRAVITY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     static OPENCODE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    static GROK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    static HERMES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     match provider {
         SubscriptionProvider::Codex => &CODEX,
         SubscriptionProvider::Antigravity => &ANTIGRAVITY,
         SubscriptionProvider::Opencode => &OPENCODE,
+        SubscriptionProvider::Grok => &GROK,
+        SubscriptionProvider::Hermes => &HERMES,
     }
 }
 
 /// Runs the externally cancellable authorization/polling phase, then commits
 /// the resulting credential without cancellation. Dropping a credential-vault
-/// write can leave an orphan secret because blocking platform keyring calls
+/// write can leave an orphan secret because credential-store calls
 /// continue running after their Rust future is dropped.
 pub(crate) async fn authorize_then_persist<T, Authorize, Persist, PersistFuture>(
     provider: SubscriptionProvider,
@@ -374,7 +509,7 @@ pub(crate) fn store_revision_conflict(
     current_revision: u64,
 ) -> anyhow::Error {
     anyhow!(
-        "{} credentials changed in another BitFun process (current revision {current_revision}); retry the operation",
+        "{} credentials changed in another OpenBitFun process (current revision {current_revision}); retry the operation",
         provider.display_label()
     )
 }
@@ -434,12 +569,17 @@ fn build_account(
         account,
         expires_at,
         connected,
+        login_methods: provider.login_methods().to_vec(),
         reauthentication_required,
         vault_unavailable,
         suggested_format: format.to_string(),
         suggested_base_url: base_url.to_string(),
         suggested_model: model.to_string(),
         api_offerings,
+        management_url: match provider {
+            SubscriptionProvider::Hermes => Some(hermes::MANAGEMENT_URL.to_string()),
+            _ => None,
+        },
     }
 }
 
@@ -500,7 +640,25 @@ pub async fn start_login_with_options(
     session_id: String,
     options: SubscriptionHttpOptions,
 ) -> Result<LoginStartResult> {
+    start_login_with_method_and_options(provider, session_id, None, options).await
+}
+
+/// Starts a subscription login using an explicitly selected authorization
+/// method. `None` preserves the legacy preferred-method behavior.
+pub async fn start_login_with_method_and_options(
+    provider: SubscriptionProvider,
+    session_id: String,
+    method: Option<SubscriptionLoginMethod>,
+    options: SubscriptionHttpOptions,
+) -> Result<LoginStartResult> {
     validate_session_id(&session_id)?;
+    if let Some(method) = method.filter(|method| !provider.supports_login_method(*method)) {
+        return Err(anyhow!(
+            "{} does not support the requested {:?} login method",
+            provider.display_label(),
+            method
+        ));
+    }
     let cancel = CancellationToken::new();
     let generation = next_generation();
     // Serialize the durable revision snapshot with any local refresh/commit and
@@ -518,6 +676,7 @@ pub async fn start_login_with_options(
             SessionState {
                 session_id: session_id.clone(),
                 status: LoginStatus::Pending,
+                method,
                 authorization_url: None,
                 user_code: None,
                 instructions: None,
@@ -538,7 +697,13 @@ pub async fn start_login_with_options(
     let begin = async move {
         match provider {
             SubscriptionProvider::Codex => {
-                codex::begin_login(begin_cancel.clone(), expected_revision, options.clone()).await
+                codex::begin_login(
+                    begin_cancel.clone(),
+                    expected_revision,
+                    method,
+                    options.clone(),
+                )
+                .await
             }
             SubscriptionProvider::Antigravity => {
                 antigravity::begin_login(begin_cancel.clone(), expected_revision, options.clone())
@@ -546,6 +711,12 @@ pub async fn start_login_with_options(
             }
             SubscriptionProvider::Opencode => {
                 opencode::begin_login(begin_cancel.clone(), expected_revision, options).await
+            }
+            SubscriptionProvider::Grok => {
+                grok::begin_login(begin_cancel.clone(), expected_revision, options).await
+            }
+            SubscriptionProvider::Hermes => {
+                hermes::begin_login(begin_cancel.clone(), expected_revision, options).await
             }
         }
     };
@@ -574,6 +745,7 @@ pub async fn start_login_with_options(
     };
 
     let authorization_url = started.authorization_url.clone();
+    let started_method = started.method;
     // Desktop opener rejects relative URLs ("Not allowed to open url /...").
     // Every provider must return an absolute http(s) authorization URL.
     if !(authorization_url.starts_with("https://") || authorization_url.starts_with("http://")) {
@@ -608,6 +780,7 @@ pub async fn start_login_with_options(
             return Err(anyhow!("login cancelled"));
         };
         state.authorization_url = Some(authorization_url.clone());
+        state.method = Some(started_method);
         state.user_code = user_code.clone();
         state.instructions = Some(instructions.clone());
     }
@@ -624,6 +797,7 @@ pub async fn start_login_with_options(
     Ok(LoginStartResult {
         provider,
         session_id,
+        method: started_method,
         authorization_url,
         user_code,
         instructions,
@@ -779,7 +953,7 @@ pub async fn logout(provider: SubscriptionProvider) -> Result<SubscriptionLogout
         },
         store::RemoveOutcome::CleanupPending(warning) => {
             log::warn!(
-                "subscription provider {} logged out with native credential cleanup pending: {}",
+                "subscription provider {} logged out with credential cleanup pending: {}",
                 provider.key(),
                 warning
             );
@@ -805,6 +979,8 @@ pub async fn resolve_with_options(
         SubscriptionProvider::Codex => codex::resolve(options).await,
         SubscriptionProvider::Antigravity => antigravity::resolve(options).await,
         SubscriptionProvider::Opencode => opencode::resolve(options).await,
+        SubscriptionProvider::Grok => grok::resolve(options).await,
+        SubscriptionProvider::Hermes => hermes::resolve(options).await,
     }
 }
 
@@ -822,6 +998,47 @@ pub async fn resolve_opencode_with_options(
     options: &SubscriptionHttpOptions,
 ) -> Result<ResolvedCredential> {
     opencode::resolve_for(plan, format, options).await
+}
+
+/// Resolves the OpenCode wire format from the signed-in account's catalog.
+/// Legacy callers may omit the plan; known models still get their correct wire.
+pub async fn resolve_opencode_model_with_options(
+    plan: Option<OpenCodePlan>,
+    configured_format: &str,
+    model: &str,
+    options: &SubscriptionHttpOptions,
+) -> Result<ResolvedCredential> {
+    opencode::resolve_for_model(plan, configured_format, model, options).await
+}
+
+/// Resolves an xAI subscription credential for a concrete model. The adapter
+/// owns the trusted Responses endpoint so the OAuth token can never be sent to
+/// an arbitrary URL supplied by model configuration.
+pub async fn resolve_grok(model: &str) -> Result<ResolvedCredential> {
+    resolve_grok_with_options(model, &SubscriptionHttpOptions::default()).await
+}
+
+/// Resolves an xAI subscription credential with an explicit transport policy.
+pub async fn resolve_grok_with_options(
+    model: &str,
+    options: &SubscriptionHttpOptions,
+) -> Result<ResolvedCredential> {
+    grok::resolve_for(model, options).await
+}
+
+/// Resolves a Hermes subscription credential for a concrete model. All catalog
+/// models use the current Hermes Chat Completions default, pinned to the trusted
+/// Nous inference host. Saved model IDs and credentials remain unchanged.
+pub async fn resolve_hermes(model: &str) -> Result<ResolvedCredential> {
+    resolve_hermes_with_options(model, &SubscriptionHttpOptions::default()).await
+}
+
+/// Resolves a Hermes credential with an explicit transport policy.
+pub async fn resolve_hermes_with_options(
+    model: &str,
+    options: &SubscriptionHttpOptions,
+) -> Result<ResolvedCredential> {
+    hermes::resolve_for(model, options).await
 }
 
 /// Forces a resolve (which refreshes and saves), then returns the account entry.
@@ -848,10 +1065,10 @@ mod tests {
     use super::store::{self, StoredCredential};
     use super::*;
 
-    const STALE_LOGIN_CHILD_METADATA_ENV: &str = "BITFUN_SUBAUTH_CAS_CHILD_METADATA";
-    const STALE_LOGIN_CHILD_LOADED_ENV: &str = "BITFUN_SUBAUTH_CAS_CHILD_LOADED";
-    const STALE_LOGIN_CHILD_RESUME_ENV: &str = "BITFUN_SUBAUTH_CAS_CHILD_RESUME";
-    const STALE_LOGIN_CHILD_OUTCOME_ENV: &str = "BITFUN_SUBAUTH_CAS_CHILD_OUTCOME";
+    const STALE_LOGIN_CHILD_METADATA_ENV: &str = "OPENBITFUN_SUBAUTH_CAS_CHILD_METADATA";
+    const STALE_LOGIN_CHILD_LOADED_ENV: &str = "OPENBITFUN_SUBAUTH_CAS_CHILD_LOADED";
+    const STALE_LOGIN_CHILD_RESUME_ENV: &str = "OPENBITFUN_SUBAUTH_CAS_CHILD_RESUME";
+    const STALE_LOGIN_CHILD_OUTCOME_ENV: &str = "OPENBITFUN_SUBAUTH_CAS_CHILD_OUTCOME";
 
     /// Serializes tests that rely on the process-global store path override.
     /// Serializes these tests against the shared on-disk store. Async-aware so
@@ -863,13 +1080,169 @@ mod tests {
     }
 
     fn temp_store_path() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("bitfun-subauth-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("openbitfun-subauth-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("subscription_auth.json")
     }
 
     fn test_session_id() -> String {
         uuid::Uuid::new_v4().to_string()
+    }
+
+    #[tokio::test]
+    async fn legacy_codex_and_grok_expiry_is_bounded_for_client_caches() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        let _guard = test_lock().lock().await;
+        store::set_store_path_for_test(temp_store_path());
+        let now = chrono::Utc::now().timestamp();
+        let actual_expiry = now + 20 * 60;
+        let body = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&serde_json::json!({
+                "exp": actual_expiry, "chatgpt_account_id": "test-account"
+            }))
+            .unwrap(),
+        );
+        let token = format!("e30.{body}.test");
+        for provider in [SubscriptionProvider::Codex, SubscriptionProvider::Grok] {
+            // Shape written by older builds: metadata assumes a one-hour
+            // lifetime even though the actual JWT expires after twenty minutes.
+            let credential: StoredCredential = serde_json::from_value(serde_json::json!({
+                "type": "oauth", "access": token, "refresh": "unused-synthetic-refresh",
+                "expires": (now + 3600) * 1000
+            }))
+            .unwrap();
+            store::upsert(provider.key(), credential).await.unwrap();
+            let revision = store::load_entry_with_revision(provider.key())
+                .await
+                .unwrap()
+                .revision;
+            let resolved = resolve_with_options(provider, &SubscriptionHttpOptions::default())
+                .await
+                .unwrap();
+            assert_eq!(resolved.expires_at, Some(actual_expiry));
+            assert_eq!(resolved.api_key, token);
+            if provider == SubscriptionProvider::Codex {
+                assert_eq!(resolved.extra_headers["originator"], "openbitfun");
+                assert!(resolved.extra_headers["User-Agent"].starts_with("OpenBitFun/"));
+                assert_eq!(resolved.extra_headers["ChatGPT-Account-ID"], "test-account");
+                assert!(!resolved.extra_headers.contains_key("session-id"));
+            }
+            // No rotation or mutation is needed for a still-usable legacy JWT.
+            assert_eq!(
+                store::load_entry_with_revision(provider.key())
+                    .await
+                    .unwrap()
+                    .revision,
+                revision
+            );
+        }
+    }
+
+    #[test]
+    fn subscription_headers_survive_legacy_replace_mode_on_each_wire() {
+        use crate::{
+            client::AIClient,
+            providers::{anthropic, gemini, openai},
+            types::AIConfig,
+        };
+        // Deserialized legacy user settings, including differently cased stale
+        // auth headers. Assert the final request, not just the merged HashMap.
+        for (format, url, headers, auth_header) in [
+            ("responses", "https://chatgpt.com/backend-api/codex/responses", vec![("originator", "openbitfun"), ("User-Agent", "OpenBitFun/test"), ("ChatGPT-Account-ID", "current-account")], "authorization"),
+            ("responses", "https://api.x.ai/v1/responses", vec![("User-Agent", "opencode/test")], "authorization"),
+            ("openai", "https://opencode.ai/zen/go/v1/chat/completions", vec![("x-org-id", "current-org"), ("User-Agent", "OpenBitFun/test")], "authorization"),
+            ("anthropic", "https://opencode.ai/zen/v1/messages", vec![("x-org-id", "current-org"), ("User-Agent", "OpenBitFun/test")], "x-api-key"),
+            ("openai", "https://inference-api.nousresearch.com/v1/chat/completions", vec![], "authorization"),
+            ("anthropic", "https://inference-api.nousresearch.com/v1/messages", vec![], "authorization"),
+            ("gemini-code-assist", "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse", vec![("User-Agent", "antigravity/test"), ("X-Goog-Api-Client", "google-cloud-sdk vscode_cloudshelleditor/0.1"), ("Client-Metadata", "ANTIGRAVITY")], "authorization"),
+        ] {
+            let saved = serde_json::json!({
+                "name": "legacy", "model": "saved-model", "format": "anthropic",
+                "base_url": "https://old.invalid", "request_url": "https://old.invalid/messages",
+                "api_key": "old-api-key", "context_window": 128000, "inline_think_in_text": false, "skip_ssl_verify": false,
+                "custom_headers_mode": "replace", "custom_headers": {
+                    "AUTHORIZATION": "Bearer stale", "X-Api-Key": "stale-key",
+                    "x-goog-api-key": "stale-google-key", "Content-Type": "text/plain",
+                    "ANTHROPIC-VERSION": "invalid", "user-agent": "stale-client",
+                    "X-ORG-ID": "stale-org", "chatgpt-account-id": "stale-account",
+                    "x-openai-internal-codex-residency": "stale-residency", "session-id": "stale-session", "X-Trace-Test": "keep"
+                }
+            });
+            let mut config: AIConfig = serde_json::from_value(saved.clone()).unwrap();
+            let required: HashMap<String, String> = headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            let expires = ResolvedCredential {
+                api_key: "current-token".into(), base_url: Some(url.into()), request_url: Some(url.into()),
+                format: Some(format.into()), extra_headers: required.clone(), expires_at: Some(12345),
+            }.apply_to(&mut config);
+            assert_eq!(expires, Some(12345));
+            assert_eq!(config.model, "saved-model");
+            assert_eq!(config.custom_headers_mode.as_deref(), Some("merge"));
+            let client = AIClient::new(config);
+            for method in [reqwest::Method::GET, reqwest::Method::POST] {
+                let builder = client.client.request(method, url);
+                let request = match format {
+                    "anthropic" => anthropic::request::apply_headers(&client, builder, url),
+                    "gemini-code-assist" => gemini::code_assist::apply_headers(&client, builder),
+                    _ => openai::common::apply_headers(&client, builder),
+                }.build().unwrap();
+                let actual = request.headers();
+                assert_eq!(actual.get_all(auth_header).iter().count(), 1, "{url}");
+                assert_eq!(actual[auth_header], if auth_header == "authorization" { "Bearer current-token" } else { "current-token" });
+                assert!(!actual.contains_key(if auth_header == "authorization" { "x-api-key" } else { "authorization" }));
+                assert!(!actual.contains_key("x-goog-api-key"));
+                assert!(!actual.contains_key("session-id"));
+                assert!(!actual.contains_key("x-openai-internal-codex-residency"));
+                assert_eq!(actual.get_all("content-type").iter().count(), 1);
+                assert_eq!(actual["content-type"], "application/json");
+                assert_eq!(actual["x-trace-test"], "keep");
+                for (name, value) in &required {
+                    assert_eq!(actual.get_all(name).iter().count(), 1, "{url}: {name}");
+                    assert_eq!(actual[name], value);
+                }
+            }
+            // Runtime application does not rewrite the persisted legacy settings.
+            let restored: AIConfig = serde_json::from_value(saved).unwrap();
+            assert_eq!(restored.custom_headers_mode.as_deref(), Some("replace"));
+            assert_eq!(restored.api_key, "old-api-key");
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_hermes_anthropic_config_uses_current_chat_route_without_relogin() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        let _guard = test_lock().lock().await;
+        store::set_store_path_for_test(temp_store_path());
+        let expires = chrono::Utc::now().timestamp() + 3600;
+        let body = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&serde_json::json!({
+                "exp": expires, "scope": "inference:invoke", "sub": "fixture-account"
+            }))
+            .unwrap(),
+        );
+        let token = format!("e30.{body}.fixture");
+        let legacy: StoredCredential = serde_json::from_value(serde_json::json!({
+            "type": "oauth", "access": token, "refresh": "unchanged-refresh", "expires": expires * 1000
+        })).unwrap();
+        store::upsert("hermes", legacy).await.unwrap();
+        let before = store::load_entry_with_revision("hermes")
+            .await
+            .unwrap()
+            .revision;
+        let resolved = resolve_hermes("anthropic/claude-sonnet-5").await.unwrap();
+        assert_eq!(resolved.format.as_deref(), Some("openai"));
+        assert_eq!(
+            resolved.request_url.as_deref(),
+            Some("https://inference-api.nousresearch.com/v1/chat/completions")
+        );
+        assert_eq!(resolved.api_key, token);
+        let after = store::load_entry_with_revision("hermes").await.unwrap();
+        assert_eq!(after.revision, before);
+        let roundtrip: StoredCredential =
+            serde_json::from_value(serde_json::to_value(after.credential.unwrap()).unwrap())
+                .unwrap();
+        assert!(
+            matches!(roundtrip, StoredCredential::Oauth { refresh, .. } if refresh == "unchanged-refresh")
+        );
     }
 
     #[test]
@@ -882,6 +1255,14 @@ mod tests {
             serde_json::to_value(SubscriptionProvider::Antigravity).unwrap(),
             serde_json::json!("antigravity")
         );
+        assert_eq!(
+            serde_json::to_value(SubscriptionProvider::Grok).unwrap(),
+            serde_json::json!("grok")
+        );
+        assert_eq!(
+            serde_json::to_value(SubscriptionProvider::Hermes).unwrap(),
+            serde_json::json!("hermes")
+        );
         let parsed: SubscriptionProvider =
             serde_json::from_value(serde_json::json!("opencode")).unwrap();
         assert_eq!(parsed, SubscriptionProvider::Opencode);
@@ -889,7 +1270,80 @@ mod tests {
             SubscriptionProvider::from_key("codex"),
             Some(SubscriptionProvider::Codex)
         );
+        assert_eq!(
+            SubscriptionProvider::from_key("grok"),
+            Some(SubscriptionProvider::Grok)
+        );
+        assert_eq!(
+            SubscriptionProvider::from_key("hermes"),
+            Some(SubscriptionProvider::Hermes)
+        );
         assert_eq!(SubscriptionProvider::from_key("unknown"), None);
+    }
+
+    #[test]
+    fn subscription_login_methods_match_provider_protocols() {
+        assert_eq!(
+            SubscriptionProvider::Codex.login_methods(),
+            &[
+                SubscriptionLoginMethod::Browser,
+                SubscriptionLoginMethod::Device,
+            ]
+        );
+        assert_eq!(
+            SubscriptionProvider::Antigravity.login_methods(),
+            &[SubscriptionLoginMethod::Browser]
+        );
+        assert_eq!(
+            SubscriptionProvider::Opencode.login_methods(),
+            &[SubscriptionLoginMethod::Device]
+        );
+        assert_eq!(
+            SubscriptionProvider::Hermes.login_methods(),
+            &[SubscriptionLoginMethod::Device]
+        );
+        assert_eq!(
+            serde_json::to_value(SubscriptionLoginMethod::Device).unwrap(),
+            serde_json::json!("device")
+        );
+    }
+
+    #[tokio::test]
+    async fn unsupported_login_method_is_rejected_before_session_start() {
+        let error = start_login_with_method_and_options(
+            SubscriptionProvider::Antigravity,
+            test_session_id(),
+            Some(SubscriptionLoginMethod::Device),
+            SubscriptionHttpOptions::default(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.to_string().contains("does not support"));
+    }
+
+    #[test]
+    fn retired_subscription_defaults_receive_runtime_only_replacements() {
+        assert_eq!(
+            runtime_model_override(SubscriptionProvider::Codex, "gpt-5-codex"),
+            Some("gpt-5.5")
+        );
+        assert_eq!(
+            runtime_model_override(SubscriptionProvider::Grok, "grok-build"),
+            Some("grok-build-0.1")
+        );
+        assert_eq!(
+            runtime_model_override(SubscriptionProvider::Antigravity, "  "),
+            Some("gemini-3-pro-high")
+        );
+        assert_eq!(
+            runtime_model_override(SubscriptionProvider::Grok, "grok-4.5"),
+            None
+        );
+        assert_eq!(
+            runtime_model_override(SubscriptionProvider::Hermes, " "),
+            Some("z-ai/glm-5.2")
+        );
     }
 
     #[tokio::test]
@@ -935,6 +1389,15 @@ mod tests {
         assert_eq!(codex.account.as_deref(), Some("user@example.com"));
         assert_eq!(codex.expires_at, Some(1_800_000_000));
         assert!(!codex.reauthentication_required);
+        let hermes = accounts
+            .iter()
+            .find(|a| a.provider == SubscriptionProvider::Hermes)
+            .unwrap();
+        assert!(!hermes.connected);
+        assert_eq!(
+            hermes.management_url.as_deref(),
+            Some("https://portal.nousresearch.com/manage-subscription")
+        );
     }
 
     fn store_path_override_for_assertion() -> std::path::PathBuf {
@@ -942,65 +1405,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legacy_plaintext_store_is_migrated_and_scrubbed() {
+    async fn plaintext_store_is_rejected_without_rewrite() {
         let _guard = test_lock().lock().await;
         let path = temp_store_path();
         store::set_store_path_for_test(path.clone());
-        let legacy = serde_json::json!({
+        let plaintext = serde_json::json!({
             "opencode": {
                 "type": "oauth",
-                "refresh": "legacy-refresh-secret",
-                "access": "legacy-access-secret",
+                "refresh": "plaintext-refresh-secret",
+                "access": "plaintext-access-secret",
                 "expires": 1_900_000_000_000_i64,
-                "metadata": { "email": "legacy@example.com" }
+                "metadata": { "email": "user@example.com" }
             }
         });
-        std::fs::write(&path, serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
+        let original = serde_json::to_vec_pretty(&plaintext).unwrap();
+        std::fs::write(&path, &original).unwrap();
 
-        let loaded = store::load().await.unwrap();
-        assert!(loaded.contains_key("opencode"));
-
-        let migrated = std::fs::read_to_string(&path).unwrap();
-        assert!(migrated.contains("\"version\": 2"));
-        assert!(migrated.contains("legacy@example.com"));
-        assert!(!migrated.contains("legacy-refresh-secret"));
-        assert!(!migrated.contains("legacy-access-secret"));
-    }
-
-    #[tokio::test]
-    async fn legacy_migration_retries_after_temporary_vault_unavailability() {
-        let _guard = test_lock().lock().await;
-        let path = temp_store_path();
-        store::set_store_path_for_test(path.clone());
-        let legacy = serde_json::json!({
-            "opencode": {
-                "type": "oauth",
-                "refresh": "legacy-retry-refresh",
-                "access": "legacy-retry-access",
-                "expires": 1_900_000_000_000_i64
-            }
-        });
-        std::fs::write(&path, serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
-
-        store::set_test_vault_unavailable(true);
-        let deferred = store::load_with_state().await.unwrap();
-        assert!(deferred.credentials.is_empty());
-        assert!(deferred.vault_unavailable.contains("opencode"));
-        assert!(!deferred.requires_reauthentication.contains("opencode"));
-        let unchanged = std::fs::read_to_string(&path).unwrap();
-        assert!(unchanged.contains("legacy-retry-refresh"));
-        assert!(unchanged.contains("legacy-retry-access"));
-
-        store::set_test_vault_unavailable(false);
-        let migrated = store::load().await.unwrap();
-        assert!(migrated.contains_key("opencode"));
-        let scrubbed = std::fs::read_to_string(&path).unwrap();
-        assert!(scrubbed.contains("\"version\": 2"));
-        assert!(!scrubbed.contains("legacy-retry-refresh"));
-        assert!(!scrubbed.contains("legacy-retry-access"));
-        assert!(store::cleanup_journal_entries_for_assertion()
-            .await
-            .is_empty());
+        let error = store::load().await.unwrap_err();
+        assert!(error.to_string().contains("subscription auth metadata"));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(store::test_vault_entries_for_assertion().is_empty());
     }
 
     #[tokio::test]
@@ -1044,7 +1468,7 @@ mod tests {
         let path = temp_store_path();
         let tmp = path.with_extension("tmp-one");
         let backup = path.with_extension("bak");
-        std::fs::write(&path, b"legacy-plaintext-secret").unwrap();
+        std::fs::write(&path, b"previous-sensitive-metadata").unwrap();
         std::fs::write(&tmp, b"new-metadata").unwrap();
 
         store::set_test_backup_cleanup_failure(&backup, true);
@@ -1052,7 +1476,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"new-metadata");
-        assert_eq!(std::fs::read(&backup).unwrap(), b"legacy-plaintext-secret");
+        assert_eq!(
+            std::fs::read(&backup).unwrap(),
+            b"previous-sensitive-metadata"
+        );
 
         store::set_test_backup_cleanup_failure(&backup, false);
         let next_tmp = path.with_extension("tmp-two");
@@ -1519,6 +1946,7 @@ mod tests {
                 SessionState {
                     session_id: current_session_id,
                     status: LoginStatus::Pending,
+                    method: None,
                     authorization_url: None,
                     user_code: None,
                     instructions: None,
@@ -1644,6 +2072,7 @@ mod tests {
                 SessionState {
                     session_id: session_id.clone(),
                     status: LoginStatus::Pending,
+                    method: None,
                     authorization_url: None,
                     user_code: None,
                     instructions: None,
@@ -1686,6 +2115,7 @@ mod tests {
                 SessionState {
                     session_id: session_id.clone(),
                     status: LoginStatus::Pending,
+                    method: None,
                     authorization_url: None,
                     user_code: None,
                     instructions: None,
@@ -1735,6 +2165,7 @@ mod tests {
                 SessionState {
                     session_id: current_session_id.clone(),
                     status: LoginStatus::Pending,
+                    method: None,
                     authorization_url: None,
                     user_code: None,
                     instructions: None,
@@ -1767,6 +2198,7 @@ mod tests {
                 SessionState {
                     session_id: session_id.clone(),
                     status: LoginStatus::Authorized,
+                    method: None,
                     authorization_url: None,
                     user_code: None,
                     instructions: None,
@@ -1802,6 +2234,7 @@ mod tests {
                 SessionState {
                     session_id: new_session_id,
                     status: LoginStatus::Pending,
+                    method: None,
                     authorization_url: None,
                     user_code: None,
                     instructions: None,

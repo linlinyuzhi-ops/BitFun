@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use bitfun_events::{
+use log::{error, trace, warn};
+use openbitfun_events::{
     BackgroundCommandLifecycleInfo, EventEmitter, ToolExecutionProgressInfo, ToolTerminalReadyInfo,
 };
-use log::{error, trace, warn};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -108,7 +108,7 @@ pub async fn emit_global_event(event: BackendEvent) -> Result<()> {
 mod tests {
     use super::{BackendEvent, BackendEventSystem};
     use async_trait::async_trait;
-    use bitfun_events::{
+    use openbitfun_events::{
         BackgroundCommandLifecycleInfo, EventEmitter, ToolExecutionProgressInfo,
         ToolTerminalReadyInfo,
     };
@@ -197,7 +197,7 @@ mod tests {
     fn progress() -> ToolExecutionProgressInfo {
         ToolExecutionProgressInfo {
             tool_use_id: "tool-1".to_string(),
-            tool_name: "Bash".to_string(),
+            tool_name: "ExecCommand".to_string(),
             progress_message: "running".to_string(),
             percentage: Some(50.0),
             timestamp: 1,

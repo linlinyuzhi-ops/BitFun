@@ -1,62 +1,59 @@
- 
-
-@use '../../../component-library/styles/tokens' as *;
+@use '@/shared/styles/surface-recipes' as surfaces;
 
 .notification-item {
+  @include surfaces.floating($backdrop-blur: false);
+
+  position: relative;
+  box-sizing: border-box;
   display: flex;
-  align-items: flex-start;
-  gap: $size-gap-2;
-  padding: $size-gap-3;
-  background: var(--bf-appearance-token-color-bg-primary);
-  border-radius: $size-radius-base;
-  box-shadow: 0 2px 6px var(--bf-appearance-token-color-overlay-black-08);
-  border: 1px solid var(--bf-appearance-token-border-base);
-  min-width: 280px;
-  max-width: 320px;
-  animation: bitfun-notification-enter 180ms cubic-bezier(0.23, 1, 0.32, 1) both;
-  font-family: $font-family-sans;
+  align-items: center;
+  gap: var(--openbitfun-space-3);
+  width: min(300px, calc(100vw - var(--openbitfun-space-6)));
+  padding: var(--openbitfun-space-3) var(--openbitfun-space-4);
+  background: var(--openbitfun-color-surface-raised);
+  animation: openbitfun-notification-enter 180ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  font-family: var(--openbitfun-type-body-sm-font-family);
 
   
   &--success {
     
     .notification-item__icon {
-      color: var(--bf-appearance-token-color-success);
-      background: var(--bf-appearance-token-color-success-bg);
+      color: var(--openbitfun-color-status-success-emphasis);
     }
   }
 
   &--error {
     .notification-item__icon {
-      color: var(--bf-appearance-token-color-error);
-      background: var(--bf-appearance-token-color-error-bg);
+      color: var(--openbitfun-color-status-danger-emphasis);
     }
   }
 
   &--warning {
     .notification-item__icon {
-      color: var(--bf-appearance-token-color-warning);
-      background: var(--bf-appearance-token-color-warning-bg);
+      color: var(--openbitfun-color-status-warning-emphasis);
     }
   }
 
   &--info {
     .notification-item__icon {
-      color: var(--bf-appearance-token-color-warning);
-      background: color-mix(in srgb, var(--bf-appearance-token-color-warning) 18%, transparent);
+      color: var(--openbitfun-color-status-info-emphasis);
     }
   }
 
   
   &__icon {
-    flex-shrink: 0;
-    width: 24px;
-    height: 24px;
+    flex: 0 0 var(--openbitfun-control-icon-size-lg);
+    width: var(--openbitfun-control-icon-size-lg);
+    height: var(--openbitfun-control-icon-size-lg);
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 50%;
-    font-weight: $font-weight-semibold;
-    font-size: 12px;
+
+    > svg,
+    > [data-openbitfun-component="icon"] {
+      width: 100%;
+      height: 100%;
+    }
   }
 
   
@@ -65,21 +62,39 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--openbitfun-space-1);
   }
 
   &__title {
-    font-size: var(--bf-appearance-token-font-size-xs);
-    font-weight: $font-weight-semibold;
-    color: var(--bf-appearance-token-color-text-primary);
-    line-height: 1.3;
+    font-family: var(--openbitfun-type-heading-card-font-family);
+    font-size: var(--openbitfun-type-heading-card-font-size);
+    font-weight: var(--openbitfun-type-heading-card-font-weight);
+    color: var(--openbitfun-color-content-primary);
+    line-height: var(--openbitfun-type-heading-card-line-height);
+    letter-spacing: var(--openbitfun-type-heading-card-letter-spacing);
   }
 
   &__message {
-    font-size: var(--bf-appearance-token-font-size-xs);
-    color: var(--bf-appearance-token-color-text-secondary);
-    line-height: 1.4;
+    font-family: var(--openbitfun-type-body-xs-font-family);
+    font-size: var(--openbitfun-type-body-xs-font-size);
+    font-weight: var(--openbitfun-type-body-xs-font-weight);
+    color: var(--openbitfun-color-content-secondary);
+    line-height: var(--openbitfun-type-modifier-leading-ui-line-height);
+    letter-spacing: var(--openbitfun-type-body-xs-letter-spacing);
     word-break: break-word;
+  }
+
+  &--closable {
+    .notification-item__title {
+      padding-inline-end: var(--openbitfun-space-6);
+    }
+  }
+
+  &__close {
+    position: absolute;
+    top: var(--openbitfun-space-2);
+    right: var(--openbitfun-space-2);
+    display: inline-flex;
   }
 
   &__path-link {
@@ -89,113 +104,32 @@
     border: none;
     background: none;
     font: inherit;
-    color: var(--bf-appearance-token-color-accent-500);
+    color: var(--openbitfun-color-accent-default);
     text-decoration: underline;
     text-align: left;
     cursor: pointer;
     word-break: break-all;
 
     &:hover {
-      color: var(--bf-appearance-token-color-accent-500);
+      color: var(--openbitfun-color-accent-default);
     }
   }
 
   
   &__actions {
     display: flex;
-    gap: $size-gap-1;
-    margin-top: $size-gap-1;
-  }
-
-  &__action {
-    padding: 4px $size-gap-2;
-    border-radius: $size-radius-sm;
-    font-size: 11px;
-    font-weight: $font-weight-medium;
-    border: none;
-    cursor: pointer;
-    transition:
-      background-color $motion-fast $easing-standard,
-      color $motion-fast $easing-standard,
-      scale $motion-fast $easing-standard;
-
-    &--primary {
-      background: var(--bf-appearance-token-color-accent-600);
-      color: var(--bf-appearance-token-color-text-primary);
-
-      &:hover {
-        background: var(--bf-appearance-token-color-accent-500);
-      }
-      
-      &:active {
-        transform: scale(0.98);
-      }
-    }
-
-    &--secondary {
-      background: var(--bf-appearance-token-element-bg-base);
-      color: var(--bf-appearance-token-color-text-secondary);
-
-      &:hover {
-        background: var(--bf-appearance-token-element-bg-medium);
-        color: var(--bf-appearance-token-color-text-primary);
-      }
-      
-      &:active {
-        transform: scale(0.98);
-      }
-    }
-
-    &--danger {
-      background: var(--bf-appearance-token-color-error);
-      color: var(--bf-appearance-token-color-text-primary);
-
-      &:hover {
-        background: var(--bf-appearance-token-git-color-deleted);
-      }
-      
-      &:active {
-        transform: scale(0.98);
-      }
-    }
-  }
-
-  
-  &__close {
-    flex-shrink: 0;
-    width: 20px;
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    border-radius: $size-radius-sm;
-    color: var(--bf-appearance-token-color-text-muted);
-    cursor: pointer;
-    transition:
-      background-color $motion-fast $easing-standard,
-      color $motion-fast $easing-standard,
-      scale $motion-fast $easing-standard;
-
-    &:hover {
-      background: var(--bf-appearance-token-element-bg-base);
-      color: var(--bf-appearance-token-color-text-primary);
-    }
-    
-    &:active {
-      transform: scale(0.95);
-    }
+    gap: var(--openbitfun-space-1);
+    margin-top: var(--openbitfun-space-1);
   }
 
   &--exiting {
-    animation: bitfun-notification-exit 120ms cubic-bezier(0.23, 1, 0.32, 1) both;
+    animation: openbitfun-notification-exit 120ms cubic-bezier(0.23, 1, 0.32, 1) both;
     pointer-events: none;
   }
 }
 
 
-@keyframes bitfun-notification-enter {
+@keyframes openbitfun-notification-enter {
   from {
     opacity: 0;
     transform: translateX(-12px) scale(0.985);
@@ -207,7 +141,7 @@
 }
 
 
-@keyframes bitfun-notification-exit {
+@keyframes openbitfun-notification-exit {
   from {
     opacity: 1;
     transform: translateX(0) scale(1);

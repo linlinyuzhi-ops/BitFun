@@ -1,18 +1,22 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
-  Box,
   FolderPlus,
+  Gamepad2,
+  House,
   LayoutGrid,
+  Lightbulb,
   PackagePlus,
-  Play,
-  Sparkles,
-  Square,
-  Tag,
-  Trash2,
 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useSceneManager } from '@/app/hooks/useSceneManager';
+import { openMainSession } from '@/flow_chat/services/sessionActivation';
+import { flowChatSessionConfigForCurrentWorkspace } from '@/app/utils/projectSessionWorkspace';
+import { flowChatManager } from '@/flow_chat/services/FlowChatManager';
+import { isRemoteWorkspace } from '@/shared/types';
+import { isImeOwnedKeyboardEvent } from '@/shared/utils/ime';
 import MiniAppCard from '../components/MiniAppCard';
+import MiniAppDetailModal from '../components/MiniAppDetailModal';
 import type { MiniAppMeta } from '@/infrastructure/api/service-api/MiniAppAPI';
 import { miniAppAPI } from '@/infrastructure/api/service-api/MiniAppAPI';
 import {
@@ -20,9 +24,18 @@ import {
   type MarketPackageInspection,
 } from '@/infrastructure/api/service-api/MiniAppMarketAPI';
 import { createLogger } from '@/shared/utils/logger';
-import { Search, ConfirmDialog, Button, Badge } from '@/component-library';
 import {
-  GalleryDetailModal,
+  ConfirmDialog,
+  Icon,
+  IconButton,
+  Menu,
+  MenuItem,
+  NumberBadge,
+  SearchField,
+  SegmentedControl,
+} from '@openbitfun/ui';
+
+import {
   GalleryEmpty,
   GalleryGrid,
   GalleryLayout,
@@ -30,8 +43,6 @@ import {
   GallerySkeleton,
   GalleryZone,
 } from '@/app/components';
-import type { SceneTabId } from '@/app/components/SceneBar/types';
-import { getMiniAppIconGradient, renderMiniAppIcon } from '../utils/miniAppIcons';
 import { loadInstalledMarketOrigins } from '../utils/loadInstalledMarketOrigins';
 import { pickLocalizedString, pickLocalizedTags } from '../utils/pickLocalizedString';
 import { useCurrentWorkspace } from '@/infrastructure/contexts/WorkspaceContext';
@@ -39,14 +50,23 @@ import { useMiniAppStore } from '../miniAppStore';
 import { useI18n } from '@/infrastructure/i18n';
 import { useGallerySceneAutoRefresh } from '@/app/hooks/useGallerySceneAutoRefresh';
 import { useNotification } from '@/shared/notification-system';
+import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
+import { useAnchoredPopoverPosition } from '@/shared/utils/useAnchoredPopoverPosition';
+import { getMiniAppSceneId, stopMiniAppActivity } from '../miniAppActivity';
+import { useMiniAppActivity } from '../hooks/useMiniAppActivity';
 import './MiniAppGalleryView.scss';
 
-const log = createLogger('MiniAppGalleryView');
 
-const MiniAppGalleryView: React.FC = () => {
+const log = createLogger('MiniAppGalleryView');
+const MINIAPP_CARD_MIN_WIDTH = 280;
+
+interface MiniAppGalleryViewProps {
+  tabs?: React.ReactNode;
+}
+
+const MiniAppGalleryView: React.FC<MiniAppGalleryViewProps> = ({ tabs }) => {
   const apps = useMiniAppStore((state) => state.apps);
   const loading = useMiniAppStore((state) => state.loading);
-  const runningWorkerIds = useMiniAppStore((state) => state.runningWorkerIds);
   const customizingAppIds = useMiniAppStore((state) => state.customizingAppIds);
   const marketOrigins = useMiniAppStore((state) => state.marketOrigins);
   const setApps = useMiniAppStore((state) => state.setApps);
@@ -54,10 +74,11 @@ const MiniAppGalleryView: React.FC = () => {
   const setMarketOrigins = useMiniAppStore((state) => state.setMarketOrigins);
   const setRunningWorkerIds = useMiniAppStore((state) => state.setRunningWorkerIds);
   const markWorkerStopped = useMiniAppStore((state) => state.markWorkerStopped);
-  const { workspacePath } = useCurrentWorkspace();
+  const { workspace, workspacePath } = useCurrentWorkspace();
   const notification = useNotification();
   const { openScene, activateScene, closeScene, openTabs } = useSceneManager();
   const { t, currentLanguage } = useI18n('scenes/miniapp');
+  const miniAppActivities = useMiniAppActivity();
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -67,17 +88,61 @@ const MiniAppGalleryView: React.FC = () => {
     path: string;
     inspection: MarketPackageInspection;
   } | null>(null);
+  const [importMenuOpen, setImportMenuOpen] = useState(false);
+  const [creatingWithCreative, setCreatingWithCreative] = useState(false);
+  const importTriggerRef = useRef<HTMLButtonElement>(null);
+  const importMenuRef = useRef<HTMLDivElement>(null);
+
+  const importMenuLayout = useAnchoredPopoverPosition({
+    open: importMenuOpen,
+    anchorRef: importTriggerRef,
+    popoverRef: importMenuRef,
+    preferredPlacement: 'bottom',
+    alignment: 'end',
+    gap: 6,
+    layoutRevision: currentLanguage,
+  });
+
+  const closeImportMenu = useCallback(() => setImportMenuOpen(false), []);
+
+  useEffect(() => {
+    if (!importMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (
+        target
+        && (importTriggerRef.current?.contains(target) || importMenuRef.current?.contains(target))
+      ) {
+        return;
+      }
+      closeImportMenu();
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || isImeOwnedKeyboardEvent(event)) return;
+      closeImportMenu();
+      requestAnimationFrame(() => importTriggerRef.current?.focus());
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape, true);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape, true);
+    };
+  }, [closeImportMenu, importMenuOpen]);
 
   const openTabIds = useMemo(() => new Set(openTabs.map((tab) => tab.id)), [openTabs]);
-  const runningIdSet = useMemo(() => new Set(runningWorkerIds), [runningWorkerIds]);
+  const activityById = useMemo(
+    () => new Map(miniAppActivities.map((activity) => [activity.app.id, activity])),
+    [miniAppActivities],
+  );
+  const activeIdSet = useMemo(() => new Set(activityById.keys()), [activityById]);
   const customizingIdSet = useMemo(() => new Set(customizingAppIds), [customizingAppIds]);
 
-  const runningApps = useMemo(
-    () =>
-      runningWorkerIds
-        .map((id) => apps.find((app) => app.id === id))
-        .filter((app): app is MiniAppMeta => Boolean(app)),
-    [runningWorkerIds, apps]
+  const activeApps = useMemo(
+    () => miniAppActivities.map((activity) => activity.app),
+    [miniAppActivities],
   );
 
   const categories = useMemo(() => {
@@ -109,7 +174,7 @@ const MiniAppGalleryView: React.FC = () => {
   const handleOpenApp = useCallback(
     (appId: string) => {
       setSelectedApp(null);
-      const tabId: SceneTabId = `miniapp:${appId}`;
+      const tabId = getMiniAppSceneId(appId);
       if (openTabIds.has(tabId)) {
         activateScene(tabId);
       } else {
@@ -121,19 +186,24 @@ const MiniAppGalleryView: React.FC = () => {
 
   const handleStopRunning = useCallback(
     async (appId: string) => {
-      const tabId: SceneTabId = `miniapp:${appId}`;
+      const activity = activityById.get(appId);
+      if (!activity) return;
+
       try {
-        await miniAppAPI.workerStop(appId);
+        await stopMiniAppActivity(activity, {
+          stopWorker: (id) => miniAppAPI.workerStop(id),
+          markWorkerStopped,
+          closeScene,
+        });
       } catch (error) {
-        log.warn('Stop worker failed, removing local running state', error);
-      } finally {
-        markWorkerStopped(appId);
-        if (openTabIds.has(tabId)) {
-          closeScene(tabId);
-        }
+        log.warn('Failed to stop MiniApp worker', { appId, error });
+        notification.error(t('stopFailed', {
+          name: pickLocalizedString(activity.app, currentLanguage, 'name'),
+          error: String(error),
+        }));
       }
     },
-    [markWorkerStopped, closeScene, openTabIds]
+    [activityById, closeScene, currentLanguage, markWorkerStopped, notification, t]
   );
 
   const handleDeleteRequest = (appId: string) => {
@@ -151,7 +221,7 @@ const MiniAppGalleryView: React.FC = () => {
       }
       setApps(apps.filter((app) => app.id !== appId));
       markWorkerStopped(appId);
-      const tabId: SceneTabId = `miniapp:${appId}`;
+      const tabId = getMiniAppSceneId(appId);
       if (openTabIds.has(tabId)) {
         closeScene(tabId);
       }
@@ -270,9 +340,49 @@ const MiniAppGalleryView: React.FC = () => {
     }
   };
 
+  const handleCreateWithCreative = useCallback(async () => {
+    if (creatingWithCreative) return;
+    if (!workspace) {
+      notification.error(t('creationMode.noWorkspace'));
+      return;
+    }
+    if (isRemoteWorkspace(workspace)) {
+      notification.error(t('creationMode.remoteUnsupported'));
+      return;
+    }
+
+    setCreatingWithCreative(true);
+    closeImportMenu();
+    try {
+      const sessionId = await flowChatManager.createChatSession(
+        flowChatSessionConfigForCurrentWorkspace(workspace),
+        'Creative',
+      );
+      await openMainSession(sessionId);
+      notification.success(t('creationMode.started'));
+    } catch (error) {
+      log.error('Failed to start Creative MiniApp session', error);
+      notification.error(t('creationMode.startFailed'));
+    } finally {
+      setCreatingWithCreative(false);
+    }
+  }, [
+    closeImportMenu,
+    creatingWithCreative,
+    notification,
+    t,
+    workspace,
+  ]);
+
   const renderGrid = () => {
     if (loading && apps.length === 0) {
-      return <GallerySkeleton count={8} cardHeight={152} />;
+      return (
+        <GallerySkeleton
+          count={8}
+          minCardWidth={MINIAPP_CARD_MIN_WIDTH}
+          className="miniapp-gallery__card-grid"
+        />
+      );
     }
 
     if (filtered.length === 0) {
@@ -280,8 +390,8 @@ const MiniAppGalleryView: React.FC = () => {
         <GalleryEmpty
           icon={
             apps.length === 0
-              ? <Sparkles size={36} strokeWidth={1.2} />
-              : <LayoutGrid size={36} strokeWidth={1.2} />
+              ? { name: 'spark' }
+              : { glyph: LayoutGrid }
           }
           message={apps.length === 0
             ? t('empty.generate')
@@ -291,18 +401,18 @@ const MiniAppGalleryView: React.FC = () => {
     }
 
     return (
-      <GalleryGrid minCardWidth={360}>
+      <GalleryGrid minCardWidth={MINIAPP_CARD_MIN_WIDTH} className="miniapp-gallery__card-grid">
         {filtered.map((app, index) => (
           <MiniAppCard
             key={app.id}
             app={app}
             index={index}
-            isRunning={runningIdSet.has(app.id)}
+            isRunning={activeIdSet.has(app.id)}
             isCustomizing={customizingIdSet.has(app.id)}
             marketReleaseNumber={marketOrigins[app.id]?.releaseNumber}
             onOpenDetails={setSelectedApp}
             onOpen={handleOpenApp}
-            onDelete={handleDeleteRequest}
+            onStop={handleStopRunning}
           />
         ))}
       </GalleryGrid>
@@ -310,43 +420,97 @@ const MiniAppGalleryView: React.FC = () => {
   };
 
   return (
-    <GalleryLayout data-bf-component="miniapp-gallery-view" data-bf-part="root" className="miniapp-gallery">
+    <GalleryLayout
+      data-openbitfun-component="miniapp-gallery-view"
+      data-openbitfun-part="root"
+      className="miniapp-gallery-pane miniapp-gallery"
+    >
       <GalleryPageHeader
         title={t('title')}
         subtitle={t('subtitle')}
         actions={(
           <>
-            <Search value={search} onChange={setSearch} placeholder={t('searchPlaceholder')} size="small" />
-            <button
-              type="button"
-              className="gallery-action-btn gallery-action-btn--primary"
-              onClick={handleAddFromFolder}
-              disabled={loading}
-              title={t('importFromFolder')}
-            >
-              <FolderPlus size={15} />
-            </button>
-            <button
-              type="button"
-              className="gallery-action-btn"
-              onClick={() => void handleAddPackage()}
-              disabled={loading}
-              title={t('market.import.action')}
-            >
-              <PackagePlus size={15} />
-            </button>
+            <SearchField
+              leadingIcon={<Icon name="search" size="lg" aria-hidden />}
+              onValueChange={setSearch}
+              placeholder={t('searchPlaceholder')}
+              size="sm"
+              value={search}
+            />
+            <span className="miniapp-gallery__import-anchor">
+              <IconButton
+                ref={importTriggerRef}
+                size="xs"
+                onClick={() => setImportMenuOpen(open => !open)}
+                disabled={loading}
+                title={t('importAction')}
+                aria-label={t('importAction')}
+                aria-haspopup="menu"
+                aria-expanded={importMenuOpen}
+                data-testid="miniapp-import-action"
+                icon={<Icon name="plus" size="sm" />}
+              />
+              {importMenuOpen ? createPortal(
+                <Menu
+                  ref={importMenuRef}
+                  className="miniapp-gallery__import-menu"
+                  aria-label={t('importMenuLabel')}
+                  data-testid="miniapp-import-menu"
+                  style={{
+                    top: `${importMenuLayout?.top ?? 0}px`,
+                    left: `${importMenuLayout?.left ?? 0}px`,
+                    visibility: importMenuLayout ? 'visible' : 'hidden',
+                  }}
+                >
+                  <MenuItem
+                    leading={<FolderPlus size={15} aria-hidden="true" />}
+                    onClick={() => {
+                      closeImportMenu();
+                      void handleAddFromFolder();
+                    }}
+                    data-testid="miniapp-import-folder-action"
+                  >
+                    {t('importFromFolder')}
+                  </MenuItem>
+                  <MenuItem
+                    leading={<PackagePlus size={15} aria-hidden="true" />}
+                    onClick={() => {
+                      closeImportMenu();
+                      void handleAddPackage();
+                    }}
+                    data-testid="miniapp-import-package-action"
+                  >
+                    {t('market.import.action')}
+                  </MenuItem>
+                </Menu>,
+                getAppearanceOverlayHost(),
+              ) : null}
+            </span>
+            <IconButton
+              size="xs"
+              onClick={() => void handleCreateWithCreative()}
+              loading={creatingWithCreative}
+              title={t('creationMode.action')}
+              aria-label={t('creationMode.action')}
+              data-testid="miniapp-create-action"
+              icon={<Icon name="edit" size="sm" />}
+            />
           </>
         )}
       />
 
-      <div data-bf-component="miniapp-gallery-view" data-bf-part="content" className="gallery-zones">
-        <GalleryZone
-          title={t('running')}
-          tools={runningApps.length > 0 ? <span className="gallery-zone-badge">{runningApps.length}</span> : null}
-        >
-          {runningApps.length > 0 ? (
-            <GalleryGrid minCardWidth={360}>
-              {runningApps.map((app, index) => (
+      {tabs}
+
+      <div data-openbitfun-component="miniapp-gallery-view" data-openbitfun-part="content" className="gallery-zones">
+        {activeApps.length > 0 ? (
+          <GalleryZone
+            title={t('running')}
+            titleAdornment={<NumberBadge value={activeApps.length} />}
+            data-testid="miniapp-running-zone"
+            className="miniapp-gallery__running-zone"
+          >
+            <GalleryGrid minCardWidth={MINIAPP_CARD_MIN_WIDTH} className="miniapp-gallery__card-grid">
+              {activeApps.map((app, index) => (
                 <MiniAppCard
                   key={app.id}
                   app={app}
@@ -356,99 +520,77 @@ const MiniAppGalleryView: React.FC = () => {
                   marketReleaseNumber={marketOrigins[app.id]?.releaseNumber}
                   onOpenDetails={setSelectedApp}
                   onOpen={handleOpenApp}
-                  onDelete={handleDeleteRequest}
                   onStop={handleStopRunning}
                 />
               ))}
             </GalleryGrid>
-          ) : (
-            <div className="gallery-run-empty">
-              {t('noRunningApps')}
-            </div>
-          )}
-        </GalleryZone>
+          </GalleryZone>
+        ) : null}
 
         <GalleryZone
           title={t('allApps')}
+          titleAdornment={<NumberBadge value={filtered.length} />}
           tools={(
-            <>
-              {categories.length > 1 ? (
-                <div data-bf-component="miniapp-gallery-view" data-bf-part="categoryFilters" className="gallery-chip-row">
-                  {categories.map((category) => (
-                    <button
-                      data-bf-component="miniapp-gallery-view"
-                      data-bf-part="categoryFilter"
-                      key={category}
-                      type="button"
-                      className={[
-                        'gallery-cat-chip',
-                        categoryFilter === category && 'gallery-cat-chip--active',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      onClick={() => setCategoryFilter(category)}
-                    >
-                      {category === 'all' ? t('all') : category}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              <span className="gallery-zone-count">{t('count', { count: filtered.length })}</span>
-            </>
+            categories.length > 1 ? (
+              <div
+                data-openbitfun-component="miniapp-gallery-view"
+                data-openbitfun-part="categoryFilters"
+              >
+                <SegmentedControl
+                  className="miniapp-gallery__categories"
+                  options={categories.map((category) => {
+                    const normalizedCategory = category.toLowerCase();
+                    const categoryIcon = normalizedCategory === 'productivity'
+                      ? <Lightbulb size={12} />
+                      : normalizedCategory === 'developer'
+                        ? <Icon name="terminal" size="xs" aria-hidden />
+                        : normalizedCategory === 'lifestyle'
+                          ? <House size={12} />
+                          : normalizedCategory === 'game'
+                            ? <Gamepad2 size={12} />
+                            : undefined;
+                    return {
+                      icon: categoryIcon,
+                      label: (
+                        <span
+                          data-openbitfun-component="miniapp-gallery-view"
+                          data-openbitfun-part="categoryFilter"
+                        >
+                          {category === 'all'
+                            ? t('all')
+                            : category.replace(/^./, (character) => character.toUpperCase())}
+                        </span>
+                      ),
+                      value: category,
+                    };
+                  })}
+                  value={categoryFilter}
+                  onValueChange={setCategoryFilter}
+                  aria-label={t('allApps')}
+                  variant="pills"
+                />
+              </div>
+            ) : null
           )}
         >
           {renderGrid()}
         </GalleryZone>
       </div>
 
-      <GalleryDetailModal
-        isOpen={Boolean(selectedApp)}
+      <MiniAppDetailModal
+        app={selectedApp}
+        marketReleaseNumber={selectedApp ? marketOrigins[selectedApp.id]?.releaseNumber : undefined}
+        isActive={selectedApp ? activeIdSet.has(selectedApp.id) : false}
+        isCustomizing={selectedApp ? customizingIdSet.has(selectedApp.id) : false}
         onClose={() => setSelectedApp(null)}
-        icon={selectedApp ? renderMiniAppIcon(selectedApp.icon || 'box', 24) : <Box size={24} />}
-        iconGradient={selectedApp ? getMiniAppIconGradient(selectedApp.icon || 'box') : undefined}
-        title={selectedApp ? pickLocalizedString(selectedApp, currentLanguage, 'name') : ''}
-        badges={selectedApp?.category ? <Badge variant="info">{selectedApp.category}</Badge> : null}
-        description={selectedApp ? pickLocalizedString(selectedApp, currentLanguage, 'description') : undefined}
-        meta={selectedApp ? (
-          <span>v{marketOrigins[selectedApp.id]?.releaseNumber ?? selectedApp.version}</span>
-        ) : null}
-        actions={selectedApp ? (
-          <>
-            {runningIdSet.has(selectedApp.id) ? (
-              <Button variant="secondary" size="small" onClick={() => void handleStopRunning(selectedApp.id)}>
-                <Square size={14} />
-                {t('detail.stop')}
-              </Button>
-            ) : null}
-            <Button variant="danger" size="small" onClick={() => setPendingDeleteId(selectedApp.id)}>
-              <Trash2 size={14} />
-              {t('detail.delete')}
-            </Button>
-            <Button variant="primary" size="small" onClick={() => handleOpenApp(selectedApp.id)}>
-              <Play size={14} />
-              {t('detail.open')}
-            </Button>
-          </>
-        ) : null}
-      >
-        {selectedApp ? (() => {
-          const detailTags = pickLocalizedTags(selectedApp, currentLanguage);
-          return detailTags.length ? (
-            <div data-bf-component="miniapp-gallery-view" data-bf-part="detailTags" className="miniapp-gallery__detail-tags">
-              {detailTags.map((tag) => (
-                <span key={tag} className="miniapp-gallery__detail-tag">
-                  <Tag size={11} />
-                  {tag}
-                </span>
-              ))}
-            </div>
-          ) : null;
-        })() : null}
-      </GalleryDetailModal>
+        onOpen={handleOpenApp}
+        onDelete={handleDeleteRequest}
+        onStop={handleStopRunning}
+      />
 
       <ConfirmDialog
-        isOpen={pendingDeleteId !== null}
-        onClose={() => setPendingDeleteId(null)}
+        open={pendingDeleteId !== null}
+        onOpenChange={() => setPendingDeleteId(null)}
         onConfirm={handleDeleteConfirm}
         title={t('confirmDelete.title', { name: apps.find((app) => app.id === pendingDeleteId)?.name ?? '' })}
         message={t('confirmDelete.message')}
@@ -459,8 +601,8 @@ const MiniAppGalleryView: React.FC = () => {
       />
 
       <ConfirmDialog
-        isOpen={pendingPackage !== null}
-        onClose={() => setPendingPackage(null)}
+        open={pendingPackage !== null}
+        onOpenChange={() => setPendingPackage(null)}
         onConfirm={() => void handlePackageImportConfirm()}
         title={t('market.import.confirmTitle', {
           name: pendingPackage?.inspection.name ?? '',

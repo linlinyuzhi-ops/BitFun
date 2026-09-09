@@ -1,10 +1,10 @@
-# BitFun Web UI
+# OpenBitFun Web UI
 
 中文 | [English](./README.md)
 
 ## 概述
 
-本目录是 BitFun 的 **Web UI**（React + TypeScript）。同一份前端代码会被复用在：
+本目录是 OpenBitFun 的 **Web UI**（React + TypeScript）。同一份前端代码会被复用在：
 
 - **Desktop**：通过 **Tauri** 加载运行
 - **Server/Web**：构建为静态资源，由后端提供访问
@@ -26,13 +26,11 @@ src/web-ui/
 ├── README.zh-CN.md               # 本文件（中文版）
 ├── LOGGING.md                    # 日志与调试说明
 ├── index.html                    # 入口 HTML
-├── preview.html                  # 预览页（可选）
 ├── package.json                  # 依赖与脚本
 ├── package-lock.json             # 锁定依赖版本
 ├── public/                       # 静态资源
 ├── src/                          # 前端源代码
 │   ├── app/                      # 应用主界面
-│   ├── component-library/        # 组件库
 │   ├── features/                 # 按功能拆分的模块
 │   ├── flow_chat/                # 对话/工作流聊天界面
 │   ├── generated/                # 生成内容（占位/产物）
@@ -46,7 +44,6 @@ src/web-ui/
 ├── tsconfig.json                 # TS 配置
 ├── tsconfig.node.json            # Node/Vite TS 配置
 ├── vite.config.ts                # Vite 构建配置
-├── vite.config.preview.ts        # 预览构建配置
 └── vite.config.version-plugin.ts # 版本插件
 ```
 
@@ -94,11 +91,42 @@ VITE_BUILD_TARGET=web pnpm --dir src/web-ui run build
 ## 相关文档（本包内）
 
 - [日志说明](LOGGING.md)
-- [组件库 README](src/component-library/README.md)
+- [独立设计系统](../../design-system/README.md)
 - [i18n README](src/infrastructure/i18n/README.md)
 
 ## 注意事项
 
+打包后的 Desktop 可在创造模式中通过 prompt 控制已有设置、增删改已安装的 MiniApp，
+以及持久修改客户端 UI，无需源码或构建工具。修改 UI 时，在原生预览窗口选择保留或
+撤销；只有真实界面和自定义代码激活成功才开始确认倒计时，失败或超时恢复原版本。
+
+自定义模块还能注册 Agent 可调用的命令，并通过持久状态与事件组合能力。随客户端
+附带的 [Creation API](public/openbitfun-creation-api.md) 说明发现、激活与清理接口。
+这些扩展需要可见的本地 Desktop，远程/Peer/无界面场景明确不可用。MiniApp 的结构化
+源码操作走已安装产品的生命周期管理器，更新保留未提供的源码字段和已有应用数据。
+
 1. **不要在组件里直接调用 Tauri API**，应通过适配器层统一封装。
 2. **注意 Web 兼容性**（浏览器环境不一定具备所有能力）。
 3. **优先使用 CSS 变量**，避免硬编码颜色/尺寸。
+
+## 订阅账号与模型列表
+
+在 **设置 → 模型 → 订阅账号** 中登录、选择使用账号，再打开模型选择器。
+“刷新模型列表”会重新获取账号当前可用的模型，无需退出登录或重开编辑器。
+已保存的模型不会被删除，也可以手动填写服务商支持的模型 ID。
+
+反重力通过账号的 `fetchAvailableModels` 接口获取模型；Codex 使用订阅模型目录，
+保留公共 API 不提供的订阅专属模型。OpenCode 只需选择 Go/Zen 和模型，OpenBitFun
+根据账号目录自动匹配 Chat Completions、Responses 或 Messages 协议。
+xAI、Hermes 查询各自的模型接口。Hermes 所有模型（包括 `anthropic/*`）使用
+Chat Completions 和 Nous OAuth Bearer 认证，与上游在原生 Messages 缓存问题解决前的
+默认路由保持一致。已保存的模型 ID 和订阅凭据继续有效。
+
+订阅登录会自动提供必需的认证头和账号头，即使旧模型配置使用了“替换自定义请求头”模式，
+也无需在模型编辑器中手动粘贴令牌或提供商身份请求头。这些适配仅对订阅模型启用，
+API Key 模型继续使用原有请求配置。
+
+模型是否可用以当前账号接口返回的 ID 为准。旧名称不一定代表底层模型没有更新，
+服务商公布的新模型也不保证对每种订阅或 OAuth 客户端开放。获取失败时会显示错误，
+不会把预设名单当作账号实际支持的模型。反重力浏览器登录需要在本机桌面端完成；
+其他平台的设备码流程可以在另一台设备的浏览器中授权。

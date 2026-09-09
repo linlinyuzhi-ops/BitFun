@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultAppearanceRegistry } from '../registry/defaultAppearanceRegistry';
-import type { AppearancePackage } from '../types';
+import { APPEARANCE_SCHEMA_VERSION, type AppearancePackage } from '../types';
 import { AppearancePackageValidationError } from './AppearancePackageValidationError';
 import { appearancePackageValidator, assertValidAppearancePackage } from './AppearancePackageValidator';
 
 function validPackage(): AppearancePackage {
   return {
-    schema: 'bitfun.appearance',
-    schemaVersion: 1,
+    schema: 'openbitfun.appearance',
+    schemaVersion: APPEARANCE_SCHEMA_VERSION,
     id: 'test.appearance',
     name: 'Test Appearance',
     version: '1.0.0',
     mode: 'dark',
     components: {
-      button: {
+      'gallery-layout': {
         parts: {
           root: {
             base: {
@@ -48,7 +48,7 @@ describe('AppearancePackageValidator', () => {
       },
     };
     raw.components = {
-      button: {
+      'gallery-layout': {
         parts: {
           root: {
             base: {
@@ -82,8 +82,8 @@ describe('AppearancePackageValidator', () => {
   it('rejects raw CSS strings and unregistered parts', () => {
     const raw = validPackage() as unknown as Record<string, unknown>;
     const components = raw.components as Record<string, { parts: Record<string, unknown> }>;
-    components.button.parts.root = { base: { backgroundColor: 'url(https://example.com/a.png)' } };
-    components.button.parts.internalClass = { base: { color: { kind: 'hex', value: '#fff' } } };
+    components['gallery-layout'].parts.root = { base: { backgroundColor: 'url(https://example.com/a.png)' } };
+    components['gallery-layout'].parts.internalClass = { base: { color: { kind: 'hex', value: '#fff' } } };
 
     const result = appearancePackageValidator.validate(raw, registry);
     expect(result.errors).toEqual(expect.arrayContaining([
@@ -100,6 +100,38 @@ describe('AppearancePackageValidator', () => {
     const result = appearancePackageValidator.validate(raw, registry);
     expect(result.errors).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'UNKNOWN_SURFACE', path: 'components.private-widget' }),
+    ]));
+  });
+
+  it('rejects retired parts and states instead of rewriting the package', () => {
+    const retired = validPackage() as unknown as Record<string, unknown>;
+    retired.components = {
+      'branch-quick-switch': {
+        parts: {
+          root: {
+            base: { opacity: { kind: 'number', value: 1 } },
+            states: { selected: { opacity: { kind: 'number', value: 0.8 } } },
+            contexts: [{
+              when: { states: ['current'] },
+              style: { opacity: { kind: 'number', value: 0.9 } },
+            }],
+          },
+          item: { base: { opacity: { kind: 'number', value: 1 } } },
+        },
+      },
+    };
+
+    const result = appearancePackageValidator.validate(retired, registry);
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'UNKNOWN_PART',
+        path: 'components.branch-quick-switch.parts.item',
+      }),
+      expect.objectContaining({
+        code: 'UNKNOWN_STATE',
+        path: 'components.branch-quick-switch.parts.root.states.selected',
+      }),
     ]));
   });
 
@@ -166,11 +198,11 @@ describe('AppearancePackageValidator', () => {
     const raw = validPackage() as unknown as Record<string, unknown>;
     raw.css = '.btn { display: none }';
     const components = raw.components as Record<string, { parts: Record<string, Record<string, unknown>> }>;
-    components.button.parts.root.selector = '.private-class';
+    components['gallery-layout'].parts.root.selector = '.private-class';
     const result = appearancePackageValidator.validate(raw, registry);
     expect(result.errors).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'UNKNOWN_FIELD', path: 'css' }),
-      expect.objectContaining({ code: 'UNKNOWN_FIELD', path: 'components.button.parts.root.selector' }),
+      expect.objectContaining({ code: 'UNKNOWN_FIELD', path: 'components.gallery-layout.parts.root.selector' }),
     ]));
   });
 
@@ -225,7 +257,7 @@ describe('AppearancePackageValidator', () => {
       backdrop: { kind: 'image', mimeType: 'image/webp', source: { kind: 'package', path: 'assets/backdrop.webp' } },
       ornament: { kind: 'image', mimeType: 'image/png', source: { kind: 'package', path: 'assets/ornament.png' } },
     };
-    pkg.components!.button.parts.root.base = {
+    pkg.components!['gallery-layout'].parts.root.base = {
       backgroundImages: [
         { kind: 'asset', assetId: 'ornament' },
         { kind: 'asset', assetId: 'backdrop' },
@@ -285,7 +317,7 @@ describe('AppearancePackageValidator', () => {
       motion: { kind: 'video', mimeType: 'video/mp4', source: { kind: 'package', path: 'assets/background.mp4' } },
     };
     pkg.preview = { kind: 'asset', assetId: 'motion' };
-    pkg.components!.button.parts.root.base = {
+    pkg.components!['gallery-layout'].parts.root.base = {
       backgroundImage: { kind: 'asset', assetId: 'motion' },
     };
 
@@ -314,7 +346,7 @@ describe('AppearancePackageValidator', () => {
   it('rejects conflicting or misaligned background layer declarations', () => {
     const pkg = validPackage() as unknown as Record<string, unknown>;
     const components = pkg.components as Record<string, { parts: Record<string, { base: Record<string, unknown> }> }>;
-    components.button.parts.root.base = {
+    components['gallery-layout'].parts.root.base = {
       backgroundImage: { kind: 'asset', assetId: 'backdrop' },
       backgroundImages: [
         { kind: 'asset', assetId: 'backdrop' },
@@ -342,13 +374,13 @@ describe('AppearancePackageValidator', () => {
       },
     };
     const components = pkg.components as Record<string, { parts: Record<string, Record<string, unknown>> }>;
-    components.button.parts.root.materials = ['surface'];
+    components['gallery-layout'].parts.root.materials = ['surface'];
     expect(appearancePackageValidator.validate(pkg, registry).valid).toBe(true);
 
-    delete components.button.parts.root.materials;
-    components.button.parts.root.material = 'surface';
+    delete components['gallery-layout'].parts.root.materials;
+    components['gallery-layout'].parts.root.material = 'surface';
     expect(appearancePackageValidator.validate(pkg, registry).errors).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: 'UNKNOWN_FIELD', path: 'components.button.parts.root.material' }),
+      expect.objectContaining({ code: 'UNKNOWN_FIELD', path: 'components.gallery-layout.parts.root.material' }),
     ]));
   });
 

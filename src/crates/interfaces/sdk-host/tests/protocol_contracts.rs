@@ -1,4 +1,4 @@
-use bitfun_sdk_host::protocol::{
+use openbitfun_sdk_host::protocol::{
     ErrorCode, ErrorData, ErrorStage, HostCapabilities, InitializeParams, InitializeResult,
     JsonRpcErrorResponse, JsonRpcRequest, JsonRpcSuccessResponse, OutcomeCertainty,
     PermissionDecision, PermissionRespondParams, PermissionSource, PermissionSourceKind,

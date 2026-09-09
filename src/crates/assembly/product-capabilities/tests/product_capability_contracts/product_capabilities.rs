@@ -7,13 +7,13 @@ use bitfun_product_capabilities::{
     ProductCoreDependencyMode, ProductFeatureGroup, ProductRuntimeAssembly,
     ProductServiceCapabilityRequirement, ProductServiceCapabilityStatus,
 };
-use bitfun_runtime_ports::{
+use openbitfun_runtime_ports::{
     PluginDispatchEnvelope, PluginResponseEnvelope, PluginRuntimeAvailability,
     PluginRuntimeBinding, PluginRuntimeClient, PluginRuntimeUnavailableReason, PortResult,
     RuntimeServiceCapability,
 };
-use bitfun_runtime_services::test_support::FakeRuntimeServicesProvider;
-use bitfun_runtime_services::{
+use openbitfun_runtime_services::test_support::FakeRuntimeServicesProvider;
+use openbitfun_runtime_services::{
     RuntimeServiceMarkerPort, RuntimeServicesBuilder, RuntimeServicesProvider,
 };
 use std::sync::Arc;
@@ -38,6 +38,29 @@ fn agent_runtime_baseline_tool_plan_requests_only_baseline_feature_owners() {
             .collect::<Vec<_>>(),
         ["core.basic", "core.agent", "core.session",]
     );
+}
+
+#[test]
+fn every_agent_runtime_delivery_profile_includes_product_control_discovery() {
+    for profile in [
+        DeliveryProfile::ProductFull,
+        DeliveryProfile::Desktop,
+        DeliveryProfile::Cli,
+        DeliveryProfile::Acp,
+        DeliveryProfile::Sdk,
+    ] {
+        let plan = product_assembly_plan_for_profile(profile);
+        let tool_plan = plan.tool_plan();
+        assert!(
+            tool_plan
+                .tool_provider_group_plan()
+                .iter()
+                .flat_map(|provider| provider.tool_names())
+                .any(|tool_name| *tool_name == "OpenBitFunControl"),
+            "{} must expose OpenBitFunControl to its agents",
+            profile.id()
+        );
+    }
 }
 
 #[async_trait::async_trait]
@@ -140,6 +163,7 @@ fn capability_packs_describe_service_and_tool_requirements() {
             "deep-review",
             "deep-research",
             "miniapp",
+            "creation",
             "canvas",
             "voice-input"
         ]
@@ -158,6 +182,7 @@ fn product_assembly_plan_keeps_full_capabilities_only_for_core_compatibility_pro
         "deep-review",
         "deep-research",
         "miniapp",
+        "creation",
         "canvas",
     ];
     let full_tool_groups = vec![
@@ -295,6 +320,10 @@ fn product_delivery_profile_matrix_documents_current_core_dependency_shape() {
                 ProductCoreDependencyMode::ProductFullCompatibility,
             ),
             (
+                DeliveryProfile::DataMigrator,
+                ProductCoreDependencyMode::ExplicitCoreCapabilityClosure,
+            ),
+            (
                 DeliveryProfile::Cli,
                 ProductCoreDependencyMode::ExplicitCoreCapabilityClosure,
             ),
@@ -339,6 +368,23 @@ fn product_assembly_plan_follows_core_dependency_matrix() {
         match entry.core_dependency_mode() {
             ProductCoreDependencyMode::ProductFullCompatibility
             | ProductCoreDependencyMode::ExplicitCoreCapabilityClosure => {
+                if entry.profile() == DeliveryProfile::DataMigrator {
+                    assert!(
+                        plan.capability_set().ids().is_empty(),
+                        "data-migrator must not assemble Agent Runtime capabilities"
+                    );
+                    assert!(
+                        plan.capability_assembly()
+                            .tool_provider_group_plan()
+                            .is_empty(),
+                        "data-migrator must not assemble runtime tool groups"
+                    );
+                    assert!(
+                        plan.feature_groups().is_empty(),
+                        "data-migrator must not expose runtime feature groups"
+                    );
+                    continue;
+                }
                 assert!(
                     !plan.capability_set().ids().is_empty(),
                     "{} must retain runtime capabilities",
@@ -383,6 +429,25 @@ fn product_assembly_plan_follows_core_dependency_matrix() {
             ),
         }
     }
+}
+
+#[test]
+fn data_migrator_profile_is_a_minimal_non_agent_product_plan() {
+    let plan = product_assembly_plan_for_profile(DeliveryProfile::DataMigrator);
+
+    assert_eq!(plan.profile().id(), "data-migrator");
+    assert!(plan.capability_set().ids().is_empty());
+    assert!(plan.capability_assembly().agent_ids().is_empty());
+    assert!(plan.capability_assembly().service_requirements().is_empty());
+    assert!(plan.feature_groups().is_empty());
+    assert!(plan
+        .capability_assembly()
+        .tool_provider_group_plan()
+        .is_empty());
+    assert_eq!(
+        plan.extension_capabilities().plugin_runtime(),
+        PluginRuntimeAvailability::disabled(PluginRuntimeUnavailableReason::UnsupportedProfile)
+    );
 }
 
 #[test]
@@ -745,6 +810,7 @@ fn default_capability_assembly_keeps_service_and_tool_facts_together() {
             "deep-review",
             "deep-research",
             "miniapp",
+            "creation",
             "canvas",
             "voice-input"
         ]

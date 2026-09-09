@@ -1,14 +1,9 @@
 /* eslint-disable @typescript-eslint/no-use-before-define */
 import React, { useEffect, useCallback, useMemo, useState, useRef } from 'react';
-import {
-  ExternalLink, Copy, Check, ArrowLeft, Loader2, AlertTriangle,
-  BarChart3, MessageSquare, Calendar, Clock, X, Target, Zap, Trophy,
-  AlertCircle, Lightbulb, Rocket, Database, ScanSearch, Layers3,
-  FileCheck2, Gauge, Sparkles, Brain,
-} from 'lucide-react';
+import { OverflowText, Button, Combobox, Icon, IconButton, ScrollArea, type ComboboxOption, type IconSource } from '@openbitfun/ui';
+import { Loader2, AlertTriangle, BarChart3, Calendar, Target, Zap, Trophy, AlertCircle, Lightbulb, Rocket, Database, ScanSearch, Layers3, FileCheck2, Gauge } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
 import { insightsApi, type InsightsReport, type InsightsReportMeta, type InsightsStats } from '@/infrastructure/api/insightsApi';
-import { Select, type SelectOption } from '@/component-library';
 import { configManager } from '@/infrastructure/config/services/ConfigManager';
 import { getProviderDisplayName } from '@/infrastructure/config/services/modelConfigs';
 import type { AIModelConfig } from '@/infrastructure/config/types';
@@ -17,6 +12,7 @@ import { createLogger } from '@/shared/utils/logger';
 import { getMotionAwareScrollBehavior } from '@/shared/utils/motionPreference';
 import { notificationService } from '@/shared/notification-system';
 import { APPEARANCE_DOMAIN_TOKENS } from '@/infrastructure/appearance/appearanceDomainTokens';
+import { formatTokenCount } from '@/shared/utils/tokenUsageFormatting';
 import '@/app/components/GalleryLayout/GalleryLayout.scss';
 import './InsightsScene.scss';
 
@@ -24,15 +20,15 @@ const log = createLogger('InsightsScene');
 
 // Report section ids for TOC / scroll targets
 const SECTIONS = [
-  { id: 'overview', labelKey: 'overview', icon: Target },
-  { id: 'stats', labelKey: 'stats', icon: BarChart3 },
-  { id: 'work-on', labelKey: 'workOn', icon: Target },
-  { id: 'usage', labelKey: 'usage', icon: Zap },
-  { id: 'wins', labelKey: 'wins', icon: Trophy },
-  { id: 'friction', labelKey: 'friction', icon: AlertCircle },
-  { id: 'suggestions', labelKey: 'suggestions', icon: Lightbulb },
-  { id: 'horizon', labelKey: 'horizon', icon: Rocket },
-] as const;
+  { id: 'overview', labelKey: 'overview', icon: { glyph: Target } },
+  { id: 'stats', labelKey: 'stats', icon: { glyph: BarChart3 } },
+  { id: 'work-on', labelKey: 'workOn', icon: { glyph: Target } },
+  { id: 'usage', labelKey: 'usage', icon: { glyph: Zap } },
+  { id: 'wins', labelKey: 'wins', icon: { glyph: Trophy } },
+  { id: 'friction', labelKey: 'friction', icon: { glyph: AlertCircle } },
+  { id: 'suggestions', labelKey: 'suggestions', icon: { glyph: Lightbulb } },
+  { id: 'horizon', labelKey: 'horizon', icon: { glyph: Rocket } },
+] as const satisfies ReadonlyArray<{ id: string; labelKey: string; icon: IconSource }>;
 
 const DAY_OPTIONS = [7, 14, 30, 90] as const;
 
@@ -41,38 +37,44 @@ const GENERATION_STEPS = [
     id: 'collect',
     titleKey: 'insights.generationStageCollect',
     detailKey: 'insights.generationStageCollectDetail',
-    icon: Database,
+    icon: { glyph: Database },
     stages: ['starting', 'data_collection'],
   },
   {
     id: 'sessions',
     titleKey: 'insights.generationStageSessions',
     detailKey: 'insights.generationStageSessionsDetail',
-    icon: ScanSearch,
+    icon: { glyph: ScanSearch },
     stages: ['facet_extraction', 'facet_retry'],
   },
   {
     id: 'patterns',
     titleKey: 'insights.generationStagePatterns',
     detailKey: 'insights.generationStagePatternsDetail',
-    icon: Layers3,
+    icon: { glyph: Layers3 },
     stages: ['aggregation', 'analysis', 'analysis_retry'],
   },
   {
     id: 'summary',
     titleKey: 'insights.generationStageSummary',
     detailKey: 'insights.generationStageSummaryDetail',
-    icon: Sparkles,
+    icon: { name: 'spark' },
     stages: ['synthesis'],
   },
   {
     id: 'save',
     titleKey: 'insights.generationStageSave',
     detailKey: 'insights.generationStageSaveDetail',
-    icon: FileCheck2,
+    icon: { glyph: FileCheck2 },
     stages: ['assembly', 'complete'],
   },
-] as const;
+] as const satisfies ReadonlyArray<{
+  id: string;
+  titleKey: string;
+  detailKey: string;
+  icon: IconSource;
+  stages: readonly string[];
+}>;
 
 interface GenerationProgress {
   stage: string;
@@ -80,11 +82,6 @@ interface GenerationProgress {
   current: number;
   total: number;
   isRetrying: boolean;
-}
-
-interface InsightsModelOption extends SelectOption {
-  modelName: string;
-  meta: string;
 }
 
 const GenerationPanel: React.FC<{ progress: GenerationProgress }> = ({ progress }) => {
@@ -126,10 +123,10 @@ const GenerationPanel: React.FC<{ progress: GenerationProgress }> = ({ progress 
         <div className="insights-generation__status-copy">
           <div className="insights-generation__eyebrow">{t('insights.generating')}</div>
           <div className="insights-generation__title">{t(activeStep.titleKey)}</div>
-          <div className="insights-generation__detail">{detail}</div>
+          <div className="insights-generation__detail"><OverflowText>{detail}</OverflowText></div>
         </div>
         <div className="insights-generation__elapsed">
-          <Clock size={13} />
+          <Icon name="clock" size="xs" />
           <span>{t('insights.generationElapsed')}</span>
           <strong>{elapsed}</strong>
         </div>
@@ -141,14 +138,13 @@ const GenerationPanel: React.FC<{ progress: GenerationProgress }> = ({ progress 
 
       <div className="insights-generation__steps">
         {GENERATION_STEPS.map((step, index) => {
-          const StepIcon = step.icon;
           const state = index < activeIndex ? 'complete' : index === activeIndex ? 'active' : 'pending';
           return (
             <div key={step.id} className={`insights-generation__step insights-generation__step--${state}`}>
               <span className="insights-generation__step-icon">
-                {state === 'complete' ? <Check size={13} /> : <StepIcon size={13} />}
+                {state === 'complete' ? <Icon name="check-line" size="xs" /> : <Icon {...step.icon} size="xs" />}
               </span>
-              <span className="insights-generation__step-label">{t(step.titleKey)}</span>
+              <OverflowText className="insights-generation__step-label">{t(step.titleKey)}</OverflowText>
             </div>
           );
         })}
@@ -180,10 +176,10 @@ const InsightsScene: React.FC = () => {
       setAvailableModels(enabledChatModels);
       const currentSelection = useInsightsStore.getState().selectedModel;
       if (
-        currentSelection !== 'auto'
+        currentSelection !== 'primary'
         && !enabledChatModels.some((model) => model.id === currentSelection)
       ) {
-        setSelectedModel('auto');
+        setSelectedModel('primary');
       }
     }).catch((error) => {
       log.warn('Failed to load models for insights', error);
@@ -193,53 +189,26 @@ const InsightsScene: React.FC = () => {
     };
   }, [setSelectedModel]);
 
-  const modelOptions = useMemo<InsightsModelOption[]>(() => [
+  const modelOptions = useMemo<ComboboxOption[]>(() => [
     {
-      value: 'auto',
-      label: t('insights.modelAuto'),
-      description: t('insights.modelAutoDescription'),
-      modelName: t('insights.modelAuto'),
-      meta: t('insights.modelAutoDescription'),
+      value: 'primary',
+      label: t('insights.modelPrimary'),
+      description: t('insights.modelPrimaryDescription'),
     },
     ...availableModels.map((model) => ({
       value: model.id || '',
       label: model.model_name,
       description: `${model.name} · ${getProviderDisplayName(model)}`,
-      modelName: model.model_name,
-      meta: `${model.name} · ${getProviderDisplayName(model)}`,
     })),
   ], [availableModels, t]);
-
-  const renderModelValue = useCallback((option?: SelectOption | SelectOption[]) => {
-    const selected = (Array.isArray(option) ? option[0] : option) as InsightsModelOption | undefined;
-    if (!selected) return null;
-    const fullLabel = selected.meta ? `${selected.modelName} · ${selected.meta}` : selected.modelName;
-    return (
-      <span className="select__value insights-model-select__value" title={fullLabel}>
-        <span className="insights-model-select__value-name">{selected.modelName}</span>
-        {selected.meta && <span className="insights-model-select__value-meta">{selected.meta}</span>}
-      </span>
-    );
-  }, []);
-
-  const renderModelOption = useCallback((option: SelectOption) => {
-    const model = option as InsightsModelOption;
-    const fullLabel = model.meta ? `${model.modelName} · ${model.meta}` : model.modelName;
-    return (
-      <div className="insights-model-select__option" title={fullLabel}>
-        <div className="insights-model-select__option-name">{model.modelName}</div>
-        {model.meta && <div className="insights-model-select__option-meta">{model.meta}</div>}
-      </div>
-    );
-  }, []);
 
   if (view === 'report' && currentReport) {
     return <ReportView report={currentReport} onBack={backToList} />;
   }
 
   return (
-    <div className="insights-scene" data-bf-scene="insights" data-bf-part="root" data-bf-view="list">
-      <div className="insights-scene__header" data-bf-scene="insights" data-bf-part="header">
+    <div className="insights-scene" data-openbitfun-scene="insights" data-openbitfun-part="root" data-openbitfun-view="list">
+      <div className="insights-scene__header" data-openbitfun-scene="insights" data-openbitfun-part="header">
         <div className="insights-scene__header-identity">
           <h2 className="insights-scene__header-title">{t('insights.title')}</h2>
           <p className="insights-scene__header-subtitle">{t('insights.subtitle')}</p>
@@ -247,19 +216,14 @@ const InsightsScene: React.FC = () => {
         <div className="insights-scene__header-actions">
           <div className="insights-scene__model-control">
             <span className="insights-scene__control-label">{t('insights.modelLabel')}</span>
-            <Select
+            <Combobox
               className="insights-scene__model-select"
-              dropdownClassName="insights-scene__model-select-dropdown"
-              dropdownMatchTriggerWidth={false}
               value={selectedModel}
               options={modelOptions}
-              renderValue={renderModelValue}
-              renderOption={renderModelOption}
-              onChange={(value) => setSelectedModel(String(Array.isArray(value) ? value[0] : value))}
-              size="small"
-              searchable={availableModels.length > 6}
+              onValueChange={(value) => setSelectedModel(String(value))}
+              size="lg"
               disabled={generating}
-              triggerTestId="insights-model-select"
+              data-testid="insights-model-select"
             />
           </div>
           <div className="insights-scene__day-filters">
@@ -284,53 +248,68 @@ const InsightsScene: React.FC = () => {
             </div>
           </div>
           {generating ? (
-            <button className="insights-scene__cancel-btn" onClick={cancelGeneration}>
-              <X size={14} />
-              <span>{t('insights.cancelBtn')}</span>
-            </button>
+            <Button
+              variant="outline"
+              size="sm"
+              leadingIcon={<Icon name="xmark" size="lg" />}
+              onClick={cancelGeneration}
+            >
+              {t('insights.cancelBtn')}
+            </Button>
           ) : (
-            <button className="insights-scene__generate-btn" onClick={generateReport}>
-              <BarChart3 size={14} />
-              <span>{t('insights.generateBtn')}</span>
-            </button>
+            <Button
+              variant="fill"
+              size="sm"
+              leadingIcon={<BarChart3 />}
+              onClick={generateReport}
+            >
+              {t('insights.generateBtn')}
+            </Button>
           )}
         </div>
       </div>
 
       {error && (
-        <div className="insights-scene__error" data-bf-scene="insights" data-bf-part="error">
-          <AlertTriangle size={14} />
+        <div className="insights-scene__error" data-openbitfun-scene="insights" data-openbitfun-part="error">
+          <Icon glyph={AlertTriangle} size="sm" />
           <span>{error}</span>
-          <button onClick={clearError} aria-label={t('insights.dismissError')}>&times;</button>
+          <IconButton
+            size="sm"
+            onClick={clearError}
+            aria-label={t('insights.dismissError')}
+            icon={<Icon name="xmark" size="sm" />}
+          />
         </div>
       )}
 
       {generating && <GenerationPanel progress={progress} />}
 
-      <div className="insights-scene__history" data-bf-scene="insights" data-bf-part="content">
-        <div className="insights-scene__history-header">
-          <div className="insights-scene__history-label">
-            {t('insights.history')}
-            {reportMetas.length > 0 && (
-              <span className="insights-scene__history-count">{reportMetas.length}</span>
-            )}
+      <ScrollArea className="insights-scene__history" data-openbitfun-scene="insights" data-openbitfun-part="content">
+        <div className="insights-scene__history-inner">
+          <div className="insights-scene__history-header">
+            <div className="insights-scene__history-label">
+              {t('insights.history')}
+              {reportMetas.length > 0 && (
+                <span className="insights-scene__history-count">{reportMetas.length}</span>
+              )}
+            </div>
+            <span className="insights-scene__history-hint">{t('insights.keepLatest5')}</span>
           </div>
-          <span className="insights-scene__history-hint">{t('insights.keepLatest5')}</span>
+          {loadingMetas ? (
+            <div className="insights-scene__loading" data-openbitfun-scene="insights" data-openbitfun-part="loading">
+              <Loader2 size={16} className="insights-scene__spinner" />
+            </div>
+          ) : reportMetas.length === 0 ? (
+            <div className="insights-scene__empty" data-openbitfun-scene="insights" data-openbitfun-part="empty">{t('insights.noReports')}</div>
+          ) : (
+            <div className="insights-scene__report-list">
+              {reportMetas.map((meta) => (
+                <ReportMetaCard key={meta.generated_at} meta={meta} onSelect={loadReport} />
+              ))}
+            </div>
+          )}
         </div>
-        {loadingMetas ? (
-          <div className="insights-scene__loading" data-bf-scene="insights" data-bf-part="loading">
-            <Loader2 size={16} className="insights-scene__spinner" />
-          </div>
-        ) : reportMetas.length === 0 ? (
-          <div className="insights-scene__empty" data-bf-scene="insights" data-bf-part="empty">{t('insights.noReports')}</div>
-        ) : (
-          <div className="insights-scene__report-list">
-            {reportMetas.map((meta) => (
-              <ReportMetaCard key={meta.generated_at} meta={meta} onSelect={loadReport} />
-            ))}
-          </div>
-        )}
-      </div>
+      </ScrollArea>
     </div>
   );
 };
@@ -359,21 +338,21 @@ const ReportMetaCard: React.FC<{
   const generationModels = meta.generation_models || [];
   const sessionTokenTitle = hasSessionUsage
     ? [
-        `${t('insights.inputTokens')}: ${formatNumber(sessionUsage.input_tokens)}`,
-        `${t('insights.outputTokens')}: ${formatNumber(sessionUsage.output_tokens)}`,
+        `${t('insights.inputTokens')}: ${formatTokenCount(sessionUsage.input_tokens, formatNumber)}`,
+        `${t('insights.outputTokens')}: ${formatTokenCount(sessionUsage.output_tokens, formatNumber)}`,
         `${t('insights.tokenCoverage')}: ${sessionUsage.turns_with_usage}/${sessionUsage.total_turns}`,
       ].join('\n')
     : t('insights.sessionTokensUnavailable');
   const generationTokenTitle = hasGenerationUsage
     ? [
-        `${t('insights.inputTokens')}: ${formatNumber(generationUsage.input_tokens)}`,
-        `${t('insights.outputTokens')}: ${formatNumber(generationUsage.output_tokens)}`,
-        `${t('insights.cachedTokens')}: ${formatNumber(generationUsage.cached_input_tokens)}`,
+        `${t('insights.inputTokens')}: ${formatTokenCount(generationUsage.input_tokens, formatNumber)}`,
+        `${t('insights.outputTokens')}: ${formatTokenCount(generationUsage.output_tokens, formatNumber)}`,
+        `${t('insights.cachedTokens')}: ${formatTokenCount(generationUsage.cached_input_tokens, formatNumber)}`,
       ].join('\n')
     : t('insights.tokensUnavailable');
 
   return (
-    <button className="insights-meta-card" onClick={() => onSelect(meta)}>
+    <button data-overflow-trigger className="insights-meta-card" onClick={() => onSelect(meta)}>
       <div className="insights-meta-card__top">
         <div className="insights-meta-card__date">{dateStr} {timeStr}</div>
         <div className="insights-meta-card__range">{rangeStart} ~ {rangeEnd}</div>
@@ -383,34 +362,34 @@ const ReportMetaCard: React.FC<{
           className={`insights-meta-card__metric insights-meta-card__metric--session-tokens${sessionUsagePartial ? ' insights-meta-card__metric--partial' : ''}`}
           title={sessionTokenTitle}
         >
-          <Gauge size={14} />
+          <Icon glyph={Gauge} size="sm" />
           <span>
-            <strong>
+            <strong><OverflowText>
               {hasSessionUsage
-                ? formatNumber(sessionUsage.total_tokens, { notation: 'compact', maximumFractionDigits: 1 })
+                ? formatTokenCount(sessionUsage.total_tokens, formatNumber)
                 : '--'}
-            </strong>
+            </OverflowText></strong>
             {t('insights.sessionTokens')}
           </span>
         </span>
         <span className="insights-meta-card__metric">
-          <BarChart3 size={14} />
+          <Icon glyph={BarChart3} size="sm" />
           <span>
-            <strong>{formatNumber(meta.analyzed_sessions)} / {formatNumber(meta.total_sessions)}</strong>
+            <strong><OverflowText>{formatNumber(meta.analyzed_sessions)} / {formatNumber(meta.total_sessions)}</OverflowText></strong>
             {t('insights.analyzedSessions')}
           </span>
         </span>
         <span className="insights-meta-card__metric">
-          <MessageSquare size={14} />
-          <span><strong>{formatNumber(meta.total_messages)}</strong>{t('insights.messages')}</span>
+          <Icon name="side-chat" size="sm" />
+          <span><strong><OverflowText>{formatNumber(meta.total_messages)}</OverflowText></strong>{t('insights.messages')}</span>
         </span>
       </div>
       <div className="insights-meta-card__details">
         <span>
-          <Clock size={11} /> {meta.total_hours.toFixed(1)} {t('insights.hours')}
+          <Icon name="clock" size="2xs" /> {meta.total_hours.toFixed(1)} {t('insights.hours')}
         </span>
         <span>
-          <Calendar size={11} /> {formatNumber(meta.days_covered)} {t('insights.days')}
+          <Icon glyph={Calendar} size="2xs" /> {formatNumber(meta.days_covered)} {t('insights.days')}
         </span>
       </div>
       {(meta.top_goals?.length > 0 || meta.languages?.length > 0) && (
@@ -427,7 +406,8 @@ const ReportMetaCard: React.FC<{
         <div className="insights-meta-card__generation-meta">
           {generationModels.length > 0 && (
             <span title={generationModels.join(', ')}>
-              <Brain size={10} /> {generationModels.join(' + ')}
+              <Icon name="thinking" size="lg" style={{ width: 10, height: 10 }} />
+              <OverflowText title="">{generationModels.join(' + ')}</OverflowText>
             </span>
           )}
           {hasGenerationCalls && (
@@ -435,12 +415,14 @@ const ReportMetaCard: React.FC<{
               title={generationTokenTitle}
               className={generationUsageComplete ? '' : 'insights-meta-card__generation-meta--partial'}
             >
-              <Sparkles size={10} />
+              <Icon name="spark" size="2xs" />
+              <OverflowText title="">
               {t('insights.insightsGenerationTokens')}:
               {' '}{hasGenerationUsage
-                ? formatNumber(generationUsage.total_tokens, { notation: 'compact', maximumFractionDigits: 1 })
+                ? formatTokenCount(generationUsage.total_tokens, formatNumber)
                 : '--'} {t('insights.tokens')}
               {!generationUsageComplete && ` · ${t('insights.partialUsage')}`}
+              </OverflowText>
             </span>
           )}
         </div>
@@ -527,16 +509,16 @@ const ReportNav: React.FC<{ report: InsightsReport; scrollContainerRef: React.Re
   return (
     <nav className="insights-report-nav">
       {visibleSections.map((section) => {
-        const Icon = SECTIONS.find(s => s.id === section.id)?.icon || Target;
+        const sectionIcon = SECTIONS.find(s => s.id === section.id)?.icon ?? { glyph: Target };
         return (
-          <button
+          <button data-overflow-trigger
             key={section.id}
             className={`insights-report-nav__item ${activeSection === section.id ? 'is-active' : ''}`}
             onClick={() => scrollToSection(section.id)}
             title={section.label}
           >
-            <Icon size={14} />
-            <span className="insights-report-nav__label">{section.label}</span>
+            <Icon {...sectionIcon} size="sm" />
+            <OverflowText className="insights-report-nav__label">{section.label}</OverflowText>
           </button>
         );
       })}
@@ -566,30 +548,35 @@ const ReportView: React.FC<{ report: InsightsReport; onBack: () => void }> = ({ 
   const dateEnd = report.date_range.end.slice(0, 10);
 
   return (
-    <div className="insights-scene insights-scene--report" data-bf-scene="insights" data-bf-part="root" data-bf-view="report">
-      <div className="insights-report-header" data-bf-scene="insights" data-bf-part="header">
-        <button className="insights-report-header__back" onClick={onBack}>
-          <ArrowLeft size={14} />
-          <span>{t('insights.backToList')}</span>
-        </button>
+    <div className="insights-scene insights-scene--report" data-openbitfun-scene="insights" data-openbitfun-part="root" data-openbitfun-view="report">
+      <div className="insights-report-header" data-openbitfun-scene="insights" data-openbitfun-part="header">
+        <Button
+          variant="outline"
+          size="sm"
+          leadingIcon={<Icon name="arrow-left" size="lg" />}
+          onClick={onBack}
+        >
+          {t('insights.backToList')}
+        </Button>
         <div className="insights-report-header__meta">
-          <span><MessageSquare size={11} /> {report.total_messages} {t('insights.messages')}</span>
-          <span><BarChart3 size={11} /> {report.total_sessions} {t('insights.sessions')}</span>
-          <span><Calendar size={11} /> {dateStart} ~ {dateEnd}</span>
+          <span><Icon name="side-chat" size="2xs" /> {report.total_messages} {t('insights.messages')}</span>
+          <span><Icon glyph={BarChart3} size="2xs" /> {report.total_sessions} {t('insights.sessions')}</span>
+          <span><Icon glyph={Calendar} size="2xs" /> {dateStart} ~ {dateEnd}</span>
         </div>
         <div className="insights-report-header__actions">
-          <button
-            className="insights-report-header__html-btn"
+          <Button
+            variant="outline"
+            size="sm"
+            leadingIcon={<Icon name="arrow-up-right" size="lg" />}
             onClick={handleOpenHtml}
             disabled={!report.html_report_path}
           >
-            <ExternalLink size={12} />
-            <span>{t('insights.openHtml')}</span>
-          </button>
+            {t('insights.openHtml')}
+          </Button>
         </div>
       </div>
 
-      <div className="insights-report-content" ref={bodyRef} data-bf-scene="insights" data-bf-part="content">
+      <ScrollArea className="insights-report-content" ref={bodyRef} data-openbitfun-scene="insights" data-openbitfun-part="content">
         <div className="insights-report-body">
           <div className="insights-report-body-inner">
             <header className="insights-report-hero">
@@ -623,7 +610,7 @@ const ReportView: React.FC<{ report: InsightsReport; onBack: () => void }> = ({ 
             )}
           <BasicCharts stats={report.stats} />
 
-          {/* How You Use BitFun */}
+          {/* How You Use OpenBitFun */}
           {report.interaction_style.narrative && <div data-section="usage"><InteractionStyleSection report={report} /></div>}
           <div data-section="usage">
             <UsageCharts stats={report.stats} />
@@ -714,7 +701,7 @@ const ReportView: React.FC<{ report: InsightsReport; onBack: () => void }> = ({ 
         </div>
 
         <ReportNav report={report} scrollContainerRef={bodyRef as React.RefObject<HTMLDivElement>} />
-      </div>
+      </ScrollArea>
     </div>
   );
 };
@@ -1021,9 +1008,9 @@ const StatItem: React.FC<{ value: string; label: string }> = ({ value, label }) 
 
 // Bar chart palette (default + semantic roles)
 const CHART_COLORS = {
-  blue: 'var(--bf-appearance-token-color-accent-500)',      // default / primary series
+  blue: 'var(--openbitfun-color-accent-default)',      // default / primary series
   green: APPEARANCE_DOMAIN_TOKENS.insights.positive,     // positive / success
-  purple: 'var(--bf-appearance-token-color-purple-500)',    // distribution / category
+  purple: 'var(--openbitfun-color-accent-secondary)',    // distribution / category
   indigo: APPEARANCE_DOMAIN_TOKENS.insights.time,    // time-related
   orange: APPEARANCE_DOMAIN_TOKENS.insights.neutral,    // time-of-day / neutral
   red: APPEARANCE_DOMAIN_TOKENS.insights.issue,       // issues / errors
@@ -1048,7 +1035,7 @@ const BarChart: React.FC<{ title: string; items: [string, number][]; max: number
         const displayLabel = label.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
         return (
           <div key={label} className="insights-bar-row">
-            <span className="insights-bar-row__label">{displayLabel}</span>
+            <OverflowText className="insights-bar-row__label">{displayLabel}</OverflowText>
             <div className="insights-bar-row__track">
               <div className="insights-bar-row__fill" style={{ width: `${pct}%`, background: barColor }} />
             </div>
@@ -1064,7 +1051,7 @@ const SuggestionsSection: React.FC<{ report: InsightsReport }> = ({ report }) =>
   const { suggestions } = report;
   const { t } = useI18n('common');
   const hasSuggestions =
-    suggestions.bitfun_md_additions.length > 0 ||
+    suggestions.openbitfun_md_additions.length > 0 ||
     suggestions.features_to_try.length > 0 ||
     suggestions.usage_patterns.length > 0;
 
@@ -1074,10 +1061,10 @@ const SuggestionsSection: React.FC<{ report: InsightsReport }> = ({ report }) =>
     <section className="insights-section">
       <h3>{t('insights.suggestions')}</h3>
 
-      {suggestions.bitfun_md_additions.length > 0 && (
+      {suggestions.openbitfun_md_additions.length > 0 && (
         <div className="insights-md-list">
           <h4>{t('insights.mdAdditions')}</h4>
-          {suggestions.bitfun_md_additions.map((md, i) => (
+          {suggestions.openbitfun_md_additions.map((md, i) => (
             <div key={i} className="insights-md-row">
               <div className="insights-md-row__header">
                 {md.section && <span className="insights-md-row__badge">{md.section}</span>}
@@ -1166,7 +1153,7 @@ const CopyableCode: React.FC<{ text: string; label?: string }> = ({ text, label 
       <div className="insights-copyable__row">
         <code className="insights-copyable__code">{text}</code>
         <button className="insights-copyable__btn" onClick={handleCopy} aria-label={copied ? 'Copied' : 'Copy to clipboard'}>
-          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? <Icon name="check-line" size="xs" /> : <Icon name="duplicate" size="xs" />}
         </button>
       </div>
     </div>

@@ -6,16 +6,16 @@
 
 use crate::agentic::core::ToolResult;
 use crate::agentic::tools::tool_context_runtime::ToolUseContext;
-use crate::util::errors::{BitFunError, BitFunResult};
-use bitfun_agent_tools::{
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
+use log::{debug, warn};
+use openbitfun_agent_tools::{
     build_persisted_tool_output_message, count_tool_result_lines, generate_tool_result_preview,
     sanitize_tool_result_file_component, select_tool_result_indices_for_persistence,
     tool_result_is_persisted_output, PersistedToolOutput, ToolResultPersistenceCandidate,
     ToolResultStoragePolicy, GET_TOOL_SPEC_TOOL_NAME,
 };
 #[cfg(test)]
-use bitfun_agent_tools::{DEFAULT_MAX_TOOL_RESULT_CHARS, PERSISTED_OUTPUT_TAG};
-use log::{debug, warn};
+use openbitfun_agent_tools::{DEFAULT_MAX_TOOL_RESULT_CHARS, PERSISTED_OUTPUT_TAG};
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -23,8 +23,6 @@ use std::path::Path;
 pub(crate) const READ_MAX_TOOL_RESULT_CHARS: usize = 72_000;
 
 const READ_TOOL_NAME: &str = "Read";
-const BASH_TOOL_NAME: &str = "Bash";
-const SHELL_MAX_TOOL_RESULT_CHARS: usize = 30_000;
 
 fn effective_tool_name(result: &ToolResult) -> &str {
     result
@@ -56,16 +54,11 @@ pub(crate) async fn maybe_persist_large_tool_result_for_tool(
 
     let per_tool_limit = effective_per_tool_limit(effective_tool_name, policy);
     let visible_chars = result_visible_content(&result).chars().count();
-    let content_override =
-        content_override_if_oversized(&result, effective_tool_name, per_tool_limit);
-    if visible_chars <= per_tool_limit
-        && content_override.is_none()
-        && !json_result_is_oversized(&result, per_tool_limit)
-    {
+    if visible_chars <= per_tool_limit && !json_result_is_oversized(&result, per_tool_limit) {
         return result;
     }
 
-    match persist_and_render_replacement(&result, context, policy, content_override).await {
+    match persist_and_render_replacement(&result, context, policy, None).await {
         Ok(replacement) => {
             result.result_for_assistant = Some(replacement);
             result
@@ -161,7 +154,7 @@ async fn persist_and_render_replacement(
     context: &ToolUseContext,
     policy: ToolResultStoragePolicy,
     content_override: Option<String>,
-) -> BitFunResult<String> {
+) -> OpenBitFunResult<String> {
     let persisted =
         persist_tool_result(result, context, policy.preview_chars, content_override).await?;
     Ok(build_persisted_tool_output_message(
@@ -175,9 +168,9 @@ async fn persist_tool_result(
     context: &ToolUseContext,
     preview_chars: usize,
     content_override: Option<String>,
-) -> BitFunResult<PersistedToolOutput> {
+) -> OpenBitFunResult<PersistedToolOutput> {
     let session_id = context.session_id.as_deref().ok_or_else(|| {
-        BitFunError::tool("A session id is required to persist tool results".to_string())
+        OpenBitFunError::tool("A session id is required to persist tool results".to_string())
     })?;
 
     let (serialized, is_json) = if let Some(content) = content_override {
@@ -190,7 +183,7 @@ async fn persist_tool_result(
 
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await.map_err(|error| {
-            BitFunError::io(format!(
+            OpenBitFunError::io(format!(
                 "Failed to create tool result directory {}: {}",
                 parent.display(),
                 error
@@ -226,7 +219,7 @@ async fn persist_tool_result(
     })
 }
 
-async fn write_once(path: &Path, content: &str) -> BitFunResult<()> {
+async fn write_once(path: &Path, content: &str) -> OpenBitFunResult<()> {
     match tokio::fs::OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -236,7 +229,7 @@ async fn write_once(path: &Path, content: &str) -> BitFunResult<()> {
         Ok(mut file) => {
             use tokio::io::AsyncWriteExt;
             file.write_all(content.as_bytes()).await.map_err(|error| {
-                BitFunError::io(format!(
+                OpenBitFunError::io(format!(
                     "Failed to write tool result file {}: {}",
                     path.display(),
                     error
@@ -248,7 +241,7 @@ async fn write_once(path: &Path, content: &str) -> BitFunResult<()> {
             // an intermittent failure on macOS CI. flush() drains the buffer to
             // the OS so the persisted output is visible to later readers.
             file.flush().await.map_err(|error| {
-                BitFunError::io(format!(
+                OpenBitFunError::io(format!(
                     "Failed to flush tool result file {}: {}",
                     path.display(),
                     error
@@ -256,7 +249,7 @@ async fn write_once(path: &Path, content: &str) -> BitFunResult<()> {
             })
         }
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
-        Err(error) => Err(BitFunError::io(format!(
+        Err(error) => Err(OpenBitFunError::io(format!(
             "Failed to create tool result file {}: {}",
             path.display(),
             error
@@ -264,7 +257,7 @@ async fn write_once(path: &Path, content: &str) -> BitFunResult<()> {
     }
 }
 
-fn serialize_tool_result_content(result: &ToolResult) -> BitFunResult<(String, bool)> {
+fn serialize_tool_result_content(result: &ToolResult) -> OpenBitFunResult<(String, bool)> {
     if let Some(text) = result.result_for_assistant.as_ref() {
         return Ok((text.clone(), false));
     }
@@ -273,32 +266,15 @@ fn serialize_tool_result_content(result: &ToolResult) -> BitFunResult<(String, b
         .or_else(|_| serde_json::to_string(&result.result))
         .map(|text| (text, true))
         .map_err(|error| {
-            BitFunError::serialization(format!("Failed to serialize tool result: {}", error))
+            OpenBitFunError::serialization(format!("Failed to serialize tool result: {}", error))
         })
 }
 
 fn effective_per_tool_limit(tool_name: &str, policy: ToolResultStoragePolicy) -> usize {
     match tool_name {
         READ_TOOL_NAME => READ_MAX_TOOL_RESULT_CHARS,
-        BASH_TOOL_NAME => SHELL_MAX_TOOL_RESULT_CHARS,
         _ => policy.per_tool_limit_chars,
     }
-}
-
-fn content_override_if_oversized(
-    result: &ToolResult,
-    effective_tool_name: &str,
-    limit: usize,
-) -> Option<String> {
-    if effective_tool_name != BASH_TOOL_NAME {
-        return None;
-    }
-
-    let output = result
-        .result
-        .get("output")
-        .and_then(|value| value.as_str())?;
-    (output.chars().count() > limit).then(|| output.to_string())
 }
 
 fn json_result_is_oversized(result: &ToolResult, limit: usize) -> bool {
@@ -376,7 +352,7 @@ mod tests {
     fn test_context(root: PathBuf) -> ToolUseContext {
         let mut custom_data = HashMap::new();
         custom_data.insert(
-            "__bitfun_test_runtime_root".to_string(),
+            "__openbitfun_test_runtime_root".to_string(),
             json!(root.join("runtime")),
         );
 
@@ -391,13 +367,13 @@ mod tests {
             custom_data,
             computer_use_host: None,
             runtime_tool_restrictions: ToolRuntimeRestrictions::default(),
-            runtime_handles: bitfun_runtime_ports::ToolRuntimeHandles::default(),
+            runtime_handles: openbitfun_runtime_ports::ToolRuntimeHandles::default(),
         }
     }
 
     fn temp_workspace(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "bitfun-tool-result-storage-{}-{}",
+            "openbitfun-tool-result-storage-{}-{}",
             name,
             uuid::Uuid::new_v4()
         ))
@@ -416,33 +392,13 @@ mod tests {
         }
     }
 
-    fn bash_result(tool_id: &str, output: String, result_for_assistant: String) -> ToolResult {
-        ToolResult {
-            tool_id: tool_id.to_string(),
-            tool_name: "Bash".to_string(),
-            effective_tool_name: None,
-            result: json!({
-                "success": false,
-                "output": output,
-                "exit_code": 1,
-                "timed_out": false,
-                "working_directory": "/repo",
-                "terminal_session_id": "term_1"
-            }),
-            result_for_assistant: Some(result_for_assistant),
-            is_error: false,
-            duration_ms: None,
-            image_attachments: None,
-        }
-    }
-
     #[tokio::test]
     async fn single_large_result_persists_and_replaces_assistant_text() {
         let root = temp_workspace("single");
         let context = test_context(root.clone());
         let result = tool_result(
             "tool/one",
-            "Bash",
+            "WebFetch",
             "x".repeat(DEFAULT_MAX_TOOL_RESULT_CHARS + 1),
         );
 
@@ -530,7 +486,7 @@ mod tests {
         let context = test_context(root.clone());
         let result = tool_result(
             "mcp_call_1",
-            bitfun_agent_tools::CALL_DEFERRED_TOOL_NAME,
+            openbitfun_agent_tools::CALL_DEFERRED_TOOL_NAME,
             "x".repeat(DEFAULT_MAX_TOOL_RESULT_CHARS + 1),
         );
 
@@ -540,7 +496,7 @@ mod tests {
 
         assert_eq!(
             processed.tool_name,
-            bitfun_agent_tools::CALL_DEFERRED_TOOL_NAME
+            openbitfun_agent_tools::CALL_DEFERRED_TOOL_NAME
         );
         assert!(processed
             .result_for_assistant
@@ -556,44 +512,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bash_full_output_persists_even_when_assistant_text_is_already_truncated() {
-        let root = temp_workspace("bash");
-        let context = test_context(root.clone());
-        let full_output = format!(
-            "{}\nfinal-error",
-            "x".repeat(SHELL_MAX_TOOL_RESULT_CHARS + 1)
-        );
-        let result = bash_result(
-            "bash_1",
-            full_output.clone(),
-            "<output truncated=\"true\">tail only</output>".to_string(),
-        );
-
-        let processed = maybe_persist_large_tool_result(result, &context).await;
-        let assistant = processed.result_for_assistant.unwrap_or_default();
-
-        assert!(assistant.starts_with(PERSISTED_OUTPUT_TAG));
-        assert!(assistant.contains("exit_code: 1"));
-        assert!(assistant.contains("working_directory: /repo"));
-        assert!(assistant.contains("Line count: 2"));
-        let output_path = context
-            .current_workspace_session_tool_result_path("session_1", "bash_1.txt")
-            .expect("tool result path");
-        let saved = std::fs::read_to_string(output_path).expect("saved output");
-        assert_eq!(saved, full_output);
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[tokio::test]
     async fn round_budget_persists_largest_results_including_read() {
         let root = temp_workspace("round");
         let context = test_context(root.clone());
         let read = tool_result("read_1", "Read", "a".repeat(170_000));
         let medium = tool_result("medium_1", "WebFetch", "b".repeat(60_000));
-        let bash = tool_result("bash_1", "Bash", "c".repeat(30_000));
+        let small = tool_result("small_1", "OtherTool", "c".repeat(30_000));
 
-        let processed = apply_round_tool_result_budget(vec![read, medium, bash], &context).await;
+        let processed = apply_round_tool_result_budget(vec![read, medium, small], &context).await;
 
         assert!(processed[0]
             .result_for_assistant
@@ -616,7 +542,7 @@ mod tests {
             .expect("session tool-results dir");
         assert!(session_dir.join("read_1.txt").exists());
         assert!(!session_dir.join("medium_1.txt").exists());
-        assert!(!session_dir.join("bash_1.txt").exists());
+        assert!(!session_dir.join("small_1.txt").exists());
 
         let _ = std::fs::remove_dir_all(root);
     }

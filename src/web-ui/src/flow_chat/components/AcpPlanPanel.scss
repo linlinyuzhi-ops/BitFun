@@ -1,13 +1,13 @@
-.bitfun-acp-plan {
+.openbitfun-acp-plan {
   display: flex;
   flex-direction: column;
   gap: 4px;
   margin: 0 0 8px;
   padding: 8px 10px;
-  border: 1px solid var(--bf-appearance-token-border-subtle);
+  border: 1px solid var(--openbitfun-color-border-subtle);
   border-radius: 8px;
-  background: var(--bf-appearance-token-element-bg-medium);
-  font-size: var(--bf-appearance-token-flowchat-font-size-xs);
+  background: var(--openbitfun-color-action-neutral-surface-hover);
+  font-size: var(--openbitfun-type-flow-support-font-size);
 
   &__header {
     display: flex;
@@ -16,15 +16,15 @@
   }
 
   &__title {
-    color: var(--bf-appearance-token-color-text-secondary);
-    font-size: var(--bf-appearance-token-flowchat-font-size-2xs);
-    font-weight: 600;
-    letter-spacing: 0.4px;
+    color: var(--openbitfun-color-content-secondary);
+    font-size: var(--openbitfun-type-flow-meta-font-size);
+    font-weight: var(--openbitfun-type-label-selected-font-weight);
+    letter-spacing: var(--openbitfun-type-modifier-tracking-wide-letter-spacing);
     text-transform: uppercase;
   }
 
   &__progress {
-    color: var(--bf-appearance-token-color-text-muted);
+    color: var(--openbitfun-color-content-muted);
     font-variant-numeric: tabular-nums;
   }
 
@@ -42,18 +42,18 @@
     align-items: flex-start;
     gap: 6px;
     padding: 2px 0;
-    color: var(--bf-appearance-token-color-text-primary);
+    color: var(--openbitfun-color-content-primary);
 
     &--completed {
-      color: var(--bf-appearance-token-color-text-muted);
+      color: var(--openbitfun-color-content-muted);
 
-      .bitfun-acp-plan__content {
+      .openbitfun-acp-plan__content {
         text-decoration: line-through;
       }
     }
 
     &--pending {
-      color: var(--bf-appearance-token-color-text-secondary);
+      color: var(--openbitfun-color-content-secondary);
     }
   }
 
@@ -62,12 +62,12 @@
     margin-top: 2px;
 
     &--done {
-      color: var(--bf-appearance-token-color-success);
+      color: var(--openbitfun-color-status-success-content);
     }
 
     &--active {
-      color: var(--bf-appearance-token-color-accent-500);
-      animation: bitfun-acp-plan-spin 1.2s linear infinite;
+      color: var(--openbitfun-color-accent-default);
+      animation: openbitfun-acp-plan-spin 1.2s linear infinite;
     }
 
     &--pending {
@@ -76,12 +76,12 @@
   }
 
   &__content {
-    line-height: 1.4;
+    line-height: var(--openbitfun-type-modifier-leading-ui-line-height);
     word-break: break-word;
   }
 }
 
-@keyframes bitfun-acp-plan-spin {
+@keyframes openbitfun-acp-plan-spin {
   from {
     transform: rotate(0deg);
   }
@@ -92,7 +92,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bitfun-acp-plan__icon--active {
+  .openbitfun-acp-plan__icon--active {
     animation: none;
   }
 }

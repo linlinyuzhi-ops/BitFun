@@ -125,13 +125,73 @@ export class ChatTimelineStore {
     };
   }
 
+  /**
+   * Binds the optimistic user bubble to the host turn acknowledged by the
+   * send response. New hosts preserve the client turn id, while older hosts
+   * generate a replacement id. Handling both here also closes the race where
+   * polling publishes the persisted message before the send response arrives.
+   */
+  acknowledgeOptimisticTurn(localMessageId: string, turnId: string): void {
+    const normalizedLocalId = localMessageId.trim();
+    const normalizedTurnId = turnId.trim();
+    if (normalizedLocalId.length === 0 || normalizedTurnId.length === 0) {
+      return;
+    }
+    const persistedAlreadyArrived = this.state.persistedMessages.some((message: ChatMessage) => {
+      return message.role === 'user' && (message.turnId || '').trim() === normalizedTurnId;
+    });
+    const optimisticMessages = persistedAlreadyArrived ?
+      this.state.optimisticMessages.filter((message: ChatMessage) => message.id !== normalizedLocalId) :
+      this.state.optimisticMessages.map((message: ChatMessage) => {
+        if (message.id !== normalizedLocalId) {
+          return message;
+        }
+        return {
+          id: message.id,
+          turnId: normalizedTurnId,
+          role: message.role,
+          text: message.text,
+          status: message.status,
+          renderVersion: message.renderVersion,
+          detail: message.detail,
+          error: message.error,
+          timestamp: message.timestamp,
+          thinking: message.thinking,
+          tools: message.tools,
+          items: message.items,
+          images: message.images
+        };
+      });
+    this.state = {
+      sessionId: this.state.sessionId,
+      persistedMessages: this.state.persistedMessages,
+      optimisticMessages,
+      activeTurn: this.state.activeTurn,
+      syncPhase: this.state.syncPhase,
+      cursor: this.state.cursor,
+      modelCatalog: this.state.modelCatalog,
+      selectedModelId: this.state.selectedModelId
+    };
+  }
+
   setPersistedMessages(messages: ChatMessage[]): void {
-    const persistedMessages = ChatTimelineStore.realMessages(messages);
+    const persistedMessages = ChatTimelineStore.carrySteeringItems(
+      this.state.activeTurn,
+      ChatTimelineStore.realMessages(messages)
+    );
+    const previousIds = new Set<string>();
+    this.state.persistedMessages.forEach((message: ChatMessage) => previousIds.add(message.id));
+    const newlyPersistedMessages = persistedMessages.filter((message: ChatMessage) => !previousIds.has(message.id));
+    const activeTurnCovered = this.coveredByPersistedMessage(this.state.activeTurn, persistedMessages) ||
+      this.coveredByNewAssistantContent(this.state.activeTurn, newlyPersistedMessages);
     this.state = {
       sessionId: this.state.sessionId,
       persistedMessages,
-      optimisticMessages: ChatTimelineStore.optimisticMessagesNotPersisted(this.state.optimisticMessages, persistedMessages),
-      activeTurn: this.coveredByPersistedMessage(this.state.activeTurn, persistedMessages) ? undefined : this.state.activeTurn,
+      optimisticMessages: ChatTimelineStore.optimisticMessagesNotPersisted(
+        this.state.optimisticMessages,
+        newlyPersistedMessages
+      ),
+      activeTurn: activeTurnCovered ? undefined : this.state.activeTurn,
       syncPhase: this.state.syncPhase,
       cursor: this.state.cursor,
       modelCatalog: this.state.modelCatalog,
@@ -140,12 +200,26 @@ export class ChatTimelineStore {
   }
 
   mergePersistedMessages(messages: ChatMessage[]): void {
-    const persistedMessages = RemoteUiState.mergeMessages(this.state.persistedMessages, ChatTimelineStore.realMessages(messages));
+    const incomingMessages = ChatTimelineStore.realMessages(messages);
+    const previousIds = new Set<string>();
+    this.state.persistedMessages.forEach((message: ChatMessage) => previousIds.add(message.id));
+    // Only this delivery can acknowledge an optimistic message. Replayed
+    // history with the same text must not consume a message the user just sent.
+    const newlyPersistedMessages = incomingMessages.filter((message: ChatMessage) => !previousIds.has(message.id));
+    const persistedMessages = ChatTimelineStore.carrySteeringItems(
+      this.state.activeTurn,
+      RemoteUiState.mergeMessages(this.state.persistedMessages, incomingMessages)
+    );
+    const activeTurnCovered = this.coveredByPersistedMessage(this.state.activeTurn, persistedMessages) ||
+      this.coveredByNewAssistantContent(this.state.activeTurn, newlyPersistedMessages);
     this.state = {
       sessionId: this.state.sessionId,
       persistedMessages,
-      optimisticMessages: ChatTimelineStore.optimisticMessagesNotPersisted(this.state.optimisticMessages, persistedMessages),
-      activeTurn: this.coveredByPersistedMessage(this.state.activeTurn, persistedMessages) ? undefined : this.state.activeTurn,
+      optimisticMessages: ChatTimelineStore.optimisticMessagesNotPersisted(
+        this.state.optimisticMessages,
+        newlyPersistedMessages
+      ),
+      activeTurn: activeTurnCovered ? undefined : this.state.activeTurn,
       syncPhase: this.state.syncPhase,
       cursor: this.state.cursor,
       modelCatalog: this.state.modelCatalog,
@@ -164,6 +238,49 @@ export class ChatTimelineStore {
       modelCatalog: this.state.modelCatalog,
       selectedModelId: this.state.selectedModelId
     };
+  }
+
+  appendSteeringItem(
+    turnId: string,
+    steeringId: string,
+    content: string,
+    images: ImageAttachment[]
+  ): boolean {
+    const active = this.state.activeTurn;
+    if (!active || ChatTimelineStore.cancelableTurnId(active) !== turnId || steeringId.length === 0) {
+      return false;
+    }
+    const items = active.items ? active.items.slice() : [];
+    const existingIndex = items.findIndex((item: ChatMessageItemResponse) => {
+      return (item.type || '').toLowerCase() === 'user-steering' && item.steering_id === steeringId;
+    });
+    const steeringItem: ChatMessageItemResponse = {
+      type: 'user-steering',
+      steering_id: steeringId,
+      content,
+      images: images.slice()
+    };
+    if (existingIndex >= 0) {
+      items[existingIndex] = steeringItem;
+    } else {
+      items.push(steeringItem);
+    }
+    this.setActiveTurn({
+      id: active.id,
+      turnId: active.turnId,
+      role: active.role,
+      text: active.text,
+      status: active.status,
+      detail: active.detail,
+      error: active.error,
+      timestamp: active.timestamp,
+      thinking: active.thinking,
+      tools: active.tools,
+      items,
+      images: active.images,
+      renderVersion: (active.renderVersion || 0) + 1
+    });
+    return true;
   }
 
   markOptimisticMessageFailed(messageId: string): void {
@@ -194,6 +311,7 @@ export class ChatTimelineStore {
         text: existing.text,
         status: existing.status || 'active',
         detail: existing.detail,
+        error: existing.error,
         timestamp: existing.timestamp,
         thinking: existing.thinking,
         tools: existing.tools,
@@ -324,7 +442,9 @@ export class ChatTimelineStore {
 
   applySnapshot(snapshot: ChatSessionSnapshot): void {
     this.setCursor(snapshot.cursor);
-    if (snapshot.newMessages.length > 0) {
+    if (snapshot.messageSnapshot) {
+      this.setPersistedMessages(snapshot.messageSnapshot);
+    } else if (snapshot.newMessages.length > 0) {
       this.mergePersistedMessages(snapshot.newMessages);
     }
     this.setActiveTurn(snapshot.activeTurn);
@@ -388,6 +508,7 @@ export class ChatTimelineStore {
               text: active.text,
               status: 'completed',
               detail: active.detail,
+              error: active.error,
               timestamp: active.timestamp,
               thinking: active.thinking,
               tools: active.tools,
@@ -454,6 +575,7 @@ export class ChatTimelineStore {
       text: `${active.text || ''}${delta}`,
       status: 'active',
       detail: active.detail,
+      error: active.error,
       timestamp: active.timestamp,
       thinking: active.thinking,
       tools: active.tools,
@@ -480,6 +602,7 @@ export class ChatTimelineStore {
       text: active.text,
       status: 'active',
       detail: active.detail,
+      error: active.error,
       timestamp: active.timestamp,
       thinking: active.thinking,
       tools,
@@ -490,10 +613,19 @@ export class ChatTimelineStore {
   }
 
   static optimisticMessagesNotPersisted(optimisticMessages: ChatMessage[], persistedMessages: ChatMessage[]): ChatMessage[] {
+    // Consume acknowledgements one-to-one so two identical queued sends do not
+    // both disappear when the first persisted message arrives.
+    const acknowledgedPersistedIndexes = new Set<number>();
     return optimisticMessages.filter((pending: ChatMessage) => {
-      return !persistedMessages.some((message: ChatMessage) => {
-        return ChatTimelineStore.isPersistedUserDuplicate(pending, message);
+      const acknowledgedIndex = persistedMessages.findIndex((message: ChatMessage, index: number) => {
+        return !acknowledgedPersistedIndexes.has(index) &&
+          ChatTimelineStore.isPersistedUserDuplicate(pending, message);
       });
+      if (acknowledgedIndex < 0) {
+        return true;
+      }
+      acknowledgedPersistedIndexes.add(acknowledgedIndex);
+      return false;
     });
   }
 
@@ -511,6 +643,20 @@ export class ChatTimelineStore {
       return false;
     }
     return ChatTimelineStore.isActiveTurnCoveredByMessages(activeTurn, messages);
+  }
+
+  private coveredByNewAssistantContent(activeTurn: ChatMessage | undefined, messages: ChatMessage[]): boolean {
+    if (!activeTurn || activeTurn.id.length === 0) {
+      return false;
+    }
+    const activeText = (activeTurn.text || '').trim();
+    if (activeText.length === 0) {
+      return false;
+    }
+    return messages.some((message: ChatMessage) => {
+      return message.role === 'assistant' && ChatTimelineStore.hasDisplayableAssistantFinal(message) &&
+        (message.text || '').trim() === activeText;
+    });
   }
 
   private activeTurnForState(activeTurn: ChatMessage | undefined): ChatMessage | undefined {
@@ -565,6 +711,40 @@ export class ChatTimelineStore {
     });
   }
 
+  private static carrySteeringItems(
+    activeTurn: ChatMessage | undefined,
+    messages: ChatMessage[]
+  ): ChatMessage[] {
+    if (!activeTurn || !(activeTurn.items || []).some((item: ChatMessageItemResponse) =>
+      (item.type || '').toLowerCase() === 'user-steering')) {
+      return messages;
+    }
+    const activeTurnId = ChatTimelineStore.cancelableTurnId(activeTurn);
+    if (activeTurnId.length === 0) {
+      return messages;
+    }
+    return messages.map((message: ChatMessage) => {
+      if (message.role !== 'assistant' || (message.turnId || '') !== activeTurnId) {
+        return message;
+      }
+      return {
+        id: message.id,
+        turnId: message.turnId,
+        role: message.role,
+        text: message.text,
+        status: message.status,
+        renderVersion: (message.renderVersion || 0) + 1,
+        detail: message.detail,
+        error: message.error,
+        timestamp: message.timestamp,
+        thinking: message.thinking,
+        tools: message.tools,
+        items: ChatTimelineStore.mergeActiveItems(activeTurn.items || [], message.items || []),
+        images: message.images
+      };
+    });
+  }
+
   private static phaseForActiveTurn(activeTurn: ChatMessage | undefined, fallback: ChatSyncPhase): ChatSyncPhase {
     if (!activeTurn || activeTurn.id.length === 0) {
       return fallback === 'sending' ? 'sending' : 'idle';
@@ -613,6 +793,7 @@ export class ChatTimelineStore {
       text,
       status: incoming.status || previous.status,
       detail: incoming.detail,
+      error: incoming.error || previous.error,
       timestamp: incoming.timestamp || previous.timestamp,
       thinking: thinking.length > 0 ? thinking : undefined,
       tools,
@@ -638,7 +819,12 @@ export class ChatTimelineStore {
     incomingItems.forEach((incoming: ChatMessageItemResponse, incomingIndex: number) => {
       let matchIndex = -1;
       const incomingToolId = incoming.tool ? (incoming.tool.id || '') : '';
-      if (incomingToolId.length > 0) {
+      const incomingSteeringId = incoming.steering_id || '';
+      if (incomingSteeringId.length > 0) {
+        matchIndex = previousItems.findIndex((previous: ChatMessageItemResponse, index: number) => {
+          return !matched.has(index) && previous.steering_id === incomingSteeringId;
+        });
+      } else if (incomingToolId.length > 0) {
         matchIndex = previousItems.findIndex((previous: ChatMessageItemResponse, index: number) => {
           return !matched.has(index) && previous.tool !== undefined &&
             (previous.tool.id || '') === incomingToolId;
@@ -668,12 +854,15 @@ export class ChatTimelineStore {
     const subItems = ChatTimelineStore.mergeActiveItems(previous.subItems || [], incoming.subItems || []);
     const item: ChatMessageItemResponse = {
       type: incoming.type !== undefined ? incoming.type : previous.type,
+      steering_id: incoming.steering_id !== undefined ? incoming.steering_id : previous.steering_id,
+      round_index: incoming.round_index !== undefined ? incoming.round_index : previous.round_index,
       content,
       tool: incoming.tool !== undefined
         ? ChatTimelineStore.mergeTool(previous.tool, incoming.tool)
         : previous.tool,
       is_subagent: incoming.is_subagent !== undefined ? incoming.is_subagent : previous.is_subagent,
-      subItems
+      subItems,
+      images: incoming.images !== undefined ? incoming.images : previous.images
     };
     return item;
   }
@@ -683,6 +872,11 @@ export class ChatTimelineStore {
     const incomingType = (incoming.type || '').toLowerCase();
     if (previousType !== incomingType) {
       return false;
+    }
+    const previousSteeringId = previous.steering_id || '';
+    const incomingSteeringId = incoming.steering_id || '';
+    if (previousSteeringId.length > 0 || incomingSteeringId.length > 0) {
+      return previousSteeringId === incomingSteeringId;
     }
     const previousToolId = previous.tool ? (previous.tool.id || '') : '';
     const incomingToolId = incoming.tool ? (incoming.tool.id || '') : '';
@@ -745,7 +939,28 @@ export class ChatTimelineStore {
       return 0;
     };
     // A delayed poll must not move a completed tool back to running/pending.
-    return rank(incomingStatus) < rank(previousStatus) ? previous : incoming;
+    if (rank(incomingStatus) < rank(previousStatus)) {
+      return previous;
+    }
+    // Completion snapshots from older desktop builds may carry only status and
+    // result fields. Preserve the invocation metadata already observed while
+    // the tool was running so Task/subagent titles do not collapse to "Task".
+    return {
+      id: incoming.id !== undefined ? incoming.id : previous.id,
+      name: incoming.name !== undefined ? incoming.name : previous.name,
+      status: incoming.status !== undefined ? incoming.status : previous.status,
+      duration_ms: incoming.duration_ms !== undefined ? incoming.duration_ms : previous.duration_ms,
+      start_ms: incoming.start_ms !== undefined ? incoming.start_ms : previous.start_ms,
+      input_preview: (incoming.input_preview || '').length > 0 ? incoming.input_preview : previous.input_preview,
+      tool_input: incoming.tool_input !== undefined ? incoming.tool_input : previous.tool_input,
+      stdout: (incoming.stdout || '').length > 0 ? incoming.stdout : previous.stdout,
+      stderr: (incoming.stderr || '').length > 0 ? incoming.stderr : previous.stderr,
+      tool_output: incoming.tool_output !== undefined ? incoming.tool_output : previous.tool_output,
+      result_preview: (incoming.result_preview || '').length > 0 ? incoming.result_preview : previous.result_preview,
+      error_preview: (incoming.error_preview || '').length > 0 ? incoming.error_preview : previous.error_preview,
+      exit_code: incoming.exit_code !== undefined ? incoming.exit_code : previous.exit_code,
+      plan: incoming.plan !== undefined ? incoming.plan : previous.plan
+    };
   }
 
   private static isActiveTurnId(id: string): boolean {
@@ -765,9 +980,8 @@ export class ChatTimelineStore {
     if (activeTurn.turnId && activeTurn.turnId.length > 0 && message.id === `${activeTurn.turnId}_assistant`) {
       return true;
     }
-    const activeText = (activeTurn.text || '').trim();
-    const messageText = (message.text || '').trim();
-    return activeText.length > 0 && activeText === messageText;
+    return activeTurn.turnId !== undefined && activeTurn.turnId.length > 0 &&
+      message.turnId !== undefined && message.turnId === activeTurn.turnId;
   }
 
   private static shouldHoldCompletedTurn(activeTurn: ChatMessage): boolean {
@@ -791,6 +1005,7 @@ export class ChatTimelineStore {
         !item.tool &&
         item.is_subagent !== true &&
         type !== 'thinking' &&
+        type !== 'user-steering' &&
         type !== 'tool' &&
         type !== 'subagent' &&
         type !== 'agent') {
@@ -806,6 +1021,11 @@ export class ChatTimelineStore {
     }
     if (pending.id === message.id) {
       return true;
+    }
+    const pendingTurnId = (pending.turnId || '').trim();
+    const messageTurnId = (message.turnId || '').trim();
+    if (pendingTurnId.length > 0 && messageTurnId.length > 0) {
+      return pendingTurnId === messageTurnId;
     }
     const pendingText = (pending.text || '').trim();
     const messageText = (message.text || '').trim();

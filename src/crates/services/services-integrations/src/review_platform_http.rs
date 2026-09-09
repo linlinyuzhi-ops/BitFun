@@ -32,7 +32,7 @@ pub(crate) struct ReviewHttpClient {
 
 impl ReviewHttpClient {
     pub(crate) fn new_review_platform() -> Result<Self, ReviewHttpError> {
-        let inner = reqwest::Client::builder()
+        let inner = crate::reqwest_client_builder()
             .tls_backend_rustls()
             .redirect(review_redirect_policy())
             .timeout(Duration::from_secs(REVIEW_PLATFORM_TIMEOUT_SECS))
@@ -57,6 +57,12 @@ impl ReviewHttpClient {
     pub(crate) fn put(&self, url: &str) -> ReviewHttpRequest {
         ReviewHttpRequest {
             inner: self.inner.put(url),
+        }
+    }
+
+    pub(crate) fn patch(&self, url: &str) -> ReviewHttpRequest {
+        ReviewHttpRequest {
+            inner: self.inner.patch(url),
         }
     }
 }
@@ -154,6 +160,23 @@ impl ReviewHttpHeaders {
     }
 }
 
+/// Mutation endpoints may return an empty successful response (including 204).
+/// Do not misreport an applied mutation as a JSON parse failure and invite retry.
+pub(crate) async fn send_success(request: ReviewHttpRequest) -> Result<(), ReviewHttpError> {
+    let response = request
+        .inner
+        .send()
+        .await
+        .map_err(|error| ReviewHttpError::Network(error.without_url().to_string()))?;
+    if !response.status().is_success() {
+        return Err(ReviewHttpError::Http {
+            status: response.status().as_u16(),
+            message: String::new(),
+        });
+    }
+    Ok(())
+}
+
 pub(crate) async fn send_json(request: ReviewHttpRequest) -> Result<Value, ReviewHttpError> {
     send_json_response(request)
         .await
@@ -174,7 +197,7 @@ pub(crate) async fn send_json_response_bounded(
         .inner
         .send()
         .await
-        .map_err(|error| ReviewHttpError::Network(error.to_string()))?;
+        .map_err(|error| ReviewHttpError::Network(error.without_url().to_string()))?;
 
     let status = response.status();
     let headers = ReviewHttpHeaders::from_header_map(response.headers());
@@ -201,7 +224,8 @@ pub(crate) async fn send_json_response_bounded(
     let mut body = Vec::new();
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| ReviewHttpError::Network(error.to_string()))?;
+        let chunk =
+            chunk.map_err(|error| ReviewHttpError::Network(error.without_url().to_string()))?;
         if let Err(error) = append_bounded_chunk(&mut body, &chunk, body_limit) {
             if status.is_success() {
                 return Err(error);
@@ -244,7 +268,7 @@ pub(crate) async fn send_text_bounded(
         .inner
         .send()
         .await
-        .map_err(|error| ReviewHttpError::Network(error.to_string()))?;
+        .map_err(|error| ReviewHttpError::Network(error.without_url().to_string()))?;
 
     let status = response.status();
     if !status.is_success() {
@@ -259,7 +283,8 @@ pub(crate) async fn send_text_bounded(
     let mut body = Vec::with_capacity(max_bytes.min(64 * 1024));
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| ReviewHttpError::Network(error.to_string()))?;
+        let chunk =
+            chunk.map_err(|error| ReviewHttpError::Network(error.without_url().to_string()))?;
         let remaining = max_bytes.saturating_sub(body.len());
         if chunk.len() > remaining {
             body.extend_from_slice(&chunk[..remaining]);

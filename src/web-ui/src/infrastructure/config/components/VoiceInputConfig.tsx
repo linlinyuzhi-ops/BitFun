@@ -1,128 +1,39 @@
+import { Button, Input, Select, type SelectOption, StatusPill, type StatusPillTone, Switch } from '@openbitfun/ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { Download, FolderOpen, HardDrive, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { Trans, useTranslation } from 'react-i18next';
+import { CloudOff, HardDrive } from 'lucide-react';
 import {
-  Badge,
-  Button,
-  Select,
-  Switch,
-  confirmDanger,
-  type BadgeVariant,
-  type SelectOption,
-} from '@/component-library';
-import {
-  DEFAULT_MAX_RECORDING_SECONDS,
-  LOCAL_QWEN3_ASR_0_6B_INT8_MODEL_ID,
   LOCAL_SENSEVOICE_SMALL_INT8_MODEL_ID,
   speechAPI,
-  workspaceAPI,
-  type SpeechModelInstallState,
   type SpeechModelStatus,
+  type SpeechRealtimeConfig,
 } from '@/infrastructure/api';
+import { isTauriRuntime } from '@/infrastructure/runtime';
 import { notificationService } from '@/shared/notification-system';
 import { createLogger } from '@/shared/utils/logger';
-import { isTauriRuntime } from '@/infrastructure/runtime';
 import { useAIExperienceSettings } from '../hooks';
-import { configManager } from '../services/ConfigManager';
-import { getProviderDisplayName } from '../services/modelConfigs';
-import {
-  aiExperienceConfigService,
-  type AIExperienceSettings,
-} from '../services/AIExperienceConfigService';
-import type { AIModelConfig, DefaultModelsConfig, VoiceInputSettings } from '../types';
+import { aiExperienceConfigService } from '../services/AIExperienceConfigService';
+import type { VoiceInputSettings } from '../types';
+import LocalVoiceModelsConfig from './LocalVoiceModelsConfig';
 import { VoiceInputDiagnostics } from './VoiceInputDiagnostics';
 import {
   ConfigPageContent,
   ConfigPageHeader,
   ConfigPageLayout,
-  ConfigPageLoading,
-  ConfigPageMessage,
+  ConfigLoadingState,
+  ConfigMessage,
   ConfigPageRow,
   ConfigPageSection,
+  ConfigRetryState,
 } from './common';
 import './VoiceInputConfig.scss';
 
 const log = createLogger('VoiceInputConfig');
-
-const normalizeSelectValue = (value: string | number | (string | number)[]): string =>
-  String(Array.isArray(value) ? (value[0] ?? '') : value);
-
 const DEFAULT_LOCAL_VOICE_MODEL_ID = LOCAL_SENSEVOICE_SMALL_INT8_MODEL_ID;
-const QWEN_ASR_FLASH_MODEL_ID = 'qwen3-asr-flash';
-const QWEN_ASR_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-
-const MODEL_RESOURCE_HINT_KEYS: Record<string, string> = {
-  [LOCAL_SENSEVOICE_SMALL_INT8_MODEL_ID]: 'model.resourceHints.sensevoice',
-  [LOCAL_QWEN3_ASR_0_6B_INT8_MODEL_ID]: 'model.resourceHints.qwen3',
-};
-
-type VoiceInputProvider = 'local' | 'cloud';
-type CloudSpeechProviderPreset = 'qwen' | 'custom';
-
-interface CloudSpeechDraft {
-  configId?: string;
-  preset: CloudSpeechProviderPreset;
-  name: string;
-  baseUrl: string;
-  modelName: string;
-  apiKey: string;
-}
-
-function trimTrailingSlashes(value: string): string {
-  return value.trim().replace(/\/+$/, '');
-}
-
-function hasHttpUrlScheme(value: string): boolean {
-  return /^https?:\/\//i.test(value.trim());
-}
-
-function resolveTranscriptionRequestUrl(baseUrl: string): string {
-  const trimmed = trimTrailingSlashes(baseUrl);
-  if (trimmed.endsWith('/audio/transcriptions')) {
-    return trimmed;
-  }
-  return `${trimmed}/audio/transcriptions`;
-}
-
-function isQwenAsrConfig(model?: AIModelConfig | null): boolean {
-  if (!model) return true;
-  return (
-    model.model_name === QWEN_ASR_FLASH_MODEL_ID ||
-    model.base_url.includes('dashscope.aliyuncs.com/compatible-mode') ||
-    model.base_url.includes('dashscope-intl.aliyuncs.com/compatible-mode')
-  );
-}
-
-function createDefaultCloudSpeechDraft(): CloudSpeechDraft {
-  return {
-    preset: 'qwen',
-    name: 'Qwen ASR',
-    baseUrl: QWEN_ASR_BASE_URL,
-    modelName: QWEN_ASR_FLASH_MODEL_ID,
-    apiKey: '',
-  };
-}
-
-function createCloudSpeechDraftFromModel(model?: AIModelConfig | null): CloudSpeechDraft {
-  if (!model) {
-    return createDefaultCloudSpeechDraft();
-  }
-  const preset = isQwenAsrConfig(model) ? 'qwen' : 'custom';
-  return {
-    configId: model.id,
-    preset,
-    name: getProviderDisplayName(model),
-    baseUrl: model.base_url || (preset === 'qwen' ? QWEN_ASR_BASE_URL : ''),
-    modelName: model.model_name || (preset === 'qwen' ? QWEN_ASR_FLASH_MODEL_ID : ''),
-    apiKey: model.api_key || '',
-  };
-}
 
 function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return '0 B';
-  }
-  const units = ['B', 'KB', 'MB', 'GB'];
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KiB', 'MiB', 'GiB'];
   let value = bytes;
   let unitIndex = 0;
   while (value >= 1024 && unitIndex < units.length - 1) {
@@ -133,25 +44,42 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
 
-function clampRecordingSeconds(value: number): number {
-  if (!Number.isFinite(value)) {
-    return DEFAULT_MAX_RECORDING_SECONDS;
-  }
-  return Math.min(300, Math.max(5, Math.round(value)));
-}
+type VoiceInputStatus =
+  | 'ready'
+  | 'setup'
+  | 'downloading'
+  | 'verifying'
+  | 'deleting'
+  | 'unavailable'
+  | 'error';
 
-function statusBadgeVariant(state: SpeechModelInstallState): BadgeVariant {
-  switch (state) {
-    case 'installed':
+function statusBadgeVariant(status: VoiceInputStatus): StatusPillTone {
+  switch (status) {
+    case 'ready':
       return 'success';
     case 'downloading':
     case 'verifying':
       return 'info';
-    case 'corrupt':
+    case 'unavailable':
     case 'error':
-      return 'error';
+      return 'danger';
     default:
       return 'neutral';
+  }
+}
+
+function statusActionKey(status: VoiceInputStatus): string {
+  switch (status) {
+    case 'setup':
+      return 'status.downloadModel';
+    case 'downloading':
+    case 'verifying':
+    case 'deleting':
+      return 'status.viewDetails';
+    case 'error':
+      return 'status.repair';
+    default:
+      return 'status.manageModels';
   }
 }
 
@@ -162,54 +90,78 @@ const VoiceInputConfig: React.FC = () => {
     settings,
     isLoading: settingsLoading,
     error: settingsError,
+    reload: reloadSettings,
   } = useAIExperienceSettings();
   const [models, setModels] = useState<SpeechModelStatus[]>([]);
-  const [cloudModels, setCloudModels] = useState<AIModelConfig[]>([]);
-  const [defaultModels, setDefaultModels] = useState<DefaultModelsConfig>({});
-  const [cloudDraft, setCloudDraft] = useState<CloudSpeechDraft>(createDefaultCloudSpeechDraft);
-  const [loading, setLoading] = useState(speechRuntimeSupported);
+  const [modelsLoading, setModelsLoading] = useState(speechRuntimeSupported);
+  const [modelsLoadFailed, setModelsLoadFailed] = useState(false);
+  const [voiceInputSaving, setVoiceInputSaving] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
-  const cancelDownloadRequestedRef = useRef<Set<string>>(new Set());
+  const [localModelsOpen, setLocalModelsOpen] = useState(false);
+  const [voiceCallDraft, setVoiceCallDraft] = useState<SpeechRealtimeConfig | null>(null);
+  const voiceCallConfigRef = useRef<SpeechRealtimeConfig | null>(null);
+  const persistedVoiceCallConfigRef = useRef<SpeechRealtimeConfig | null>(null);
+  const [voiceCallLoading, setVoiceCallLoading] = useState(speechRuntimeSupported);
+  const [voiceCallLoadFailed, setVoiceCallLoadFailed] = useState(false);
+  const [voiceCallSaveError, setVoiceCallSaveError] = useState<string | null>(null);
+  const voiceCallRequestIdRef = useRef(0);
+  const voiceCallSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const voiceCallSaveRevisionRef = useRef(0);
+  const voiceInputSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingVoiceInputSaveCountRef = useRef(0);
 
   const voiceInput = settings?.voice_input;
-  const selectedProvider: VoiceInputProvider = voiceInput?.provider === 'cloud' ? 'cloud' : 'local';
-  const selectedLocalModelId = selectedProvider === 'local'
-    ? (voiceInput?.model_id || DEFAULT_LOCAL_VOICE_MODEL_ID)
+  const legacyCloudSelection = voiceInput?.provider === 'cloud';
+  const selectedLocalModelId = !legacyCloudSelection && voiceInput?.model_id
+    ? voiceInput.model_id
     : DEFAULT_LOCAL_VOICE_MODEL_ID;
-  const selectedCloudModelId = selectedProvider === 'cloud'
-    ? voiceInput?.model_id
-    : defaultModels.speech_recognition;
   const selectedModel = useMemo(
-    () => models.find(item => item.modelId === selectedLocalModelId) ?? models[0],
+    () => models.find(model => model.modelId === selectedLocalModelId)
+      ?? models.find(model => model.modelId === DEFAULT_LOCAL_VOICE_MODEL_ID)
+      ?? models[0],
     [models, selectedLocalModelId],
   );
-  const selectedCloudModel = useMemo(
-    () => cloudModels.find(model => model.id === selectedCloudModelId) ?? cloudModels[0],
-    [cloudModels, selectedCloudModelId],
-  );
-  const anyDownloading = models.some(item => item.state === 'downloading');
-  const selectedLocalModelUsable = selectedModel?.state === 'installed';
-  const firstInstalledLocalModel = useMemo(
-    () => models.find(item => item.state === 'installed'),
+  const firstInstalledModel = useMemo(
+    () => models.find(model => model.state === 'installed'),
     [models],
   );
-  const providerOptions = useMemo<SelectOption[]>(() => [
-    { label: t('composer.provider.local'), value: 'local' },
-    { label: t('composer.provider.cloud'), value: 'cloud' },
-  ], [t]);
-  const cloudPresetOptions = useMemo<SelectOption[]>(() => [
-    { label: t('cloudConfig.presets.qwen'), value: 'qwen' },
-    { label: t('cloudConfig.presets.custom'), value: 'custom' },
-  ], [t]);
-  const localModelOptions = useMemo<SelectOption[]>(() => models.map(item => ({
-    label: item.displayName,
-    value: item.modelId,
-    disabled: item.state !== 'installed',
-  })), [models]);
-  const cloudModelOptions = useMemo<SelectOption[]>(() => cloudModels.map(model => ({
-    label: `${getProviderDisplayName(model)} / ${model.model_name}`,
-    value: model.id || '',
-  })), [cloudModels]);
+
+  const loadVoiceCallConfig = useCallback(async () => {
+    if (!speechRuntimeSupported) {
+      setVoiceCallLoading(false);
+      return;
+    }
+    const requestId = ++voiceCallRequestIdRef.current;
+    setVoiceCallLoading(true);
+    setVoiceCallLoadFailed(false);
+    try {
+      const config = await speechAPI.getRealtimeConfig();
+      if (requestId !== voiceCallRequestIdRef.current) return;
+      setVoiceCallDraft(config);
+      voiceCallConfigRef.current = config;
+      persistedVoiceCallConfigRef.current = config;
+      setVoiceCallSaveError(null);
+    } catch (error) {
+      if (requestId !== voiceCallRequestIdRef.current) return;
+      log.error('Failed to load controller realtime voice call settings', { error });
+      setVoiceCallDraft(null);
+      voiceCallConfigRef.current = null;
+      persistedVoiceCallConfigRef.current = null;
+      setVoiceCallLoadFailed(true);
+    } finally {
+      if (requestId === voiceCallRequestIdRef.current) {
+        setVoiceCallLoading(false);
+      }
+    }
+  }, [speechRuntimeSupported]);
+
+  useEffect(() => {
+    void loadVoiceCallConfig();
+    return () => {
+      voiceCallRequestIdRef.current += 1;
+    };
+  }, [loadVoiceCallConfig]);
+
   const languageOptions = useMemo<SelectOption[]>(() => {
     const languages = selectedModel?.languages?.length
       ? selectedModel.languages
@@ -220,289 +172,165 @@ const VoiceInputConfig: React.FC = () => {
     }));
   }, [selectedModel, t]);
 
-  useEffect(() => {
-    setCloudDraft(createCloudSpeechDraftFromModel(selectedCloudModel));
-  }, [selectedCloudModel]);
-
-  const loadData = useCallback(async () => {
+  const loadModels = useCallback(async () => {
     if (!speechRuntimeSupported) {
-      setLoading(false);
+      setModelsLoading(false);
       return;
     }
     try {
-      setLoading(true);
-      const [modelResponse, aiModels, defaultModelsConfig] = await Promise.all([
-        speechAPI.listModels(),
-        configManager.getConfig<AIModelConfig[]>('ai.models'),
-        configManager.getConfig<DefaultModelsConfig>('ai.default_models'),
-      ]);
-      setModels(modelResponse.models);
-      setCloudModels((aiModels || []).filter(model => {
-        const capabilities = Array.isArray(model.capabilities) ? model.capabilities : [];
-        return !!model.enabled && (
-          model.category === 'speech_recognition' ||
-          capabilities.includes('speech_recognition')
-        );
-      }));
-      setDefaultModels(defaultModelsConfig || {});
+      setModelsLoading(true);
+      setModelsLoadFailed(false);
+      const response = await speechAPI.listModels();
+      setModels(response.models);
     } catch (error) {
-      log.error('Failed to load voice input settings', { error });
-      notificationService.error(t('messages.loadFailed'));
+      log.error('Failed to load local speech model status', { error });
+      setModelsLoadFailed(true);
     } finally {
-      setLoading(false);
+      setModelsLoading(false);
     }
-  }, [speechRuntimeSupported, t]);
+  }, [speechRuntimeSupported]);
 
   useEffect(() => {
-    if (!speechRuntimeSupported) {
-      return undefined;
-    }
-    void loadData();
+    if (!speechRuntimeSupported) return undefined;
+    void loadModels();
     const unsubscribeProgress = speechAPI.onModelProgress(event => {
-      setModels(previous => previous.map(item =>
-        item.modelId === event.status.modelId ? event.status : item
+      setModels(previous => previous.map(model =>
+        model.modelId === event.status.modelId ? event.status : model
       ));
     });
     const unsubscribeStatus = speechAPI.onModelStatusChanged(status => {
-      setModels(previous => previous.map(item =>
-        item.modelId === status.modelId ? status : item
+      setModels(previous => previous.map(model =>
+        model.modelId === status.modelId ? status : model
       ));
     });
-    const unsubscribeAiModels = configManager.watch('ai.models', () => {
-      void loadData();
-    });
-    const unsubscribeDefaultModels = configManager.watch('ai.default_models', () => {
-      void loadData();
-    });
-
     return () => {
       unsubscribeProgress();
       unsubscribeStatus();
-      unsubscribeAiModels();
-      unsubscribeDefaultModels();
     };
-  }, [loadData, speechRuntimeSupported]);
+  }, [loadModels, speechRuntimeSupported]);
 
-  const updateVoiceInput = useCallback(async (
-    patch: Partial<VoiceInputSettings>,
-    options?: { silent?: boolean },
-  ) => {
+  const updateVoiceInput = useCallback((patch: Partial<VoiceInputSettings>): Promise<boolean> => {
     if (!settings) {
       notificationService.error(t('messages.loadFailed'));
-      return;
+      return Promise.resolve(false);
     }
-    const nextSettings: AIExperienceSettings = {
-      ...settings,
-      voice_input: {
-        ...settings.voice_input,
-        ...patch,
-      },
-    };
-    try {
-      await aiExperienceConfigService.saveSettings(nextSettings);
-      if (!options?.silent) {
-        notificationService.success(t('messages.saveSuccess'));
+    pendingVoiceInputSaveCountRef.current += 1;
+    setVoiceInputSaving(true);
+    const operation = voiceInputSaveQueueRef.current.then(async () => {
+      try {
+        await aiExperienceConfigService.saveSettings({ voice_input: patch });
+        return true;
+      } catch (error) {
+        log.error('Failed to save voice input settings', { error });
+        notificationService.error(t('messages.saveFailed'));
+        return false;
+      } finally {
+        pendingVoiceInputSaveCountRef.current -= 1;
+        if (pendingVoiceInputSaveCountRef.current === 0) {
+          setVoiceInputSaving(false);
+        }
       }
-    } catch (error) {
-      log.error('Failed to save voice input settings', { error });
-      notificationService.error(t('messages.saveFailed'));
-    }
+    });
+    voiceInputSaveQueueRef.current = operation.then(() => undefined, () => undefined);
+    return operation;
   }, [settings, t]);
 
   const updateModelStatus = useCallback((status: SpeechModelStatus) => {
-    setModels(previous => previous.map(item =>
-      item.modelId === status.modelId ? status : item
+    setModels(previous => previous.map(model =>
+      model.modelId === status.modelId ? status : model
     ));
   }, []);
 
-  const handleCloudPresetChange = useCallback((value: string | number | (string | number)[]) => {
-    const preset = normalizeSelectValue(value) as CloudSpeechProviderPreset;
-    setCloudDraft(previous => {
-      if (preset === 'qwen') {
-        return {
-          ...previous,
-          preset,
-          name: previous.name.trim() || 'Qwen ASR',
-          baseUrl: QWEN_ASR_BASE_URL,
-          modelName: QWEN_ASR_FLASH_MODEL_ID,
-        };
-      }
-      return {
-        ...previous,
-        preset: 'custom',
-      };
-    });
-  }, []);
-
-  const handleSaveCloudModel = useCallback(async () => {
-    const name = cloudDraft.name.trim() || t('cloudConfig.defaults.providerName');
-    const baseUrl = trimTrailingSlashes(cloudDraft.baseUrl);
-    const modelName = cloudDraft.modelName.trim();
-    const apiKey = cloudDraft.apiKey.trim();
-
-    if (!name || !baseUrl || !modelName || !apiKey) {
-      notificationService.warning(t('cloudConfig.messages.fillRequired'));
+  const updateVoiceCall = useCallback((patch: Partial<SpeechRealtimeConfig>) => {
+    if (!voiceCallConfigRef.current) return;
+    const next = { ...voiceCallConfigRef.current, ...patch };
+    const valid = next.voice.trim() && (!next.enabled || next.apiKey.trim());
+    // Enabling requires credentials, but they remain editable while disabled.
+    if (patch.enabled === true && !valid) {
+      setVoiceCallSaveError(t('voiceCall.messages.required'));
       return;
     }
-    if (!hasHttpUrlScheme(baseUrl)) {
-      notificationService.warning(t('cloudConfig.messages.invalidBaseUrl'));
+    const revision = ++voiceCallSaveRevisionRef.current;
+    voiceCallConfigRef.current = next;
+    setVoiceCallDraft(next);
+    if (!valid) {
+      setVoiceCallSaveError(t('voiceCall.messages.required'));
       return;
     }
-
-    setBusyAction('saveCloudModel');
-    try {
-      const modelId = cloudDraft.configId || selectedCloudModel?.id || `speech_cloud_${Date.now()}`;
-      const result = await configManager.saveCloudSpeechConfig({
-        configId: modelId,
-        preset: cloudDraft.preset,
-        name,
-        baseUrl,
-        requestUrl: resolveTranscriptionRequestUrl(baseUrl),
-        modelName,
-        apiKey,
-      });
-      const [nextModels, nextDefaultModels] = await Promise.all([
-        configManager.getConfig<AIModelConfig[]>('ai.models'),
-        configManager.getConfig<DefaultModelsConfig>('ai.default_models'),
-      ]);
-      const savedModel = (nextModels || []).find(model => model.id === result.modelId);
-      setCloudDraft(createCloudSpeechDraftFromModel(savedModel));
-      setCloudModels((nextModels || []).filter(model => {
-        const capabilities = Array.isArray(model.capabilities) ? model.capabilities : [];
-        return !!model.enabled && (
-          model.category === 'speech_recognition' ||
-          capabilities.includes('speech_recognition')
-        );
-      }));
-      setDefaultModels(nextDefaultModels || {});
-      notificationService.success(t('cloudConfig.messages.saveSuccess'));
-    } catch (error) {
-      log.error('Failed to save cloud speech model', { error });
-      notificationService.error(t('cloudConfig.messages.saveFailed'));
-    } finally {
-      setBusyAction(null);
-    }
-  }, [cloudDraft, selectedCloudModel, t]);
-
-  const handleDownload = useCallback((model: SpeechModelStatus) => {
-    if (model.state === 'downloading') return;
-    cancelDownloadRequestedRef.current.delete(model.modelId);
-    updateModelStatus({
-      ...model,
-      state: 'downloading',
-      installedBytes: 0,
-      progress: {
-        modelId: model.modelId,
-        downloadedBytes: 0,
-        totalBytes: model.expectedBytes,
-        percent: 0,
-      },
-      error: null,
-    });
-
-    void speechAPI.downloadModel(model.modelId).then(status => {
-      updateModelStatus(status);
-      notificationService.success(t('messages.downloadSuccess'));
-    }).catch(error => {
-      if (cancelDownloadRequestedRef.current.has(model.modelId)) {
-        return;
+    setVoiceCallSaveError(null);
+    // Serialize writes and only reconcile the latest edit with the response.
+    // The queue also finishes if the user leaves the settings page.
+    const operation = voiceCallSaveQueueRef.current.then(async () => {
+      try {
+        const saved = await speechAPI.saveRealtimeConfig({
+          enabled: next.enabled,
+          apiKey: next.apiKey.trim(),
+          voice: next.voice.trim(),
+          speed: next.speed,
+          loudness: next.loudness,
+          microphoneDeviceId: next.microphoneDeviceId,
+        });
+        persistedVoiceCallConfigRef.current = saved;
+        if (revision === voiceCallSaveRevisionRef.current) {
+          voiceCallConfigRef.current = saved;
+          setVoiceCallDraft(saved);
+          setVoiceCallSaveError(null);
+        }
+        window.dispatchEvent(new CustomEvent('openbitfun:realtime-voice-config-changed', {
+          detail: saved,
+        }));
+      } catch (error) {
+        log.error('Failed to save realtime voice call settings', { error });
+        if (revision === voiceCallSaveRevisionRef.current) {
+          voiceCallConfigRef.current = persistedVoiceCallConfigRef.current;
+          setVoiceCallDraft(persistedVoiceCallConfigRef.current);
+          setVoiceCallSaveError(t('voiceCall.messages.saveFailed'));
+          notificationService.error(t('voiceCall.messages.saveFailed'));
+        }
       }
-      log.error('Failed to download speech model', { modelId: model.modelId, error });
-      notificationService.error(t('messages.downloadFailed'));
-      void loadData();
-    }).finally(() => {
-      cancelDownloadRequestedRef.current.delete(model.modelId);
     });
-  }, [loadData, t, updateModelStatus]);
+    voiceCallSaveQueueRef.current = operation.then(() => undefined, () => undefined);
+  }, [t]);
 
   const handleCancelDownload = useCallback(async (model: SpeechModelStatus) => {
-    cancelDownloadRequestedRef.current.add(model.modelId);
     setBusyAction(`cancel:${model.modelId}`);
     try {
       const status = await speechAPI.cancelModelDownload(model.modelId);
       updateModelStatus(status);
       notificationService.info(t('messages.downloadCancelled'));
     } catch (error) {
-      log.error('Failed to cancel speech model download', { modelId: model.modelId, error });
+      log.error('Failed to cancel local speech model download', { modelId: model.modelId, error });
       notificationService.error(t('messages.cancelFailed'));
     } finally {
       setBusyAction(null);
     }
   }, [t, updateModelStatus]);
 
-  const handleVerify = useCallback(async (model: SpeechModelStatus) => {
-    setBusyAction(`verify:${model.modelId}`);
-    try {
-      const status = await speechAPI.verifyModel(model.modelId);
-      updateModelStatus(status);
-      notificationService.success(t('messages.verifySuccess'));
-    } catch (error) {
-      log.error('Failed to verify speech model', { modelId: model.modelId, error });
-      notificationService.error(t('messages.verifyFailed'));
-    } finally {
-      setBusyAction(null);
-    }
-  }, [t, updateModelStatus]);
-
-  const handleOpenFolder = useCallback(async (model: SpeechModelStatus) => {
-    if (!model?.installedPath) return;
-    try {
-      await workspaceAPI.revealInExplorer(model.installedPath);
-    } catch (error) {
-      log.error('Failed to reveal speech model path', { modelId: model.modelId, error });
-      notificationService.error(t('messages.openFolderFailed'));
-    }
-  }, [t]);
-
-  const handleDelete = useCallback(async (model: SpeechModelStatus) => {
-    const confirmed = await confirmDanger(
-      t('model.deleteConfirmTitle'),
-      t('model.deleteConfirmMessage', { name: model.displayName }),
-      {
-        confirmText: t('model.delete'),
-        cancelText: t('model.keep'),
-      },
-    );
-    if (!confirmed) return;
-
-    setBusyAction(`delete:${model.modelId}`);
-    try {
-      const status = await speechAPI.deleteModel(model.modelId);
-      updateModelStatus(status);
-      notificationService.success(t('messages.deleteSuccess'));
-    } catch (error) {
-      log.error('Failed to delete speech model', { modelId: model.modelId, error });
-      notificationService.error(t('messages.deleteFailed'));
-    } finally {
-      setBusyAction(null);
-    }
-  }, [t, updateModelStatus]);
+  const handleUseLocal = useCallback(async () => {
+    const modelId = firstInstalledModel?.modelId
+      ?? selectedModel?.modelId
+      ?? DEFAULT_LOCAL_VOICE_MODEL_ID;
+    const saved = await updateVoiceInput({ provider: 'local', model_id: modelId });
+    if (saved) notificationService.success(t('messages.localActivated'));
+  }, [firstInstalledModel, selectedModel, t, updateVoiceInput]);
 
   if (!speechRuntimeSupported) {
     return (
-      <ConfigPageLayout
-        className="voice-input-config"
-        data-bf-component="voice-input-config"
-        data-bf-part="root"
-      >
+      <ConfigPageLayout className="voice-input-config" data-openbitfun-component="voice-input-config" data-openbitfun-part="root">
         <ConfigPageHeader title={t('title')} subtitle={t('subtitle')} />
         <ConfigPageContent>
-          <ConfigPageMessage message={{ type: 'info', text: t('messages.unsupported') }} />
+          <ConfigMessage message={{ type: 'info', text: t('messages.unsupported') }} />
         </ConfigPageContent>
       </ConfigPageLayout>
     );
   }
 
-  if (loading || settingsLoading) {
+  if (modelsLoading || settingsLoading) {
     return (
-      <ConfigPageLayout
-        className="voice-input-config"
-        data-bf-component="voice-input-config"
-        data-bf-part="root"
-      >
+      <ConfigPageLayout className="voice-input-config" data-openbitfun-component="voice-input-config" data-openbitfun-part="root">
         <ConfigPageHeader title={t('title')} subtitle={t('subtitle')} />
         <ConfigPageContent>
-          <ConfigPageLoading text={t('loading')} />
+          <ConfigLoadingState label={t('loading')} />
         </ConfigPageContent>
       </ConfigPageLayout>
     );
@@ -510,29 +338,61 @@ const VoiceInputConfig: React.FC = () => {
 
   if (settingsError || !settings || !voiceInput) {
     return (
-      <ConfigPageLayout
-        className="voice-input-config"
-        data-bf-component="voice-input-config"
-        data-bf-part="root"
-      >
+      <ConfigPageLayout className="voice-input-config" data-openbitfun-component="voice-input-config" data-openbitfun-part="root">
         <ConfigPageHeader title={t('title')} subtitle={t('subtitle')} />
         <ConfigPageContent>
-          <ConfigPageMessage message={{ type: 'error', text: t('messages.loadFailed') }} />
+          <ConfigRetryState
+            message={t('messages.loadFailed')}
+            retryLabel={t('messages.retry')}
+            onRetry={() => void reloadSettings()}
+            loading={settingsLoading}
+          />
         </ConfigPageContent>
       </ConfigPageLayout>
     );
   }
 
-  return (
-    <ConfigPageLayout
-      className="voice-input-config"
-      data-bf-component="voice-input-config"
-      data-bf-part="root"
-    >
-      <ConfigPageHeader title={t('title')} subtitle={t('subtitle')} />
+  let status: VoiceInputStatus = 'setup';
+  if (legacyCloudSelection) status = 'unavailable';
+  else if (!selectedModel) status = 'error';
+  else {
+    switch (selectedModel.state) {
+      case 'installed':
+        status = 'ready';
+        break;
+      case 'downloading':
+        status = 'downloading';
+        break;
+      case 'verifying':
+        status = 'verifying';
+        break;
+      case 'deleting':
+        status = 'deleting';
+        break;
+      case 'corrupt':
+      case 'error':
+        status = 'error';
+        break;
+      default:
+        status = 'setup';
+    }
+  }
 
+  const progressPercent = Math.min(100, Math.max(0, selectedModel?.progress?.percent ?? 0));
+  const statusIcon = status === 'ready' || status === 'setup'
+    ? null
+    : status === 'unavailable'
+      ? <CloudOff size={18} />
+      : <HardDrive size={18} />;
+
+  return (
+    <ConfigPageLayout className="voice-input-config" data-openbitfun-component="voice-input-config" data-openbitfun-part="root">
+      <ConfigPageHeader title={t('title')} subtitle={t('subtitle')} />
       <ConfigPageContent className="voice-input-config__content">
-        <ConfigPageSection title={t('sections.composer')}>
+        <ConfigPageSection
+          title={t('sections.basic')}
+          description={t('sections.basicDescription')}
+        >
           <ConfigPageRow
             label={t('composer.enabled.label')}
             description={t('composer.enabled.description')}
@@ -540,382 +400,216 @@ const VoiceInputConfig: React.FC = () => {
           >
             <Switch
               checked={voiceInput.enabled}
-              onChange={(event) => updateVoiceInput({ enabled: event.target.checked })}
-              size="small"
+              disabled={voiceInputSaving || (modelsLoadFailed && !voiceInput.enabled)}
+              onChange={(event) => void updateVoiceInput({ enabled: event.target.checked })}
             />
           </ConfigPageRow>
-
-          <ConfigPageRow
-            label={t('composer.provider.label')}
-            description={t('composer.provider.description')}
-            align="center"
-          >
-            <Select
-              value={selectedProvider}
-              onChange={(value) => {
-                const provider = normalizeSelectValue(value) as VoiceInputProvider;
-                if (provider === 'cloud') {
-                  void updateVoiceInput({
-                    provider: 'cloud',
-                    model_id: selectedCloudModel?.id || '',
-                  });
-                  return;
-                }
-                void updateVoiceInput({
-                  provider: 'local',
-                  model_id: selectedLocalModelUsable
-                    ? selectedModel.modelId
-                    : (firstInstalledLocalModel?.modelId || DEFAULT_LOCAL_VOICE_MODEL_ID),
-                });
-              }}
-              options={providerOptions}
-              size="small"
-              className="voice-input-config__select"
+          {modelsLoadFailed ? (
+            <ConfigRetryState
+              message={t('messages.modelsLoadFailed')}
+              retryLabel={t('messages.retry')}
+              onRetry={() => void loadModels()}
+              loading={modelsLoading}
             />
-          </ConfigPageRow>
-
-          <ConfigPageRow
-            label={t('composer.model.label')}
-            description={selectedProvider === 'cloud'
-              ? t('composer.model.cloudActiveDescription')
-              : t('composer.model.localDescription')}
-            align="center"
-          >
-            <Select
-              value={selectedProvider === 'cloud'
-                ? (selectedCloudModel?.id || '')
-                : (selectedModel?.modelId ?? selectedLocalModelId)}
-              onChange={(value) => updateVoiceInput({
-                provider: selectedProvider,
-                model_id: normalizeSelectValue(value),
-              })}
-              options={selectedProvider === 'cloud' ? cloudModelOptions : localModelOptions}
-              placeholder={selectedProvider === 'cloud' ? t('composer.model.cloudPlaceholder') : undefined}
-              disabled={selectedProvider === 'cloud' && cloudModelOptions.length === 0}
-              size="small"
-              className="voice-input-config__model-select"
-            />
-          </ConfigPageRow>
-
-          <ConfigPageRow
-            label={t('composer.language.label')}
-            description={t('composer.language.description')}
-            align="center"
-          >
-            <Select
-              value={voiceInput.default_language}
-              onChange={(value) => updateVoiceInput({ default_language: normalizeSelectValue(value) })}
-              options={languageOptions}
-              size="small"
-              className="voice-input-config__select"
-            />
-          </ConfigPageRow>
-
-          <ConfigPageRow
-            label={t('composer.maxRecording.label')}
-            description={t('composer.maxRecording.description')}
-            align="center"
-          >
-            <input
-              className="voice-input-config__number-input"
-              type="number"
-              min={5}
-              max={300}
-              step={5}
-              value={voiceInput.max_recording_seconds}
-              onChange={(event) => {
-                updateVoiceInput({
-                  max_recording_seconds: clampRecordingSeconds(Number(event.target.value)),
-                });
-              }}
-              aria-label={t('composer.maxRecording.label')}
-            />
-          </ConfigPageRow>
-        </ConfigPageSection>
-
-        <ConfigPageSection
-          title={t('sections.cloudModel')}
-          titleSuffix={selectedCloudModel ? (
-            <Badge variant="info">
-              {t('cloudConfig.inUse')}
-            </Badge>
-          ) : null}
-        >
-          <div className="voice-input-config__cloud-note">
-            {t('cloudConfig.note')}
-          </div>
-
-          <ConfigPageRow
-            label={t('cloudConfig.preset.label')}
-            description={t('cloudConfig.preset.description')}
-            align="center"
-          >
-            <Select
-              value={cloudDraft.preset}
-              onChange={handleCloudPresetChange}
-              options={cloudPresetOptions}
-              size="small"
-              className="voice-input-config__select"
-            />
-          </ConfigPageRow>
-
-          <ConfigPageRow
-            label={t('cloudConfig.providerName.label')}
-            description={t('cloudConfig.providerName.description')}
-            align="center"
-            wide
-          >
-            <input
-              className="voice-input-config__text-input"
-              value={cloudDraft.name}
-              onChange={(event) => setCloudDraft(previous => ({
-                ...previous,
-                name: event.target.value,
-              }))}
-              placeholder={t('cloudConfig.providerName.placeholder')}
-            />
-          </ConfigPageRow>
-
-          <ConfigPageRow
-            label={t('cloudConfig.baseUrl.label')}
-            description={t('cloudConfig.baseUrl.description')}
-            align="center"
-            wide
-          >
-            <input
-              className="voice-input-config__text-input voice-input-config__text-input--wide"
-              value={cloudDraft.baseUrl}
-              onChange={(event) => setCloudDraft(previous => ({
-                ...previous,
-                baseUrl: event.target.value,
-              }))}
-              placeholder={QWEN_ASR_BASE_URL}
-            />
-          </ConfigPageRow>
-
-          <ConfigPageRow
-            label={t('cloudConfig.modelName.label')}
-            description={t('cloudConfig.modelName.description')}
-            align="center"
-            wide
-          >
-            <input
-              className="voice-input-config__text-input"
-              value={cloudDraft.modelName}
-              onChange={(event) => setCloudDraft(previous => ({
-                ...previous,
-                modelName: event.target.value,
-              }))}
-              placeholder={QWEN_ASR_FLASH_MODEL_ID}
-            />
-          </ConfigPageRow>
-
-          <ConfigPageRow
-            label={t('cloudConfig.apiKey.label')}
-            description={t('cloudConfig.apiKey.description')}
-            align="center"
-            wide
-          >
-            <input
-              className="voice-input-config__text-input voice-input-config__text-input--wide"
-              type="password"
-              autoComplete="off"
-              value={cloudDraft.apiKey}
-              onChange={(event) => setCloudDraft(previous => ({
-                ...previous,
-                apiKey: event.target.value,
-              }))}
-              placeholder={t('cloudConfig.apiKey.placeholder')}
-            />
-          </ConfigPageRow>
-
-          <div className="voice-input-config__cloud-actions">
-            <Button
-              variant="primary"
-              size="small"
-              onClick={() => void handleSaveCloudModel()}
-              isLoading={busyAction === 'saveCloudModel'}
-              disabled={busyAction !== null && busyAction !== 'saveCloudModel'}
-            >
-              {t('cloudConfig.save')}
-            </Button>
-          </div>
-        </ConfigPageSection>
-
-        <VoiceInputDiagnostics
-          settings={voiceInput}
-          modelInstalled={selectedProvider === 'local' && selectedModel?.state === 'installed'}
-          onDeviceChange={async microphoneDeviceId => {
-            await updateVoiceInput({ microphone_device_id: microphoneDeviceId });
-          }}
-        />
-
-        <ConfigPageSection
-          title={t('sections.model')}
-          titleSuffix={selectedModel ? (
-            <Badge variant={statusBadgeVariant(selectedModel.state)}>
-              {t(`states.${selectedModel.state}`)}
-            </Badge>
-          ) : null}
-          extra={(
-            <Button
-              variant="ghost"
-              size="small"
-              onClick={() => void loadData()}
-              disabled={busyAction !== null || anyDownloading}
-            >
-              <RefreshCw size={14} />
-              {t('model.refresh')}
-            </Button>
-          )}
-        >
-          {models.length > 0 ? (
-            <div
-              className="voice-input-config__model-list"
-              data-bf-component="voice-input-config"
-              data-bf-part="modelList"
-            >
-              {models.map(model => {
-                const isUsable = model.state === 'installed';
-                const isSelected = model.modelId === selectedLocalModelId && selectedProvider === 'local' && isUsable;
-                const isDownloading = model.state === 'downloading';
-                const progressPercent = Math.min(100, Math.max(0, model.progress?.percent ?? 0));
-                const busyKey = busyAction?.endsWith(`:${model.modelId}`) ? busyAction.split(':')[0] : null;
-                const resourceHintKey = MODEL_RESOURCE_HINT_KEYS[model.modelId] ?? 'model.resourceHints.default';
-
-                return (
+          ) : (
+            <>
+              <ConfigPageRow label={t('status.label')} multiline>
+                <div className="voice-input-config__status-panel">
                   <div
-                    className={`voice-input-config__model-card${isSelected ? ' voice-input-config__model-card--selected' : ''}`}
-                    data-bf-component="voice-input-config"
-                    data-bf-part="modelCard"
-                    key={model.modelId}
+                    className={`voice-input-config__status-card voice-input-config__status-card--${status}`}
+                    data-openbitfun-component="voice-input-config"
+                    data-openbitfun-part="statusCard"
+                    data-openbitfun-status={status}
                   >
-                    <div className="voice-input-config__model-main">
-                      <div className="voice-input-config__model-icon" aria-hidden="true">
-                        <HardDrive size={18} />
-                      </div>
-                      <div className="voice-input-config__model-copy">
-                        <div className="voice-input-config__model-title-row">
-                          <div className="voice-input-config__model-name">{model.displayName}</div>
-                          {isSelected ? <Badge variant="info">{t('model.selected')}</Badge> : null}
-                          <Badge variant={statusBadgeVariant(model.state)}>
-                            {t(`states.${model.state}`)}
-                          </Badge>
-                        </div>
-                        <div className="voice-input-config__model-meta">
-                          <span>{model.provider}</span>
-                          <span>{t('model.version', { version: model.version })}</span>
-                          <span>{t('model.size', { size: formatBytes(model.expectedBytes || model.installedBytes) })}</span>
-                        </div>
-                        <div className="voice-input-config__model-description">{model.description}</div>
-                        <div className="voice-input-config__model-resource">{t(resourceHintKey)}</div>
-                        {model.installedPath ? (
-                          <div className="voice-input-config__model-path">{model.installedPath}</div>
-                        ) : null}
-                        {model.error ? (
-                          <div className="voice-input-config__model-error">{model.error}</div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {isDownloading ? (
-                      <div className="voice-input-config__progress">
-                        <div className="voice-input-config__progress-track" aria-hidden="true">
-                          <div
-                            className="voice-input-config__progress-value"
-                            style={{ width: `${progressPercent}%` }}
-                          />
-                        </div>
-                        <span className="voice-input-config__progress-text">
-                          {t('model.progress', {
-                            percent: Math.round(progressPercent),
-                            downloaded: formatBytes(model.progress?.downloadedBytes ?? model.installedBytes),
-                            total: formatBytes(model.progress?.totalBytes ?? model.expectedBytes),
-                          })}
-                        </span>
-                      </div>
+                    {statusIcon ? (
+                      <div className="voice-input-config__status-icon" aria-hidden="true">{statusIcon}</div>
                     ) : null}
-
+                    <div className="voice-input-config__status-copy">
+                      {status === 'setup' ? (
+                        <p className="voice-input-config__status-summary">
+                          <Trans
+                            i18nKey="status.setup.summary"
+                            t={t}
+                            components={{
+                              warning: <span className="voice-input-config__status-warning" />,
+                            }}
+                          />
+                        </p>
+                      ) : status === 'ready' ? (
+                        <p className="voice-input-config__status-summary">
+                          <Trans
+                            i18nKey="status.ready.summary"
+                            t={t}
+                            values={{
+                              model: selectedModel?.displayName ?? t('status.unknownModel'),
+                            }}
+                            components={{
+                              model: <span className="voice-input-config__status-model" />,
+                            }}
+                          />
+                        </p>
+                      ) : (
+                        <>
+                          <div className="voice-input-config__status-heading">
+                            <div className="voice-input-config__status-title">{t(`status.${status}.title`)}</div>
+                            <StatusPill tone={statusBadgeVariant(status)}>
+                              {t(`status.${status}.badge`)}
+                            </StatusPill>
+                          </div>
+                          <div className="voice-input-config__status-description">
+                            {t(`status.${status}.description`, {
+                              model: selectedModel?.displayName ?? t('status.unknownModel'),
+                              size: formatBytes(selectedModel?.expectedBytes ?? 0),
+                            })}
+                          </div>
+                          {selectedModel?.error && status === 'error' ? (
+                            <div className="voice-input-config__status-error">{selectedModel.error}</div>
+                          ) : null}
+                        </>
+                      )}
+                    </div>
                     <div
-                      className="voice-input-config__model-actions"
-                      data-bf-component="voice-input-config"
-                      data-bf-part="modelActions"
+                      className="voice-input-config__status-actions"
+                      data-openbitfun-component="voice-input-config"
+                      data-openbitfun-part="statusActions"
                     >
-                      <Button
-                        variant={isSelected ? 'secondary' : 'ghost'}
-                        size="small"
-                        onClick={() => void updateVoiceInput({
-                          provider: 'local',
-                          model_id: model.modelId,
-                        })}
-                        disabled={busyAction !== null || isSelected || !isUsable}
-                      >
-                        {isSelected ? t('model.selected') : t('model.select')}
-                      </Button>
-
-                      {isDownloading ? (
+                      {status === 'unavailable' ? (
                         <Button
-                          variant="secondary"
-                          size="small"
-                          onClick={() => void handleCancelDownload(model)}
-                          isLoading={busyKey === 'cancel'}
-                          disabled={busyAction !== null && busyKey !== 'cancel'}
+                          variant="fill"
+                          size="sm"
+                          onClick={() => void handleUseLocal()}
+                          disabled={voiceInputSaving}
+                        >
+                          {t('status.useLocal')}
+                        </Button>
+                      ) : null}
+                      {status === 'downloading' && selectedModel?.state === 'downloading' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleCancelDownload(selectedModel)}
+                          loading={busyAction === `cancel:${selectedModel.modelId}`}
                         >
                           {t('model.cancel')}
                         </Button>
-                      ) : (
-                        <Button
-                          variant="primary"
-                          size="small"
-                          onClick={() => void handleDownload(model)}
-                          disabled={busyAction !== null || model.state === 'installed'}
-                        >
-                          <Download size={14} />
-                          {model.state === 'installed' ? t('model.downloaded') : t('model.download')}
-                        </Button>
-                      )}
-
+                      ) : null}
                       <Button
-                        variant="secondary"
-                        size="small"
-                        onClick={() => void handleOpenFolder(model)}
-                        disabled={busyAction !== null || !model.installedPath}
+                        variant={status === 'setup' ? 'fill' : 'outline'}
+                        size="sm"
+                        onClick={() => setLocalModelsOpen(true)}
                       >
-                        <FolderOpen size={14} />
-                        {t('model.openFolder')}
-                      </Button>
-
-                      <Button
-                        variant="secondary"
-                        size="small"
-                        onClick={() => void handleVerify(model)}
-                        isLoading={busyKey === 'verify'}
-                        disabled={busyAction !== null || model.state !== 'installed'}
-                      >
-                        <ShieldCheck size={14} />
-                        {t('model.verify')}
-                      </Button>
-
-                      <Button
-                        variant="danger"
-                        size="small"
-                        onClick={() => void handleDelete(model)}
-                        isLoading={busyKey === 'delete'}
-                        disabled={busyAction !== null || model.state !== 'installed'}
-                      >
-                        <Trash2 size={14} />
-                        {t('model.delete')}
+                        {t(statusActionKey(status))}
                       </Button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="voice-input-config__empty">{t('model.empty')}</div>
+
+                  {status === 'downloading' && selectedModel ? (
+                    <div className="voice-input-config__progress voice-input-config__status-progress">
+                      <div className="voice-input-config__progress-track" aria-hidden="true">
+                        <div className="voice-input-config__progress-value" style={{ width: `${progressPercent}%` }} />
+                      </div>
+                      <span className="voice-input-config__progress-text">
+                        {t('model.progress', {
+                          percent: Math.round(progressPercent),
+                          downloaded: formatBytes(selectedModel.progress?.downloadedBytes ?? selectedModel.installedBytes),
+                          total: formatBytes(selectedModel.progress?.totalBytes ?? selectedModel.expectedBytes),
+                        })}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              </ConfigPageRow>
+
+              {status === 'ready' ? (
+                <>
+                  <ConfigPageRow
+                    label={t('composer.language.label')}
+                    description={t('composer.language.description')}
+                    align="center"
+                  >
+                    <Select
+                      value={voiceInput.default_language}
+                      onValueChange={(value) => void updateVoiceInput({ default_language: String(value) })}
+                      options={languageOptions}
+                      size="sm"
+                      disabled={voiceInputSaving}
+                    />
+                  </ConfigPageRow>
+
+                  <VoiceInputDiagnostics
+                    settings={voiceInput}
+                    onDeviceChange={async microphoneDeviceId => {
+                      await updateVoiceInput({ microphone_device_id: microphoneDeviceId });
+                    }}
+                  />
+                </>
+              ) : null}
+            </>
           )}
         </ConfigPageSection>
+
+        <ConfigPageSection
+          title={t('voiceCall.title')}
+          description={t('voiceCall.description')}
+        >
+          {voiceCallLoading ? (
+            <ConfigLoadingState label={t('voiceCall.loading')} />
+          ) : voiceCallLoadFailed || !voiceCallDraft ? (
+            <ConfigRetryState
+              message={t('voiceCall.messages.loadFailed')}
+              retryLabel={t('messages.retry')}
+              onRetry={() => void loadVoiceCallConfig()}
+              loading={voiceCallLoading}
+            />
+          ) : (
+            <>
+            <ConfigPageRow
+              label={t('voiceCall.enabled.label')}
+              description={t('voiceCall.enabled.description')}
+              align="center"
+            >
+              <Switch
+                checked={voiceCallDraft.enabled}
+                onChange={(event) => updateVoiceCall({ enabled: event.target.checked })}
+              />
+            </ConfigPageRow>
+            <ConfigPageRow
+              label={t('voiceCall.apiKey.label')}
+              description={t('voiceCall.apiKey.description')}
+              align="center"
+            >
+              <Input
+                type="password"
+                size="sm"
+                autoComplete="off"
+                value={voiceCallDraft.apiKey}
+                placeholder={t('voiceCall.apiKey.placeholder')}
+                onChange={(event) => updateVoiceCall({ apiKey: event.target.value })}
+              />
+            </ConfigPageRow>
+            <ConfigPageRow
+              label={t('voiceCall.voice.label')}
+              description={t('voiceCall.voice.description')}
+              align="center"
+            >
+              <Input
+                size="sm"
+                value={voiceCallDraft.voice}
+                onChange={(event) => updateVoiceCall({ voice: event.target.value })}
+              />
+            </ConfigPageRow>
+            <ConfigMessage
+              message={voiceCallSaveError ? { type: 'error', text: voiceCallSaveError } : null}
+            />
+            </>
+          )}
+        </ConfigPageSection>
+
       </ConfigPageContent>
+      <LocalVoiceModelsConfig
+        isOpen={localModelsOpen}
+        onClose={() => setLocalModelsOpen(false)}
+      />
     </ConfigPageLayout>
   );
 };

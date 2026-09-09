@@ -1,3 +1,4 @@
+import { MobileDesignGeometry, MobileDesignTypography } from '../../generated/MobileDesignTokens';
 import { RemoteSession } from '../../model/RemoteModels';
 import { RemoteI18n } from '../../i18n/RemoteI18n';
 import { CARD, INK, LINE, MUTED, PAGE_BG, PAGE_BG_FADE, SOFT, SUBTLE } from './Theme';
@@ -72,8 +73,8 @@ export struct AppSidebar {
   @Builder
   private SidebarContent() {
     Column() {
-      if (this.isAccountAuthenticated()) {
-        this.AuthenticatedHeader()
+      if (this.shouldShowPrimaryNavigation()) {
+        this.PrimaryNavigationHeader()
       } else {
         this.SignedOutHeader()
       }
@@ -112,8 +113,22 @@ export struct AppSidebar {
             colors: [[PAGE_BG_FADE, 0.0], [PAGE_BG, 0.62]]
           })
 
-        if (this.isAccountAuthenticated()) {
-          this.AuthenticatedFooter()
+        // Pre-connection actions form a conventional footer and retain a fade.
+        // Once either account or QR access unlocks the workspace, navigation
+        // uses two floating controls and the scroll stays visible behind them.
+        if (!this.shouldShowPrimaryNavigation()) {
+          Column()
+            .width('100%')
+            .height(this.usesCompactFooter() ? 92 : 120)
+            .hitTestBehavior(HitTestMode.None)
+            .linearGradient({
+              angle: 180,
+              colors: [[PAGE_BG_FADE, 0.0], [PAGE_BG, 0.62]]
+            })
+        }
+
+        if (this.shouldShowPrimaryNavigation()) {
+          this.PrimaryNavigationFooter()
         } else {
           this.SignedOutFooter()
         }
@@ -138,7 +153,7 @@ export struct AppSidebar {
     Column() {
       if (this.visiblePinnedSessions().length > 0) {
         Text(RemoteI18n.t('sidebar.pinned'))
-          .fontSize(14).fontWeight(FontWeight.Medium).fontColor(MUTED)
+          .fontSize(MobileDesignTypography.bodyMedium.size).fontWeight(FontWeight.Medium).fontColor(MUTED)
           .width('100%').margin({ top: 16, bottom: 6 })
         ForEach(this.visiblePinnedSessions(), (session: RemoteSession) => {
           this.PinnedRow(session)
@@ -197,39 +212,41 @@ export struct AppSidebar {
   @Builder
   private AuthenticatedHeader() {
     Row() {
-      Text('BitFun')
-        .fontSize(20)
-        .fontWeight(FontWeight.Bold)
+      Text('OpenBitFun')
+        .fontSize(MobileDesignTypography.headlineMedium.size)
+        .fontWeight(FontWeight.Medium)
         .fontColor(INK)
       Blank()
       // Right-aligned so the search and collapse controls keep the same
       // position whether or not the source-specific view-settings entry shows.
       Row({ space: 6 }) {
         if (this.showViewSettingsButton) {
-          Stack({ alignContent: Alignment.Center }) {
+          Button() {
             SidebarGlyph({ kind: 'session_more' })
           }
-          .width(38)
-          .height(38)
-          .backgroundColor(CARD)
-          .border({ width: 1, color: LINE })
-          .borderRadius(19)
-          .shadow({ radius: 14, color: '#16000000', offsetY: 6 })
+          .width(MobileDesignGeometry.controlTouchSize)
+          .height(MobileDesignGeometry.controlTouchSize)
+          .padding(0)
+          .backgroundColor(TRANSPARENT)
+          .borderRadius(12)
+          .stateEffect(true)
           .accessibilityText(RemoteI18n.t('remote.actions'))
           .onClick(() => {
             this.onOpenViewSettings();
           })
         }
 
-        Stack({ alignContent: Alignment.Center }) {
+        Button() {
           SidebarGlyph({ kind: 'search' })
         }
-        .width(38)
-        .height(38)
+        .width(44)
+        .height(44)
+        .padding(0)
         .backgroundColor(CARD)
-        .border({ width: 1, color: LINE })
-        .borderRadius(19)
-        .shadow({ radius: 14, color: '#16000000', offsetY: 6 })
+        .border({ width: 0.5, color: LINE })
+        .borderRadius(22)
+        .shadow({ radius: 18, color: SHADOW_FAINT, offsetY: 5 })
+        .stateEffect(true)
         .accessibilityText(RemoteI18n.t('common.search'))
         .onClick(() => {
           this.showSearch = !this.showSearch;
@@ -240,7 +257,7 @@ export struct AppSidebar {
 
         if (this.showCollapseButton) {
           SidebarToggleButton({
-            controlSize: 38,
+            controlSize: MobileDesignGeometry.controlTouchSize,
             onToggle: this.onCollapse
           })
         }
@@ -254,7 +271,7 @@ export struct AppSidebar {
       TextInput({ placeholder: RemoteI18n.t('sidebar.searchPlaceholder'), text: this.sessionSearchQuery })
         .width('100%')
         .height(42)
-        .fontSize(14)
+        .fontSize(MobileDesignTypography.bodyMedium.size)
         .fontColor(INK)
         .placeholderColor(SUBTLE)
         .padding({ left: 14, right: 14 })
@@ -282,7 +299,7 @@ export struct AppSidebar {
           .width(24)
           .height(24)
         Text(RemoteI18n.t('sidebar.signedOutNewChat'))
-          .fontSize(16)
+          .fontSize(MobileDesignTypography.bodyLarge.size)
           .fontWeight(FontWeight.Medium)
           .fontColor(INK)
       }
@@ -295,7 +312,7 @@ export struct AppSidebar {
 
       if (this.showCollapseButton) {
         SidebarToggleButton({
-          controlSize: 38,
+          controlSize: MobileDesignGeometry.controlTouchSize,
           onToggle: this.onCollapse
         })
       }
@@ -306,43 +323,48 @@ export struct AppSidebar {
   }
 
   @Builder
-  private AuthenticatedFooter() {
+  private PrimaryNavigationFooter() {
     Row() {
-      Row({ space: 9 }) {
-        SidebarGlyph({ kind: 'edit' })
-        Text(RemoteI18n.t('sidebar.newChat'))
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(INK)
+      Button() {
+        Row({ space: 8 }) {
+          SidebarGlyph({ kind: 'edit' })
+          Text(RemoteI18n.t('sidebar.newChat'))
+            .fontSize(MobileDesignTypography.titleMedium.size)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(INK)
+        }
       }
-      .width(116)
-      .height(46)
-      .justifyContent(FlexAlign.Center)
-      .alignItems(VerticalAlign.Center)
+      .width(98)
+      .height(44)
+      .padding(0)
       .backgroundColor(CARD)
-      .border({ width: 1, color: LINE })
-      .borderRadius(23)
-      .shadow({ radius: 14, color: '#16000000', offsetY: 6 })
+      .border({ width: 0.5, color: LINE })
+      .borderRadius(22)
+      .shadow({ radius: 24, color: SHADOW_SUBTLE, offsetY: 7 })
+      .stateEffect(true)
       .onClick(() => {
         this.onNewChat();
       })
 
       Blank()
 
-      Stack({ alignContent: Alignment.Center }) {
+      Button() {
         SidebarGlyph({ kind: 'settings' })
       }
-        .width(46)
-        .height(46)
+        .width(44)
+        .height(44)
+        .padding(0)
         .backgroundColor(CARD)
-        .borderRadius(23)
-        .shadow({ radius: 14, color: '#16000000', offsetY: 6 })
+        .borderRadius(22)
+        .shadow({ radius: 24, color: SHADOW_SUBTLE, offsetY: 7 })
+        .stateEffect(true)
         .onClick(() => {
           this.onOpenSettings();
         })
     }
     .width('100%')
     .height(56)
+    .padding({ left: 12 })
     .alignItems(VerticalAlign.Center)
     .zIndex(2)
   }
@@ -400,13 +422,13 @@ export struct AppSidebar {
         .width(22)
         .height(22)
       Text(RemoteI18n.t('sidebar.archived'))
-        .fontSize(14)
+        .fontSize(MobileDesignTypography.bodyMedium.size)
         .fontWeight(FontWeight.Medium)
         .fontColor(INK)
       Blank()
       Row({ space: 8 }) {
         Text(`${this.archivedSessionCount()}`)
-          .fontSize(12)
+          .fontSize(MobileDesignTypography.labelSmall.size)
           .fontWeight(FontWeight.Medium)
           .fontColor(MUTED)
           .width(24)
@@ -436,7 +458,7 @@ export struct AppSidebar {
     .height(46)
     .padding({ left: 12, right: 68 })
     .margin({ top: 8 })
-    .backgroundColor(this.archivedSessionsExpanded ? SOFT : '#00000000')
+    .backgroundColor(this.archivedSessionsExpanded ? SOFT : TRANSPARENT)
     .borderRadius(10)
     .onClick(() => {
       this.archivedSessionsExpanded = !this.archivedSessionsExpanded;
@@ -450,20 +472,20 @@ export struct AppSidebar {
       SymbolGlyph($r('sys.symbol.checkmark_circle'))
         .fontSize(18).fontColor([MUTED]).width(19).height(19)
       Text(session.title || RemoteI18n.t('sidebar.untitled'))
-        .fontSize(15).fontColor(INK).layoutWeight(1)
+        .fontSize(MobileDesignTypography.titleSmall.size).fontColor(INK).layoutWeight(1)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       this.SessionMoreButton(session)
     }
     .width('100%').height(44)
     .padding({ left: 12, right: 4 })
-    .backgroundColor(this.selectedSessionId === session.id ? SOFT : '#00000000')
+    .backgroundColor(this.selectedSessionId === session.id ? SOFT : TRANSPARENT)
     .borderRadius(10)
     .onClick(() => this.openSession(session))
     .gesture(LongPressGesture({ repeat: false }).onAction(() => this.openSessionActions(session)))
     .bindPopup(this.showCollapseButton && this.activeActionSessionId === session.id, {
       builder: () => { this.SessionActionPopover() },
       placement: Placement.Right,
-      popupColor: '#00000000',
+      popupColor: TRANSPARENT,
       enableArrow: false,
       autoCancel: true,
       mask: false,
@@ -501,7 +523,7 @@ export struct AppSidebar {
     .bindPopup(this.showCollapseButton && this.activeActionSessionId === item.id, {
       builder: () => { this.SessionActionPopover() },
       placement: Placement.Right,
-      popupColor: '#00000000',
+      popupColor: TRANSPARENT,
       enableArrow: false,
       autoCancel: true,
       mask: false,
@@ -576,7 +598,7 @@ export struct AppSidebar {
     Column() {
       Text(this.sessionSearchQuery.trim().length > 0 ?
         RemoteI18n.t('sidebar.noSearchResult') : RemoteI18n.t('sidebar.emptyRecentTitle'))
-        .fontSize(14)
+        .fontSize(MobileDesignTypography.bodyMedium.size)
         .fontWeight(FontWeight.Medium)
         .fontColor(MUTED)
         .width('100%')
@@ -707,8 +729,8 @@ export struct AppSidebar {
   private sessionActionSheetOptions(): SheetOptions {
     return {
       height: this.actionSessionIsGeneralChat() ? 380 : 300,
-      backgroundColor: '#00000000',
-      maskColor: '#44000000',
+      backgroundColor: TRANSPARENT,
+      maskColor: SCRIM,
       showClose: false,
       dragBar: false
     };
@@ -718,8 +740,17 @@ export struct AppSidebar {
     return AdaptiveSheetOptions.fromPlacement(this.sessionDetailsPlacement);
   }
 
-  private isAccountAuthenticated(): boolean {
-    return this.accountUserId.trim().length > 0;
+  private shouldShowPrimaryNavigation(): boolean {
+    return SidebarConnectionActionPolicy.shouldShowPrimaryNavigation(
+      this.accountUserId,
+      this.controlTargetType,
+      this.connectionState
+    );
+  }
+
+  private usesCompactFooter(): boolean {
+    return this.shouldShowPrimaryNavigation() ||
+      !SidebarConnectionActionPolicy.shouldShowScan(this.connectionState);
   }
 
   private usesCompactFooter(): boolean {

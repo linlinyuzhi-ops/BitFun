@@ -13,6 +13,7 @@ export interface ContextDropZoneProps {
   children?: React.ReactNode;
   className?: string;
   onContextAdded?: (context: ContextItem) => void;
+  onExternalFilesDrop?: (files: File[]) => void;
   disabled?: boolean;
 }
 
@@ -21,6 +22,7 @@ export const ContextDropZone: React.FC<ContextDropZoneProps> = ({
   children,
   className = '',
   onContextAdded,
+  onExternalFilesDrop,
   disabled = false,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -101,8 +103,13 @@ export const ContextDropZone: React.FC<ContextDropZoneProps> = ({
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     dragCounterRef.current++;
+    if (Array.from(e.dataTransfer.types).includes('Files')) {
+      setIsDragOver(true);
+      setCanAccept(!disabled && Boolean(onExternalFilesDrop));
+      return;
+    }
     
     if (dragCounterRef.current === 1) {
       
@@ -114,12 +121,16 @@ export const ContextDropZone: React.FC<ContextDropZoneProps> = ({
         dragManager.handleDragEnter(dropTargetRef.current, e.nativeEvent);
       }
     }
-  }, []);
+  }, [disabled, onExternalFilesDrop]);
   
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
+    if (Array.from(e.dataTransfer.types).includes('Files')) {
+      e.dataTransfer.dropEffect = disabled || !onExternalFilesDrop ? 'none' : 'copy';
+      return;
+    }
     
     const payload = dragManager.getCurrentPayload();
     if (payload && dropTargetRef.current.canAccept(payload)) {
@@ -128,11 +139,12 @@ export const ContextDropZone: React.FC<ContextDropZoneProps> = ({
     } else {
       e.dataTransfer.dropEffect = 'none';
     }
-  }, []);
+  }, [disabled, onExternalFilesDrop]);
   
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const containsExternalFiles = Array.from(e.dataTransfer.types).includes('Files');
     
     dragCounterRef.current--;
     
@@ -140,7 +152,9 @@ export const ContextDropZone: React.FC<ContextDropZoneProps> = ({
       
       setIsDragOver(false);
       setCanAccept(false);
-      dragManager.handleDragLeave(dropTargetRef.current, e.nativeEvent);
+      if (!containsExternalFiles) {
+        dragManager.handleDragLeave(dropTargetRef.current, e.nativeEvent);
+      }
     }
   }, []);
   
@@ -152,18 +166,24 @@ export const ContextDropZone: React.FC<ContextDropZoneProps> = ({
     dragCounterRef.current = 0;
     setIsDragOver(false);
     setCanAccept(false);
-    
+
+    if (Array.from(e.dataTransfer.types).includes('Files')) {
+      if (!disabled && onExternalFilesDrop) {
+        onExternalFilesDrop(Array.from(e.dataTransfer.files));
+      }
+      return;
+    }
     dragManager.handleDrop(dropTargetRef.current, e.nativeEvent);
-  }, []);
+  }, [disabled, onExternalFilesDrop]);
   
   return (
     <div
       ref={dropZoneRef}
       className={`
-        bitfun-context-drop-zone
-        ${isDragOver ? 'bitfun-context-drop-zone--drag-over' : ''}
-        ${canAccept ? 'bitfun-context-drop-zone--can-accept' : ''}
-        ${!canAccept && isDragOver ? 'bitfun-context-drop-zone--cannot-accept' : ''}
+        openbitfun-context-drop-zone
+        ${isDragOver ? 'openbitfun-context-drop-zone--drag-over' : ''}
+        ${canAccept ? 'openbitfun-context-drop-zone--can-accept' : ''}
+        ${!canAccept && isDragOver ? 'openbitfun-context-drop-zone--cannot-accept' : ''}
         ${className}
       `.trim()}
       
@@ -172,9 +192,9 @@ export const ContextDropZone: React.FC<ContextDropZoneProps> = ({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       data-dropzone="context-drop-zone"
-      data-bf-component="context-list"
-      data-bf-part="dropZone"
-      data-bf-state={`${isDragOver ? 'drag-over ' : ''}${canAccept ? 'can-accept' : ''}`.trim() || undefined}
+      data-openbitfun-component="context-list"
+      data-openbitfun-part="dropZone"
+      data-openbitfun-state={`${isDragOver ? 'drag-over ' : ''}${canAccept ? 'can-accept' : ''}`.trim() || undefined}
     >
       {children}
     </div>

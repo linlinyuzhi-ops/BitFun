@@ -1,7 +1,31 @@
-import { describe, expect, it } from 'vitest';
-import { shouldRefreshSnapshotForSession } from './snapshotRefreshPolicy';
+import { describe, expect, it, vi } from 'vitest';
+const dispatchJobs = vi.hoisted(() => ({ 'job-1': { jobId: 'job-1', sessionId: 'observed-session' } }));
+vi.mock('@/features/dispatch/dispatchJobStore', () => ({ dispatchJobStore: { getState: () => ({ jobs: dispatchJobs }) } }));
+import { hasSessionFileSnapshots, shouldRefreshSnapshotForSession } from './snapshotRefreshPolicy';
 
 describe('snapshot refresh policy', () => {
+  it('does not probe controller snapshots for dispatch projections, including startup before binding', () => {
+    expect(hasSessionFileSnapshots({ config: { dispatchJobId: 'job-1' } })).toBe(false);
+    expect(hasSessionFileSnapshots(undefined, 'observed-session')).toBe(false);
+    expect(shouldRefreshSnapshotForSession(undefined, 'observed-session')).toBe(false);
+  });
+  it.each([
+    { remoteConnectionId: 'ssh-disconnected' },
+    { remoteSshHost: 'saved-host' },
+    { config: { remoteConnectionId: 'ssh-legacy' } },
+    { config: { remoteSshHost: 'legacy-host' } },
+    { remoteConnectionId: 'ssh-loopback', remoteSshHost: 'localhost' },
+  ])('does not request local file snapshots for remote session %j', (binding) => {
+    const session = { ...binding, isHistorical: true, historyState: 'ready' as const };
+    expect(hasSessionFileSnapshots(session)).toBe(false);
+    expect(shouldRefreshSnapshotForSession(session)).toBe(false);
+  });
+
+  it('keeps snapshots available on the owning host for legacy local sessions', () => {
+    expect(hasSessionFileSnapshots({ remoteSshHost: 'localhost' })).toBe(true);
+    expect(hasSessionFileSnapshots({ config: { remoteSshHost: '127.0.0.1' } })).toBe(true);
+  });
+
   it('defers snapshot refresh while persisted history is not ready', () => {
     expect(shouldRefreshSnapshotForSession({
       isHistorical: true,

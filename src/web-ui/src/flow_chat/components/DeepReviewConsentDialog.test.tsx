@@ -18,7 +18,7 @@ vi.mock('react-i18next', async () => {
   };
 });
 
-vi.mock('@/component-library', () => ({
+vi.mock('@openbitfun/ui', () => ({
   Button: ({
     children,
     onClick,
@@ -26,33 +26,24 @@ vi.mock('@/component-library', () => ({
     children: React.ReactNode;
     onClick?: () => void;
   }) => <button onClick={onClick}>{children}</button>,
-  Checkbox: ({
-    checked,
-    label,
-    onChange,
-  }: {
-    checked: boolean;
-    label: string;
-    onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  }) => (
-    <label>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onChange}
-      />
-      {label}
-    </label>
-  ),
-  Modal: ({
-    ariaLabel,
+  Dialog: ({
+    'aria-label': ariaLabel,
     children,
-    isOpen,
+    open,
   }: {
-    ariaLabel?: string;
+    'aria-label'?: string;
     children: React.ReactNode;
-    isOpen: boolean;
-  }) => (isOpen ? <div role="dialog" aria-modal="true" aria-label={ariaLabel}>{children}</div> : null),
+    open: boolean;
+  }) => (open ? <div role="dialog" aria-modal="true" aria-label={ariaLabel}>{children}</div> : null),
+  DialogBody: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  DialogClose: ({
+    'aria-label': ariaLabel,
+    onClick,
+  }: {
+    'aria-label': string;
+    onClick?: () => void;
+  }) => <button type="button" aria-label={ariaLabel} onClick={onClick} />,
+  DialogHeader: ({ children }: React.PropsWithChildren) => <header>{children}</header>,
 }));
 
 let JSDOMCtor: (new (
@@ -380,7 +371,7 @@ describeWithJsdom('DeepReviewConsentDialog', () => {
   });
 
   it('still opens when skip preference is set but reviewers are skipped', async () => {
-    localStorage.setItem('bitfun.deepReview.skipCostConfirmation', 'true');
+    localStorage.setItem('openbitfun.deepReview.skipCostConfirmation', 'true');
     const result = vi.fn();
 
     await act(async () => {
@@ -395,7 +386,7 @@ describeWithJsdom('DeepReviewConsentDialog', () => {
   });
 
   it('still opens when skip preference is set but the active session is busy', async () => {
-    localStorage.setItem('bitfun.deepReview.skipCostConfirmation', 'true');
+    localStorage.setItem('openbitfun.deepReview.skipCostConfirmation', 'true');
     const result = vi.fn();
 
     await act(async () => {

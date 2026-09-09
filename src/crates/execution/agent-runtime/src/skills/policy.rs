@@ -5,10 +5,12 @@ use crate::agents::{resolve_mode_config_profile_id, SHARED_CODING_MODE_CONFIG_PR
 enum SkillModeId {
     CodingShared,
     Cowork,
-    Team,
     Claw,
+    Creative,
     ComputerUse,
     DeepResearch,
+    Ultra,
+    SwarmWorker,
     Other,
 }
 
@@ -17,10 +19,12 @@ impl SkillModeId {
         match mode_id.trim() {
             SHARED_CODING_MODE_CONFIG_PROFILE_ID => Self::CodingShared,
             "Cowork" => Self::Cowork,
-            "Team" => Self::Team,
             "Claw" => Self::Claw,
+            "Creative" => Self::Creative,
             "ComputerUse" => Self::ComputerUse,
             "DeepResearch" => Self::DeepResearch,
+            "Ultra" => Self::Ultra,
+            "SwarmWorker" => Self::SwarmWorker,
             _ => Self::Other,
         }
     }
@@ -41,6 +45,7 @@ impl PolicyEffect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SkillSelector {
     Group(BuiltinSkillGroup),
+    DirName(&'static str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,10 +75,27 @@ const DISABLE_MINIAPP: SkillPolicyRule = SkillPolicyRule {
     effect: PolicyEffect::Disable,
 };
 
-// ControlHub's browser domain is the single default browser-automation path.
-// The computer-use skill group (agent-browser) stays opt-in in every mode so the
-// model never sees two parallel browser stacks; users can still enable it via
-// mode skill overrides or invoke it explicitly.
+const DISABLE_CREATION: SkillPolicyRule = SkillPolicyRule {
+    selector: SkillSelector::Group(BuiltinSkillGroup::Creation),
+    effect: PolicyEffect::Disable,
+};
+
+// Canvas is an optional artifact workflow. Keep its built-in skills available
+// for explicit user selection without making every conversation eligible for
+// implicit Canvas generation.
+const DISABLE_CANVAS: SkillPolicyRule = SkillPolicyRule {
+    selector: SkillSelector::Group(BuiltinSkillGroup::Canvas),
+    effect: PolicyEffect::Disable,
+};
+
+const DISABLE_DEBUGGING: SkillPolicyRule = SkillPolicyRule {
+    selector: SkillSelector::Group(BuiltinSkillGroup::Debugging),
+    effect: PolicyEffect::Disable,
+};
+
+// ControlHub's browser domain is the default browser-automation path for modes
+// that carry it. Ultra and SwarmWorker do not, so their narrow policies below
+// expose agent-browser instead.
 const DISABLE_COMPUTER_USE: SkillPolicyRule = SkillPolicyRule {
     selector: SkillSelector::Group(BuiltinSkillGroup::ComputerUse),
     effect: PolicyEffect::Disable,
@@ -89,6 +111,26 @@ const ENABLE_META: SkillPolicyRule = SkillPolicyRule {
     effect: PolicyEffect::Enable,
 };
 
+const ENABLE_COORDINATION: SkillPolicyRule = SkillPolicyRule {
+    selector: SkillSelector::Group(BuiltinSkillGroup::Coordination),
+    effect: PolicyEffect::Enable,
+};
+
+const ENABLE_PLANNING: SkillPolicyRule = SkillPolicyRule {
+    selector: SkillSelector::Group(BuiltinSkillGroup::Planning),
+    effect: PolicyEffect::Enable,
+};
+
+const ENABLE_AGENT_BROWSER: SkillPolicyRule = SkillPolicyRule {
+    selector: SkillSelector::DirName("agent-browser"),
+    effect: PolicyEffect::Enable,
+};
+
+const ENABLE_PLAN: SkillPolicyRule = SkillPolicyRule {
+    selector: SkillSelector::DirName("plan"),
+    effect: PolicyEffect::Enable,
+};
+
 const OPEN_META_ONLY_POLICY: ModeSkillPolicy = ModeSkillPolicy {
     builtin_default: PolicyEffect::Disable,
     rules: &[ENABLE_META],
@@ -96,34 +138,83 @@ const OPEN_META_ONLY_POLICY: ModeSkillPolicy = ModeSkillPolicy {
 
 const AGENTIC_POLICY: ModeSkillPolicy = ModeSkillPolicy {
     builtin_default: PolicyEffect::Enable,
-    rules: &[DISABLE_OFFICE, DISABLE_GSTACK, DISABLE_COMPUTER_USE],
+    rules: &[
+        DISABLE_OFFICE,
+        DISABLE_GSTACK,
+        DISABLE_COMPUTER_USE,
+        DISABLE_MINIAPP,
+        DISABLE_CREATION,
+        DISABLE_CANVAS,
+    ],
+};
+
+const CLAW_POLICY: ModeSkillPolicy = ModeSkillPolicy {
+    builtin_default: PolicyEffect::Enable,
+    rules: &[
+        DISABLE_OFFICE,
+        DISABLE_GSTACK,
+        DISABLE_COMPUTER_USE,
+        DISABLE_MINIAPP,
+        DISABLE_CREATION,
+        DISABLE_DEBUGGING,
+        DISABLE_CANVAS,
+    ],
+};
+
+const CREATIVE_POLICY: ModeSkillPolicy = ModeSkillPolicy {
+    builtin_default: PolicyEffect::Enable,
+    rules: &[
+        DISABLE_OFFICE,
+        DISABLE_GSTACK,
+        DISABLE_COMPUTER_USE,
+        DISABLE_DEBUGGING,
+        DISABLE_CANVAS,
+    ],
 };
 
 const COWORK_POLICY: ModeSkillPolicy = ModeSkillPolicy {
     builtin_default: PolicyEffect::Disable,
-    rules: &[ENABLE_OFFICE, ENABLE_META],
+    rules: &[
+        ENABLE_OFFICE,
+        ENABLE_META,
+        ENABLE_COORDINATION,
+        ENABLE_PLANNING,
+    ],
 };
 
-const TEAM_POLICY: ModeSkillPolicy = ModeSkillPolicy {
-    builtin_default: PolicyEffect::Enable,
-    rules: &[DISABLE_OFFICE, DISABLE_MINIAPP, DISABLE_COMPUTER_USE],
+const DEEP_RESEARCH_POLICY: ModeSkillPolicy = ModeSkillPolicy {
+    builtin_default: PolicyEffect::Disable,
+    rules: &[ENABLE_META, ENABLE_COORDINATION],
+};
+
+const ULTRA_POLICY: ModeSkillPolicy = ModeSkillPolicy {
+    builtin_default: PolicyEffect::Disable,
+    rules: &[ENABLE_PLAN, ENABLE_AGENT_BROWSER],
+};
+
+const SWARM_WORKER_POLICY: ModeSkillPolicy = ModeSkillPolicy {
+    builtin_default: PolicyEffect::Disable,
+    rules: &[ENABLE_AGENT_BROWSER],
 };
 
 fn policy_for_mode(mode_id: &str) -> ModeSkillPolicy {
     let policy_scope = resolve_mode_config_profile_id(mode_id);
     match SkillModeId::parse(policy_scope.as_ref()) {
-        SkillModeId::CodingShared | SkillModeId::Claw => AGENTIC_POLICY,
+        SkillModeId::CodingShared => AGENTIC_POLICY,
+        SkillModeId::Claw => CLAW_POLICY,
+        SkillModeId::Creative => CREATIVE_POLICY,
         SkillModeId::Cowork => COWORK_POLICY,
-        SkillModeId::Team => TEAM_POLICY,
-        SkillModeId::ComputerUse | SkillModeId::DeepResearch | SkillModeId::Other => {
-            OPEN_META_ONLY_POLICY
-        }
+        SkillModeId::DeepResearch => DEEP_RESEARCH_POLICY,
+        SkillModeId::Ultra => ULTRA_POLICY,
+        SkillModeId::SwarmWorker => SWARM_WORKER_POLICY,
+        SkillModeId::ComputerUse | SkillModeId::Other => OPEN_META_ONLY_POLICY,
     }
 }
 
 fn selector_matches(selector: SkillSelector, spec: &BuiltinSkillSpec) -> bool {
     match selector {
         SkillSelector::Group(group) => spec.group == group,
+        SkillSelector::DirName(dir_name) => spec.dir_name == dir_name,
     }
 }
 
@@ -148,36 +239,94 @@ pub fn resolve_builtin_default_enabled(dir_name: &str, mode_id: &str) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::SHARED_CODING_MODE_IDS;
+    use crate::agents::{SHARED_CODING_MODE_CONFIG_PROFILE_ID, SHARED_CODING_MODE_IDS};
     use crate::skills::catalog::BUILTIN_SKILL_SPECS;
 
     #[test]
-    fn agent_browser_defaults_off_in_every_mode() {
+    fn agent_browser_defaults_on_only_for_ultra_and_swarm_worker() {
         for mode_id in [
             "agentic",
-            "Plan",
-            "debug",
-            "Multitask",
             "coding_shared",
             "Claw",
+            "Creative",
             "Cowork",
-            "Team",
             "ComputerUse",
             "DeepResearch",
+            "Team",
+            "SwarmPlanner",
+            "SwarmReviewer",
             "SomeUnknownMode",
         ] {
             assert_eq!(
                 resolve_builtin_default_enabled("agent-browser", mode_id),
                 Some(false),
-                "agent-browser must stay opt-in for mode {mode_id}: ControlHub's browser domain is the default browser path"
+                "agent-browser should default off for mode {mode_id}"
+            );
+        }
+
+        for mode_id in ["Ultra", "SwarmWorker"] {
+            assert_eq!(
+                resolve_builtin_default_enabled("agent-browser", mode_id),
+                Some(true),
+                "agent-browser should be available in {mode_id}"
             );
         }
     }
 
     #[test]
-    fn shared_coding_modes_use_identical_builtin_skill_defaults() {
+    fn swarm_agents_expose_only_their_requested_builtin_skills_by_default() {
         for spec in BUILTIN_SKILL_SPECS {
-            let expected = resolve_builtin_default_enabled(spec.dir_name, "agentic");
+            assert_eq!(
+                resolve_builtin_default_enabled(spec.dir_name, "Ultra"),
+                Some(matches!(spec.dir_name, "plan" | "agent-browser")),
+                "Ultra has unexpected default exposure for {}",
+                spec.dir_name
+            );
+            assert_eq!(
+                resolve_builtin_default_enabled(spec.dir_name, "SwarmWorker"),
+                Some(spec.dir_name == "agent-browser"),
+                "SwarmWorker has unexpected default exposure for {}",
+                spec.dir_name
+            );
+        }
+    }
+
+    #[test]
+    fn canvas_skills_default_off_in_every_mode() {
+        for skill in [
+            "agent-eval-canvas",
+            "docs-canvas",
+            "openbitfun-canvas",
+            "pr-review-canvas",
+        ] {
+            for mode_id in [
+                "agentic",
+                "coding_shared",
+                "Claw",
+                "Creative",
+                "Cowork",
+                "ComputerUse",
+                "DeepResearch",
+                "Ultra",
+                "SwarmWorker",
+                "SomeUnknownMode",
+            ] {
+                assert_eq!(
+                    resolve_builtin_default_enabled(skill, mode_id),
+                    Some(false),
+                    "Canvas skill {skill} must stay opt-in for mode {mode_id}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shared_coding_modes_use_their_profile_builtin_skill_defaults() {
+        for spec in BUILTIN_SKILL_SPECS {
+            let expected = resolve_builtin_default_enabled(
+                spec.dir_name,
+                SHARED_CODING_MODE_CONFIG_PROFILE_ID,
+            );
             for mode_id in SHARED_CODING_MODE_IDS {
                 assert_eq!(
                     resolve_builtin_default_enabled(spec.dir_name, mode_id),
@@ -185,6 +334,118 @@ mod tests {
                     "builtin skill {} differs for shared coding mode {}",
                     spec.dir_name,
                     mode_id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn debug_skill_defaults_on_only_in_agentic() {
+        for mode_id in ["agentic", "coding_shared"] {
+            assert_eq!(
+                resolve_builtin_default_enabled("debug", mode_id),
+                Some(true),
+                "debug should default on for agentic profile identity {mode_id}"
+            );
+        }
+
+        for mode_id in [
+            "Claw",
+            "Creative",
+            "Cowork",
+            "ComputerUse",
+            "DeepResearch",
+            "Ultra",
+            "SwarmWorker",
+            "Team",
+            "SomeUnknownMode",
+        ] {
+            assert_eq!(
+                resolve_builtin_default_enabled("debug", mode_id),
+                Some(false),
+                "debug should default off outside agentic: {mode_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn multitask_skill_replaces_multitask_mode_in_coding_workflows() {
+        for mode_id in [
+            "agentic",
+            "coding_shared",
+            "Claw",
+            "Cowork",
+            "Creative",
+            "DeepResearch",
+        ] {
+            assert_eq!(
+                resolve_builtin_default_enabled("multitask", mode_id),
+                Some(true),
+                "multitask should be available in {mode_id}"
+            );
+        }
+
+        for mode_id in ["ComputerUse", "Ultra", "SwarmWorker", "SomeUnknownMode"] {
+            assert_eq!(
+                resolve_builtin_default_enabled("multitask", mode_id),
+                Some(false),
+                "multitask should remain opt-in in {mode_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn plan_skill_defaults_on_for_planning_capable_workflows() {
+        for mode_id in [
+            "agentic",
+            "coding_shared",
+            "Claw",
+            "Cowork",
+            "Creative",
+            "Ultra",
+        ] {
+            assert_eq!(
+                resolve_builtin_default_enabled("plan", mode_id),
+                Some(true),
+                "plan should be available in {mode_id}"
+            );
+        }
+
+        for mode_id in [
+            "ComputerUse",
+            "DeepResearch",
+            "SwarmWorker",
+            "SwarmPlanner",
+            "SwarmReviewer",
+            "SomeUnknownMode",
+        ] {
+            assert_eq!(
+                resolve_builtin_default_enabled("plan", mode_id),
+                Some(false),
+                "plan should remain opt-in or unavailable in {mode_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn product_creation_skills_default_only_in_creative_mode() {
+        for skill in ["miniapp-dev", "openbitfun-frontend-dev"] {
+            for mode_id in [
+                "agentic",
+                "coding_shared",
+                "Claw",
+                "Creative",
+                "Cowork",
+                "ComputerUse",
+                "DeepResearch",
+                "Ultra",
+                "SwarmWorker",
+                "SomeUnknownMode",
+            ] {
+                assert_eq!(
+                    resolve_builtin_default_enabled(skill, mode_id),
+                    Some(mode_id == "Creative"),
+                    "creation skill {skill} has unexpected default exposure in {mode_id}"
                 );
             }
         }

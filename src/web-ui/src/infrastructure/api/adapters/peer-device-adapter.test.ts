@@ -32,6 +32,12 @@ describe('isPeerLocalOnlyCommand', () => {
     expect(isPeerLocalOnlyCommand('speech_start_input_session')).toBe(true);
     expect(isPeerLocalOnlyCommand('speech_append_audio_chunk')).toBe(true);
     expect(isPeerLocalOnlyCommand('speech_finish_input_session')).toBe(true);
+    expect(isPeerLocalOnlyCommand('speech_start_realtime_session')).toBe(true);
+    expect(isPeerLocalOnlyCommand('speech_append_realtime_audio')).toBe(true);
+    expect(isPeerLocalOnlyCommand('speech_send_realtime_tool_result')).toBe(true);
+    expect(isPeerLocalOnlyCommand('speech_close_realtime_session')).toBe(true);
+    expect(isPeerLocalOnlyCommand('speech_get_realtime_config')).toBe(true);
+    expect(isPeerLocalOnlyCommand('speech_save_realtime_config')).toBe(true);
   });
 
   it('keeps sleep-prevention controls on the controller computer', () => {
@@ -236,7 +242,6 @@ describe('peerInvokePriorityFor', () => {
     expect(peerInvokePriorityFor('git_is_repository')).toBe('low');
     expect(peerInvokePriorityFor('ssh_is_connected')).toBe('low');
     expect(peerInvokePriorityFor('get_file_metadata')).toBe('low');
-    expect(peerInvokePriorityFor('lsp_detect_project')).toBe('low');
     expect(peerInvokePriorityFor('search_get_repo_status')).toBe('low');
     expect(peerInvokePriorityFor('load_canvas_artifact')).toBe('low');
     expect(peerInvokePriorityFor('get_file_tree')).toBe('low');

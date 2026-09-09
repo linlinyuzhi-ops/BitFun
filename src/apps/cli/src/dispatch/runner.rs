@@ -1,4 +1,5 @@
 use std::process::{Command, Stdio};
+#[cfg(unix)]
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -48,8 +49,8 @@ fn spawn_detached_action(action: &str, job_id: &str, description: &str) -> Resul
         bail!("dispatch detached workers are supported only on Linux and macOS");
     }
 
-    let executable = std::env::current_exe().context("resolve BitFun executable")?;
-    let mut command = bitfun_services_core::process_manager::create_command(executable);
+    let executable = std::env::current_exe().context("resolve OpenBitFun executable")?;
+    let mut command = openbitfun_services_core::process_manager::create_command(executable);
     command
         .arg("dispatch")
         .arg(action)
@@ -362,17 +363,17 @@ mod tests {
 
     #[test]
     fn process_identity_requires_the_exact_hidden_worker_arguments() {
-        let expected = ["bitfun", "dispatch", "__run", "--job", "job-1"].map(str::to_string);
+        let expected = ["openbitfun", "dispatch", "__run", "--job", "job-1"].map(str::to_string);
         assert!(arguments_match_action(&expected, "__run", "job-1"));
         assert!(!arguments_match_action(&expected, "__run", "job-2"));
-        let unrelated = ["bitfun", "dispatch", "status"].map(str::to_string);
+        let unrelated = ["openbitfun", "dispatch", "status"].map(str::to_string);
         assert!(!arguments_match_action(&unrelated, "__run", "job-1"));
     }
 
     #[test]
     fn workspace_operation_identity_requires_the_exact_hidden_action() {
         let expected = [
-            "bitfun",
+            "openbitfun",
             "dispatch",
             "__workspace_sync_run",
             "--job",
@@ -482,16 +483,18 @@ mod tests {
         let mut command = Command::new("/bin/sh");
         command
             .arg("-c")
+            // Keep the leader in the shell's `wait` builtin so TERM runs its
+            // trap immediately; an external `sleep` can defer trap handling.
             .arg(
                 "trap 'exit 0' TERM; trap '' HUP; \
-                 sh -c 'trap \"\" TERM HUP; printf ready > \"$BITFUN_DISPATCH_TERM_TEST_READY\"; \
+                 sh -c 'trap \"\" TERM HUP; printf ready > \"$OPENBITFUN_DISPATCH_TERM_TEST_READY\"; \
                  while :; do sleep 30; done' & \
-                 while :; do sleep 30; done",
+                 wait",
             )
             // These trailing arguments make the real process identity match
-            // the hidden worker contract without launching BitFun Runtime.
+            // the hidden worker contract without launching OpenBitFun Runtime.
             .args(["dispatch", "__run", "--job", job_id])
-            .env("BITFUN_DISPATCH_TERM_TEST_READY", &ready_path)
+            .env("OPENBITFUN_DISPATCH_TERM_TEST_READY", &ready_path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -499,7 +502,6 @@ mod tests {
         let mut leader = command.spawn().expect("spawn process-group leader");
         let process_group = i32::try_from(leader.id()).expect("safe pid");
         let _guard = ProcessGroupGuard(process_group);
-        assert!(worker_process_alive(process_group as u32, job_id));
         for _ in 0..100 {
             if ready_path.is_file() {
                 break;
@@ -510,6 +512,7 @@ mod tests {
             ready_path.is_file(),
             "TERM-resistant child must be ready before cancellation"
         );
+        assert!(worker_process_alive(process_group as u32, job_id));
         let reaper = std::thread::spawn(move || leader.wait());
 
         let error = terminate_worker(process_group as u32, job_id)

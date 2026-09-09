@@ -1,7 +1,17 @@
+import {
+  Button,
+  ConfirmDialog,
+  Icon,
+  Switch,
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogHeader,
+  DialogHeading,
+  DialogTitle,
+} from '@openbitfun/ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, RefreshCw } from 'lucide-react';
-import { Button, ConfigPageLoading, ConfirmDialog, Modal, Switch } from '@/component-library';
 import { useCurrentWorkspace } from '@/infrastructure/contexts/WorkspaceContext';
 import { WorkspaceKind } from '@/shared/types';
 import { useNotification } from '@/shared/notification-system';
@@ -21,6 +31,8 @@ import {
   ConfigPageLayout,
   ConfigPageRow,
   ConfigPageSection,
+  ConfigLoadingState,
+  ConfigRetryState,
 } from './common';
 
 const log = createLogger('HooksConfig');
@@ -60,6 +72,7 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
     || Boolean(workspace?.connectionId);
 
   const [loading, setLoading] = useState(true);
+  const [configLoadFailed, setConfigLoadFailed] = useState(false);
   const [config, setConfig] = useState<AgentHooksConfigShape>(DEFAULT_HOOKS_CONFIG);
   const [savingKey, setSavingKey] = useState<keyof AgentHooksConfigShape | null>(null);
   const [importSnapshot, setImportSnapshot] = useState<ExternalHookImportSnapshot | null>(null);
@@ -73,12 +86,14 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
     | { kind: 'reset'; scope: ExternalHookSource['scope'] }
     | null
   >(null);
+  const [projectHooksEnableConfirmOpen, setProjectHooksEnableConfirmOpen] = useState(false);
   const requestSequence = useRef(0);
   const mountedRef = useRef(true);
 
   const loadData = useCallback(async () => {
     const sequence = ++requestSequence.current;
     setLoading(true);
+    setConfigLoadFailed(false);
     setImportError(null);
     const [configResult, importResult] = await Promise.allSettled([
       configManager.getConfig<Partial<AgentHooksConfigShape>>('app.hooks'),
@@ -91,11 +106,7 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
       setConfig(normalizeHooksConfig(configResult.value));
     } else {
       log.error('Failed to load hooks config', configResult.reason);
-      notifyError(
-        configResult.reason instanceof Error
-          ? configResult.reason.message
-          : t('messages.loadFailed'),
-      );
+      setConfigLoadFailed(true);
     }
     if (importResult.status === 'fulfilled') {
       setImportSnapshot(importResult.value);
@@ -105,7 +116,7 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
       setImportError(t('imports.loadFailed'));
     }
     setLoading(false);
-  }, [notifyError, remoteWorkspace, t, workspacePath]);
+  }, [remoteWorkspace, t, workspacePath]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -296,15 +307,31 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
     && item.source.key.sourceId === reviewPlan.source.key.sourceId
   ));
 
-  if (loading) {
+  if (loading || configLoadFailed) {
     if (embedded) {
-      return <ConfigPageLoading text={t('loading')} />;
+      return loading ? (
+        <ConfigLoadingState label={t('loading')} />
+      ) : (
+        <ConfigRetryState
+          message={t('messages.loadFailedLocked')}
+          retryLabel={t('messages.retry')}
+          onRetry={() => void loadData()}
+        />
+      );
     }
     return (
       <ConfigPageLayout>
         <ConfigPageHeader title={t('title')} subtitle={t('subtitle')} />
         <ConfigPageContent>
-          <ConfigPageLoading text={t('loading')} />
+          {loading ? (
+            <ConfigLoadingState label={t('loading')} />
+          ) : (
+            <ConfigRetryState
+              message={t('messages.loadFailedLocked')}
+              retryLabel={t('messages.retry')}
+              onRetry={() => void loadData()}
+            />
+          )}
         </ConfigPageContent>
       </ConfigPageLayout>
     );
@@ -316,7 +343,6 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
         <ConfigPageSection title={t('activation.title')} description={t('activation.description')}>
           <ConfigPageRow
             label={t('fields.enabled.label')}
-            description={t('fields.enabled.description')}
             align="center"
           >
             <Switch
@@ -333,7 +359,10 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
           >
             <Switch
               checked={config.project_hooks_enabled}
-              onChange={(event) => void updateConfig('project_hooks_enabled', event.target.checked)}
+              onChange={(event) => {
+                if (event.target.checked) setProjectHooksEnableConfirmOpen(true);
+                else void updateConfig('project_hooks_enabled', false);
+              }}
               disabled={savingKey !== null || !config.enabled}
             />
           </ConfigPageRow>
@@ -362,13 +391,14 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
           description={config.enabled ? t('imports.description') : t('imports.masterDisabled')}
           extra={remoteWorkspace ? null : (
             <Button
-              variant="secondary"
-              size="small"
-              isLoading={importLoading}
+              variant="outline"
+              size="sm"
+              loading={importLoading}
               disabled={busyKey !== null}
               onClick={() => void refreshImports()}
+              leadingIcon={<Icon name="refresh" size="sm" />}
             >
-              <RefreshCw size={14} />
+
               {t('imports.refresh')}
             </Button>
           )}
@@ -403,16 +433,17 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
                     )}
                   />
                   <Button
-                    variant="secondary"
-                    size="small"
+                    variant="outline"
+                    size="sm"
                     disabled={busyKey !== null || item.state === 'source_missing'}
                     onClick={() => void previewImport(item.source)}
                   >
                     {t('imports.update')}
                   </Button>
                   <Button
-                    variant="danger"
-                    size="small"
+                    variant="fill"
+                    tone="danger"
+                    size="sm"
                     disabled={busyKey !== null}
                     onClick={() => setConfirmation({ kind: 'remove', importId: item.importId })}
                   >
@@ -431,9 +462,9 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
                       align="center"
                     >
                       <Button
-                        variant="secondary"
-                        size="small"
-                        isLoading={busyKey === key}
+                        variant="outline"
+                        size="sm"
+                        loading={busyKey === key}
                         disabled={busyKey !== null || source.health === 'unavailable'}
                         onClick={() => void previewImport(source)}
                       >
@@ -455,8 +486,9 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
                       align="center"
                     >
                       <Button
-                        variant="danger"
-                        size="small"
+                        variant="fill"
+                        tone="danger"
+                        size="sm"
                         disabled={busyKey !== null}
                         onClick={() => setConfirmation({ kind: 'reset', scope })}
                       >
@@ -470,7 +502,7 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
                 && availableSources.length === 0
                 && corruptDiagnostics.length === 0 ? (
                   <ConfigPageRow
-                    className="bitfun-hooks-config__empty"
+                    className="openbitfun-hooks-config__empty"
                     label={<span data-hooks-empty="true">{t('imports.empty')}</span>}
                     multiline
                   >
@@ -479,7 +511,7 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
                 ) : null}
             </>
           ) : (
-            <ConfigPageLoading text={t('imports.loading')} />
+            <ConfigLoadingState label={t('imports.loading')} />
           )}
         </ConfigPageSection>
 
@@ -489,29 +521,34 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
         >
           <ConfigPageRow
             label={t('compatibility.reference.label')}
-            description={t('compatibility.reference.description')}
             align="center"
           >
-            <Button variant="secondary" size="small" onClick={openCodexHooksDoc}>
-              <ExternalLink size={14} />
+            <Button variant="outline" size="sm" onClick={openCodexHooksDoc} leadingIcon={<Icon name="arrow-up-right" size="sm" />}>
+
               {t('compatibility.reference.open')}
             </Button>
           </ConfigPageRow>
         </ConfigPageSection>
       </ConfigPageContent>
 
-      <Modal
-        isOpen={reviewPlan !== null}
-        onClose={() => {
-          if (busyKey !== 'apply') {
+      <Dialog
+        open={reviewPlan !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && busyKey !== 'apply') {
             setReviewPlan(null);
             setPlanNotice(null);
           }
         }}
-        title={t('imports.reviewTitle', { name: reviewPlan?.source.displayName ?? '' })}
-        size="large"
-        closeOnOverlayClick={busyKey !== 'apply'}
+        size="lg"
+        closeOnPointerOutside={busyKey !== 'apply'}
       >
+        <DialogHeader>
+          <DialogHeading>
+            <DialogTitle>{t('imports.reviewTitle', { name: reviewPlan?.source.displayName ?? '' })}</DialogTitle>
+          </DialogHeading>
+          <DialogClose />
+        </DialogHeader>
+        <DialogBody inset="none">
         {reviewPlan ? (
           <div>
             {planNotice ? <p role="status">{planNotice}</p> : null}
@@ -541,7 +578,7 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
               </p>
             ))}
             <Button
-              variant="secondary"
+              variant="outline"
               disabled={busyKey === 'apply'}
               onClick={() => {
                 setReviewPlan(null);
@@ -550,8 +587,8 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
             >
               {t('imports.cancel')}
             </Button>
-            <Button
-              isLoading={busyKey === 'apply'}
+            <Button variant="fill"
+              loading={busyKey === 'apply'}
               disabled={reviewPlan.handlers.length === 0}
               onClick={() => void applyReviewedPlan()}
             >
@@ -559,11 +596,12 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
             </Button>
           </div>
         ) : null}
-      </Modal>
+              </DialogBody>
+      </Dialog>
 
       <ConfirmDialog
-        isOpen={confirmation !== null}
-        onClose={() => setConfirmation(null)}
+        open={confirmation !== null}
+        onOpenChange={() => setConfirmation(null)}
         onConfirm={confirmMutation}
         title={confirmation?.kind === 'reset'
           ? t('imports.resetTitle')
@@ -576,12 +614,26 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
           : t('imports.removeConfirm')}
         confirmDanger
       />
+      <ConfirmDialog
+        open={projectHooksEnableConfirmOpen}
+        onOpenChange={(open) => { if (!open) setProjectHooksEnableConfirmOpen(false); }}
+        onConfirm={() => {
+          setProjectHooksEnableConfirmOpen(false);
+          void updateConfig('project_hooks_enabled', true);
+        }}
+        title={t('projectHooksRisk.title')}
+        message={t('projectHooksRisk.message', {
+          workspace: workspacePath || t('projectHooksRisk.currentWorkspace'),
+        })}
+        confirmText={t('projectHooksRisk.confirm')}
+        type="warning"
+      />
     </>
   );
 
   if (embedded) {
     return (
-      <div className="bitfun-hooks-config bitfun-hooks-config--embedded">
+      <div className="openbitfun-hooks-config openbitfun-hooks-config--embedded">
         {content}
       </div>
     );

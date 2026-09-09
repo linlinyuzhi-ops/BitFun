@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TauriCommandError } from '@/infrastructure/api/errors/TauriCommandError';
 import {
+  describeGitTrustFailure,
   requestGitRepositoryTrust,
   resetGitTrustDecisions,
   withGitRepositoryTrustRecovery,
@@ -12,7 +13,7 @@ const getRepositoryTrustMock = vi.hoisted(() => vi.fn());
 const warningMock = vi.hoisted(() => vi.fn());
 const successMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@/component-library/components/ConfirmDialog/confirmService', () => ({
+vi.mock('@/infrastructure/confirm-dialog', () => ({
   confirmWarning: confirmWarningMock,
 }));
 
@@ -37,7 +38,7 @@ vi.mock('@/shared/notification-system', () => ({
   },
 }));
 
-const REPOSITORY_PATH = 'D:/workspace/project/BitFun';
+const REPOSITORY_PATH = 'D:/workspace/project/OpenBitFun';
 
 function untrustedError(repositoryPath = REPOSITORY_PATH): TauriCommandError {
   return new TauriCommandError('Command failed', {
@@ -65,6 +66,18 @@ beforeEach(() => {
   getRepositoryTrustMock.mockRejectedValue(new Error('probe not stubbed'));
   warningMock.mockReset();
   successMock.mockReset();
+});
+
+describe('describeGitTrustFailure', () => {
+  it('turns the stable repository trust code into localized copy', () => {
+    expect(describeGitTrustFailure(untrustedError())).toBe(
+      `panels/git:trust.required|${JSON.stringify({ path: REPOSITORY_PATH })}`,
+    );
+  });
+
+  it('leaves unrelated failures to the calling surface', () => {
+    expect(describeGitTrustFailure(new Error('provider unavailable'))).toBeUndefined();
+  });
 });
 
 describe('requestGitRepositoryTrust', () => {
@@ -156,8 +169,8 @@ describe('requestGitRepositoryTrust', () => {
     );
     trustRepositoryMock.mockResolvedValue(grantedOutcome());
 
-    const first = requestGitRepositoryTrust('D:/workspace/project/BitFun');
-    const second = requestGitRepositoryTrust('d:\\workspace\\project\\BitFun');
+    const first = requestGitRepositoryTrust('D:/workspace/project/OpenBitFun');
+    const second = requestGitRepositoryTrust('d:\\workspace\\project\\OpenBitFun');
     resolveConfirm(true);
 
     await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
@@ -176,8 +189,8 @@ describe('requestGitRepositoryTrust', () => {
     );
     trustRepositoryMock.mockResolvedValue(grantedOutcome());
 
-    const first = requestGitRepositoryTrust('D:/Workspace/Project/BitFun');
-    const second = requestGitRepositoryTrust('d:/workspace/project/bitfun');
+    const first = requestGitRepositoryTrust('D:/Workspace/Project/OpenBitFun');
+    const second = requestGitRepositoryTrust('d:/workspace/project/openbitfun');
     resolveConfirm(true);
 
     await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
@@ -195,8 +208,8 @@ describe('requestGitRepositoryTrust', () => {
     );
     trustRepositoryMock.mockResolvedValue(grantedOutcome());
 
-    const first = requestGitRepositoryTrust('\\\\Build01\\Shared\\BitFun');
-    const second = requestGitRepositoryTrust('//build01/shared/bitfun');
+    const first = requestGitRepositoryTrust('\\\\Build01\\Shared\\OpenBitFun');
+    const second = requestGitRepositoryTrust('//build01/shared/openbitfun');
     resolveConfirm(true);
 
     await expect(Promise.all([first, second])).resolves.toEqual([true, true]);

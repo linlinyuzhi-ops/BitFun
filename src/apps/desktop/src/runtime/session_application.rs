@@ -9,32 +9,33 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
-use bitfun_agent_runtime::sdk::{
+use openbitfun_agent_runtime::sdk::{
     AgentLocalCommandTurnRecordRequest, AgentRuntime, AgentSessionArchiveStateRequest,
     AgentSessionDeleteRequest, AgentSessionForkAtTurnRequest, AgentSessionLineageRequest,
     AgentSessionLineageSnapshot, AgentSessionRenameRequest, AgentSessionUsageRequest,
     PortErrorKind, RuntimeError, SessionEventBackfill, SessionEventJournal,
     SessionEventProjectionSnapshot, SessionInteractionSnapshot,
 };
-use bitfun_core::agentic::coordination::{ConversationCoordinator, DialogScheduler};
-use bitfun_core::agentic::core::Session;
-use bitfun_core::agentic::persistence::{SessionBranchResult, SessionMetadataPage};
-use bitfun_core::agentic::session::SessionViewRestoreTiming;
-use bitfun_core::product_runtime::{CoreAgentRuntimeCompatibility, CoreProductAgentRuntime};
-use bitfun_core::service::remote_ssh::workspace_state::{
+use openbitfun_core::agentic::coordination::{ConversationCoordinator, DialogScheduler};
+use openbitfun_core::agentic::core::Session;
+use openbitfun_core::agentic::persistence::{SessionBranchResult, SessionMetadataPage};
+use openbitfun_core::agentic::session::SessionViewRestoreTiming;
+use openbitfun_core::product_runtime::{CoreAgentRuntimeCompatibility, CoreProductAgentRuntime};
+use openbitfun_core::service::remote_ssh::workspace_state::{
     get_effective_session_path, LOCAL_WORKSPACE_SSH_HOST,
 };
-use bitfun_core::service::remote_ssh::SSHConnectionManager;
-use bitfun_core::service::session::{
+use openbitfun_core::service::remote_ssh::SSHConnectionManager;
+use openbitfun_core::service::session::{
     DialogTurnData, DialogTurnKind, SessionContextUsage, SessionMetadata, SessionStatus,
     SessionTranscriptExport, SessionTranscriptExportOptions, SessionTurnCatalog,
     SessionTurnWindowResponse,
 };
-use bitfun_core::service::session_usage::SessionUsageReport;
-use bitfun_core::service::token_usage::TokenUsageService;
-use bitfun_core::service::workspace::WorkspaceService;
-use bitfun_core::util::errors::BitFunError;
-use bitfun_runtime_ports::{AgentContextReloadRequest, SessionTurnWindowRequest};
+use openbitfun_core::service::session_usage::SessionUsageReport;
+use openbitfun_core::service::token_usage::TokenUsageService;
+use openbitfun_core::service::workspace::WorkspaceService;
+use openbitfun_core::util::errors::OpenBitFunError;
+use openbitfun_product_domains::product_search::SessionContentSearchResponse;
+use openbitfun_runtime_ports::{AgentContextReloadRequest, SessionTurnWindowRequest};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
@@ -77,12 +78,14 @@ pub(crate) enum DesktopSessionApplicationError {
 
 pub(crate) type DesktopSessionApplicationResult<T> = Result<T, DesktopSessionApplicationError>;
 
-fn desktop_core_session_error(error: BitFunError) -> DesktopSessionApplicationError {
+fn desktop_core_session_error(error: OpenBitFunError) -> DesktopSessionApplicationError {
     match error {
-        BitFunError::SessionInUse { session_id } => DesktopSessionApplicationError::SessionInUse(
-            format!("Session is already open for writing: {session_id}"),
-        ),
-        BitFunError::OutcomeUnknown(message) => {
+        OpenBitFunError::SessionInUse { session_id } => {
+            DesktopSessionApplicationError::SessionInUse(format!(
+                "Session is already open for writing: {session_id}"
+            ))
+        }
+        OpenBitFunError::OutcomeUnknown(message) => {
             DesktopSessionApplicationError::OutcomeUnknown(message)
         }
         error => DesktopSessionApplicationError::Core(error.to_string()),
@@ -333,8 +336,8 @@ impl DesktopSessionApplication {
 
     pub(crate) async fn rollback_session_to_turn(
         &self,
-        request: bitfun_runtime_ports::AgentSessionRollbackToTurnRequest,
-    ) -> DesktopSessionApplicationResult<bitfun_runtime_ports::AgentSessionRollbackToTurnOutcome>
+        request: openbitfun_runtime_ports::AgentSessionRollbackToTurnRequest,
+    ) -> DesktopSessionApplicationResult<openbitfun_runtime_ports::AgentSessionRollbackToTurnOutcome>
     {
         self.agent_runtime
             .rollback_session_to_turn(request)
@@ -428,11 +431,37 @@ impl DesktopSessionApplication {
         request: DesktopSessionScopeRequest,
         cursor: Option<&str>,
         limit: usize,
+        session_ids: Option<&[String]>,
     ) -> DesktopSessionApplicationResult<SessionMetadataPage> {
         let scope = self.resolved_scope(request).await;
         let storage_path = self.storage_path(&scope);
         self.compatibility
-            .list_persisted_sessions_page(&storage_path, cursor, limit)
+            .list_persisted_sessions_page_with_activity(
+                &self.agent_runtime,
+                &storage_path,
+                cursor,
+                limit,
+                session_ids,
+            )
+            .await
+            .map_err(|error| DesktopSessionApplicationError::Core(error.to_string()))
+    }
+
+    pub(crate) async fn search_session_content(
+        &self,
+        request: DesktopSessionScopeRequest,
+        query: &str,
+        limit: usize,
+        include_archived: bool,
+    ) -> DesktopSessionApplicationResult<SessionContentSearchResponse> {
+        let scope = self.resolved_scope(request).await;
+        self.compatibility
+            .search_persisted_session_content(
+                &self.storage_path(&scope),
+                query,
+                limit,
+                include_archived,
+            )
             .await
             .map_err(|error| DesktopSessionApplicationError::Core(error.to_string()))
     }
@@ -930,7 +959,7 @@ fn merge_ui_owned_session_metadata(
         current.review_action_state = incoming.review_action_state.clone();
     }
     if fields.contains(&UiSessionMetadataField::UnreadCompletion) {
-        current.unread_completion = incoming.unread_completion.clone();
+        openbitfun_core::service::session::apply_session_unread_completion(current, incoming);
     }
     if fields.contains(&UiSessionMetadataField::NeedsUserAttention) {
         current.needs_user_attention = incoming.needs_user_attention.clone();
@@ -959,13 +988,13 @@ fn merge_ui_owned_session_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitfun_agent_runtime::sdk::{
+    use openbitfun_agent_runtime::sdk::{
         AgentRuntimeBuilder, AgentSessionCreateRequest, AgentSessionCreateResult,
         AgentSessionListRequest, AgentSessionManagementPort, AgentSessionSummary,
         AgentSessionWorkspaceBinding, AgentSessionWorkspaceRequest, AgentSubmissionPort,
         AgentSubmissionRequest, AgentSubmissionResult, PortError, PortErrorKind, PortResult,
     };
-    use bitfun_core::service::session::{
+    use openbitfun_core::service::session::{
         SessionContextUsage, SessionContextUsageSource, SessionKind, SessionMemoryMode,
     };
     use serde_json::json;
@@ -973,10 +1002,11 @@ mod tests {
 
     #[test]
     fn session_writer_conflict_keeps_a_stable_desktop_transport_code() {
-        let error =
-            desktop_core_session_error(bitfun_core::util::errors::BitFunError::SessionInUse {
+        let error = desktop_core_session_error(
+            openbitfun_core::util::errors::OpenBitFunError::SessionInUse {
                 session_id: "session-1".to_string(),
-            });
+            },
+        );
 
         assert!(matches!(
             error,
@@ -1007,7 +1037,7 @@ mod tests {
 
     #[test]
     fn compatibility_rename_unknown_outcomes_keep_the_same_transport_code() {
-        let error = desktop_core_session_error(BitFunError::OutcomeUnknown(
+        let error = desktop_core_session_error(OpenBitFunError::OutcomeUnknown(
             "inspect authoritative state".to_string(),
         ));
 
@@ -1025,7 +1055,7 @@ mod tests {
             2,
             "session-1".to_string(),
             None,
-            bitfun_core::service::session::UserMessageData {
+            openbitfun_core::service::session::UserMessageData {
                 id: "local-usage-user-report-1".to_string(),
                 content: "# Usage".to_string(),
                 timestamp: 42,
@@ -1217,16 +1247,16 @@ mod tests {
             Default::default(),
         );
         let mut live = restored.clone();
-        live.state = bitfun_core::agentic::core::SessionState::Processing {
+        live.state = openbitfun_core::agentic::core::SessionState::Processing {
             current_turn_id: "turn-1".to_string(),
-            phase: bitfun_core::agentic::core::ProcessingPhase::Streaming,
+            phase: openbitfun_core::agentic::core::ProcessingPhase::Streaming,
         };
 
         overlay_live_session_state(&mut restored, Some(live));
 
         assert!(matches!(
             restored.state,
-            bitfun_core::agentic::core::SessionState::Processing {
+            openbitfun_core::agentic::core::SessionState::Processing {
                 ref current_turn_id,
                 ..
             } if current_turn_id == "turn-1"
@@ -1246,14 +1276,14 @@ mod tests {
 
         assert!(matches!(
             restored.state,
-            bitfun_core::agentic::core::SessionState::Idle
+            openbitfun_core::agentic::core::SessionState::Idle
         ));
     }
 
     #[tokio::test]
     async fn local_session_storage_identity_survives_workspace_removal() {
         let root = std::env::temp_dir().join(format!(
-            "bitfun-desktop-session-path-test-{}",
+            "openbitfun-desktop-session-path-test-{}",
             uuid::Uuid::new_v4()
         ));
         let workspace_path = root.join("project");
@@ -1309,7 +1339,10 @@ mod tests {
         let tauri_state = ["tauri", "::", "State"].concat();
         assert!(!source.contains(&tauri_namespace));
         assert!(!source.contains(&tauri_state));
-        for forbidden in [["crate", "::", "api"].concat(), ["bitfun", "_acp"].concat()] {
+        for forbidden in [
+            ["crate", "::", "api"].concat(),
+            ["openbitfun", "_acp"].concat(),
+        ] {
             assert!(!source.contains(&forbidden), "unexpected {forbidden}");
         }
         for forbidden in [
@@ -1466,7 +1499,7 @@ mod tests {
             "session".to_string(),
             "Current".to_string(),
             "agentic".to_string(),
-            "auto".to_string(),
+            "primary".to_string(),
         );
         current.review_action_state = Some(json!({ "phase": "review_completed" }));
         current.unread_completion = Some("completed".to_string());

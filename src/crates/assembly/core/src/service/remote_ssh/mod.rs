@@ -1,7 +1,7 @@
 //! Remote SSH Service Module
 //!
 //! Provides SSH connection management and SFTP-based remote file operations.
-//! This allows BitFun to work with files on remote servers via SSH,
+//! This allows OpenBitFun to work with files on remote servers via SSH,
 //! similar to VSCode's Remote SSH extension.
 
 #[cfg(feature = "ssh-remote")]
@@ -13,16 +13,17 @@ pub mod remote_terminal;
 pub mod types;
 pub mod workspace_state;
 
-pub use bitfun_services_integrations::remote_ssh::{
+pub use openbitfun_services_integrations::remote_ssh::{
     build_remote_git_command, search_remote_file_names, shell_quote_posix, RemoteFileNameSearch,
 };
 #[cfg(feature = "ssh-remote")]
-pub use bitfun_services_integrations::remote_ssh::{dispatch_ssh, relay_deploy};
+pub use openbitfun_services_integrations::remote_ssh::{dispatch_ssh, relay_deploy};
 #[cfg(not(feature = "ssh-remote"))]
-pub use bitfun_services_integrations::remote_ssh::{
-    get_global_remote_exec_process_manager, KnownHostEntry, PTYSession, PortForward,
-    PortForwardDirection, PortForwardManager, RemoteExecCommandRequest, RemoteExecCommandResponse,
-    RemoteExecControlAction, RemoteExecControlOrigin, RemoteExecControlRequest, RemoteExecError,
+pub use openbitfun_services_integrations::remote_ssh::{
+    get_global_remote_exec_process_manager, global_port_forward_manager,
+    list_remote_listening_ports, KnownHostEntry, PTYSession, PortForwardManager,
+    RemoteExecCommandRequest, RemoteExecCommandResponse, RemoteExecControlAction,
+    RemoteExecControlOrigin, RemoteExecControlRequest, RemoteExecError,
     RemoteExecProcessLifecycleEvent, RemoteExecProcessLifecycleStatus, RemoteExecProcessManager,
     RemoteExecResult, RemoteExecSessionCompletion, RemoteExecSessionCompletionSource,
     RemoteExecSessionCompletionStatus, RemoteFileService, RemoteSendStdinRequest,
@@ -30,7 +31,7 @@ pub use bitfun_services_integrations::remote_ssh::{
     SessionStatus,
 };
 #[cfg(feature = "ssh-remote")]
-pub use bitfun_services_integrations::remote_ssh::{
+pub use openbitfun_services_integrations::remote_ssh::{
     get_global_remote_exec_process_manager, RemoteExecCommandRequest, RemoteExecCommandResponse,
     RemoteExecControlAction, RemoteExecControlOrigin, RemoteExecControlRequest, RemoteExecError,
     RemoteExecProcessLifecycleEvent, RemoteExecProcessLifecycleStatus, RemoteExecProcessManager,
@@ -38,9 +39,9 @@ pub use bitfun_services_integrations::remote_ssh::{
     RemoteExecSessionCompletionStatus, RemoteSendStdinRequest, RemoteWriteStdinRequest,
 };
 #[cfg(feature = "ssh-remote")]
-pub use bitfun_services_integrations::remote_ssh::{
-    KnownHostEntry, PTYSession, PortForward, PortForwardDirection, PortForwardManager,
-    SSHConnectionManager,
+pub use openbitfun_services_integrations::remote_ssh::{
+    global_port_forward_manager, list_remote_listening_ports, KnownHostEntry, PTYSession,
+    PortForwardManager, SSHConnectionManager,
 };
 #[cfg(feature = "ssh-remote")]
 pub use remote_fs::RemoteFileService;

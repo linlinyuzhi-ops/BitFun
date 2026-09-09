@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import { immer } from 'zustand/middleware/immer';
-import type { Session, DialogTurn, ModelRound, FlowItem, FlowToolItem, FlowUserSteeringItem, AnyFlowItem, TokenUsage } from '../types/flow-chat';
+import type { Session, DialogTurn, ModelRound, FlowItem, FlowThinkingItem, FlowToolItem, FlowUserSteeringItem, AnyFlowItem, TokenUsage } from '../types/flow-chat';
 import {
   isCollapsibleTool,
   READ_TOOL_NAMES,
@@ -21,6 +21,8 @@ import {
   type TurnCompletionNotice,
 } from '../utils/turnCompletionNotice';
 import { createAbsoluteSessionTurnIndexResolver } from '../utils/flowChatTurnOrdinal';
+import { parseDeepResearchContent } from '../deep-research/deepResearchProtocol';
+import { collectCanvasArtifactToolItems } from '../utils/canvasArtifactPresentation';
 
 /**
  * Explore group statistics (merged computed stats)
@@ -82,6 +84,7 @@ export type VirtualItem =
       turnEndedAt?: number;
       turnDurationMs?: number;
       turnTokenUsage?: TokenUsage;
+      canvasArtifactItems?: FlowToolItem[];
     }
   | { type: 'explore-group'; data: ExploreGroupData; turnId: string }
   | { type: 'turn-completion-notice'; data: TurnCompletionNotice; turnId: string }
@@ -160,6 +163,16 @@ function isExploreOnlyRound(round: ModelRound): boolean {
   }
 
   if (hasTrailingVisibleText(round)) {
+    return false;
+  }
+
+  // Deep Research markers are user-visible progress, not narrative attached to
+  // an exploration tool. Keep their round stable and outside collapsed explore
+  // groups after the tool settles. Check this after trailing text so ordinary
+  // final responses stay on the existing constant-time path.
+  if (round.items.some(item => (
+    item.type === 'text' && parseDeepResearchContent(item.content).hasProtocol
+  ))) {
     return false;
   }
   
@@ -386,6 +399,13 @@ export function sessionToVirtualItems(session: Session | null): VirtualItem[] {
     });
     
     const isTurnComplete = turn.status === 'completed' || turn.status === 'cancelled' || turn.status === 'error';
+    const canvasArtifactItems = collectCanvasArtifactToolItems(turn.modelRounds);
+    const canvasAttachmentHostRoundId = [...renderEntries]
+      .reverse()
+      .find((entry): entry is Extract<(typeof renderEntries)[number], { type: 'round' }> => (
+        entry.type === 'round' && !isExploreOnlyRound(entry.round)
+      ))
+      ?.round.id;
 
     const flushRoundEntries = (
       rounds: ModelRound[],
@@ -486,6 +506,10 @@ export function sessionToVirtualItems(session: Session | null): VirtualItem[] {
           // One round is always exactly one virtual item. Splitting a completed
           // round into segments swaps a single virtual-item key for N new keys,
           // which remounts the visible assistant message and flashes the pane.
+          const trailingItem = round.items.at(-1);
+          const shouldExpandTrailingThinking = roundIndex === rounds.length - 1
+            && trailingItem?.type === 'thinking'
+            && (trailingItem as FlowThinkingItem).reasoningKind !== 'summary';
           items.push({
             type: 'model-round',
             data: round,
@@ -493,9 +517,8 @@ export function sessionToVirtualItems(session: Session | null): VirtualItem[] {
             isLastRound: roundIndex === rounds.length - 1,
             isTurnComplete,
             layoutHints: {
-              expandedThinkingItemIds: roundIndex === rounds.length - 1
-                && round.items.at(-1)?.type === 'thinking'
-                ? [round.items.at(-1)!.id]
+              expandedThinkingItemIds: shouldExpandTrailingThinking
+                ? [trailingItem.id]
                 : [],
             },
             turnStartedAt: turn.startTime,
@@ -504,6 +527,9 @@ export function sessionToVirtualItems(session: Session | null): VirtualItem[] {
               ? Math.max(0, turn.endTime - turn.startTime)
               : undefined,
             turnTokenUsage: turn.tokenUsage,
+            canvasArtifactItems: isTurnComplete && round.id === canvasAttachmentHostRoundId
+              ? canvasArtifactItems
+              : undefined,
           });
           roundIndex++;
         }
@@ -594,6 +620,9 @@ export const useModernFlowChatStore = create<ModernFlowChatState>()(
     setActiveSession: (session) => {
       const items = sessionToVirtualItems(session);
       set((state) => {
+        if (state.activeSession?.sessionId !== session?.sessionId) {
+          state.visibleTurnInfo = null;
+        }
         state.activeSession = session;
         state.virtualItems = items;
       });

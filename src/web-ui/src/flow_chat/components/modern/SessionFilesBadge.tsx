@@ -5,18 +5,9 @@
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  FileEdit,
-  FilePlus,
-  SearchCheck,
-  Trash2,
-  ChevronDown,
-  ChevronUp,
-  Zap,
-  GitCommitHorizontal,
-  GitPullRequest,
-} from 'lucide-react';
+import { FilePlus, SearchCheck, Zap, GitPullRequest } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { OverflowText, Icon, IconButton, Menu, MenuItem, MenuSeparator, Tooltip } from '@openbitfun/ui';
 import { useSnapshotState } from '../../../tools/snapshot_system/hooks/useSnapshotState';
 import { createDiffEditorTab } from '../../../shared/utils/tabUtils';
 import { snapshotAPI } from '../../../infrastructure/api';
@@ -201,7 +192,7 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
 
   const [quickActions, setQuickActions] = useState<QuickAction[]>(() => {
     const stored = aiExperienceConfigService.getSettings().quick_actions;
-    return (stored && stored.length > 0) ? stored : DEFAULT_QUICK_ACTIONS;
+    return stored ?? DEFAULT_QUICK_ACTIONS;
   });
 
   const badgeRef = useRef<HTMLDivElement>(null);
@@ -247,13 +238,13 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
         return;
       }
       const actions = settings.quick_actions;
-      setQuickActions((actions && actions.length > 0) ? actions : DEFAULT_QUICK_ACTIONS);
+      setQuickActions(actions ?? DEFAULT_QUICK_ACTIONS);
       unsubscribeSettings = aiExperienceConfigService.addChangeListener((nextSettings) => {
         const nextActions = nextSettings.quick_actions;
-        setQuickActions((nextActions && nextActions.length > 0) ? nextActions : DEFAULT_QUICK_ACTIONS);
+        setQuickActions(nextActions ?? DEFAULT_QUICK_ACTIONS);
       });
     }, {
-      signalName: 'bitfun:interactive-shell-ready',
+      signalName: 'openbitfun:interactive-shell-ready',
       fallbackTimeoutMs: 10000,
       frameCount: 1,
     });
@@ -752,9 +743,9 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
       case 'write':
         return <FilePlus size={12} className="icon-write" />;
       case 'delete':
-        return <Trash2 size={12} className="icon-delete" />;
+        return <Icon name="delete" size="xs" className="icon-delete" />;
       default:
-        return <FileEdit size={12} className="icon-edit" />;
+        return <Icon name="edit" size="xs" className="icon-edit" />;
     }
   };
 
@@ -773,112 +764,97 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
 
   return (
     <>
-      <div data-bf-component="session-files-badge" data-bf-part="root" data-bf-state={isExpanded ? 'expanded' : undefined}
+      <div data-openbitfun-component="session-files-badge" data-openbitfun-part="root" data-openbitfun-state={isExpanded ? 'expanded' : undefined}
         ref={badgeRef}
         className={`session-files-badge ${isExpanded ? 'session-files-badge--expanded' : ''}`}
       >
       <div
         className="session-files-badge__review-menu"
-        data-bf-component="session-files-badge"
-        data-bf-part="reviewMenu"
+        data-openbitfun-component="session-files-badge"
+        data-openbitfun-part="reviewMenu"
       >
-        <button
-          ref={reviewTriggerRef}
-          className={[
-            'session-files-badge__review-btn',
-            showReviewReadyGlint && 'session-files-badge__review-btn--glint',
-            activeReviewMode && 'session-files-badge__review-btn--running',
-          ].filter(Boolean).join(' ')}
-          data-bf-component="session-files-badge"
-          data-bf-part="reviewTrigger"
-          data-bf-state={isReviewMenuOpen ? 'open' : undefined}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (isReviewLaunchOrActivityBlocking) return;
-            setIsReviewMenuOpen((open) => {
-              const next = !open;
-              if (next) setIsExpanded(false);
-              return next;
-            });
-          }}
-          disabled={isReviewLaunchOrActivityBlocking}
-          title={reviewButtonTitle}
-          type="button"
-          aria-label={reviewButtonTitle}
-          aria-haspopup="menu"
-          aria-expanded={isReviewMenuOpen && !isReviewLaunchOrActivityBlocking}
-          aria-busy={Boolean(activeReviewMode)}
-        >
-          <span className="session-files-badge__review-actions-label">
-            {activeReviewMode
-              ? t('sessionFilesBadge.actionsButtonRunning')
-              : t('sessionFilesBadge.actionsButton')}
-          </span>
-          {!activeReviewMode ? (
-            <ChevronDown
-              size={12}
+        <Tooltip content={reviewButtonTitle}>
+          <span
+            className="session-files-badge__review-trigger"
+            data-openbitfun-component="session-files-badge"
+            data-openbitfun-part="reviewTrigger"
+            data-openbitfun-state={isReviewMenuOpen ? 'open' : undefined}
+          >
+            <IconButton
+              ref={reviewTriggerRef}
               className={[
-                'session-files-badge__review-menu-chevron',
-                isReviewMenuOpen && !isReviewLaunchOrActivityBlocking && 'session-files-badge__review-menu-chevron--open',
+                'session-files-badge__review-btn',
+                showReviewReadyGlint && 'session-files-badge__review-btn--glint',
+                activeReviewMode && 'session-files-badge__review-btn--running',
               ].filter(Boolean).join(' ')}
-              aria-hidden
+              size="xs"
+              icon={<Icon name="commit" size="sm" className="session-files-badge__review-main-icon" />}
+              loading={Boolean(activeReviewMode)}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (isReviewLaunchOrActivityBlocking) return;
+                setIsReviewMenuOpen((open) => {
+                  const next = !open;
+                  if (next) setIsExpanded(false);
+                  return next;
+                });
+              }}
+              disabled={isReviewLaunchOrActivityBlocking}
+              aria-label={reviewButtonTitle}
+              aria-haspopup="menu"
+              aria-expanded={isReviewMenuOpen && !isReviewLaunchOrActivityBlocking}
             />
-          ) : null}
-        </button>
+          </span>
+        </Tooltip>
 
         {isReviewMenuOpen && !isReviewLaunchOrActivityBlocking && createPortal(
-          <div
+          <Menu
             ref={reviewPopoverRef}
             className="session-files-badge__review-menu-popover"
-            role="menu"
-            data-bf-component="session-files-badge"
-            data-bf-part="reviewPopover"
-            data-bf-placement={reviewPopoverLayout?.placement ?? 'bottom'}
+            data-openbitfun-component="session-files-badge"
+            data-openbitfun-part="reviewPopover"
+            data-openbitfun-placement={reviewPopoverLayout?.placement ?? 'bottom'}
             style={{
               top: `${reviewPopoverLayout?.top ?? 0}px`,
               left: `${reviewPopoverLayout?.left ?? 0}px`,
               visibility: reviewPopoverLayout ? 'visible' : 'hidden',
             }}
           >
-            {canLaunchReview && <button
-              className="session-files-badge__review-menu-item"
-              data-bf-component="session-files-badge"
-              data-bf-part="reviewItem"
+            {canLaunchReview && <MenuItem
+              data-openbitfun-component="session-files-badge"
+              data-openbitfun-part="reviewItem"
               onClick={handleReviewClick}
               type="button"
-              role="menuitem"
               disabled={areReviewMenuItemsDisabled}
+              leading={<SearchCheck size={12} />}
             >
-              <SearchCheck size={12} className="session-files-badge__review-icon session-files-badge__review-icon--standard" />
               <span>{t('sessionFilesBadge.reviewModeStandard')}</span>
-            </button>}
+            </MenuItem>}
             {quickActions.filter(a => a.enabled).length > 0 && (
-              <div className="session-files-badge__review-menu-separator" role="separator" />
+              <MenuSeparator />
             )}
 
             {quickActions.filter(a => a.enabled).map(action => {
               const actionText = resolveQuickActionText(action, t);
               return (
-                <button data-bf-component="session-files-badge" data-bf-part="reviewItem"
+                <MenuItem data-openbitfun-component="session-files-badge" data-openbitfun-part="reviewItem"
                   key={action.id}
-                  className="session-files-badge__review-menu-item"
                   onClick={() => { void handleQuickActionClick(action); }}
                   type="button"
-                  role="menuitem"
                   disabled={isSessionProcessing}
-                >
-                  {action.id === 'commit' ? (
-                    <GitCommitHorizontal size={12} className="session-files-badge__review-icon" />
+                  leading={action.id === 'commit' ? (
+                    <Icon name="commit" size="xs" />
                   ) : action.id === 'create_pr' ? (
-                    <GitPullRequest size={12} className="session-files-badge__review-icon" />
+                    <GitPullRequest size={12} />
                   ) : (
-                    <Zap size={12} className="session-files-badge__review-icon" />
+                    <Zap size={12} />
                   )}
+                >
                   <span>{actionText.label}</span>
-                </button>
+                </MenuItem>
               );
             })}
-          </div>,
+          </Menu>,
           getAppearanceOverlayHost(),
         )}
       </div>
@@ -887,9 +863,9 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
       <button
         ref={fileTriggerRef}
         className="session-files-badge__button"
-        data-bf-component="session-files-badge"
-        data-bf-part="trigger"
-        data-bf-state={isExpanded ? 'expanded' : undefined}
+        data-openbitfun-component="session-files-badge"
+        data-openbitfun-part="trigger"
+        data-openbitfun-state={isExpanded ? 'expanded' : undefined}
         onClick={() => {
           setIsExpanded((prev) => {
             const next = !prev;
@@ -908,20 +884,20 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
         aria-expanded={isExpanded}
       >
         {totalStats.totalAdditions > 0 && (
-          <span className="session-files-badge__stats session-files-badge__stats--add" data-bf-component="session-files-badge" data-bf-part="stats">
+          <span className="session-files-badge__stats session-files-badge__stats--add" data-openbitfun-component="session-files-badge" data-openbitfun-part="stats">
             +{totalStats.totalAdditions}
           </span>
         )}
         {totalStats.totalDeletions > 0 && (
-          <span className="session-files-badge__stats session-files-badge__stats--del" data-bf-component="session-files-badge" data-bf-part="stats">
+          <span className="session-files-badge__stats session-files-badge__stats--del" data-openbitfun-component="session-files-badge" data-openbitfun-part="stats">
             -{totalStats.totalDeletions}
           </span>
         )}
-        {isExpanded ? (
-          <ChevronUp size={12} className="session-files-badge__arrow" />
-        ) : (
-          <ChevronDown size={12} className="session-files-badge__arrow" />
-        )}
+        <Icon
+          name={isExpanded ? 'chevron-up' : 'chevron-down'}
+          size="xs"
+          className="session-files-badge__arrow"
+        />
       </button>
       ) : null}
 
@@ -929,21 +905,21 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
         <div
           ref={filePopoverRef}
           className="session-files-badge__popover"
-          data-bf-component="session-files-badge"
-          data-bf-part="popover"
-          data-bf-placement={filePopoverLayout?.placement ?? 'bottom'}
+          data-openbitfun-component="session-files-badge"
+          data-openbitfun-part="popover"
+          data-openbitfun-placement={filePopoverLayout?.placement ?? 'bottom'}
           style={{
             top: `${filePopoverLayout?.top ?? 0}px`,
             left: `${filePopoverLayout?.left ?? 0}px`,
             visibility: filePopoverLayout ? 'visible' : 'hidden',
           }}
         >
-          <div className="session-files-badge__popover-summary" data-bf-component="session-files-badge" data-bf-part="summary">
-            <span className="session-files-badge__popover-summary-count">
+          <div className="session-files-badge__popover-summary" data-openbitfun-component="session-files-badge" data-openbitfun-part="summary">
+            <OverflowText className="session-files-badge__popover-summary-count">
               {t('sessionFilesBadge.filesSummaryCount', {
                 count: fileStats.size,
               })}
-            </span>
+            </OverflowText>
             {(totalStats.totalAdditions > 0 || totalStats.totalDeletions > 0) && (
               <span className="session-files-badge__popover-summary-stats">
                 {totalStats.totalAdditions > 0 && (
@@ -959,17 +935,17 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
               </span>
             )}
           </div>
-          <div className="session-files-badge__list" data-bf-component="session-files-badge" data-bf-part="list">
+          <div className="session-files-badge__list" data-openbitfun-component="session-files-badge" data-openbitfun-part="list">
             {Array.from(fileStats.values()).map((stat) => (
-              <div
+              <div data-overflow-trigger
                 key={stat.filePath}
                 className={`session-files-badge__file-item session-files-badge__file-item--${stat.operationType} ${
                   stat.error ? 'session-files-badge__file-item--error' : ''
                 }`}
-                data-bf-component="session-files-badge"
-                data-bf-part="file"
-                data-bf-operation={stat.operationType}
-                data-bf-state={stat.error ? 'error' : undefined}
+                data-openbitfun-component="session-files-badge"
+                data-openbitfun-part="file"
+                data-openbitfun-operation={stat.operationType}
+                data-openbitfun-state={stat.error ? 'error' : undefined}
                 onClick={() => !stat.error && handleFileClick(stat.filePath)}
                 title={stat.error ? stat.error : t('sessionFilesBadge.clickToViewDiff')}
               >
@@ -977,12 +953,12 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
                   {getOperationIcon(stat.operationType)}
                 </span>
 
-                <span className="session-files-badge__file-name">{stat.fileName}</span>
+                <OverflowText className="session-files-badge__file-name">{stat.fileName}</OverflowText>
 
                 {stat.error ? (
-                  <span className="session-files-badge__file-error" data-bf-component="session-files-badge" data-bf-part="fileError">{stat.error}</span>
+                  <span className="session-files-badge__file-error" data-openbitfun-component="session-files-badge" data-openbitfun-part="fileError">{stat.error}</span>
                 ) : (
-                  <span className="session-files-badge__file-stats" data-bf-component="session-files-badge" data-bf-part="fileStats">
+                  <span className="session-files-badge__file-stats" data-openbitfun-component="session-files-badge" data-openbitfun-part="fileStats">
                     {stat.additions > 0 && (
                       <span className="session-files-badge__file-stat session-files-badge__file-stat--add">
                         +{stat.additions}

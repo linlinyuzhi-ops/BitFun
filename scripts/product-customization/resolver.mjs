@@ -5,11 +5,19 @@ import { canonicalJson, sha256 } from './canonical-json.mjs';
 
 const BINARY_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const BUNDLE_ID = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+const STABLE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const WINDOWS_RESERVED_BASE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
-const ROOT_FIELDS = new Set(['$schema', 'schemaVersion', 'localeRoot', 'members']);
+const ROOT_FIELDS = new Set([
+  '$schema',
+  'schemaVersion',
+  'productId',
+  'dataNamespace',
+  'localeRoot',
+  'members',
+]);
 const MEMBERS_FIELDS = new Set(['desktop', 'cli']);
 const COMMON_MEMBER_FIELDS = new Set(['displayNameKey', 'binaryName']);
-const DESKTOP_MEMBER_FIELDS = new Set([...COMMON_MEMBER_FIELDS, 'bundleId']);
+const BUNDLED_MEMBER_FIELDS = new Set([...COMMON_MEMBER_FIELDS, 'bundleId']);
 
 export class ProductDefinitionError extends Error {
   constructor(code, message, action) {
@@ -132,6 +140,18 @@ function bundleId(value, owner) {
   return result;
 }
 
+function stableId(value, owner) {
+  const result = requiredString(value, owner);
+  if (result.length > 63 || !STABLE_ID.test(result) || WINDOWS_RESERVED_BASE.test(result)) {
+    fail(
+      'invalid_stable_id',
+      `${owner} is not a stable lowercase identifier.`,
+      `Use lowercase letters, digits, and single dashes for ${owner}.`,
+    );
+  }
+  return result;
+}
+
 function inside(root, candidate) {
   const path = relative(root, candidate);
   return path === '' || (!path.startsWith(`..${sep}`) && path !== '..' && !isAbsolute(path));
@@ -172,12 +192,13 @@ function ownedLocaleFile(localeRoot, locale) {
 function validateMember(raw, member) {
   const owner = `members.${member}`;
   const value = requireObject(raw, owner);
-  rejectUnknownFields(value, member === 'desktop' ? DESKTOP_MEMBER_FIELDS : COMMON_MEMBER_FIELDS, owner);
+  const bundled = member === 'desktop';
+  rejectUnknownFields(value, bundled ? BUNDLED_MEMBER_FIELDS : COMMON_MEMBER_FIELDS, owner);
   const result = {
     displayNameKey: requiredString(value.displayNameKey, `${owner}.displayNameKey`),
     binaryName: binaryName(value.binaryName, `${owner}.binaryName`),
   };
-  if (member === 'desktop') result.bundleId = bundleId(value.bundleId, `${owner}.bundleId`);
+  if (bundled) result.bundleId = bundleId(value.bundleId, `${owner}.bundleId`);
   return result;
 }
 
@@ -214,9 +235,11 @@ function loadProductNames(rootDir, localeRoot, displayNameKeys) {
 }
 
 export function resolveProductDefinition({ rootDir, productConfig, member }) {
-  if (!['desktop', 'cli'].includes(member)) fail('invalid_member', `Unsupported product member: ${member}`, 'Use desktop or cli.');
+  if (!['desktop', 'cli'].includes(member)) {
+    fail('invalid_member', `Unsupported product member: ${member}`, 'Use desktop or cli.');
+  }
   const canonicalRoot = realpathSync.native(resolve(rootDir));
-  const defaultPath = realpathSync.native(join(canonicalRoot, 'products', 'bitfun', 'product.jsonc'));
+  const defaultPath = realpathSync.native(join(canonicalRoot, 'products', 'openbitfun', 'product.jsonc'));
   const selectedPath = resolve(productConfig || defaultPath);
   let sourcePath;
   try {
@@ -228,6 +251,9 @@ export function resolveProductDefinition({ rootDir, productConfig, member }) {
   const raw = requireObject(parseJsonc(sourceBytes.toString('utf8'), sourcePath), 'product definition');
   rejectUnknownFields(raw, ROOT_FIELDS, 'product definition');
   if (raw.schemaVersion !== 1) fail('unsupported_schema_version', `schemaVersion ${raw.schemaVersion} is unsupported.`, 'Set schemaVersion to 1.');
+
+  const productId = stableId(raw.productId, 'productId');
+  const dataNamespace = stableId(raw.dataNamespace, 'dataNamespace');
 
   const definitionDir = realpathSync.native(resolve(sourcePath, '..'));
   const localeRoot = ownedDirectory(definitionDir, raw.localeRoot);
@@ -241,12 +267,17 @@ export function resolveProductDefinition({ rootDir, productConfig, member }) {
   const locales = loadProductNames(
     canonicalRoot,
     localeRoot,
-    [normalizedMembers.desktop.displayNameKey, normalizedMembers.cli.displayNameKey],
+    [
+      normalizedMembers.desktop.displayNameKey,
+      normalizedMembers.cli.displayNameKey,
+    ],
   );
   const selected = normalizedMembers[member];
   const assemblyContent = {
     schemaVersion: 1,
     sourceDigest: sha256(sourceBytes),
+    productId,
+    dataNamespace,
     member,
     displayNameKey: selected.displayNameKey,
     binaryName: selected.binaryName,

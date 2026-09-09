@@ -79,7 +79,7 @@ describe('TodoWriteDisplay expansion', () => {
     document.body.append(container);
     root = createRoot(container);
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
-      const height = (this as HTMLElement).querySelector?.('.todo-expanded-body') ? 320 : 64;
+      const height = (this as HTMLElement).querySelector?.('[data-openbitfun-part="todoList"]') ? 320 : 64;
       return {
         bottom: height,
         height,
@@ -127,9 +127,35 @@ describe('TodoWriteDisplay expansion', () => {
       container.querySelector<HTMLElement>('[data-testid="todo-write-toggle"]')?.click();
     });
     act(() => {
+      root.render(<TodoWriteDisplay toolItem={createTodoWriteItem('pending')} config={config} />);
+    });
+    expect(container.querySelector('[data-openbitfun-part="todoList"]')).not.toBeNull();
+
+    act(() => {
+      container.querySelector<HTMLElement>('[data-testid="todo-tool-card-toggle"]')?.click();
+    });
+    act(() => {
       vi.advanceTimersByTime(FLOWCHAT_COLLAPSE_DURATION_MS);
     });
-    expect(container.querySelector('.todo-expanded-body')).toBeNull();
+    expect(container.querySelector('[data-openbitfun-part="todoList"]')).toBeNull();
+  });
+
+  it('shows the first task when all tasks are pending', () => {
+    act(() => {
+      root.render(
+        <TodoWriteDisplay
+          toolItem={createTodoWriteItem('pending', [
+            { id: 'todo-a', content: 'First task', status: 'pending' },
+            { id: 'todo-b', content: 'Second task', status: 'pending' },
+          ])}
+          config={config}
+        />,
+      );
+    });
+
+    const summary = container.querySelector('[data-openbitfun-tool-card="todo"] [data-openbitfun-part="summary"]');
+    expect(summary?.textContent).toContain('First task');
+    expect(summary?.textContent).not.toContain('Second task');
   });
 
   it('shows the first task when all tasks are pending', () => {

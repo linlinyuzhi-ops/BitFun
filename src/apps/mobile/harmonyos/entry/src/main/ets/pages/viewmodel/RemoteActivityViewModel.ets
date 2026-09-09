@@ -72,11 +72,22 @@ export class RemoteActivityViewModel {
     if (!wasConnected && !this.hooks.isReconnecting()) {
       return;
     }
+    if (!wasConnected) {
+      const token = this.gate.begin();
+      this.recovering = true;
+      try {
+        await this.reconnect(token);
+      } catch (err) {
+        if (this.gate.isCurrent(token)) {
+          this.hooks.onStatus(ConnectionErrorPolicy.errorText(err));
+        }
+      } finally {
+        this.recovering = false;
+      }
+      return;
+    }
     try {
       await this.connection.ping();
-      if (!wasConnected) {
-        await this.restoreAfterHealthyPing();
-      }
     } catch (err) {
       if (await this.hooks.onConnectionError(err)) {
         return;
@@ -87,16 +98,6 @@ export class RemoteActivityViewModel {
         this.hooks.onStopPolling();
         this.hooks.onConnectionState('reconnecting');
       }
-    }
-  }
-
-  private async restoreAfterHealthyPing(): Promise<void> {
-    RemoteLogger.info('heartbeat ping answered, link restored');
-    this.hooks.onConnectionState('connected');
-    this.hooks.onStatus(RemoteI18n.t('connection.connected'));
-    if (this.hooks.isRemoteChat() && this.hooks.activeSession().sessionId.length > 0) {
-      this.hooks.onStartPolling();
-      await this.hooks.onPoll();
     }
   }
 
@@ -154,6 +155,12 @@ export class RemoteActivityViewModel {
   invalidate(): void {
     this.gate.invalidate();
     this.hooks.onStopPolling();
+    this.stopHeartbeat();
+  }
+
+  /** Keeps only the active-turn poll alive during a transient background window. */
+  suspendKeepingActiveTurnPoll(): void {
+    this.gate.invalidate();
     this.stopHeartbeat();
   }
 

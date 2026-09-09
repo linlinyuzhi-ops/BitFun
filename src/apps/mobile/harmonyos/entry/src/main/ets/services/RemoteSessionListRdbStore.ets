@@ -5,7 +5,7 @@ import { OhosError } from './OhosError';
 import { RemoteSessionListSlice, RemoteSessionListStore } from './RemoteSessionListCache';
 
 const STORE_CONFIG: relationalStore.StoreConfig = {
-  name: 'bitfun_remote_sessions.db',
+  name: HarmonyUpgradeIdentityContract.REMOTE_SESSIONS_DATABASE,
   // Session titles are as revealing as the transcripts themselves, so this
   // matches the level the transcript store uses.
   securityLevel: relationalStore.SecurityLevel.S2

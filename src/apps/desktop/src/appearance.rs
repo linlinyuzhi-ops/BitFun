@@ -1,15 +1,14 @@
 //! Desktop appearance bootstrap and window creation.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 
-use bitfun_core::infrastructure::try_get_path_manager_arc;
-use bitfun_core::service::config::types::GlobalConfig;
 use dark_light::Mode;
 use log::{debug, error, warn};
+use openbitfun_core::infrastructure::try_get_path_manager_arc;
+use openbitfun_core::service::config::types::GlobalConfig;
 use tauri::webview::PageLoadEvent;
-use tauri::{Manager, Url, WebviewUrl};
+use tauri::{Manager, WebviewUrl};
 
 use crate::startup_trace::DesktopStartupTrace;
 
@@ -27,29 +26,6 @@ static STARTUP_APPEARANCE_BOOTSTRAP_MANIFEST: OnceLock<StartupAppearanceBootstra
 
 const STARTUP_APPEARANCE_BOOTSTRAP_JSON: &str =
     include_str!("generated/startup_appearance_bootstrap.json");
-
-struct MainWebviewNavigationPolicy {
-    first_page_navigation: AtomicBool,
-}
-
-impl MainWebviewNavigationPolicy {
-    fn new() -> Self {
-        Self {
-            first_page_navigation: AtomicBool::new(true),
-        }
-    }
-
-    fn should_allow(&self, url: &Url) -> bool {
-        // Wry invokes the same callback for top-level and iframe navigations on
-        // macOS, but it does not expose the target frame here. MiniApps use
-        // parent-created Blob documents, while srcdoc/empty iframe documents
-        // use the two local about: targets below. Allowing only these local
-        // document URLs keeps network and app reloads behind the one-shot gate.
-        let is_embedded_document = url.scheme() == "blob"
-            || (url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc"));
-        is_embedded_document || self.first_page_navigation.swap(false, Ordering::SeqCst)
-    }
-}
 
 fn agent_companion_window_ops() -> &'static tokio::sync::Mutex<()> {
     AGENT_COMPANION_WINDOW_OPS.get_or_init(|| tokio::sync::Mutex::new(()))
@@ -334,23 +310,26 @@ impl AppearanceConfig {
     fn startup_messages_json(locale: &str) -> String {
         let messages = match locale {
             "en-US" | "en" => serde_json::json!({
-                "loadingApp": "Starting BitFun...",
+                "loadingApp": "Starting OpenBitFun...",
                 "minimize": "Minimize",
                 "maximize": "Maximize",
+                "restore": "Restore",
                 "close": "Close",
                 "petLoading": "Loading companion..."
             }),
             "zh-TW" | "zh-Hant-TW" => serde_json::json!({
-                "loadingApp": "正在啟動 BitFun...",
+                "loadingApp": "正在啟動 OpenBitFun...",
                 "minimize": "最小化",
                 "maximize": "最大化",
+                "restore": "還原",
                 "close": "關閉",
                 "petLoading": "正在載入助手..."
             }),
             _ => serde_json::json!({
-                "loadingApp": "正在启动 BitFun...",
+                "loadingApp": "正在启动 OpenBitFun...",
                 "minimize": "最小化",
                 "maximize": "最大化",
+                "restore": "还原",
                 "close": "关闭",
                 "petLoading": "正在加载助手..."
             }),
@@ -377,10 +356,11 @@ impl AppearanceConfig {
         ))
         .unwrap_or_else(|_| "\"warn\"".to_string());
         let perf_trace_enabled = cfg!(debug_assertions)
-            || ((cfg!(feature = "devtools") || std::env::var_os("BITFUN_PERF_TRACE").is_some())
-                && std::env::var_os("BITFUN_WEBDRIVER_PORT").is_some());
+            || ((cfg!(feature = "devtools")
+                || std::env::var_os("OPENBITFUN_PERF_TRACE").is_some())
+                && std::env::var_os("OPENBITFUN_WEBDRIVER_PORT").is_some());
         let bootstrap_appearance_id_json =
-            serde_json::to_string(&self.id).unwrap_or_else(|_| "\"bitfun-light\"".to_string());
+            serde_json::to_string(&self.id).unwrap_or_else(|_| "\"openbitfun-light\"".to_string());
         let bootstrap_appearance_selection_json = self
             .selection_id
             .as_ref()
@@ -389,41 +369,49 @@ impl AppearanceConfig {
         let bootstrap_keybindings_assignment = serde_json::to_string(&bootstrap_config.keybindings)
             .ok()
             .filter(|json| json.len() <= MAX_BOOTSTRAP_KEYBINDINGS_JSON_BYTES)
-            .map(|json| format!("window.__BITFUN_BOOTSTRAP_KEYBINDINGS__ = {json};"))
+            .map(|json| format!("window.__OPENBITFUN_BOOTSTRAP_KEYBINDINGS__ = {json};"))
             .unwrap_or_default();
         let bootstrap_workspace_startup_state_assignment = workspace_startup_state
             .and_then(|state| serde_json::to_string(state).ok())
             .filter(|json| json.len() <= MAX_BOOTSTRAP_WORKSPACE_STATE_JSON_BYTES)
-            .map(|json| format!("window.__BITFUN_BOOTSTRAP_WORKSPACE_STARTUP_STATE__ = {json};"))
+            .map(|json| {
+                format!("window.__OPENBITFUN_BOOTSTRAP_WORKSPACE_STARTUP_STATE__ = {json};")
+            })
             .unwrap_or_default();
 
         format!(
             r#"
             (function() {{
-                window.__BITFUN_STARTUP_TRACE_ID__ = {startup_trace_id_json};
-                window.__BITFUN_PERF_TRACE_ENABLED__ = {perf_trace_enabled};
-                window.__BITFUN_BOOTSTRAP_LOG_LEVEL__ = {bootstrap_log_level_json};
-                window.__BITFUN_BOOTSTRAP_LOCALE__ = {startup_locale_json};
-                window.__BITFUN_BOOTSTRAP_MESSAGES__ = {startup_messages_json};
-                window.__BITFUN_SHOW_STARTUP_WINDOW_CONTROLS__ = {show_startup_window_controls};
-                window.__BITFUN_BOOTSTRAP_APPEARANCE_ID__ = {bootstrap_appearance_id_json};
-                window.__BITFUN_BOOTSTRAP_APPEARANCE_SELECTION__ = {bootstrap_appearance_selection_json};
+                window.__OPENBITFUN_STARTUP_TRACE_ID__ = {startup_trace_id_json};
+                window.__OPENBITFUN_PERF_TRACE_ENABLED__ = {perf_trace_enabled};
+                window.__OPENBITFUN_BOOTSTRAP_LOG_LEVEL__ = {bootstrap_log_level_json};
+                window.__OPENBITFUN_BOOTSTRAP_LOCALE__ = {startup_locale_json};
+                window.__OPENBITFUN_BOOTSTRAP_MESSAGES__ = {startup_messages_json};
+                window.__OPENBITFUN_SHOW_STARTUP_WINDOW_CONTROLS__ = {show_startup_window_controls};
+                window.__OPENBITFUN_BOOTSTRAP_APPEARANCE_ID__ = {bootstrap_appearance_id_json};
+                window.__OPENBITFUN_BOOTSTRAP_APPEARANCE_SELECTION__ = {bootstrap_appearance_selection_json};
                 {bootstrap_keybindings_assignment}
                 {bootstrap_workspace_startup_state_assignment}
                 function applyAppearance() {{
                     var root = document.documentElement;
                     if (!root) return false;
                     
-                    root.setAttribute('data-bf-appearance', '{id}');
-                    root.setAttribute('data-bf-appearance-mode', '{appearance_mode}');
+                    root.setAttribute('data-openbitfun-appearance', '{id}');
+                    root.setAttribute('data-openbitfun-appearance-mode', '{appearance_mode}');
+                    root.setAttribute('data-openbitfun-design-system-root', '');
+                    root.setAttribute('data-color-scheme', '{appearance_mode}');
+                    root.setAttribute('data-contrast', 'standard');
+                    root.setAttribute('data-density', 'compact');
                     
-                    root.style.setProperty('--bf-appearance-token-color-bg-primary', '{bg_primary}');
-                    root.style.setProperty('--bf-appearance-token-color-bg-secondary', '{bg_secondary}');
-                    root.style.setProperty('--bf-appearance-token-color-bg-tertiary', '{bg_primary}');
-                    root.style.setProperty('--bf-appearance-token-color-bg-workbench', '{bg_primary}');
-                    root.style.setProperty('--bf-appearance-token-color-bg-scene', '{bg_scene}');
-                    root.style.setProperty('--bf-appearance-token-color-text-primary', '{text_primary}');
-                    root.style.setProperty('--bf-appearance-token-color-accent-500', '{accent_color}');
+                    root.style.setProperty('--openbitfun-color-surface-canvas', '{bg_primary}');
+                    root.style.setProperty('--openbitfun-color-surface-panel', '{bg_secondary}');
+                    root.style.setProperty('--openbitfun-color-surface-tertiary', '{bg_primary}');
+                    root.style.setProperty('--openbitfun-color-surface-workbench', '{bg_primary}');
+                    root.style.setProperty('--openbitfun-color-surface-scene', '{bg_scene}');
+                    root.style.setProperty('--openbitfun-color-surface-chrome', '{bg_primary}');
+                    root.style.setProperty('--openbitfun-color-content-primary', '{text_primary}');
+                    root.style.setProperty('--openbitfun-color-content-muted', '{text_muted}');
+                    root.style.setProperty('--openbitfun-color-accent-default', '{accent_color}');
                     root.style.backgroundColor = '{bg_primary}';
                     
                     if (document.body) {{
@@ -452,6 +440,7 @@ impl AppearanceConfig {
             bg_secondary = self.bg_secondary,
             bg_scene = self.bg_scene,
             text_primary = self.text_primary,
+            text_muted = self.text_muted,
             accent_color = self.accent_color,
             startup_trace_id_json = startup_trace_id_json,
             perf_trace_enabled = perf_trace_enabled,
@@ -499,15 +488,19 @@ mod startup_appearance_tests {
 
         let script = appearance.generate_init_script("trace-id", &bootstrap, None);
 
-        assert!(script.contains("__BITFUN_BOOTSTRAP_APPEARANCE_ID__"));
-        assert!(script.contains("__BITFUN_BOOTSTRAP_APPEARANCE_SELECTION__"));
-        assert!(script.contains("data-bf-appearance"));
-        assert!(script.contains("data-bf-appearance-mode"));
-        assert!(script.contains("--bf-appearance-token-color-bg-primary"));
-        assert!(script.contains("--bf-appearance-token-color-bg-scene"));
-        assert!(script.contains("--bf-appearance-token-color-text-primary"));
-        assert!(script.contains("--bf-appearance-token-color-accent-500"));
-        let retired_bootstrap_global = ["__BITFUN_BOOTSTRAP", "THEME"].join("_");
+        assert!(script.contains("__OPENBITFUN_BOOTSTRAP_APPEARANCE_ID__"));
+        assert!(script.contains("__OPENBITFUN_BOOTSTRAP_APPEARANCE_SELECTION__"));
+        assert!(script.contains("data-openbitfun-appearance"));
+        assert!(script.contains("data-openbitfun-appearance-mode"));
+        assert!(script.contains("data-openbitfun-design-system-root"));
+        assert!(script.contains("data-color-scheme"));
+        assert!(script.contains("--openbitfun-color-surface-canvas"));
+        assert!(script.contains("--openbitfun-color-surface-scene"));
+        assert!(script.contains("--openbitfun-color-content-primary"));
+        assert!(script.contains("--openbitfun-color-content-muted"));
+        assert!(script.contains("--openbitfun-color-accent-default"));
+        assert!(!script.contains("--openbitfun-appearance-token-"));
+        let retired_bootstrap_global = ["__OPENBITFUN_BOOTSTRAP", "THEME"].join("_");
         let retired_background_token = ["--", "color-bg-"].concat();
         let retired_text_token = ["--", "color-text-"].concat();
         assert!(!script.contains(&retired_bootstrap_global));
@@ -532,11 +525,26 @@ mod startup_appearance_tests {
     }
 }
 
+fn use_development_frontend() -> bool {
+    #[cfg(debug_assertions)]
+    {
+        // Isolated E2E can exercise the production protocol using a debug
+        // executable and dist assets, without launching a development server.
+        !(std::env::var("OPENBITFUN_E2E_PACKAGED_FRONTEND").as_deref() == Ok("1")
+            && std::env::var("OPENBITFUN_E2E_STORAGE_GUARD").as_deref() == Ok("1"))
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
+}
+
 pub fn create_main_window(
     app_handle: &tauri::AppHandle,
     startup_trace_id: &str,
     startup_trace: &DesktopStartupTrace,
     workspace_startup_state: Option<serde_json::Value>,
+    frontend_workbench: Arc<crate::frontend_workbench::FrontendWorkbenchManager>,
 ) {
     let total_started_at = Instant::now();
     let bootstrap_config = AppearanceConfig::load_startup_bootstrap_config();
@@ -558,7 +566,7 @@ pub fn create_main_window(
         total_started_at.elapsed().as_millis()
     );
 
-    let main_url = if cfg!(debug_assertions) {
+    let main_url = if use_development_frontend() {
         match "http://localhost:1422".parse() {
             Ok(url) => WebviewUrl::External(url),
             Err(e) => {
@@ -567,7 +575,7 @@ pub fn create_main_window(
             }
         }
     } else {
-        WebviewUrl::App("index.html".into())
+        frontend_workbench.active_frontend_url()
     };
     let main_url_kind = match &main_url {
         WebviewUrl::External(_) => "external",
@@ -575,9 +583,11 @@ pub fn create_main_window(
         _ => "other",
     };
 
+    #[cfg(not(debug_assertions))]
+    let materialization_workbench = Arc::clone(&frontend_workbench);
     #[allow(unused_mut)]
     let mut builder = tauri::WebviewWindowBuilder::new(app_handle, "main", main_url)
-        .title("BitFun")
+        .title("OpenBitFun")
         .inner_size(
             crate::MAIN_WINDOW_DEFAULT_WIDTH,
             crate::MAIN_WINDOW_DEFAULT_HEIGHT,
@@ -603,23 +613,47 @@ pub fn create_main_window(
                     payload.url(),
                     total_started_at.elapsed().as_millis()
                 );
+                #[cfg(not(debug_assertions))]
+                if matches!(payload.event(), PageLoadEvent::Finished) {
+                    materialization_workbench.materialize_bundled_revision_in_background();
+                }
             }
         });
 
-    // Keep HTML5 drag-and-drop working inside the webview for desktop UI drag targets.
-    builder = builder.disable_drag_drop_handler();
+    #[cfg(debug_assertions)]
+    if !use_development_frontend() {
+        // Product-path isolation alone does not isolate WKWebView storage.
+        // This guarded test window keeps a private store across document
+        // reloads and never opens the daily client's browser data store.
+        builder = builder.incognito(true);
+    }
 
-    // Block top-level webview reloads after the initial page while allowing the
-    // local iframe documents used by sandboxed MiniApps.
-    let navigation_policy = MainWebviewNavigationPolicy::new();
-    builder = builder.on_navigation(move |url| navigation_policy.should_allow(url));
+    // On Windows, Tauri's native file-drop handler replaces WebView2's OLE drop
+    // target and disables every HTML5 drag/drop interaction in the page. Keep
+    // the browser handler there. The frontend keeps dropped File wrappers alive
+    // briefly while the Desktop host resolves their original paths through
+    // WebView2, without copying file contents. WKWebView/WebKitGTK do not have
+    // that conflict, so their native handler remains enabled and supplies paths.
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.disable_drag_drop_handler();
+    }
+
+    // The Desktop host arms each exact Creative preview/rollback transition.
+    // Page-driven navigations remain blocked, including in development where
+    // the initial Vite origin differs from the packaged-frontend protocol.
+    let navigation_workbench = Arc::clone(&frontend_workbench);
+    builder =
+        builder.on_navigation(move |url| navigation_workbench.should_allow_main_navigation(url));
 
     #[cfg(target_os = "macos")]
     {
         builder = builder
             .decorations(true)
             .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .traffic_light_position(tauri::LogicalPosition::new(12.0, 15.0))
+            // Match the 45px toolbar row (layout.toolbar.mdHeight) used by
+            // NavBar and SceneTopBar, including when the sidebar is collapsed.
+            .traffic_light_position(tauri::LogicalPosition::new(12.0, 22.5))
             .hidden_title(true);
     }
 
@@ -642,7 +676,7 @@ pub fn create_main_window(
             );
             #[cfg(any(debug_assertions, feature = "devtools"))]
             {
-                if std::env::var("BITFUN_OPEN_DEVTOOLS")
+                if std::env::var("OPENBITFUN_OPEN_DEVTOOLS")
                     .map(|v| v == "1")
                     .unwrap_or(false)
                 {
@@ -722,7 +756,7 @@ fn show_main_window_for_startup(
 }
 
 fn app_url(path: &str) -> WebviewUrl {
-    if cfg!(debug_assertions) {
+    if use_development_frontend() {
         match format!("http://localhost:1422/{}", path).parse() {
             Ok(url) => WebviewUrl::External(url),
             Err(e) => {
@@ -731,12 +765,7 @@ fn app_url(path: &str) -> WebviewUrl {
             }
         }
     } else {
-        let app_path = if path.starts_with('?') {
-            format!("index.html{}", path)
-        } else {
-            path.to_string()
-        };
-        WebviewUrl::App(app_path.into())
+        crate::frontend_workbench::custom_frontend_url(path)
     }
 }
 
@@ -908,9 +937,9 @@ pub async fn show_agent_companion_desktop_pet(app: tauri::AppHandle) -> Result<(
         return Ok(());
     }
 
-    let url = app_url("?bitfunWindow=agent-companion");
+    let url = app_url("?openbitfunWindow=agent-companion");
     let mut builder = tauri::WebviewWindowBuilder::new(&app, AGENT_COMPANION_WINDOW_LABEL, url)
-        .title("BitFun Agent Companion")
+        .title("OpenBitFun Agent Companion")
         .inner_size(
             AGENT_COMPANION_WINDOW_MIN_SIZE,
             AGENT_COMPANION_WINDOW_MIN_SIZE,
@@ -1055,49 +1084,4 @@ pub async fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
         total_started_at.elapsed().as_millis()
     );
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::MainWebviewNavigationPolicy;
-    use tauri::Url;
-
-    fn url(value: &str) -> Url {
-        value.parse().expect("test URL should be valid")
-    }
-
-    #[test]
-    fn main_webview_navigation_allows_only_the_first_page_navigation() {
-        let policy = MainWebviewNavigationPolicy::new();
-
-        assert!(policy.should_allow(&url("http://localhost:1422/")));
-        assert!(!policy.should_allow(&url("http://localhost:1422/")));
-        assert!(!policy.should_allow(&url("https://example.com/")));
-        assert!(!policy.should_allow(&url("data:text/html,blocked")));
-    }
-
-    #[test]
-    fn main_webview_navigation_allows_local_iframe_documents_without_consuming_initial_page() {
-        let policy = MainWebviewNavigationPolicy::new();
-
-        assert!(policy.should_allow(&url(
-            "blob:http://localhost:1422/65b60dd8-a501-47c2-b7fd-aa99af720dc6"
-        )));
-        assert!(policy.should_allow(&url("about:blank")));
-        assert!(policy.should_allow(&url("about:srcdoc")));
-        assert!(policy.should_allow(&url("tauri://localhost/index.html")));
-        assert!(!policy.should_allow(&url("tauri://localhost/index.html")));
-    }
-
-    #[test]
-    fn main_webview_navigation_keeps_iframe_documents_available_after_initial_page() {
-        let policy = MainWebviewNavigationPolicy::new();
-
-        assert!(policy.should_allow(&url("tauri://localhost/index.html")));
-        assert!(policy.should_allow(&url(
-            "blob:tauri://localhost/f5445ef0-5b0b-42b0-9540-276a0012ae56"
-        )));
-        assert!(policy.should_allow(&url("about:blank")));
-        assert!(!policy.should_allow(&url("tauri://localhost/index.html")));
-    }
 }

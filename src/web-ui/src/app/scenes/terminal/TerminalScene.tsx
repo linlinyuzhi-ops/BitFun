@@ -1,14 +1,15 @@
+import { Icon as CatalogIcon } from '@openbitfun/ui';
 /**
  * TerminalScene — renders a ConnectedTerminal for the session selected
- * via terminalSceneStore (set from the Shell navigation).
+ * via terminalSceneStore.
  *
  * When no session is active, shows a minimal empty state prompting the
- * user to open a terminal from the navigation panel.
+ * user that no terminal is currently open.
  */
 
 import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { SquareTerminal } from 'lucide-react';
+
 import { useTerminalSceneStore } from '../../stores/terminalSceneStore';
 import ConnectedTerminal from '../../../tools/terminal/components/ConnectedTerminal';
 import './TerminalScene.scss';
@@ -21,10 +22,6 @@ const TerminalScene: React.FC<TerminalSceneProps> = ({ isActive = true }) => {
   const { activeSessionId, setActiveSession } = useTerminalSceneStore();
   const { t } = useTranslation('panels/terminal');
 
-  const handleExit = useCallback(() => {
-    setActiveSession(null);
-  }, [setActiveSession]);
-
   const handleClose = useCallback(() => {
     setActiveSession(null);
   }, [setActiveSession]);
@@ -34,12 +31,12 @@ const TerminalScene: React.FC<TerminalSceneProps> = ({ isActive = true }) => {
   // and cursor state after resize-sensitive shell output.
   return (
     <div
-      className="bitfun-terminal-scene"
+      className="openbitfun-terminal-scene"
       aria-hidden={!isActive}
       data-testid="shell-panel"
-      data-bf-scene="terminal"
-      data-bf-part="root"
-      data-bf-state={isActive ? undefined : 'inactive'}
+      data-openbitfun-scene="terminal"
+      data-openbitfun-part="root"
+      data-openbitfun-state={isActive ? undefined : 'inactive'}
     >
       {activeSessionId ? (
         <ConnectedTerminal
@@ -48,13 +45,13 @@ const TerminalScene: React.FC<TerminalSceneProps> = ({ isActive = true }) => {
           autoFocus={isActive}
           showToolbar
           showStatusBar
-          onExit={handleExit}
           onClose={handleClose}
+          closeBehavior="detach"
         />
       ) : (
-        <div className="bitfun-terminal-scene__empty" data-testid="shell-command-list" data-bf-scene="terminal" data-bf-part="empty">
-          <SquareTerminal size={32} className="bitfun-terminal-scene__empty-icon" />
-          <p className="bitfun-terminal-scene__empty-hint" data-testid="shell-panel-title">{t('emptyState')}</p>
+        <div className="openbitfun-terminal-scene__empty" data-testid="shell-command-list" data-openbitfun-scene="terminal" data-openbitfun-part="empty">
+          <CatalogIcon name="terminal" size="lg" className="openbitfun-terminal-scene__empty-icon" style={{ width: 32, height: 32 }} />
+          <p className="openbitfun-terminal-scene__empty-hint" data-testid="shell-panel-title">{t('emptyState')}</p>
         </div>
       )}
     </div>

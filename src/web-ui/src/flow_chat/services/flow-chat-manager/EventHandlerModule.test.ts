@@ -21,8 +21,14 @@ import type { DialogTurn, FlowToolItem, FlowUserSteeringItem, ModelRound, Sessio
 import type { FlowChatContext } from './types';
 import { markOptimisticDispatchTurnMetadata } from '@/features/dispatch/optimisticDispatchTurn';
 import { interruptedTurnRecoveryGate } from '../interruptedTurnRecoveryGate';
+import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
+import { localSessionDriver } from '../../session-drivers/local/LocalSessionDriver';
 
-const { handleCompressionCompleted, handleTokenUsageUpdate } = __test_only__;
+const {
+  buildBuiltInBrowserTabOptions,
+  handleCompressionCompleted,
+  handleTokenUsageUpdate,
+} = __test_only__;
 
 vi.mock('../../../shared/notification-system/services/NotificationService', () => ({
   notificationService: {
@@ -35,6 +41,74 @@ vi.mock('../../../shared/notification-system/services/NotificationService', () =
 describe('isAppWindowFocused', () => {
   it('returns true when no document is available', () => {
     expect(isAppWindowFocused()).toBe(true);
+  });
+});
+
+describe('Claw bootstrap cancellation', () => {
+  beforeEach(() => {
+    resetFlowChatStore();
+    stateMachineManager.clear();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetFlowChatStore();
+    stateMachineManager.clear();
+  });
+
+  it('stops a backend-started bootstrap using its actual session and turn identities', async () => {
+    const interrupt = vi.spyOn(agentAPI, 'interruptDialogTurn').mockResolvedValue(undefined);
+    const store = FlowChatStore.getInstance();
+    store.setState(() => ({
+      sessions: new Map([['claw-1', {
+        sessionId: 'claw-1', title: 'Claw', mode: 'Claw', sessionKind: 'normal',
+        workspacePath: '/assistants/default', config: { agentType: 'Claw' },
+        dialogTurns: [], status: 'idle', createdAt: 1, lastActiveAt: 1, error: null,
+      } as Session]]),
+      activeSessionId: 'claw-1',
+    }));
+    const context = createFlowChatContext();
+    __test_only__.handleDialogTurnStarted(context, {
+      sessionId: 'claw-1', turnId: 'assistant-bootstrap-1', turnIndex: 0,
+      userInput: 'Please start bootstrap',
+      userMessageMetadata: { assistant_bootstrap: { system_generated: true } },
+    });
+
+    expect(await localSessionDriver.cancel(context, 'claw-1')).toBe(true);
+    expect(interrupt).toHaveBeenCalledExactlyOnceWith('claw-1', 'assistant-bootstrap-1');
+    expect(context.userCancelledSessionIds.has('claw-1')).toBe(true);
+    expect(stateMachineManager.getCurrentState('claw-1')).toBe(SessionExecutionState.FINISHING);
+  });
+});
+
+describe('built-in browser open request projection', () => {
+  it('correlates replacement and new-tab requests with distinct stable keys', () => {
+    expect(buildBuiltInBrowserTabOptions({
+      url: ' https://openbitfun.com/ ',
+      title: ' Docs ',
+      requestId: ' request-1 ',
+      replaceExisting: true,
+    })).toMatchObject({
+      title: 'Docs',
+      data: {
+        url: 'https://openbitfun.com/',
+        openRequestId: 'request-1',
+      },
+      duplicateCheckKey: 'browser-panel',
+      replaceExisting: true,
+    });
+
+    expect(buildBuiltInBrowserTabOptions({
+      url: 'https://openbitfun.com/',
+      requestId: 'request-2',
+      replaceExisting: false,
+    })).toMatchObject({
+      duplicateCheckKey: 'browser-panel:request-2',
+      replaceExisting: false,
+    });
+  });
+
+  it('rejects a request that cannot create a browser target', () => {
+    expect(buildBuiltInBrowserTabOptions({ url: '   ' })).toBeNull();
   });
 });
 
@@ -475,7 +549,7 @@ describe('dispatch optimistic turn reconciliation', () => {
       status: 'pending',
     });
     expect(turns?.[0]?.userMessage.metadata)
-      .not.toHaveProperty('__bitfunOptimisticDispatchJobId');
+      .not.toHaveProperty('__openbitfunOptimisticDispatchJobId');
     expect(context.deferredStorageIdentitySaves).not.toContain(
       'dispatch-session:dispatch_pending_job-1',
     );

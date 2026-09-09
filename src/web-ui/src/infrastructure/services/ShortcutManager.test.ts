@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EDITOR_SHORTCUTS } from '@/shared/constants/shortcuts';
-import { shortcutManager } from './ShortcutManager';
+import { parseStoredKeybindings, shortcutManager } from './ShortcutManager';
 
 function setPlatform(platform: string): void {
   Object.defineProperty(window.navigator, 'platform', {
@@ -44,6 +44,21 @@ describe('ShortcutManager platform primary modifier', () => {
     vi.restoreAllMocks();
   });
 
+  it('restores the registered default when synced overrides are removed', () => {
+    setPlatform('Win32');
+    const callback = vi.fn();
+    shortcutManager.loadUserOverrides({ 'fixture.sync': { key: 'q', alt: true } });
+    shortcutManager.register('fixture.sync', { key: 'n', ctrl: true, scope: 'app' }, callback);
+    dispatchScopedKey('app', { key: 'q', altKey: true });
+    expect(callback).toHaveBeenCalledTimes(1);
+
+    shortcutManager.loadUserOverrides({});
+    dispatchScopedKey('app', { key: 'q', altKey: true });
+    expect(callback).toHaveBeenCalledTimes(1);
+    dispatchScopedKey('app', { key: 'n', ctrlKey: true });
+    expect(callback).toHaveBeenCalledTimes(2);
+  });
+
   it('maps logical Ctrl shortcuts to Command on macOS', () => {
     setPlatform('MacIntel');
     const callback = vi.fn();
@@ -77,6 +92,33 @@ describe('ShortcutManager platform primary modifier', () => {
 
     expect(findInFile?.config).toMatchObject({ key: 'f', ctrl: true });
     expect(findInFile?.config.meta).toBeUndefined();
+  });
+
+  it('allows the Agent session shortcut to use stored overrides', () => {
+    const overrides = parseStoredKeybindings({
+      __version__: 1,
+      overrides: {
+        'scene.openSession': { key: 'J', alt: true },
+      },
+    });
+
+    shortcutManager.loadUserOverrides(overrides);
+
+    expect(shortcutManager.getEffectiveConfig('scene.openSession', {
+      key: 'A',
+      ctrl: true,
+      shift: true,
+      scope: 'app',
+      allowInInput: true,
+    })).toEqual({
+      key: 'J',
+      ctrl: false,
+      shift: false,
+      alt: true,
+      meta: false,
+      scope: 'app',
+      allowInInput: true,
+    });
   });
 
   it('detects app-scope conflicts against scoped shortcuts', () => {
@@ -115,7 +157,7 @@ describe('ShortcutManager platform primary modifier', () => {
     const canvasCallback = vi.fn();
     const terminalCallback = vi.fn();
     shortcutManager.register(
-      'canvas.closePreview',
+      'canvas.testEscape',
       { key: 'Escape', scope: 'canvas', allowInInput: true },
       canvasCallback
     );

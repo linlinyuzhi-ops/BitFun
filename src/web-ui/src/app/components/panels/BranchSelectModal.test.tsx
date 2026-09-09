@@ -3,7 +3,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PRESENCE_BOUNDARY_MIN_EXIT_MS } from '@/component-library';
+import { DEFAULT_RETAINED_MOUNT_MS } from '@/shared/presence';
 import { BranchSelectModal } from './BranchSelectModal';
 
 const mocks = vi.hoisted(() => ({
@@ -46,18 +46,31 @@ describe('BranchSelectModal presence', () => {
   });
 
   const renderModal = (isOpen: boolean, title: string) => {
+    const onClose = vi.fn();
     act(() => {
       root.render(
         <BranchSelectModal
           isOpen={isOpen}
-          onClose={vi.fn()}
+          onClose={onClose}
           onSelect={vi.fn()}
           repositoryPath=""
           title={title}
         />,
       );
     });
+    return onClose;
   };
+
+  it('closes once from the title row without also activating the backdrop', () => {
+    const onClose = renderModal(true, 'Choose release branch');
+    const close = document.querySelector<HTMLButtonElement>(
+      '.branch-select-dialog__header button[aria-label="actions.close"]',
+    );
+
+    expect(close).not.toBeNull();
+    act(() => close!.click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 
   it('retains the closed surface and last title until the exit window completes', () => {
     renderModal(true, 'Choose release branch');
@@ -67,7 +80,7 @@ describe('BranchSelectModal presence', () => {
     expect(document.querySelector('.branch-select-overlay')?.getAttribute('data-state')).toBe('closed');
     expect(document.querySelector('.branch-select-dialog__title')?.textContent).toBe('Choose release branch');
 
-    act(() => vi.advanceTimersByTime(PRESENCE_BOUNDARY_MIN_EXIT_MS - 1));
+    act(() => vi.advanceTimersByTime(DEFAULT_RETAINED_MOUNT_MS - 1));
     expect(document.querySelector('.branch-select-overlay')).not.toBeNull();
 
     act(() => vi.advanceTimersByTime(1));

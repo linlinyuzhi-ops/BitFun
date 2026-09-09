@@ -5,28 +5,27 @@
   height: 24px;
   max-width: 96px;
   padding: 0 8px;
-  border: 1px solid color-mix(in srgb, var(--bf-appearance-token-border-base) 52%, transparent);
+  border: 1px solid color-mix(in srgb, var(--openbitfun-color-border-default) 52%, transparent);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--bf-appearance-token-element-bg-soft) 58%, transparent);
-  color: var(--bf-appearance-token-color-text-secondary);
-  font-size: var(--bf-appearance-token-flowchat-font-size-xs);
-  line-height: 1;
+  background: color-mix(in srgb, var(--openbitfun-color-action-quiet-hover) 58%, transparent);
+  color: var(--openbitfun-color-content-secondary);
+  font-size: var(--openbitfun-type-flow-support-font-size);
+  line-height: var(--openbitfun-type-modifier-leading-none-line-height);
   cursor: pointer;
   min-width: 0;
 
   &:hover {
-    background: color-mix(in srgb, var(--bf-appearance-token-element-bg-soft) 82%, transparent);
-    color: var(--bf-appearance-token-color-text-primary);
+    background: color-mix(in srgb, var(--openbitfun-color-action-quiet-hover) 82%, transparent);
+    color: var(--openbitfun-color-content-primary);
   }
 
   > svg {
     flex: 0 0 auto;
   }
 
-  span {
+  span:not([data-overflow-content]) {
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
@@ -34,7 +33,7 @@
     max-width: 28px;
     padding: 0 6px;
 
-    span {
+    span:not([data-overflow-content]) {
       display: none;
     }
   }

@@ -3,9 +3,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use bitfun_agent_runtime::sdk::AgentRuntime;
-use bitfun_transport::encode_json_with_limit;
 use futures_util::StreamExt;
+use openbitfun_agent_runtime::sdk::AgentRuntime;
+use openbitfun_transport::encode_json_with_limit;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;

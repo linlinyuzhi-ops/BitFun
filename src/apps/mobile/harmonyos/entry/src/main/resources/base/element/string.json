@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "BitFun remote control client"
+      "value": "OpenBitFun remote control client"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "Connect to BitFun desktop and control remote sessions"
+      "value": "Connect to OpenBitFun desktop and control remote sessions"
     },
     {
       "name": "EntryAbility_label",
-      "value": "BitFun"
+      "value": "OpenBitFun"
     },
     {
       "name": "permission_camera_reason",

@@ -1,13 +1,13 @@
 [package]
-name = "bitfun-product-domains"
+name = "openbitfun-product-domains"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "BitFun product domain owner crate"
+description = "OpenBitFun product domain owner crate"
 autotests = false
 
 [lib]
-name = "bitfun_product_domains"
+name = "openbitfun_product_domains"
 crate-type = ["rlib"]
 
 [[test]]
@@ -34,9 +34,15 @@ name = "miniapp_contracts"
 path = "tests/miniapp_contracts.rs"
 required-features = ["miniapp"]
 
+[[test]]
+name = "legacy_migration_contracts"
+path = "tests/legacy_migration_contracts.rs"
+required-features = ["legacy-migration"]
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+semver = { workspace = true }
 dirs = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
@@ -53,7 +59,8 @@ plugin-source = ["hex", "sha2"]
 miniapp = ["dirs", "hex", "sha2", "which"]
 function-agents = ["log"]
 external-sources = ["hex", "hmac", "sha2", "url"]
-product-full = ["appearance-market", "plugin-source", "miniapp", "function-agents", "external-sources"]
+legacy-migration = []
+product-full = ["appearance-market", "plugin-source", "miniapp", "function-agents", "external-sources", "legacy-migration"]
 # Derive `ts_rs::TS` on the wire types (permissions, etc.) for downstream
 # TypeScript binding export. Orthogonal to the product feature groups; does not
 # pull any optional integration dependency.

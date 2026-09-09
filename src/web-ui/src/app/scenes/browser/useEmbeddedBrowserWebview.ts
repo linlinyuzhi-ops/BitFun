@@ -7,9 +7,37 @@ import { api } from '@/infrastructure/api/service-api/ApiClient';
 const WEBVIEW_RESIZE_DEBOUNCE_MS = 160;
 const WEBVIEW_BOUNDS_EPSILON = 1;
 const WEBVIEW_BOUNDS_WAIT_TIMEOUT_MS = 2000;
-const OVERLAY_SELECTOR = '.modal-overlay, .canvas-mission-control';
+// Native child WebViews sit above the main document's CSS stacking contexts.
+// Full-window DOM surfaces use this contract so the browser can be hidden while
+// they are open and restored without tearing down its page state.
+export const NATIVE_WEBVIEW_OCCLUSION_SELECTOR = [
+  '[data-openbitfun-native-webview-occlusion]',
+  "[data-openbitfun-component='dialog'][data-openbitfun-part='overlay']",
+  "[data-openbitfun-component='sheet'][data-openbitfun-part='overlay']",
+  '.canvas-mission-control',
+  "[data-openbitfun-product-component='context-menu'][data-openbitfun-product-part='root']",
+].join(', ');
 const BROWSER_WEBVIEW_PAGE_LOAD_EVENT = 'browser-webview-page-load';
 const WEBVIEW_CREATE_RETRY_DELAYS_MS = [0, 250, 750];
+
+// Webview labels are window-global in Tauri, while this hook can be mounted
+// once per cached editor tab. Keep allocation outside the hook so independent
+// panels cannot both start at `<prefix>-0`.
+let nextBrowserWebviewSequence = 0;
+
+export function allocateBrowserWebviewLabel(labelPrefix: string): string {
+  return `${labelPrefix}-${nextBrowserWebviewSequence++}`;
+}
+
+export function rectanglesIntersect(
+  first: Pick<DOMRectReadOnly, 'left' | 'top' | 'right' | 'bottom'>,
+  second: Pick<DOMRectReadOnly, 'left' | 'top' | 'right' | 'bottom'>,
+): boolean {
+  return second.right > first.left
+    && second.left < first.right
+    && second.bottom > first.top
+    && second.top < first.bottom;
+}
 
 // #region agent log
 function writeBrowserWebviewDiagnostic(
@@ -64,6 +92,7 @@ export interface UseEmbeddedBrowserWebviewOptions {
   isVisible: boolean;
   labelPrefix: string;
   log: BrowserLogger;
+  openRequestId?: string;
 }
 
 function isTauriEnvironment(): boolean {
@@ -147,6 +176,7 @@ async function createBrowserWebview(label: string, url: string, bounds: WebviewB
       y: bounds.top,
       width: bounds.width,
       height: bounds.height,
+      openRequestId,
     },
   });
   const handle = await Webview.getByLabel(label) as unknown as BrowserWebviewHandle | null;
@@ -157,13 +187,12 @@ async function createBrowserWebview(label: string, url: string, bounds: WebviewB
 }
 
 export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOptions) {
-  const { defaultUrl, initialUrl, isVisible, labelPrefix, log } = options;
+  const { defaultUrl, initialUrl, isVisible, labelPrefix, log, openRequestId } = options;
   const isTauri = useMemo(() => isTauriEnvironment(), []);
   const startUrl = initialUrl ?? defaultUrl;
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<BrowserWebviewHandle | null>(null);
-  const webviewSequenceRef = useRef(0);
   const currentUrlRef = useRef<string>(startUrl);
   const resizeTimerRef = useRef<number | null>(null);
   const lastBoundsRef = useRef<WebviewBounds | null>(null);
@@ -277,6 +306,7 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
     if (!target) return;
 
     try {
+      await setAgentTargetState(target.label, false).catch(() => {});
       await target.close();
     } catch (closeError) {
       if (!isWebviewNotFoundError(closeError)) {
@@ -333,11 +363,11 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
         await new Promise((resolve) => window.setTimeout(resolve, delay));
       }
 
-      const label = `${labelPrefix}-${webviewSequenceRef.current++}`;
+      const label = allocateBrowserWebviewLabel(labelPrefix);
       webviewLabelRef.current = label;
       setWebviewLabel(label);
       try {
-        const handle = await createBrowserWebview(label, url, initialBounds);
+        const handle = await createBrowserWebview(label, url, initialBounds, openRequestId);
         webviewRef.current = handle;
         lastBoundsRef.current = initialBounds;
         await injectBrowserPageScripts(label);
@@ -359,14 +389,14 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
     }
 
     throw lastError;
-  }, [closeWebview, labelPrefix, log, startPageLoadListener, waitForViewportBounds]);
+  }, [closeWebview, labelPrefix, log, openRequestId, startPageLoadListener, waitForViewportBounds]);
 
   const navigateExistingWebview = useCallback(async (url: string): Promise<boolean> => {
     const label = webviewLabelRef.current;
     if (!label || !webviewRef.current) return false;
 
     try {
-      await navigateWebview(label, url);
+      await navigateWebview(label, url, openRequestId);
       window.setTimeout(() => {
         if (webviewLabelRef.current === label) {
           void injectBrowserPageScripts(label).catch(() => {});
@@ -382,7 +412,7 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
       log.warn('Navigate browser webview via existing instance failed', navigationError);
       return false;
     }
-  }, [log]);
+  }, [log, openRequestId]);
 
   const loadUrl = useCallback(async (rawUrl: string) => {
     const nextUrl = normalizeUrl(rawUrl, defaultUrl);
@@ -412,6 +442,7 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
       if (isVisible) {
         await handle.show();
         await handle.setFocus();
+        await setAgentTargetState(handle.label, true, openRequestId);
       }
     } catch (loadError) {
       const message = formatUnknownError(loadError);
@@ -420,7 +451,7 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
     } finally {
       setIsLoading(false);
     }
-  }, [createWebview, defaultUrl, isTauri, isVisible, log, navigateExistingWebview, syncWebviewBounds]);
+  }, [createWebview, defaultUrl, isTauri, isVisible, log, navigateExistingWebview, openRequestId, syncWebviewBounds]);
 
   const queueSync = useCallback(() => {
     if (resizeTimerRef.current !== null) window.clearTimeout(resizeTimerRef.current);
@@ -451,6 +482,10 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
       void syncWebviewBounds()
         .then(() => webviewRef.current?.show())
         .then(() => webviewRef.current?.setFocus())
+        .then(() => {
+          const label = webviewRef.current?.label;
+          return label ? setAgentTargetState(label, true, openRequestId) : undefined;
+        })
         .catch((syncError) => {
           log.warn('Activate browser webview failed', syncError);
         });
@@ -463,11 +498,15 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
         label: webviewRef.current.label,
       });
       // #endregion
-      void webviewRef.current.hide().catch((hideError) => {
-        log.warn('Hide browser webview on deactivate failed', hideError);
-      });
+      const handle = webviewRef.current;
+      void setAgentTargetState(handle.label, false)
+        .catch(() => {})
+        .then(() => handle.hide())
+        .catch((hideError) => {
+          log.warn('Hide browser webview on deactivate failed', hideError);
+        });
     }
-  }, [isTauri, isVisible, loadUrl, log, syncWebviewBounds]);
+  }, [isTauri, isVisible, loadUrl, log, openRequestId, syncWebviewBounds]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -508,8 +547,21 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
 
     let hiddenByOverlay = false;
     const checkOverlays = () => {
-      const overlay = document.querySelector<HTMLElement>(OVERLAY_SELECTOR);
-      const hasOverlay = overlay !== null;
+      const viewport = viewportRef.current;
+      const viewportRect = viewport?.getBoundingClientRect();
+      const hasUsableViewport = Boolean(viewportRect && viewportRect.width > 0 && viewportRect.height > 0);
+      // Do not change the current visibility decision while the browser panel
+      // itself is temporarily unmeasurable (for example during a layout swap).
+      if (!hasUsableViewport || !viewportRect) return;
+      const hasIntersection = (overlay: HTMLElement): boolean => {
+        const overlayRect = overlay.getBoundingClientRect();
+        return overlayRect.width > 0
+          && overlayRect.height > 0
+          && rectanglesIntersect(viewportRect, overlayRect);
+      };
+      const overlay = Array.from(document.querySelectorAll<HTMLElement>(NATIVE_WEBVIEW_OCCLUSION_SELECTOR))
+        .find(candidate => hasIntersection(candidate));
+      const hasOverlay = overlay !== undefined;
       // #region agent log
       if (overlay) {
         const style = window.getComputedStyle(overlay);
@@ -552,6 +604,7 @@ export function useEmbeddedBrowserWebview(options: UseEmbeddedBrowserWebviewOpti
 
     const observer = new MutationObserver(checkOverlays);
     observer.observe(document.body, { childList: true, subtree: true });
+    checkOverlays();
 
     const handleToolbarActivating = () => {
       void webviewRef.current?.hide().catch(() => {});

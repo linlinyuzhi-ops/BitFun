@@ -1,0 +1,85 @@
+@layer openbitfun.components {
+  .icon {
+    display: inline-block;
+    flex: 0 0 auto;
+    inline-size: var(--_icon-size);
+    block-size: var(--_icon-size);
+    color: inherit;
+    background-color: currentColor;
+    vertical-align: -0.125em;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+  }
+
+  .icon[data-openbitfun-source="line"] {
+    background-color: transparent;
+  }
+
+  .icon[data-openbitfun-source="line"] > svg {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+  }
+
+  .icon[data-size="2xs"] {
+    --_icon-size: var(--openbitfun-control-icon-size2xs);
+  }
+
+  .icon[data-size="xs"] {
+    --_icon-size: var(--openbitfun-control-icon-size-xs);
+  }
+
+  .icon[data-size="sm"] {
+    --_icon-size: var(--openbitfun-control-icon-size-sm);
+  }
+
+  .icon[data-size="md"] {
+    --_icon-size: var(--openbitfun-control-icon-size-md);
+  }
+
+  .icon[data-size="lg"] {
+    --_icon-size: var(--openbitfun-control-icon-size-lg);
+  }
+
+  .icon[data-openbitfun-tone="primary"] {
+    color: var(--openbitfun-color-content-primary);
+  }
+
+  .icon[data-openbitfun-tone="secondary"] {
+    color: var(--openbitfun-color-content-secondary);
+  }
+
+  .icon[data-openbitfun-tone="muted"] {
+    color: var(--openbitfun-color-content-muted);
+  }
+
+  .icon[data-openbitfun-tone="disabled"] {
+    color: var(--openbitfun-color-content-disabled);
+  }
+
+  .icon[data-openbitfun-tone="info"] {
+    color: var(--openbitfun-color-status-info-emphasis);
+  }
+
+  .icon[data-openbitfun-tone="success"] {
+    color: var(--openbitfun-color-status-success-emphasis);
+  }
+
+  .icon[data-openbitfun-tone="warning"] {
+    color: var(--openbitfun-color-status-warning-emphasis);
+  }
+
+  .icon[data-openbitfun-tone="danger"] {
+    color: var(--openbitfun-color-status-danger-emphasis);
+  }
+
+  @media (forced-colors: active) {
+    .icon {
+      color: CanvasText;
+    }
+  }
+}

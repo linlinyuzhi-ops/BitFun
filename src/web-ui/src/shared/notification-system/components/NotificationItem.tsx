@@ -1,7 +1,8 @@
  
 
 import React from 'react';
-import { X, CheckCircle, XCircle, AlertTriangle, Info } from 'lucide-react';
+import { Button, Icon, IconButton } from '@openbitfun/ui';
+import { AlertTriangle, XCircle } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n';
 import { Notification } from '../types';
 import { notificationService } from '../services/NotificationService';
@@ -21,14 +22,14 @@ export const NotificationItem: React.FC<NotificationItemProps> = ({ notification
   const getIcon = () => {
     switch (type) {
       case 'success':
-        return <CheckCircle size={14} />;
+        return <Icon name="check-circle" size="lg" />;
       case 'error':
-        return <XCircle size={14} />;
+        return <XCircle aria-hidden="true" />;
       case 'warning':
-        return <AlertTriangle size={14} />;
+        return <AlertTriangle aria-hidden="true" />;
       case 'info':
       default:
-        return <Info size={14} />;
+        return <Icon name="info" size="lg" />;
     }
   };
 
@@ -48,34 +49,36 @@ export const NotificationItem: React.FC<NotificationItemProps> = ({ notification
 
   return (
     <div
-      className={`notification-item notification-item--${type}${isExiting ? ' notification-item--exiting' : ''}`}
-      data-bf-component="notification"
-      data-bf-part="item"
+      className={`notification-item notification-item--${type}${closable ? ' notification-item--closable' : ''}${isExiting ? ' notification-item--exiting' : ''}`}
+      data-openbitfun-component="notification"
+      data-openbitfun-part="item"
       role={isAssertive ? 'alert' : 'status'}
       aria-live={isAssertive ? 'assertive' : 'polite'}
       aria-atomic="true"
     >
       
-      <div className="notification-item__icon" data-bf-component="notification" data-bf-part="itemIcon">
+      <div className="notification-item__icon" data-openbitfun-component="notification" data-openbitfun-part="itemIcon">
         {getIcon()}
       </div>
 
       
-      <div className="notification-item__content" data-bf-component="notification" data-bf-part="itemContent">
-        <div className="notification-item__title" data-bf-component="notification" data-bf-part="itemTitle">{title}</div>
-        <div className="notification-item__message" data-bf-component="notification" data-bf-part="itemMessage">{messageNode ?? message}</div>
+      <div className="notification-item__content" data-openbitfun-component="notification" data-openbitfun-part="itemContent">
+        <div className="notification-item__title" data-openbitfun-component="notification" data-openbitfun-part="itemTitle">{title}</div>
+        <div className="notification-item__message" data-openbitfun-component="notification" data-openbitfun-part="itemMessage">{messageNode ?? message}</div>
 
         
         {actions && actions.length > 0 && (
-          <div className="notification-item__actions" data-bf-component="notification" data-bf-part="itemActions">
+          <div className="notification-item__actions" data-openbitfun-component="notification" data-openbitfun-part="itemActions">
             {actions.map((action, index) => (
-              <button
+              <Button
                 key={index}
-                className={`notification-item__action notification-item__action--${action.variant || 'secondary'}`}
+                variant={action.variant === 'primary' || action.variant === 'danger' ? 'fill' : 'outline'}
+                tone={action.variant === 'danger' ? 'danger' : 'neutral'}
+                size="sm"
                 onClick={() => handleAction(action.onClick)}
               >
                 {action.label}
-              </button>
+              </Button>
             ))}
           </div>
         )}
@@ -83,15 +86,20 @@ export const NotificationItem: React.FC<NotificationItemProps> = ({ notification
 
       
       {closable && (
-        <button
+        <span
           className="notification-item__close"
-          data-bf-component="notification"
-          data-bf-part="itemClose"
-          onClick={handleClose}
-          aria-label={t('actions.close')}
+          data-openbitfun-component="notification"
+          data-openbitfun-part="itemClose"
         >
-          <X size={14} />
-        </button>
+          <IconButton
+            shape="circle"
+            size="xs"
+            variant="fill"
+            onClick={handleClose}
+            aria-label={t('actions.close')}
+            icon={<Icon name="xmark" size="sm" />}
+          />
+        </span>
       )}
     </div>
   );

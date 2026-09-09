@@ -21,7 +21,7 @@ const requireFromWebUi = createRequire(
 const yaml = requireFromWebUi('yaml');
 
 function createRepo({ workflow, nodeVersionFile }) {
-  const root = mkdtempSync(path.join(tmpdir(), 'bitfun-github-config-'));
+  const root = mkdtempSync(path.join(tmpdir(), 'openbitfun-github-config-'));
   mkdirSync(path.join(root, '.github/workflows'), { recursive: true });
   writeFileSync(
     path.join(root, 'package.json'),
@@ -36,12 +36,19 @@ function createRepo({ workflow, nodeVersionFile }) {
   return root;
 }
 
+function enableProductControlContract(root) {
+  const manifestPath = path.join(root, 'package.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  manifest.scripts = { 'capabilities:check': 'node scripts/check.mjs' };
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
 function runCheck(root) {
   return spawnSync(process.execPath, [scriptPath], {
     cwd: repoRoot,
     env: {
       ...process.env,
-      BITFUN_GITHUB_CONFIG_TEST_ROOT: root,
+      OPENBITFUN_GITHUB_CONFIG_TEST_ROOT: root,
     },
     encoding: 'utf8',
   });
@@ -69,6 +76,32 @@ jobs:
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /node-version-file \.node-version resolves to 20/);
   assert.match(result.stderr, /Node\.js 22\.12\.0 or newer/);
+});
+
+test('rejects removal or weakening of the ProductControl and Playbook gates', (t) => {
+  const root = createRepo({
+    workflow: `
+name: CI
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate interactive capability contract
+        continue-on-error: true
+        run: pnpm run capabilities:check
+`,
+  });
+  enableProductControlContract(root);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const result = runCheck(root);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /interactive capability gate must run exactly/u);
+  assert.match(result.stderr, /interactive capability gate must remain blocking/u);
+  assert.match(result.stderr, /ProductControl owner\/delivery-profile gate is missing/u);
+  assert.match(result.stderr, /CLI ProductControl self-control coverage requires/u);
 });
 
 test('rejects explicit setup-node node-version below the project baseline when node-version-file is valid', (t) => {
@@ -217,6 +250,11 @@ test('keeps Rust CI independent, restore-only on PRs, and target-focused', () =>
     'build-impact',
     'Rust validation must not wait for the frontend build',
   );
+  assert.deepEqual(
+    rustJob.strategy.matrix.os,
+    ['ubuntu-latest', 'macos-15', 'windows-latest'],
+    'Rust validation must retain the reviewed Linux, macOS, and Windows matrix',
+  );
   assert.equal(
     rustJob.steps.some((step) => step.uses?.startsWith('actions/download-artifact@')),
     false,
@@ -285,6 +323,9 @@ test('keeps Rust CI independent, restore-only on PRs, and target-focused', () =>
   const checkCompilation = rustJob.steps.find(
     (step) => step.name === 'Check compilation',
   );
+  const createTauriResources = rustJob.steps.find(
+    (step) => step.name === 'Create Tauri resource directories',
+  );
   const saveSherpaCache = rustJob.steps.find(
     (step) => step.name === 'Save Sherpa native libraries',
   );
@@ -302,6 +343,16 @@ test('keeps Rust CI independent, restore-only on PRs, and target-focused', () =>
   assert.equal(saveSherpaCache?.uses, 'actions/cache/save@v5');
   assert.equal(saveSherpaCache?.with?.path, 'target/sherpa-onnx-prebuilt');
   assert.equal(saveSherpaCache?.with?.key, sherpaCacheKey);
+  assert.match(
+    createTauriResources?.run ?? '',
+    /src\/apps\/extension-host\/dist\/extension-host\.js/,
+    'clean Rust checks must provide the generated extension Host resource path without building the Host',
+  );
+  assert.ok(
+    rustJob.steps.indexOf(createTauriResources) <
+      rustJob.steps.indexOf(checkCompilation),
+    'Tauri resource placeholders must exist before cargo check',
+  );
   assert.equal(
     saveSherpaCache?.if,
     "github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/1.0.0-explore') && steps.sherpa-native-cache.outputs.cache-hit != 'true'",
@@ -330,7 +381,7 @@ test('keeps Rust CI independent, restore-only on PRs, and target-focused', () =>
   );
   assert.equal(
     commandByStep.get('Run subscription authentication tests'),
-    'cargo test --locked -p bitfun-ai-adapters --features subscription-auth --lib subscription_auth',
+    'cargo test --locked -p openbitfun-ai-adapters --features subscription-auth --lib subscription_auth',
   );
   const installerCheck = rustJob.steps.find(
     (step) => step.name === 'Check installer compilation',
@@ -338,7 +389,25 @@ test('keeps Rust CI independent, restore-only on PRs, and target-focused', () =>
   assert.equal(installerCheck?.if, "runner.os == 'Windows'");
   assert.equal(
     installerCheck?.run,
-    'cargo check --manifest-path BitFun-Installer/src-tauri/Cargo.toml',
+    'cargo check --manifest-path OpenBitFun-Installer/src-tauri/Cargo.toml',
+  );
+  const coreLibraryTests = rustJob.steps.find(
+    (step) => step.name === 'Run core library tests',
+  );
+  const linuxFullCoreLibraryTests = rustJob.steps.find(
+    (step) => step.name === 'Run full core library tests on Linux',
+  );
+  const coreLibraryTestSteps = rustJob.steps.filter(
+    (step) => /^cargo test --locked -p openbitfun-core\b.*\s--lib$/.test(step.run ?? ''),
+  );
+  const desktopLibraryTests = rustJob.steps.find(
+    (step) => step.name === 'Run desktop library tests',
+  );
+  const windowsDesktopProbe = rustJob.steps.find(
+    (step) => step.name === 'Probe Windows desktop library tests',
+  );
+  const productControlContracts = rustJob.steps.find(
+    (step) => step.name === 'Run product-control domain and delivery-profile contracts',
   );
   const fileWatchContracts = rustJob.steps.find(
     (step) => step.name === 'Run file watch contract tests',
@@ -923,7 +992,7 @@ test('passes the verification key when signing the versioned Windows installer',
   );
 
   assert.equal(
-    signingStep?.env?.BITFUN_SIGNING_PUBKEY,
+    signingStep?.env?.OPENBITFUN_SIGNING_PUBKEY,
     '${{ secrets.TAURI_UPDATER_PUBKEY }}',
     'release signatures must be self-verified with the configured public key',
   );
@@ -938,8 +1007,7 @@ test('stages unique release asset names before publishing', () => {
   );
   const steps = workflow.jobs['upload-release-assets'].steps;
   const stagingIndexes = [
-    steps.findIndex((step) => step.name === 'Stage stable release assets'),
-    steps.findIndex((step) => step.name === 'Stage beta release assets'),
+    steps.findIndex((step) => step.name === 'Stage release assets'),
   ];
   const uploadIndex = steps.findIndex((step) => step.name === 'Upload to release');
 
@@ -960,6 +1028,18 @@ test('stages unique release asset names before publishing', () => {
   assert.equal(steps[uploadIndex].with.files, 'release-upload-assets/*');
 });
 
+test('Desktop packaging installs Bun before preparing the OpenCode extension Host', () => {
+  const workflow = yaml.parse(
+    readFileSync(path.join(repoRoot, '.github/workflows/desktop-package.yml'), 'utf8'),
+  );
+  const steps = workflow.jobs.package.steps;
+  const bunIndex = steps.findIndex((step) => step.uses === 'oven-sh/setup-bun@v2');
+  const buildIndex = steps.findIndex((step) => step.name === 'Build desktop app');
+  assert.ok(bunIndex >= 0 && bunIndex < buildIndex);
+  assert.equal(steps[bunIndex].if, undefined, 'every Desktop platform needs Bun');
+  assert.equal(steps[bunIndex].with['bun-version'], '1.3.14');
+});
+
 test('Desktop packaging keeps beta identity explicit and stable-safe', () => {
   const workflow = yaml.parse(
     readFileSync(
@@ -974,18 +1054,18 @@ test('Desktop packaging keeps beta identity explicit and stable-safe', () => {
   const prepareStep = workflow.jobs.prepare.steps.find(
     (step) => step.name === 'Resolve version metadata',
   );
-  assert.match(prepareStep.run, /GITHUB_REPOSITORY.*GCWing\/BitFun/);
+  assert.match(prepareStep.run, /GITHUB_REPOSITORY.*GCWing\/OpenBitFun/);
   assert.match(prepareStep.run, /merge-base --is-ancestor/);
   assert.match(prepareStep.run, /rev-parse --verify --quiet/);
 
   const packageJob = workflow.jobs.package;
   assert.equal(
-    packageJob.env.BITFUN_RELEASE_CHANNEL,
+    packageJob.env.OPENBITFUN_RELEASE_CHANNEL,
     '${{ needs.prepare.outputs.release_channel }}',
   );
   assert.match(packageJob.env.TAURI_UPDATER_ENDPOINT, /github\.repository/);
   assert.match(packageJob.env.TAURI_UPDATER_ENDPOINT, /channel-beta/);
-  assert.match(packageJob.env.BITFUN_RELEASE_PUBKEY, /BITFUN_RELEASE_PUBKEY/);
+  assert.match(packageJob.env.OPENBITFUN_RELEASE_PUBKEY, /OPENBITFUN_RELEASE_PUBKEY/);
   const appleSetupIndex = packageJob.steps.findIndex(
     (step) => step.name === 'Configure Apple Developer ID signing and notarization',
   );
@@ -1003,7 +1083,7 @@ test('Desktop packaging keeps beta identity explicit and stable-safe', () => {
   );
   assert.equal(packageJob.steps[appleSetupIndex].if, "runner.os == 'macOS'");
   assert.equal(
-    packageJob.steps[appleSetupIndex].env.BITFUN_REQUIRE_APPLE_SIGNING,
+    packageJob.steps[appleSetupIndex].env.OPENBITFUN_REQUIRE_APPLE_SIGNING,
     '${{ needs.prepare.outputs.upload_to_release }}',
   );
   assert.equal(packageJob.steps[appleVerifyIndex].if, "runner.os == 'macOS'");
@@ -1032,10 +1112,10 @@ test('Desktop packaging keeps beta identity explicit and stable-safe', () => {
     (step) => step.name === 'Publish beta channel manifest',
   );
   assert.ok(verifyIndexPublished >= 0 && verifyIndexPublished < promoteIndex);
-  assert.match(workflow.jobs['linux-binaries'].if, /release_channel == 'stable'/);
+  assert.doesNotMatch(workflow.jobs['linux-binaries'].if, /release_channel/);
   assert.equal(
-    uploadSteps.find((step) => step.name === 'Stage beta release assets').if,
-    "needs.prepare.outputs.release_channel == 'beta'",
+    uploadSteps.find((step) => step.name === 'Stage release assets').if,
+    undefined,
   );
   assert.match(
     uploadSteps.find((step) => step.name === 'Generate updater manifest').run,
@@ -1045,7 +1125,7 @@ test('Desktop packaging keeps beta identity explicit and stable-safe', () => {
     (step) => step.name === 'Sign installer packages',
   );
   assert.match(signingStep.run, /write-minisign-public-key\.mjs/);
-  assert.doesNotMatch(signingStep.run, /BITFUN_SIGNING_PUBKEY.*base64 -d/);
+  assert.doesNotMatch(signingStep.run, /OPENBITFUN_SIGNING_PUBKEY.*base64 -d/);
   const promotionStep = uploadSteps.find(
     (step) => step.name === 'Resolve beta channel promotion',
   );
@@ -1078,6 +1158,206 @@ test('beta publishing cannot advance the Relay latest image tag', () => {
   );
   assert.match(imageTags.run, /RELEASE_CHANNEL.*stable/);
   assert.doesNotMatch(imageTags.run, /RELEASE_PRERELEASE/);
+});
+
+test('stable and beta publication require every producer, while artifact-only runs never publish', () => {
+  const { jobs } = yaml.parse(readFileSync(
+    path.join(repoRoot, '.github/workflows/desktop-package.yml'), 'utf8',
+  ));
+  // These workflow conditions use the shared Boolean/string subset of Actions
+  // expressions and JavaScript. Exercise the actual conditions, not a copy.
+  const condition = (job, needs) => {
+    const expression = job.if.replace(/needs\.([\w-]+)/g, 'needs["$1"]');
+    return Function('needs', 'always', `return (${expression});`)(needs, () => true);
+  };
+  const results = ['success', 'failure', 'cancelled', 'skipped'];
+  for (const channel of ['stable', 'beta']) {
+    for (const upload of ['true', 'false']) {
+      for (const desktop of results) for (const linux of results) for (const image of results) {
+        const needs = {
+          prepare: { outputs: { release_channel: channel, upload_to_release: upload, relay_image_only: 'false' } },
+          package: { result: desktop },
+          'linux-binaries': { result: linux },
+          'publish-relay-image': { result: image },
+        };
+        assert.equal(condition(jobs['linux-binaries'], needs), true);
+        assert.equal(condition(jobs['publish-relay-image'], needs), upload === 'true' && linux === 'success');
+        assert.equal(condition(jobs['upload-release-assets'], needs),
+          upload === 'true' && [desktop, linux, image].every((result) => result === 'success'),
+          JSON.stringify(needs));
+      }
+    }
+    const backfill = {
+      prepare: { outputs: { release_channel: channel, upload_to_release: 'true', relay_image_only: 'true' } },
+      package: { result: 'skipped' },
+      'linux-binaries': { result: 'skipped' },
+      'publish-relay-image': { result: 'success' },
+    };
+    assert.equal(condition(jobs['linux-binaries'], backfill), false);
+    assert.equal(condition(jobs['publish-relay-image'], backfill), true);
+    assert.equal(condition(jobs['upload-release-assets'], backfill), false);
+  }
+  const backfillRelease = jobs['publish-relay-image'].steps.find(
+    (step) => step.name === 'Attach descriptor to an existing release (image-only backfill)',
+  );
+  assert.equal(backfillRelease.with.prerelease, "${{ needs.prepare.outputs.release_channel == 'beta' }}");
+  assert.equal(backfillRelease.with.make_latest, 'false');
+  const steps = jobs['upload-release-assets'].steps;
+  for (const name of [
+    'Download Linux binary artifacts', 'Download Relay image descriptor',
+    'Generate Linux binaries manifest', 'Stage release assets',
+    'Verify published Linux binaries manifest', 'Verify published Relay image descriptor',
+  ]) {
+    assert.equal(steps.find((step) => step.name === name)?.if, undefined, name);
+    assert.ok(steps.some((step) => step.name === name), name);
+  }
+  const stage = steps.find((step) => step.name === 'Stage release assets');
+  for (const pattern of [
+    'linux-release-assets/openbitfun-cli-*.tar.gz',
+    'linux-release-assets/openbitfun-relay-server-*.tar.gz',
+    'linux-release-assets/*.tar.gz.sig', 'linux-release-assets/*.tar.gz.sha256.sig',
+    'linux-release-assets/linux-binaries.json', 'relay-image-assets/relay-image.json.sig',
+  ]) assert.ok(stage.run.includes(pattern), pattern);
+  assert.match(steps.find((step) => step.name === 'Generate Linux binaries manifest').run, /--repo "\$\{\{ github.repository \}\}"/);
+  for (const name of ['Verify published Linux binaries manifest', 'Verify published Relay image descriptor']) {
+    const verification = steps.find((step) => step.name === name);
+    assert.match(verification.run, /github.repository/);
+    assert.ok(steps.indexOf(verification) < steps.findIndex((step) => step.name === 'Publish beta channel manifest'));
+  }
+});
+
+test('Relay image rebuild resolves the release tag instead of the newer workflow commit', (t) => {
+  const { jobs } = yaml.parse(readFileSync(
+    path.join(repoRoot, '.github/workflows/desktop-package.yml'), 'utf8',
+  ));
+  const step = jobs.prepare.steps.find((entry) => entry.name === 'Resolve version metadata');
+  const verification = jobs['upload-release-assets'].steps.find((entry) => entry.name === 'Verify published Relay image descriptor');
+  assert.match(verification.run, /cmp relay-image-assets\/relay-image.json relay-image.published.json/);
+  assert.match(verification.run, /cmp relay-image-assets\/relay-image.json.sig relay-image.published.json.sig/);
+  const root = mkdtempSync(path.join(tmpdir(), 'openbitfun-relay-rebuild-ref-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const tagSha = 'a'.repeat(40);
+  const headSha = 'b'.repeat(40);
+  for (const checkoutRef of ['', 'newer-branch']) {
+    const output = path.join(root, `output-${checkoutRef || 'tag'}`);
+    const result = spawnSync('bash', ['-c', `
+      git() {
+        case "$1" in
+          fetch|merge-base) return 0 ;;
+          rev-parse)
+            case "\${!#}" in
+              'v1.0.0^{commit}') echo "$TAG_SHA" ;;
+              *) echo "$GITHUB_SHA" ;;
+            esac ;;
+        esac
+      }
+      ${step.run.replaceAll('${{ github.event.release.prerelease }}', 'false')}
+    `], {
+      cwd: repoRoot, encoding: 'utf8', windowsHide: true,
+      env: {
+        ...process.env,
+        GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_SHA: headSha,
+        GITHUB_REPOSITORY: 'GCWing/OpenBitFun', GITHUB_OUTPUT: output,
+        INPUT_TAG_NAME: 'v1.0.0', INPUT_CHECKOUT_REF: checkoutRef,
+        INPUT_RELEASE_CHANNEL: 'stable', INPUT_UPLOAD_TO_RELEASE: 'true',
+        INPUT_RELAY_IMAGE_ONLY: 'true', TAG_SHA: tagSha,
+      },
+    });
+    if (checkoutRef) {
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /not requested commit/);
+    } else {
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(readFileSync(output, 'utf8'), new RegExp(`checkout_ref=${tagSha}`));
+    }
+  }
+});
+
+test('Relay image tag selection keeps Beta and old stable backfills away from latest', {
+  skip: process.platform === 'win32',
+}, (t) => {
+  const { jobs } = yaml.parse(readFileSync(
+    path.join(repoRoot, '.github/workflows/desktop-package.yml'), 'utf8',
+  ));
+  const step = jobs['publish-relay-image'].steps.find((entry) => entry.name === 'Resolve image tags');
+  const root = mkdtempSync(path.join(tmpdir(), 'openbitfun-image-tags-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const scenario of [
+    { channel: 'beta', version: '1.0.0-beta.3', imageOnly: 'false', latest: false },
+    { channel: 'beta', version: '1.0.0-beta.3', imageOnly: 'true', latest: false },
+    { channel: 'stable', version: '1.0.0', imageOnly: 'false', latest: true },
+    { channel: 'stable', version: '1.0.0', imageOnly: 'true', latest: true },
+    { channel: 'stable', version: '0.2.19', imageOnly: 'true', latest: false },
+  ]) {
+    const output = path.join(root, 'output');
+    writeFileSync(output, '');
+    const result = spawnSync('bash', ['-c', `gh() { printf 'v1.0.0\\n'; }\n${step.run}`], {
+      env: { ...process.env, GITHUB_OUTPUT: output, GITHUB_REPOSITORY: 'test-owner/OpenBitFun',
+        IMAGE: 'ghcr.io/test-owner/openbitfun-relay-server', RELEASE_TAG: `v${scenario.version}`,
+        RELEASE_VERSION: scenario.version, RELEASE_CHANNEL: scenario.channel, IMAGE_ONLY: scenario.imageOnly },
+      encoding: 'utf8', windowsHide: true,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const tags = readFileSync(output, 'utf8').trim().split('\n');
+    assert.deepEqual(tags, [
+      'value<<EOF', `ghcr.io/test-owner/openbitfun-relay-server:v${scenario.version}`,
+      `ghcr.io/test-owner/openbitfun-relay-server:${scenario.version}`,
+      ...(scenario.latest ? ['ghcr.io/test-owner/openbitfun-relay-server:latest'] : []), 'EOF',
+    ]);
+  }
+});
+
+test('beta channel readback retries stale content and fails if it never converges', {
+  skip: process.platform === 'win32' || spawnSync('jq', ['--version'], { windowsHide: true }).status !== 0,
+}, (t) => {
+  const workflow = yaml.parse(readFileSync(
+    path.join(repoRoot, '.github/workflows/desktop-package.yml'), 'utf8',
+  ));
+  const step = workflow.jobs['upload-release-assets'].steps.find(
+    (entry) => entry.name === 'Publish beta channel manifest',
+  );
+  assert.equal(step.env.CANDIDATE_VERSION, '${{ steps.beta-channel.outputs.candidate_version }}');
+  const root = mkdtempSync(path.join(tmpdir(), 'openbitfun-beta-readback-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const bin = path.join(root, 'bin');
+  mkdirSync(bin);
+  for (const command of ['gh', 'sleep']) {
+    writeFileSync(path.join(bin, command), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  }
+  writeFileSync(path.join(bin, 'curl'), `#!/usr/bin/env node
+const fs = require('node:fs');
+const count = fs.existsSync('requests') ? Number(fs.readFileSync('requests', 'utf8')) + 1 : 1;
+fs.writeFileSync('requests', String(count));
+if (process.env.READBACK_CASE === 'transport' && count === 1) process.exit(22);
+const output = process.argv[process.argv.indexOf('-o') + 1];
+const content = process.env.READBACK_CASE === 'malformed' && count === 1
+  ? 'not json'
+  : JSON.stringify({ version: process.env.READBACK_CASE === 'stale' || count === 1 ? '0.2.19-beta.1' : '1.0.0-beta.1' });
+fs.writeFileSync(output, content);
+`, { mode: 0o755 });
+  for (const scenario of ['converges', 'transport', 'malformed', 'stale']) {
+    const cwd = path.join(root, scenario);
+    mkdirSync(cwd);
+    writeFileSync(path.join(cwd, 'latest.published.json'), '{"version":"1.0.0-beta.1"}');
+    const result = spawnSync('bash', ['-c', step.run], {
+      cwd,
+      env: {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        READBACK_CASE: scenario,
+        CHANNEL_EXISTS: 'true',
+        GITHUB_REPOSITORY: 'test/repo',
+        CANDIDATE_VERSION: '1.0.0-beta.1',
+      },
+      encoding: 'utf8',
+      timeout: 10000,
+      windowsHide: true,
+    });
+    assert.equal(result.status, scenario === 'stale' ? 1 : 0, `${scenario}: ${result.stderr}`);
+    const requests = Number(readFileSync(path.join(cwd, 'requests'), 'utf8'));
+    assert.ok(requests > 1 && requests <= 12, `${scenario}: bounded content retries`);
+    if (scenario === 'stale') assert.match(result.stderr, /did not converge/);
+  }
 });
 
 test('nightly and beta use the shared build-version projection', () => {

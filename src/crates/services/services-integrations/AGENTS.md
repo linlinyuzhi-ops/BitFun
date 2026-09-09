@@ -2,12 +2,12 @@
 
 Scope: this guide applies to `src/crates/services/services-integrations`.
 
-`bitfun-services-integrations` owns reviewed integration contracts and runtime
+`openbitfun-services-integrations` owns reviewed integration contracts and runtime
 slices that are outside pure product logic but still platform-neutral.
 
 ## Guardrails
 
-- Do not depend on `bitfun-core`, app crates, desktop adapters, CLI UI, or web
+- Do not depend on `openbitfun-core`, app crates, desktop adapters, CLI UI, or web
   presentation code.
 - Keep integration families behind explicit features. The default feature set
   should not compile heavy Git, MCP, SSH, network, or file-watch runtimes.
@@ -28,8 +28,12 @@ slices that are outside pure product logic but still platform-neutral.
   orchestration ports, LAN/ngrok provider helpers, IM bot provider clients,
   provider-private cursor caches, mobile-web relay upload, image-context adapter
   contracts, remote workspace helpers, and command/response assembly.
+- The `remote-persistence` feature is the lightweight persisted-shape owner shared
+  by Remote Connect, remote SSH, and offline migration. Keep it free of network,
+  SSH transport, and runtime orchestration dependencies so owner readers and
+  writers can validate staged data without enabling those heavier families.
 - Remote workspace facts, session metadata, file projection DTOs, and
-  workspace/projection host traits belong in `bitfun-runtime-ports`.
+  workspace/projection host traits belong in `openbitfun-runtime-ports`.
 - Workspace-root source selection, persistence/workspace service reads,
   concrete scheduler/session restore, terminal pre-warm adapters, and product
   execution remain core-owned unless a reviewed port/provider moves them with
@@ -41,9 +45,9 @@ slices that are outside pure product logic but still platform-neutral.
   `services-core::workspace_identity`; `remote_ssh::paths` is only its legacy
   compatibility re-export and must not regain transport-independent logic.
 - One-click relay self-deploy (`remote_ssh/relay_deploy.rs`) stages embedded
-  scripts under `~/.bitfun/relay-deploy/` and clones source to
-  `~/.bitfun/relay-src/` (never `$HOME/bitfun`). Embeds
-  `src/apps/relay-server/mirror.sh` and runs `bitfun_mirror_init` before apt /
+  scripts under `~/.openbitfun/relay-deploy/` and clones source to
+  `~/.openbitfun/relay-src/` (never `$HOME/openbitfun`). Embeds
+  `src/apps/relay-server/mirror.sh` and runs `openbitfun_mirror_init` before apt /
   Docker install / GitHub sync so mainland China hosts use configured mirrors.
   Invariants: `src/web-ui/src/features/relay-deploy/README.md`. Desktop Tauri
   wrapper: `src/apps/desktop/src/api/relay_deploy_api.rs`.
@@ -64,9 +68,6 @@ slices that are outside pure product logic but still platform-neutral.
 - Web tool network providers own concrete HTTP/Exa requests behind `web-tools`;
   product validation, readable extraction, and tool result types stay in
   higher layers.
-- Debug log file append, redaction, default path/env config, and optional HTTP
-  dispatch live behind `debug-log`; core only keeps ingest-server and product
-  workspace path adaptation.
 - Review-platform provider detection, repository discovery, token persistence,
   provider DTO mapping, pagination policy, HTTP transport, and Git provider
   integration live behind `review-platform`; core may only inject product data
@@ -96,7 +97,7 @@ slices that are outside pure product logic but still platform-neutral.
 - Announcement remote fetch/cache lives here; product assembly supplies config
   values such as endpoint, locale, version, platform, and cache path.
 - DeepResearch report IO here owns report/citation sidecar filesystem work;
-  provider-neutral citation numbering stays in `bitfun-agent-runtime`. The IO
+  provider-neutral citation numbering stays in `openbitfun-agent-runtime`. The IO
   path must use the injected `WorkspaceFileSystem` for both local and remote
   workspaces; never probe or fall back to the host filesystem for a remote
   workspace path.
@@ -110,13 +111,35 @@ creating another Cargo target. Real transport/system boundaries such as MCP
 streamable HTTP stay independent. Representative stable entry points are:
 
 ```bash
-cargo check -p bitfun-services-integrations --no-default-features
-cargo test -p bitfun-services-integrations --no-default-features --features mcp --test mcp_contracts
-cargo test -p bitfun-services-integrations --no-default-features --features remote-ssh --test remote_ssh_contracts remote_ssh_disabled_contracts::
-cargo test -p bitfun-services-integrations --no-default-features --features file-watch --test file_watch_contracts
-cargo test --locked -p bitfun-services-integrations --no-default-features --features deep-research --lib deep_research::tests::
+cargo check -p openbitfun-services-integrations --no-default-features
+cargo test -p openbitfun-services-integrations --no-default-features --features remote-persistence --lib remote_persistence::tests::
+cargo test -p openbitfun-services-integrations --no-default-features --features mcp --test mcp_contracts
+cargo test -p openbitfun-services-integrations --no-default-features --features mcp --test mcp_streamable_http_contracts
+cargo test -p openbitfun-services-integrations --no-default-features --features remote-ssh --test remote_ssh_contracts remote_ssh_disabled_contracts::
+cargo test -p openbitfun-services-integrations --no-default-features --features remote-ssh-concrete --lib remote_ssh::manager::tests::workspace_
+cargo test -p openbitfun-services-integrations --no-default-features --features remote-ssh-concrete --lib remote_ssh::wsl::tests::
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-ssh-concrete --lib remote_ssh::relay_deploy::tests::
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::relay_client::tests::
+cargo test -p openbitfun-services-integrations --no-default-features --features file-watch --test file_watch_contracts
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features deep-research --lib deep_research::tests::
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features review-platform --lib review_platform
 pnpm run check:core-boundaries
 ```
 
 Other family-specific targets remain in `Cargo.toml`; add a guide command only
 for a recurring workflow, not to mirror every test target.
+
+On Windows with an initialized WSL distribution, set `OPENBITFUN_TEST_WSL_DISTRO`
+and run `cargo test -p openbitfun-services-integrations --no-default-features
+--features remote-ssh-concrete --lib wsl_windows_workspace_transport -- --ignored`
+for binary filesystem/stdio, exit status, cancellation, and saved reconnect.
+
+For SFTP handle ownership and cancellation regressions, run
+`cargo test --locked -p openbitfun-services-integrations --no-default-features
+--features remote-ssh-concrete --lib
+remote_ssh::manager::tests::workspace_sftp::`. These loopback SSH/SFTP tests
+advertise a small handle limit and are included in the existing CI
+`workspace_` filter. To exercise real OpenSSH file IO over loopback SSH, set
+`OPENBITFUN_TEST_SFTP_SERVER` to an installed `sftp-server` executable and run
+the same command with the filter ending in
+`workspace_sftp::openssh_real_files_over_loopback_ssh -- --ignored`.

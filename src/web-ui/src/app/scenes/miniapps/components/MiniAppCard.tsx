@@ -1,10 +1,10 @@
+import { OverflowText, Icon, IconButton } from '@openbitfun/ui';
 import React from 'react';
-import { Play, Square, Trash2 } from 'lucide-react';
+import { Play, Square } from 'lucide-react';
 import type { MiniAppMeta } from '@/infrastructure/api/service-api/MiniAppAPI';
-import { renderMiniAppIcon } from '../utils/miniAppIcons';
+import { getMiniAppIconAsset, renderMiniAppIcon } from '../utils/miniAppIcons';
 import { pickLocalizedString, pickLocalizedTags } from '../utils/pickLocalizedString';
 import { useI18n } from '@/infrastructure/i18n';
-import { DEFAULT_CARD_GRADIENT } from '@/shared/utils/cardGradients';
 import './MiniAppCard.scss';
 
 interface MiniAppCardProps {
@@ -21,12 +21,8 @@ interface MiniAppCardProps {
   marketReleaseNumber?: number;
   onOpenDetails: (app: MiniAppMeta) => void;
   onOpen: (id: string) => void;
-  onDelete: (id: string) => void;
   onStop?: (id: string) => void;
 }
-
-const MINIAPP_CARD_GRADIENT_RUNNING =
-  'linear-gradient(135deg, color-mix(in srgb, var(--bf-appearance-token-color-success) 28%, transparent) 0%, color-mix(in srgb, var(--bf-appearance-token-color-success) 18%, transparent) 100%)';
 
 const MiniAppCard: React.FC<MiniAppCardProps> = ({
   app,
@@ -36,17 +32,15 @@ const MiniAppCard: React.FC<MiniAppCardProps> = ({
   marketReleaseNumber,
   onOpenDetails,
   onOpen,
-  onDelete,
   onStop,
 }) => {
   const { t, currentLanguage } = useI18n('scenes/miniapp');
   const localizedName = pickLocalizedString(app, currentLanguage, 'name');
   const localizedDescription = pickLocalizedString(app, currentLanguage, 'description');
   const localizedTags = pickLocalizedTags(app, currentLanguage);
-  const handleDeleteClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onDelete(app.id);
-  };
+  const displayedTags = localizedTags.slice(0, 4);
+  const overflowTags = localizedTags.slice(4);
+  const iconAsset = getMiniAppIconAsset(app.id);
 
   const handleStopClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -62,8 +56,21 @@ const MiniAppCard: React.FC<MiniAppCardProps> = ({
     onOpenDetails(app);
   };
 
+  const handleMoreClick = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    handleOpenDetails();
+  };
+
+  const handleCardKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleOpenDetails();
+    }
+  };
+
   return (
-    <div data-bf-component="mini-app-card" data-bf-part="root"
+    <div data-overflow-trigger data-openbitfun-component="mini-app-card" data-openbitfun-part="root" data-miniapp-id={app.id}
       className={[
         'miniapp-card',
         isRunning && 'miniapp-card--running',
@@ -73,79 +80,94 @@ const MiniAppCard: React.FC<MiniAppCardProps> = ({
         .join(' ')}
       style={{
         '--surface-stagger-index': index,
-        '--miniapp-card-gradient': isRunning ? MINIAPP_CARD_GRADIENT_RUNNING : DEFAULT_CARD_GRADIENT,
       } as React.CSSProperties}
       onClick={handleOpenDetails}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => e.key === 'Enter' && handleOpenDetails()}
+      onKeyDown={handleCardKeyDown}
       aria-label={localizedName}
     >
-      {/* Header with icon and title */}
-      <div className="miniapp-card__header" data-bf-component="mini-app-card" data-bf-part="header">
-        <div className="miniapp-card__icon-area" data-bf-component="mini-app-card" data-bf-part="iconArea">
-          <div className="miniapp-card__icon" data-bf-component="mini-app-card" data-bf-part="icon">
-            {renderMiniAppIcon(app.icon || 'box', 20)}
+      <div className="miniapp-card__main">
+        <div className="miniapp-card__header" data-openbitfun-component="mini-app-card" data-openbitfun-part="header">
+          <div className="miniapp-card__icon-area" data-openbitfun-component="mini-app-card" data-openbitfun-part="iconArea">
+            <div className="miniapp-card__icon" data-openbitfun-component="mini-app-card" data-openbitfun-part="icon">
+              {iconAsset ? (
+                <img className="miniapp-card__icon-image" src={iconAsset} alt="" aria-hidden="true" />
+              ) : renderMiniAppIcon(app.icon || 'box', 40)}
+            </div>
+          </div>
+          <div className="miniapp-card__header-actions">
+            {(isRunning || isCustomizing) && (
+              <span className="miniapp-card__status-dots" data-openbitfun-component="mini-app-card" data-openbitfun-part="status" aria-hidden="true">
+                {isRunning && <span className="miniapp-card__run-dot" />}
+                {isCustomizing && <span className="miniapp-card__customize-dot" />}
+              </span>
+            )}
+            <IconButton
+              aria-label={localizedName}
+              icon={<Icon name="more" size="sm" />}
+              onClick={handleMoreClick}
+              size="xs"
+              title={localizedName}
+            />
           </div>
         </div>
-        <div className="miniapp-card__title-group" data-bf-component="mini-app-card" data-bf-part="title">
-          <span className="miniapp-card__name" data-bf-component="mini-app-card" data-bf-part="name">{localizedName}</span>
-          <span className="miniapp-card__version" data-bf-component="mini-app-card" data-bf-part="version">v{marketReleaseNumber ?? app.version}</span>
-        </div>
-        {(isRunning || isCustomizing) && (
-          <span className="miniapp-card__status-dots" data-bf-component="mini-app-card" data-bf-part="status" aria-hidden="true">
-            {isRunning && <span className="miniapp-card__run-dot" />}
-            {isCustomizing && <span className="miniapp-card__customize-dot" />}
-          </span>
-        )}
-      </div>
 
-      {/* Body: description + tags */}
-      <div className="miniapp-card__body" data-bf-component="mini-app-card" data-bf-part="body">
-        {localizedDescription ? (
-          <div className="miniapp-card__desc" data-bf-component="mini-app-card" data-bf-part="description">
-            <span className="miniapp-card__desc-inner">{localizedDescription}</span>
+        <div className="miniapp-card__content">
+          <div className="miniapp-card__title-group" data-openbitfun-component="mini-app-card" data-openbitfun-part="title">
+            <OverflowText className="miniapp-card__name" data-openbitfun-component="mini-app-card" data-openbitfun-part="name">{localizedName}</OverflowText>
           </div>
-        ) : null}
-        {localizedTags.length > 0 ? (
-        <div className="miniapp-card__tags" data-bf-component="mini-app-card" data-bf-part="tags">
-            {localizedTags.slice(0, 3).map((tag) => (
-              <span key={tag} className="miniapp-card__tag">{tag}</span>
+
+          <div className="miniapp-card__body" data-openbitfun-component="mini-app-card" data-openbitfun-part="body">
+            {localizedDescription ? (
+              <div className="miniapp-card__desc" data-openbitfun-component="mini-app-card" data-openbitfun-part="description">
+                <span className="miniapp-card__desc-inner">{localizedDescription}</span>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="miniapp-card__footer" data-openbitfun-component="mini-app-card" data-openbitfun-part="footer">
+          <div className="miniapp-card__tags" data-openbitfun-component="mini-app-card" data-openbitfun-part="tags">
+            <span className="miniapp-card__tag" data-openbitfun-component="mini-app-card" data-openbitfun-part="version"><OverflowText>
+              V{marketReleaseNumber ?? app.version}
+            </OverflowText></span>
+            {displayedTags.map((tag) => (
+              <span key={tag} className="miniapp-card__tag" title={tag}><OverflowText>{tag}</OverflowText></span>
             ))}
+            {overflowTags.length > 0 ? (
+              <span
+                className="miniapp-card__tag miniapp-card__tag-overflow"
+                title={overflowTags.join(', ')}
+                aria-label={overflowTags.join(', ')}
+              ><OverflowText>
+                +{overflowTags.length}
+              </OverflowText></span>
+            ) : null}
           </div>
-        ) : null}
-      </div>
-
-      {/* Footer with actions */}
-      <div className="miniapp-card__footer" data-bf-component="mini-app-card" data-bf-part="footer">
-        <div className="miniapp-card__actions" data-bf-component="mini-app-card" data-bf-part="actions" onClick={(e) => e.stopPropagation()}>
-          <button
-            className="miniapp-card__action-btn miniapp-card__action-btn--primary"
-            onClick={handleOpenClick}
-            aria-label={t('card.start')}
-            title={t('card.start')}
-          >
-            <Play size={15} fill="currentColor" strokeWidth={0} />
-          </button>
-          {isRunning && onStop ? (
-            <button
-              className="miniapp-card__action-btn miniapp-card__action-btn--stop"
-              onClick={handleStopClick}
-              aria-label={t('card.stop')}
-              title={t('card.stop')}
-            >
-              <Square size={13} />
-            </button>
-          ) : (
-            <button
-              className="miniapp-card__action-btn miniapp-card__action-btn--danger"
-              onClick={handleDeleteClick}
-              aria-label={t('card.delete')}
-              title={t('card.delete')}
-            >
-              <Trash2 size={13} />
-            </button>
-          )}
+          <div className="miniapp-card__actions" data-openbitfun-component="mini-app-card" data-openbitfun-part="actions" onClick={(event) => event.stopPropagation()}>
+            {isRunning && onStop ? (
+              <IconButton
+                aria-label={t('card.stop')}
+                icon={<Square size={10} fill="currentColor" />}
+                onClick={handleStopClick}
+                shape="circle"
+                size="xs"
+                title={t('card.stop')}
+                variant="primary"
+              />
+            ) : (
+              <IconButton
+                aria-label={t('card.start')}
+                icon={<Play size={10} fill="currentColor" strokeWidth={0} />}
+                onClick={handleOpenClick}
+                shape="circle"
+                size="xs"
+                title={t('card.start')}
+                variant="primary"
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>

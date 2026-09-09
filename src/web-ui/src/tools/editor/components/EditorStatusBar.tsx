@@ -1,14 +1,11 @@
-/** Status bar for cursor position, language, encoding, and LSP status. */
+/** Status bar for cursor position, language, and encoding. */
 
 import React from 'react';
-import { 
-  AlertCircle,
-  Loader2,
-  Zap
-} from 'lucide-react';
-import { Tooltip } from '@/component-library';
+import { DEFAULT_EDITOR_CONFIG } from '../config/defaults';
+
 import { useI18n } from '@/infrastructure/i18n';
 import './EditorStatusBar.scss';
+import { Tooltip } from '@openbitfun/ui';
 
 export interface EditorStatusBarProps {
   /** Current line number */
@@ -33,8 +30,6 @@ export interface EditorStatusBarProps {
   isSaving?: boolean;
   /** Whether file is read-only */
   isReadOnly?: boolean;
-  /** LSP connection status */
-  lspStatus?: 'connected' | 'disconnected' | 'connecting';
   /** Language click callback */
   onLanguageClick?: (e: React.MouseEvent) => void;
   /** Encoding click callback */
@@ -90,33 +85,6 @@ const getLanguageDisplayName = (language: string): string => {
   return languageMap[language.toLowerCase()] || language;
 };
 
-const getLspStatusInfo = (
-  status: 'connected' | 'disconnected' | 'connecting' | undefined,
-  t: (key: string) => string
-) => {
-  switch (status) {
-    case 'connected':
-      return { 
-        icon: <Zap size={12} />, 
-        className: 'editor-status-bar__lsp--connected',
-        title: t('editor.statusBar.lspConnected')
-      };
-    case 'connecting':
-      return { 
-        icon: <Loader2 size={12} className="editor-status-bar__lsp-spinner" />, 
-        className: 'editor-status-bar__lsp--connecting',
-        title: t('editor.statusBar.lspConnecting')
-      };
-    case 'disconnected':
-    default:
-      return { 
-        icon: <AlertCircle size={12} />, 
-        className: 'editor-status-bar__lsp--disconnected',
-        title: t('editor.statusBar.lspDisconnected')
-      };
-  }
-};
-
 export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
   line,
   column,
@@ -124,17 +92,15 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
   selectedLines = 0,
   language,
   encoding = 'UTF-8',
-  tabSize = 2,
+  tabSize = DEFAULT_EDITOR_CONFIG.tabSize,
   insertSpaces = true,
   isReadOnly = false,
-  lspStatus,
   onLanguageClick,
   onEncodingClick,
   onIndentClick,
   onPositionClick,
 }) => {
   const { t } = useI18n('tools');
-  const lspInfo = getLspStatusInfo(lspStatus, t);
 
   // Build selection info text (updates with language changes).
   const getSelectionText = () => {
@@ -148,36 +114,36 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
   };
 
   return (
-    <div className="editor-status-bar" data-bf-component="editor-status-bar" data-bf-part="root">
-      <div data-bf-component="editor-status-bar" data-bf-part="left" className="editor-status-bar__left">
+    <div className="editor-status-bar" data-openbitfun-component="editor-status-bar" data-openbitfun-part="root">
+      <div data-openbitfun-component="editor-status-bar" data-openbitfun-part="left" className="editor-status-bar__left">
         {isReadOnly && (
-          <div data-bf-component="editor-status-bar" data-bf-part="item" className="editor-status-bar__item editor-status-bar__readonly">
+          <div data-openbitfun-component="editor-status-bar" data-openbitfun-part="item" className="editor-status-bar__item editor-status-bar__readonly">
             {t('editor.statusBar.readOnly')}
           </div>
         )}
       </div>
 
-      <div data-bf-component="editor-status-bar" data-bf-part="right" className="editor-status-bar__right">
+      <div data-openbitfun-component="editor-status-bar" data-openbitfun-part="right" className="editor-status-bar__right">
         <Tooltip content={t('editor.statusBar.goToLine')} placement="top">
           <div 
-            data-bf-component="editor-status-bar"
-            data-bf-part="item"
+            data-openbitfun-component="editor-status-bar"
+            data-openbitfun-part="item"
             className={`editor-status-bar__item ${onPositionClick ? 'editor-status-bar__item--clickable' : ''}`}
             onClick={onPositionClick}
           >
             <span>{t('editor.statusBar.ln')} {line}, {t('editor.statusBar.col')} {column}</span>
             {getSelectionText() && (
-              <span data-bf-component="editor-status-bar" data-bf-part="selection" className="editor-status-bar__selection">{getSelectionText()}</span>
+              <span data-openbitfun-component="editor-status-bar" data-openbitfun-part="selection" className="editor-status-bar__selection">{getSelectionText()}</span>
             )}
           </div>
         </Tooltip>
 
-        <div data-bf-component="editor-status-bar" data-bf-part="separator" className="editor-status-bar__separator" />
+        <div data-openbitfun-component="editor-status-bar" data-openbitfun-part="separator" className="editor-status-bar__separator" />
 
         <Tooltip content={t('editor.statusBar.indentSettings')} placement="top">
           <div 
-            data-bf-component="editor-status-bar"
-            data-bf-part="item"
+            data-openbitfun-component="editor-status-bar"
+            data-openbitfun-part="item"
             className={`editor-status-bar__item ${onIndentClick ? 'editor-status-bar__item--clickable' : ''}`}
             onClick={onIndentClick}
           >
@@ -185,12 +151,12 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
           </div>
         </Tooltip>
 
-        <div data-bf-component="editor-status-bar" data-bf-part="separator" className="editor-status-bar__separator" />
+        <div data-openbitfun-component="editor-status-bar" data-openbitfun-part="separator" className="editor-status-bar__separator" />
 
         <Tooltip content={t('editor.statusBar.fileEncoding')} placement="top">
           <div 
-            data-bf-component="editor-status-bar"
-            data-bf-part="item"
+            data-openbitfun-component="editor-status-bar"
+            data-openbitfun-part="item"
             className={`editor-status-bar__item ${onEncodingClick ? 'editor-status-bar__item--clickable' : ''}`}
             onClick={onEncodingClick}
           >
@@ -198,12 +164,12 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
           </div>
         </Tooltip>
 
-        <div data-bf-component="editor-status-bar" data-bf-part="separator" className="editor-status-bar__separator" />
+        <div data-openbitfun-component="editor-status-bar" data-openbitfun-part="separator" className="editor-status-bar__separator" />
 
         <Tooltip content={t('editor.statusBar.selectLanguageMode')} placement="top">
           <div 
-            data-bf-component="editor-status-bar"
-            data-bf-part="item"
+            data-openbitfun-component="editor-status-bar"
+            data-openbitfun-part="item"
             className={`editor-status-bar__item ${onLanguageClick ? 'editor-status-bar__item--clickable' : ''}`}
             onClick={onLanguageClick}
           >
@@ -211,19 +177,6 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
           </div>
         </Tooltip>
 
-        {lspStatus && (
-          <>
-            <div data-bf-component="editor-status-bar" data-bf-part="separator" className="editor-status-bar__separator" />
-            <div 
-              data-bf-component="editor-status-bar"
-              data-bf-part="lsp"
-              className={`editor-status-bar__item editor-status-bar__lsp ${lspInfo.className}`}
-              title={lspInfo.title}
-            >
-              {lspInfo.icon}
-            </div>
-          </>
-        )}
       </div>
     </div>
   );

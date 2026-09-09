@@ -2,6 +2,8 @@
 
 import { agentRuntimeRootPublicModules } from './public-api-rules.mjs';
 
+const agentRuntimeDefinitionContractModules = new Set(['custom_agent', 'prompt', 'skills']);
+
 export const requiredContentRules = [
   {
     path: 'src/web-ui/src/infrastructure/api/service-api/ExternalSourcesAPI.ts',
@@ -18,12 +20,12 @@ export const requiredContentRules = [
   {
     path: 'src/crates/adapters/agent-runtime-ipc/Cargo.toml',
     reason:
-      'agent-runtime-ipc must keep the exact feature-free bitfun-transport dependency',
+      'agent-runtime-ipc must keep the exact feature-free openbitfun-transport dependency',
     patterns: [
       {
-        regex: /^bitfun-transport = \{ path = "\.\.\/transport" \}$/m,
+        regex: /^openbitfun-transport = \{ path = "\.\.\/transport" \}$/m,
         message:
-          'bitfun-transport must stay feature-free and use the reviewed sibling path',
+          'openbitfun-transport must stay feature-free and use the reviewed sibling path',
       },
     ],
   },
@@ -246,33 +248,6 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/services/services-integrations/src/debug_log.rs',
-    reason:
-      'services-integrations must own debug log file append, redaction, default config, and HTTP dispatch behind the debug-log feature',
-    patterns: [
-      {
-        regex: /\bpub struct DebugLogConfig\b/,
-        message: 'missing debug log config owner',
-      },
-      {
-        regex: /\bpub struct DebugLogEntry\b/,
-        message: 'missing debug log entry owner',
-      },
-      {
-        regex: /\bpub async fn append_log_async\b/,
-        message: 'missing debug log append owner',
-      },
-      {
-        regex: /\bfn redact_value\b/,
-        message: 'missing debug log redaction owner',
-      },
-      {
-        regex: /\bpub async fn post_debug_log\b/,
-        message: 'missing debug log HTTP dispatch owner',
-      },
-    ],
-  },
-  {
     path: 'src/crates/services/services-core/tests/storage_owner_contracts/storage_owner_contracts.rs',
     reason:
       'services-core local storage owner must keep persistence, cleanup, and token usage behavior contracts',
@@ -318,37 +293,6 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/services/services-integrations/tests/debug_log_owner_contracts.rs',
-    reason:
-      'services-integrations debug log migration must keep file append, redaction, and optional HTTP behavior contracts',
-    patterns: [
-      {
-        regex:
-          /\bdebug_log_owner_appends_legacy_partially_redacted_ndjson_and_skips_http_when_disabled\b/,
-        message: 'missing debug log file append and legacy partial redaction behavior regression',
-      },
-      {
-        regex: /\bdebug_log_owner_dispatches_the_same_redacted_payload_when_http_is_enabled\b/,
-        message: 'missing debug log HTTP dispatch behavior regression',
-      },
-    ],
-  },
-  {
-    path: 'src/crates/assembly/core/src/infrastructure/debug_log/mod.rs',
-    reason:
-      'core debug log module must stay a compatibility facade over services-integrations for log append and redaction behavior',
-    patterns: [
-      {
-        regex: /\bpub use bitfun_services_integrations::debug_log::\{/,
-        message: 'missing debug log owner re-export',
-      },
-      {
-        regex: /\bappend_log_async\b/,
-        message: 'missing append_log_async compatibility export',
-      },
-    ],
-  },
-  {
     path: 'src/crates/assembly/core/src/infrastructure/storage/cleanup.rs',
     reason:
       'core storage cleanup compatibility path must preserve the legacy cleanup DTO imports while delegating behavior to services-core',
@@ -358,7 +302,7 @@ export const requiredContentRules = [
         message: 'missing CleanupCategory compatibility re-export',
       },
       {
-        regex: /\bbitfun_services_core::storage_cleanup\b/,
+        regex: /\bopenbitfun_services_core::storage_cleanup\b/,
         message: 'missing services-core cleanup owner delegation',
       },
     ],
@@ -369,7 +313,7 @@ export const requiredContentRules = [
       'core token usage service must stay a compatibility wrapper over services-core',
     patterns: [
       {
-        regex: /\bbitfun_services_core::token_usage::TokenUsageService\b/,
+        regex: /\bopenbitfun_services_core::token_usage::TokenUsageService\b/,
         message: 'missing services-core token usage delegation',
       },
       {
@@ -409,129 +353,6 @@ export const requiredContentRules = [
       {
         regex: /\.emit\(projected\.event_name\.as_str\(\), projected\.payload\)/,
         message: 'Tauri transport must emit projected event name and payload',
-      },
-    ],
-  },
-  {
-    path: 'src/crates/contracts/core-types/src/lsp.rs',
-    reason:
-      'core-types must own shared LSP protocol DTOs, plugin manifest wire contracts, and plugin runtime target DTOs',
-    patterns: [
-      {
-        regex: /\bpub struct LspPlugin\b/,
-        message: 'missing LSP plugin manifest contract owner',
-      },
-      {
-        regex: /\bpub struct ServerConfig\b/,
-        message: 'missing LSP plugin server config contract',
-      },
-      {
-        regex: /\bpub enum JsonRpcMessage\b/,
-        message: 'missing LSP JSON-RPC wire DTO contract',
-      },
-      {
-        regex: /\bpub enum PluginSource\b/,
-        message: 'missing LSP plugin source contract',
-      },
-      {
-        regex: /\bpub struct LspPluginRuntimeTarget\b/,
-        message: 'missing LSP plugin runtime target contract',
-      },
-      {
-        regex: /\bpub fn resolve_lsp_plugin_command_for_target\b/,
-        message: 'missing pure LSP plugin command placeholder resolver',
-      },
-    ],
-  },
-  {
-    path: 'src/crates/services/services-core/src/lsp.rs',
-    reason:
-      'services-core must own pure LSP plugin registry and current-target mapping rules',
-    patterns: [
-      {
-        regex: /\bpub struct PluginRegistry\b/,
-        message: 'missing services-owned LSP plugin registry',
-      },
-      {
-        regex: /\bpub struct LspSupportedExtensions\b/,
-        message: 'missing supported extension summary owner',
-      },
-      {
-        regex: /\bpub fn resolve_plugin_command_for_current_target\b/,
-        message: 'missing current-target LSP plugin command resolver',
-      },
-    ],
-  },
-  {
-    path: 'src/crates/assembly/core/src/service/lsp/types.rs',
-    reason:
-      'core LSP types path must remain a compatibility facade over core-types',
-    patterns: [
-      {
-        regex: /\bpub use bitfun_core_types::lsp::\*/,
-        message: 'core LSP types must re-export bitfun-core-types contracts',
-      },
-    ],
-  },
-  {
-    path: 'src/crates/assembly/core/src/service/lsp/registry.rs',
-    reason:
-      'core LSP registry path must remain a compatibility facade over services-core',
-    patterns: [
-      {
-        regex: /\bpub use bitfun_services_core::lsp::\{/,
-        message: 'core LSP registry must re-export services-core registry',
-      },
-    ],
-  },
-  {
-    path: 'src/crates/contracts/core-types/tests/core_type_contracts/lsp_contracts.rs',
-    reason:
-      'core-types must keep LSP manifest serialization, default-value, and placeholder regressions',
-    patterns: [
-      {
-        regex: /\blsp_plugin_manifest_defaults_preserve_legacy_shape\b/,
-        message: 'missing LSP manifest default regression',
-      },
-      {
-        regex: /\blsp_capability_config_missing_fields_default_to_false\b/,
-        message: 'missing LSP capability default regression',
-      },
-      {
-        regex: /\blsp_plugin_command_placeholder_resolution_is_contract_owned\b/,
-        message: 'missing LSP command placeholder contract regression',
-      },
-    ],
-  },
-  {
-    path: 'src/crates/services/services-core/tests/lsp_plugin_registry_contracts.rs',
-    reason:
-      'services-core must keep behavior-equivalence contracts for LSP plugin registry and command mapping',
-    patterns: [
-      {
-        regex: /\bregistry_preserves_language_extension_and_file_path_lookup\b/,
-        message: 'missing LSP registry lookup regression',
-      },
-      {
-        regex: /\bregistry_unregister_removes_plugin_indexes\b/,
-        message: 'missing LSP registry unregister regression',
-      },
-      {
-        regex: /\bregistry_unregister_preserves_indexes_owned_by_newer_plugin\b/,
-        message:
-          'missing LSP registry overlapping-plugin unregister regression',
-      },
-      {
-        regex: /\bregistry_duplicate_and_missing_errors_keep_legacy_messages\b/,
-        message: 'missing LSP registry error-message regression',
-      },
-      {
-        regex: /\bregistry_supported_extensions_matches_desktop_api_shape\b/,
-        message: 'missing LSP supported extension summary regression',
-      },
-      {
-        regex: /\bplugin_command_placeholder_resolution_is_target_driven\b/,
-        message: 'missing LSP plugin command placeholder regression',
       },
     ],
   },
@@ -854,7 +675,7 @@ export const requiredContentRules = [
         message: 'missing current SDK compatibility entrypoint',
       },
       {
-        regex: /\bpub use bitfun_agent_tools::\{/,
+        regex: /\bpub use openbitfun_agent_tools::\{/,
         message: 'missing SDK tool registry re-exports',
       },
       {
@@ -970,7 +791,7 @@ export const requiredContentRules = [
         message: 'missing session summary fact',
       },
       {
-        regex: /\bpub use bitfun_core_types::SessionKind\b/,
+        regex: /\bpub use openbitfun_core_types::SessionKind\b/,
         message: 'missing session kind compatibility export',
       },
       {
@@ -1031,7 +852,7 @@ export const requiredContentRules = [
       'agent-runtime SDK must keep a minimal external embedder example that uses the sdk facade without core',
     patterns: [
       {
-        regex: /\buse bitfun_agent_runtime::sdk::\{/,
+        regex: /\buse openbitfun_agent_runtime::sdk::\{/,
         message: 'SDK example must import through the public sdk facade',
       },
       {
@@ -1154,29 +975,29 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/execution/agent-runtime/src/file_read_state.rs',
+    path: 'src/crates/execution/agent-runtime/src/review_read_receipt.rs',
     reason:
-      'agent-runtime must own provider-neutral file-read state facts and session-scoped in-memory store',
+      'agent-runtime must own provider-neutral code-review read receipts and their session-scoped in-memory store',
     patterns: [
       {
-        regex: /\bpub struct FileReadState\b/,
-        message: 'missing agent-runtime file-read state DTO',
+        regex: /\bpub struct FileRevision\b/,
+        message: 'missing agent-runtime file revision DTO',
       },
       {
-        regex: /\bpub fn is_full_file_read\b/,
-        message: 'missing agent-runtime file-read completeness policy',
+        regex: /\bpub struct ReviewReadCoverage\b/,
+        message: 'missing agent-runtime review read coverage DTO',
       },
       {
-        regex: /\bpub struct FileReadStateStore\b/,
-        message: 'missing agent-runtime file-read state store',
+        regex: /\bpub struct ReviewReadReceiptStore\b/,
+        message: 'missing agent-runtime review read receipt store',
       },
       {
-        regex: /\bfile_read_state_accepts_nonempty_whole_file\b/,
-        message: 'missing agent-runtime file-read completeness regression',
+        regex: /\breview_read_receipt_store_scopes_entries_by_session\b/,
+        message: 'missing review read receipt session scoping regression',
       },
       {
-        regex: /\bfile_read_state_store_scopes_entries_by_session\b/,
-        message: 'missing agent-runtime file-read state session scoping regression',
+        regex: /\breview_read_receipt_covers_only_previously_returned_lines\b/,
+        message: 'missing review read receipt coverage regression',
       },
     ],
   },
@@ -1614,7 +1435,7 @@ export const requiredContentRules = [
   {
     path: 'src/crates/assembly/product-capabilities/tests/product_capability_contracts/product_sdk_assembly.rs',
     reason:
-      'product-capabilities must prove product runtime parts can feed the SDK runtime without bitfun-core',
+      'product-capabilities must prove product runtime parts can feed the SDK runtime without openbitfun-core',
     patterns: [
       {
         regex: /\bproduct_runtime_parts_can_build_agent_runtime_sdk_without_core\b/,
@@ -1622,7 +1443,7 @@ export const requiredContentRules = [
       },
       {
         regex:
-          /\bsdk_delivery_profile_builds_shared_runtime_owner_ceiling_without_bitfun_core\b/,
+          /\bsdk_delivery_profile_builds_shared_runtime_owner_ceiling_without_openbitfun_core\b/,
         message: 'missing SDK delivery profile identity and shared runtime-owner ceiling smoke',
       },
       {
@@ -1891,11 +1712,11 @@ export const requiredContentRules = [
   {
     path: 'src/crates/execution/agent-runtime/tests/agent_definition_contracts/custom_subagent_discovery_contracts.rs',
     reason:
-      'agent-runtime custom subagent discovery owner must keep behavior-equivalence contracts for BitFun directory priority, foreign directory exclusion, and load errors',
+      'agent-runtime custom subagent discovery owner must keep behavior-equivalence contracts for OpenBitFun directory priority, foreign directory exclusion, and load errors',
     patterns: [
       {
         regex:
-          /\bcustom_subagent_discovery_preserves_bitfun_priority_and_ignores_foreign_agent_dirs\b/,
+          /\bcustom_subagent_discovery_preserves_openbitfun_priority_and_ignores_foreign_agent_dirs\b/,
         message: 'missing custom subagent discovery priority/foreign-dir regression',
       },
       {
@@ -1941,54 +1762,24 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/execution/agent-runtime/src/post_call_hooks.rs',
-    reason:
-      'agent-runtime must own portable hook registry and post-call routing decisions while concrete hook execution stays in the owning runtime',
+    path: 'src/crates/execution/agent-runtime/src/native_hooks/kind.rs',
+    reason: 'agent-runtime must own portable hook kind contracts',
     patterns: [
-      {
-        regex: /\bpub enum RuntimeHookKind\b/,
-        message: 'missing runtime hook kind contract',
-      },
-      {
-        regex: /\bpub enum RuntimeHookErrorPolicy\b/,
-        message: 'missing runtime hook error policy contract',
-      },
-      {
-        regex: /\bpub struct RuntimeHookPlan\b/,
-        message: 'missing runtime hook plan contract',
-      },
-      {
-        regex: /\bpub struct RuntimeHookRegistry\b/,
-        message: 'missing runtime hook registry contract',
-      },
-      {
-        regex: /\btimeout_millis\b/,
-        message: 'missing runtime hook timeout contract',
-      },
-      {
-        regex: /\bDuplicateHookId\b/,
-        message: 'missing runtime hook duplicate-id guard',
-      },
-      {
-        regex: /\bEmptyHookId\b/,
-        message: 'missing runtime hook empty-id guard',
-      },
-      {
-        regex: /\bInvalidTimeoutMillis\b/,
-        message: 'missing runtime hook non-zero-timeout guard',
-      },
-      {
-        regex: /\bpub const fn successful_tool_post_call_hooks\b/,
-        message: 'missing successful tool post-call hook routing decision',
-      },
-      {
-        regex: /\bpub trait SuccessfulToolPostCallHookExecutor\b/,
-        message: 'missing successful tool post-call hook executor contract',
-      },
-      {
-        regex: /\bpub fn run_successful_tool_post_call_hooks\b/,
-        message: 'missing successful tool post-call hook executor runner',
-      },
+      { regex: /\bpub enum RuntimeHookKind\b/, message: 'missing runtime hook kind contract' },
+      { regex: /\bSuccessfulToolPostCall\b/, message: 'missing successful tool post-call hook kind' },
+    ],
+  },
+  {
+    path: 'src/crates/execution/agent-runtime/src/native_hooks/registry.rs',
+    reason: 'agent-runtime must own portable hook registry and validation contracts',
+    patterns: [
+      { regex: /\bpub enum RuntimeHookErrorPolicy\b/, message: 'missing runtime hook error policy contract' },
+      { regex: /\bpub struct RuntimeHookPlan\b/, message: 'missing runtime hook plan contract' },
+      { regex: /\bpub struct RuntimeHookRegistry\b/, message: 'missing runtime hook registry contract' },
+      { regex: /\btimeout_millis\b/, message: 'missing runtime hook timeout contract' },
+      { regex: /\bDuplicateHookId\b/, message: 'missing runtime hook duplicate-id guard' },
+      { regex: /\bEmptyHookId\b/, message: 'missing runtime hook empty-id guard' },
+      { regex: /\bInvalidTimeoutMillis\b/, message: 'missing runtime hook non-zero-timeout guard' },
     ],
   },
   {
@@ -1997,11 +1788,11 @@ export const requiredContentRules = [
       'agent-runtime post-call hook owner must keep behavior-equivalence contracts for successful tool-call hook routing',
     patterns: [
       {
-        regex: /\bsuccessful_tool_call_routes_to_shared_context_measurement_hook\b/,
+        regex: /\bsuccessful_tool_call_uses_stable_builtin_registration_id\b/,
         message: 'missing successful tool post-call hook routing regression',
       },
       {
-        regex: /\bruntime_hook_registry_preserves_order_timeout_and_error_policy\b/,
+        regex: /\bruntime_hook_registry_preserves_source_order_timeout_and_error_policy\b/,
         message: 'missing runtime hook order/timeout/error-policy regression',
       },
       {
@@ -2537,7 +2328,7 @@ export const requiredContentRules = [
   {
     path: 'src/crates/assembly/core/src/service/cron/types.rs',
     reason:
-      'core cron types must preserve old import and wire paths while bitfun-agent-runtime owns scheduled-job runtime state',
+      'core cron types must preserve old import and wire paths while openbitfun-agent-runtime owns scheduled-job runtime state',
     patterns: [
       {
         regex: /ScheduledJobRuntimeState as CronJobState/,
@@ -2645,7 +2436,7 @@ export const requiredContentRules = [
       'core DeepReview policy path must stay a compatibility facade over agent-runtime while core keeps product config loading',
     patterns: [
       {
-        regex: /pub use bitfun_agent_runtime::deep_review::/,
+        regex: /pub use openbitfun_agent_runtime::deep_review::/,
         message: 'missing DeepReview agent-runtime compatibility re-export',
       },
       {
@@ -2746,7 +2537,7 @@ export const requiredContentRules = [
         message: 'missing TaskTool DeepReview retry guidance facade call',
       },
       {
-        regex: /bitfun_agent_runtime::subagent_task::subagent_task_completion_result/,
+        regex: /openbitfun_agent_runtime::subagent_task::subagent_task_completion_result/,
         message: 'missing TaskTool provider-neutral completion result owner call',
       },
       {
@@ -2838,7 +2629,7 @@ export const requiredContentRules = [
       'core custom subagent path must stay a compatibility facade over agent-runtime custom-agent schema/default and markdown IO decisions',
     patterns: [
       {
-        regex: /pub use bitfun_agent_runtime::custom_subagent::CustomSubagentKind/,
+        regex: /pub use openbitfun_agent_runtime::custom_subagent::CustomSubagentKind/,
         message: 'missing custom subagent kind compatibility re-export',
       },
       {
@@ -2883,14 +2674,7 @@ export const requiredContentRules = [
     reason:
       'core post-call hooks must delegate portable hook routing to agent-runtime while retaining concrete hook execution',
     patterns: [
-      {
-        regex: /\brun_successful_tool_post_call_hooks\b/,
-        message: 'missing post-call hook executor runner delegation',
-      },
-      {
-        regex: /\bSuccessfulToolPostCallHookExecutor\b/,
-        message: 'missing post-call hook executor implementation',
-      },
+      { regex: /\bdispatch_successful_tool_post_call\b/, message: 'missing post-call hook dispatch delegation' },
     ],
   },
   {
@@ -2926,7 +2710,7 @@ export const requiredContentRules = [
       'core execution types must preserve legacy import path while agent-runtime owns finish-reason event facts',
     patterns: [
       {
-        regex: /bitfun_agent_runtime::events::FinishReason/,
+        regex: /openbitfun_agent_runtime::events::FinishReason/,
         message: 'missing finish-reason compatibility re-export',
       },
     ],
@@ -2937,7 +2721,7 @@ export const requiredContentRules = [
       'core event types must preserve legacy import path while agent-runtime owns session-state labels',
     patterns: [
       {
-        regex: /bitfun_agent_runtime::session_state::session_state_label_for_state/,
+        regex: /openbitfun_agent_runtime::session_state::session_state_label_for_state/,
         message: 'missing session-state label owner delegation',
       },
     ],
@@ -2987,7 +2771,7 @@ export const requiredContentRules = [
       'core session state manager path must preserve legacy imports while agent-runtime owns the implementation',
     patterns: [
       {
-        regex: /pub use bitfun_agent_runtime::session_state_manager::SessionStateManager;/,
+        regex: /pub use openbitfun_agent_runtime::session_state_manager::SessionStateManager;/,
         message: 'missing SessionStateManager compatibility re-export',
       },
     ],
@@ -2998,7 +2782,7 @@ export const requiredContentRules = [
       'core prompt_builder user_context path must stay a compatibility facade over agent-runtime',
     patterns: [
       {
-        regex: /pub use bitfun_agent_runtime::prompt::\{UserContextPolicy, UserContextSection\};/,
+        regex: /pub use openbitfun_agent_runtime::prompt::\{UserContextPolicy, UserContextSection\};/,
         message: 'missing agent-runtime user-context compatibility re-export',
       },
     ],
@@ -3009,7 +2793,7 @@ export const requiredContentRules = [
       'core prompt_cache path must stay a compatibility facade over agent-runtime',
     patterns: [
       {
-        regex: /pub use bitfun_agent_runtime::prompt_cache::\*;/,
+        regex: /pub use openbitfun_agent_runtime::prompt_cache::\*;/,
         message: 'missing agent-runtime prompt-cache compatibility re-export',
       },
     ],
@@ -3069,14 +2853,17 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/assembly/core/src/agentic/session/file_read_state.rs',
+    path: 'src/crates/assembly/core/src/agentic/session/review_read_receipt.rs',
     reason:
-      'core file_read_state path must stay a compatibility facade over agent-runtime',
+      'core review_read_receipt path must stay a compatibility facade over agent-runtime',
     patterns: [
       {
-        regex:
-          /pub use bitfun_agent_runtime::file_read_state::\{FileReadState, FileReadStateStore\};/,
-        message: 'missing agent-runtime file-read state compatibility re-export',
+        regex: /openbitfun_agent_runtime::review_read_receipt::\{/,
+        message: 'missing agent-runtime review read receipt compatibility re-export',
+      },
+      {
+        regex: /\bReviewReadReceiptStore\b/,
+        message: 'missing review read receipt store compatibility re-export',
       },
     ],
   },
@@ -3086,7 +2873,7 @@ export const requiredContentRules = [
       'core evidence_ledger path must stay a compatibility facade over agent-runtime',
     patterns: [
       {
-        regex: /pub use bitfun_agent_runtime::evidence_ledger::\*;/,
+        regex: /pub use openbitfun_agent_runtime::evidence_ledger::\*;/,
         message: 'missing agent-runtime evidence ledger compatibility re-export',
       },
     ],
@@ -3098,7 +2885,7 @@ export const requiredContentRules = [
     patterns: [
       {
         regex:
-          /pub use bitfun_agent_runtime::skill_agent_snapshot::TurnSkillAgentSnapshotStore;/,
+          /pub use openbitfun_agent_runtime::skill_agent_snapshot::TurnSkillAgentSnapshotStore;/,
         message: 'missing agent-runtime turn skill/agent snapshot store compatibility re-export',
       },
     ],
@@ -3115,10 +2902,6 @@ export const requiredContentRules = [
       {
         regex: /\bmod metadata_store;/,
         message: 'missing services-core session metadata store module',
-      },
-      {
-        regex: /\bmod migration;/,
-        message: 'missing services-core session migration module',
       },
       {
         regex: /\bapply_session_lineage\b/,
@@ -3149,40 +2932,8 @@ export const requiredContentRules = [
         message: 'missing session metadata store owner re-export',
       },
       {
-        regex: /\bmerge_legacy_session_store\b/,
-        message: 'missing legacy session-store migration owner re-export',
-      },
-      {
         regex: /\bset_deep_review_cache\b/,
         message: 'missing DeepReview cache metadata mutation owner re-export',
-      },
-    ],
-  },
-  {
-    path: 'src/crates/services/services-core/src/session/migration.rs',
-    reason:
-      'services-core must own legacy session-store merge, metadata selection, and index rebuild behavior',
-    patterns: [
-      {
-        regex: /\bpub async fn merge_legacy_session_store\b/,
-        message: 'missing legacy session-store merge owner',
-      },
-      {
-        regex: /\bfn merge_session_metadata_file\b/,
-        message: 'missing metadata merge conflict resolver',
-      },
-      {
-        regex: /\bSessionMetadataStore::new\s*\(\s*sessions_dir\s*\)/,
-        message: 'missing services-core session index rebuild delegation',
-      },
-      {
-        regex: /\bmetadata_file_count\b/,
-        message: 'missing metadata-file count regression coverage',
-      },
-      {
-        regex:
-          /\bmerge_legacy_session_store_preserves_newer_metadata_and_rebuilds_visible_index\b/,
-        message: 'missing legacy session-store merge regression',
       },
     ],
   },
@@ -3341,7 +3092,7 @@ export const requiredContentRules = [
       'core session branch persistence must keep IO orchestration and old import compatibility while services-core owns branch metadata shaping',
     patterns: [
       {
-        regex: /pub use bitfun_services_core::session::\{SessionBranchRequest,\s*SessionBranchResult\};/,
+        regex: /pub use openbitfun_services_core::session::\{SessionBranchRequest,\s*SessionBranchResult\};/,
         message: 'missing session branch compatibility re-export',
       },
       {
@@ -3360,7 +3111,7 @@ export const requiredContentRules = [
       'core agent mode module must keep old import paths while agent-runtime owns shared mode profile facts',
     patterns: [
       {
-        regex: /pub use bitfun_agent_runtime::agents::\{[\s\S]*mode_presentation_rank[\s\S]*resolve_mode_config_profile_id[\s\S]*shared_coding_mode_user_context_policy[\s\S]*SHARED_CODING_MODE_PROMPT_TEMPLATE[\s\S]*\};/,
+        regex: /pub use openbitfun_agent_runtime::agents::\{[\s\S]*mode_presentation_rank[\s\S]*resolve_mode_config_profile_id[\s\S]*shared_coding_mode_user_context_policy[\s\S]*SHARED_CODING_MODE_PROMPT_TEMPLATE[\s\S]*\};/,
         message: 'missing agent-runtime shared mode profile compatibility re-export',
       },
     ],
@@ -3437,7 +3188,7 @@ export const requiredContentRules = [
   {
     path: 'src/crates/assembly/core/src/service/filesystem/service.rs',
     reason:
-      'core filesystem service may keep remote-workspace overlay and BitFunError compatibility, but local filesystem owner must remain services-core',
+      'core filesystem service may keep remote-workspace overlay and OpenBitFunError compatibility, but local filesystem owner must remain services-core',
     patterns: [
       {
         regex: /lookup_remote_connection_with_hint/,
@@ -3584,7 +3335,7 @@ export const requiredContentRules = [
         message: 'missing agent-tools MiniApp headless restriction re-export',
       },
       {
-        regex: /\bimpl From<ToolRestrictionError> for BitFunError\b/,
+        regex: /\bimpl From<ToolRestrictionError> for OpenBitFunError\b/,
         message: 'missing core error mapping adapter',
       },
       {
@@ -3611,39 +3362,11 @@ export const requiredContentRules = [
   {
     path: 'src/crates/execution/tool-execution/src/shell/mod.rs',
     reason:
-      'tool-runtime must own reusable Bash shell execution policy, rendering, and background-result text helpers',
+      'tool-runtime must own the shared noninteractive terminal environment used by agent-managed sessions',
     patterns: [
       {
-        regex: /\bpub fn banned_shell_command\b/,
-        message: 'missing Bash banned-command policy owner',
-      },
-      {
-        regex: /\bpub fn detect_osascript_keystroke_non_ascii\b/,
-        message: 'missing Bash osascript keystroke guard owner',
-      },
-      {
-        regex: /\bpub fn detect_osascript_im_app\b/,
-        message: 'missing Bash IM AppleScript guard owner',
-      },
-      {
-        regex: /\bpub fn command_for_working_directory\b/,
-        message: 'missing Bash working-directory command wrapper owner',
-      },
-      {
-        regex: /\bpub fn bash_noninteractive_env\b/,
-        message: 'missing Bash noninteractive environment owner',
-      },
-      {
-        regex: /\bpub fn render_local_shell_result\b/,
-        message: 'missing local shell result rendering owner',
-      },
-      {
-        regex: /\bpub fn render_remote_shell_result\b/,
-        message: 'missing remote shell result rendering owner',
-      },
-      {
-        regex: /\bpub fn format_background_command_delivery_text\b/,
-        message: 'missing background command delivery text owner',
+        regex: /\bpub fn noninteractive_terminal_env\b/,
+        message: 'missing noninteractive terminal environment owner',
       },
     ],
   },
@@ -3658,8 +3381,12 @@ export const requiredContentRules = [
       },
       {
         regex:
-          /web-readable = \["dep:htmd", "dep:legible", "dep:readability-js", "dep:regex"\]/,
+          /web-readable = \["dep:htmd", "dep:legible", "dep:readability-js"\]/,
         message: 'tool-runtime web-readable feature must own exactly the Web extractor deps',
+      },
+      {
+        regex: /^regex = \{ workspace = true \}$/m,
+        message: 'tool-runtime POSIX filename byte matching must use the shared regex dependency independently of Web extraction',
       },
       {
         regex: /htmd = \{[^}]*optional = true[^}]*\}/,
@@ -3703,44 +3430,55 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/execution/tool-execution/src/web_search.rs',
+    path: 'src/crates/contracts/runtime-ports/src/web_search.rs',
     reason:
-      'tool-runtime must own provider-neutral WebSearch result parsing while core keeps product tool envelope assembly',
+      'runtime-ports must own the provider-neutral WebSearch contract while concrete provider translation stays below assembly',
     patterns: [
       {
+        regex: /\bpub struct WebSearchRequest\b/,
+        message: 'missing provider-neutral WebSearch request DTO',
+      },
+      {
+        regex: /\bpub struct WebSearchResponse\b/,
+        message: 'missing provider-neutral WebSearch response DTO',
+      },
+      {
         regex: /\bpub struct WebSearchResult\b/,
-        message: 'missing typed WebSearch result DTO',
+        message: 'missing provider-neutral WebSearch result DTO',
       },
       {
-        regex: /\bpub fn parse_exa_text_results\b/,
-        message: 'missing Exa text result parser owner',
+        regex: /\bpub trait WebSearchProvider\b/,
+        message: 'missing provider-neutral WebSearch runtime port',
+      },
+    ],
+  },
+  {
+    path: 'src/crates/services/services-integrations/src/web_tools.rs',
+    reason:
+      'services-integrations must own free Exa MCP transport and provider-specific result translation',
+    patterns: [
+      {
+        regex: /\bpub struct FreeExaMcpProvider\b/,
+        message: 'missing free Exa MCP provider adapter',
       },
       {
-        regex: /\bparses_exa_text_blocks\b/,
-        message: 'missing Exa text parsing regression',
+        regex: /\bfn parse_exa_sse\b/,
+        message: 'missing free Exa MCP protocol parser',
       },
       {
-        regex: /\bfalls_back_for_unstructured_text\b/,
-        message: 'missing unstructured WebSearch result fallback regression',
+        regex: /\bfn parse_exa_text_results\b/,
+        message: 'missing free Exa MCP result translator',
       },
     ],
   },
   {
     path: 'src/crates/execution/tool-execution/tests/tool_io_contracts.rs',
     reason:
-      'tool-runtime shell owner must keep focused behavior-equivalence contracts for Bash execution helpers',
+      'tool-runtime shell owner must keep the agent-managed terminal environment contract covered',
     patterns: [
       {
-        regex: /\bbash_shell_owner_preserves_command_wrapping_and_env\b/,
-        message: 'missing Bash command/env owner regression',
-      },
-      {
-        regex: /\bbash_shell_owner_preserves_guard_and_result_rendering\b/,
-        message: 'missing Bash guard/rendering owner regression',
-      },
-      {
-        regex: /\bbash_shell_owner_preserves_background_delivery_texts\b/,
-        message: 'missing Bash background-result text owner regression',
+        regex: /\bnoninteractive_terminal_env_preserves_agent_session_contract\b/,
+        message: 'missing noninteractive terminal environment regression',
       },
     ],
   },
@@ -3934,30 +3672,30 @@ export const requiredContentRules = [
   {
     path: 'src/crates/assembly/core/Cargo.toml',
     reason:
-      'bitfun-core product-full must explicitly aggregate owner crate feature groups instead of forcing them through dependency declarations',
+      'openbitfun-core product-full must explicitly aggregate owner crate feature groups instead of forcing them through dependency declarations',
     patterns: [
       {
         regex:
-          /bitfun-tool-packs = \{ path = "\.\.\/\.\.\/execution\/tool-provider-groups", optional = true \}/,
-        message: 'bitfun-tool-packs dependency must stay optional and not force product-full outside the core feature graph',
+          /openbitfun-tool-packs = \{ path = "\.\.\/\.\.\/execution\/tool-provider-groups", optional = true \}/,
+        message: 'openbitfun-tool-packs dependency must stay optional and not force product-full outside the core feature graph',
       },
       {
         regex:
-          /bitfun-services-integrations = \{ path = "\.\.\/\.\.\/services\/services-integrations", optional = true \}/,
+          /openbitfun-services-integrations = \{ path = "\.\.\/\.\.\/services\/services-integrations", optional = true \}/,
         message:
-          'bitfun-services-integrations dependency must stay optional so local workspace profiles do not compile remote integrations',
+          'openbitfun-services-integrations dependency must stay optional so local workspace profiles do not compile remote integrations',
       },
       {
         regex:
-          /bitfun-ai-adapters = \{ path = "\.\.\/\.\.\/adapters\/ai-adapters", optional = true \}/,
-        message: 'bitfun-ai-adapters dependency must stay optional for no-default core builds',
+          /openbitfun-ai-adapters = \{ path = "\.\.\/\.\.\/adapters\/ai-adapters", optional = true \}/,
+        message: 'openbitfun-ai-adapters dependency must stay optional for no-default core builds',
       },
       {
-        regex: /"dep:bitfun-ai-adapters"/,
+        regex: /"dep:openbitfun-ai-adapters"/,
         message: 'core ai-adapter-runtime feature must explicitly enable the optional dependency',
       },
       {
-        regex: /subscription-auth = \["bitfun-ai-adapters\?\/subscription-auth"\]/,
+        regex: /subscription-auth = \["openbitfun-ai-adapters\?\/subscription-auth"\]/,
         message: 'core subscription-auth modifier must not activate the optional AI adapter runtime by itself',
       },
       {
@@ -3969,7 +3707,7 @@ export const requiredContentRules = [
         message: 'core agent-runtime assembly must explicitly opt into AI adapter runtime',
       },
       {
-        regex: /agent-runtime = \[[^\]]*"bitfun-product-domains\/external-sources"[^\]]*\]/,
+        regex: /agent-runtime = \[[^\]]*"openbitfun-product-domains\/external-sources"[^\]]*\]/,
         message: 'core agent-runtime must select only the external-subagent contract slice it uses',
       },
       {
@@ -3977,59 +3715,59 @@ export const requiredContentRules = [
         message: 'core function-agent facade must explicitly opt into AI adapter runtime while concrete AI adapters remain optional',
       },
       {
-        regex: /function-agents = \[[^\]]*"bitfun-services-integrations\/function-agents"[^\]]*\]/,
+        regex: /function-agents = \[[^\]]*"openbitfun-services-integrations\/function-agents"[^\]]*\]/,
         message: 'core function-agent facade must enable the function-agent service owner feature it imports',
       },
       {
-        regex: /tools-miniapp = \[[^\]]*"bitfun-services-integrations\/miniapp-runtime"[^\]]*\]/,
+        regex: /tools-miniapp = \[[^\]]*"openbitfun-services-integrations\/miniapp-runtime"[^\]]*\]/,
         message: 'core MiniApp tool owner must enable the MiniApp runtime service feature it imports',
       },
       {
-        regex: /tools-miniapp = \[[^\]]*"bitfun-product-domains\/miniapp"[^\]]*\]/,
+        regex: /tools-miniapp = \[[^\]]*"openbitfun-product-domains\/miniapp"[^\]]*\]/,
         message: 'core MiniApp tool owner must select its product-domain slice explicitly',
       },
       {
-        regex: /canvas-runtime = \[[^\]]*"bitfun-services-integrations\/canvas-runtime"[^\]]*\]/,
+        regex: /canvas-runtime = \[[^\]]*"openbitfun-services-integrations\/canvas-runtime"[^\]]*\]/,
         message:
           'core canvas-runtime facade must enable the Canvas service owner feature it imports',
       },
       {
         regex:
-          /canvas-runtime = \[[\s\S]*"dep:bitfun-product-domains"[\s\S]*"bitfun-services-integrations\/canvas-runtime"[\s\S]*\]/,
+          /canvas-runtime = \[[\s\S]*"dep:openbitfun-product-domains"[\s\S]*"openbitfun-services-integrations\/canvas-runtime"[\s\S]*\]/,
         message:
           'core canvas-runtime feature must explicitly aggregate the domain contract and canvas service owner',
       },
       {
         regex:
-          /bitfun-product-domains = \{ path = "\.\.\/\.\.\/contracts\/product-domains", optional = true \}/,
+          /openbitfun-product-domains = \{ path = "\.\.\/\.\.\/contracts\/product-domains", optional = true \}/,
         message:
-          'bitfun-product-domains dependency must stay optional and not force product-full outside the core feature graph',
+          'openbitfun-product-domains dependency must stay optional and not force product-full outside the core feature graph',
       },
       {
         regex:
-          /bitfun-product-capabilities = \{ path = "\.\.\/product-capabilities", optional = true \}/,
+          /openbitfun-product-capabilities = \{ path = "\.\.\/product-capabilities", optional = true \}/,
         message:
-          'bitfun-product-capabilities dependency must stay optional and not force product-full outside the core feature graph',
+          'openbitfun-product-capabilities dependency must stay optional and not force product-full outside the core feature graph',
       },
       {
-        regex: /"dep:bitfun-tool-packs"/,
+        regex: /"dep:openbitfun-tool-packs"/,
         message: 'core tool-packs feature must explicitly enable the optional dependency',
       },
       {
-        regex: /tools-basic = \[[^\]]*"bitfun-tool-packs\/basic"[^\]]*\]/,
+        regex: /tools-basic = \[[^\]]*"openbitfun-tool-packs\/basic"[^\]]*\]/,
         message: 'core basic tools owner must explicitly enable the matching tool pack feature',
       },
       {
-        regex: /"dep:bitfun-product-domains"/,
+        regex: /"dep:openbitfun-product-domains"/,
         message: 'core capability owners must explicitly enable the optional product-domain dependency',
       },
       {
-        regex: /"dep:bitfun-product-capabilities"/,
+        regex: /"dep:openbitfun-product-capabilities"/,
         message:
           'core product-capabilities feature must explicitly enable the optional dependency',
       },
       {
-        regex: /"bitfun-product-domains\/function-agents"/,
+        regex: /"openbitfun-product-domains\/function-agents"/,
         message: 'core function-agent owner must explicitly select its product-domain slice',
       },
     ],
@@ -4037,7 +3775,7 @@ export const requiredContentRules = [
   {
     path: 'src/crates/assembly/core/src/lib.rs',
     reason:
-      'no-default bitfun-core must keep product runtime surfaces behind explicit features',
+      'no-default openbitfun-core must keep product runtime surfaces behind explicit features',
     patterns: [
       {
         regex: /#\[cfg\(feature = "agent-runtime"\)\]\s*pub mod agentic\b/s,
@@ -4103,10 +3841,6 @@ export const requiredContentRules = [
         regex: /#\[cfg\(all\(feature = "ai-adapter-runtime", feature = "subscription-auth"\)\)\]\s*pub mod subscription_auth\b/s,
         message: 'AI subscription auth runtime must require both the adapter and credential owners',
       },
-      {
-        regex: /#\[cfg\(feature = "debug-log"\)\]\s*pub mod debug_log\b/s,
-        message: 'debug ingest HTTP server must stay behind debug-log',
-      },
     ],
   },
   {
@@ -4114,11 +3848,11 @@ export const requiredContentRules = [
     reason: 'legacy AI implementation DTO re-exports must not force AI adapters into no-default core builds',
     patterns: [
       {
-        regex: /pub use bitfun_core_types::\{ConnectionTestMessageCode, ConnectionTestResult, RemoteModelInfo\};/s,
+        regex: /pub use openbitfun_core_types::\{ConnectionTestMessageCode, ConnectionTestResult, RemoteModelInfo\};/s,
         message: 'stable AI DTOs must be re-exported from core-types',
       },
       {
-        regex: /#\[cfg\(feature = "ai-adapter-runtime"\)\]\s*pub use bitfun_ai_adapters::types::\{GeminiResponse, GeminiUsage\};/s,
+        regex: /#\[cfg\(feature = "ai-adapter-runtime"\)\]\s*pub use openbitfun_ai_adapters::types::\{GeminiResponse, GeminiUsage\};/s,
         message: 'legacy Gemini implementation DTOs must stay behind ai-adapter-runtime',
       },
     ],
@@ -4133,15 +3867,15 @@ export const requiredContentRules = [
         message: 'announcement facade must stay behind its exact feature',
       },
       {
-        regex: /#\[cfg\(feature = "file-watch"\)\]\s*pub use bitfun_services_integrations::file_watch\b/s,
+        regex: /#\[cfg\(feature = "file-watch"\)\]\s*pub use openbitfun_services_integrations::file_watch\b/s,
         message: 'file-watch facade must stay behind its exact feature',
       },
       {
-        regex: /#\[cfg\(feature = "diagnostics"\)\]\s*pub use bitfun_services_core::diagnostics\b/s,
+        regex: /#\[cfg\(feature = "diagnostics"\)\]\s*pub use openbitfun_services_core::diagnostics\b/s,
         message: 'diagnostics compatibility facade must stay behind diagnostics',
       },
       {
-        regex: /#\[cfg\(feature = "diff"\)\]\s*pub use bitfun_services_core::diff\b/s,
+        regex: /#\[cfg\(feature = "diff"\)\]\s*pub use openbitfun_services_core::diff\b/s,
         message: 'diff compatibility facade must stay behind diff',
       },
       {
@@ -4224,7 +3958,7 @@ export const requiredContentRules = [
   {
     path: 'src/crates/assembly/core/src/service/workspace_runtime/service.rs',
     reason:
-      'workspace runtime binding helpers may depend on agentic runtime only in full product builds and must delegate legacy session-store migration to services-core',
+      'workspace runtime binding helpers may depend on agentic runtime only in full product builds',
     patterns: [
       {
         regex: /#\[cfg\(feature = "agent-runtime"\)\]\s*use crate::agentic::WorkspaceBinding\b/s,
@@ -4233,18 +3967,6 @@ export const requiredContentRules = [
       {
         regex: /#\[cfg\(feature = "agent-runtime"\)\]\s*pub async fn ensure_runtime_for_workspace_binding\b/s,
         message: 'WorkspaceBinding runtime helper must stay behind agent-runtime',
-      },
-      {
-        regex: /\bmerge_legacy_session_store\b/,
-        message: 'workspace runtime session merge must delegate to services-core',
-      },
-      {
-        regex: /\bmove_legacy_path\b/,
-        message: 'workspace runtime legacy path movement must delegate to services-core',
-      },
-      {
-        regex: /\bsession_store_migration_error\b/,
-        message: 'workspace runtime must keep BitFunError compatibility mapping at the facade boundary',
       },
     ],
   },
@@ -4713,7 +4435,7 @@ export const requiredContentRules = [
       'core remote SSH compatibility facade must keep concrete SSH surfaces behind the ssh-remote feature and re-export services-owned disabled stubs for lightweight builds',
     patterns: [
       {
-        regex: /#\[cfg\(not\(feature = "ssh-remote"\)\)\]\s*pub use bitfun_services_integrations::remote_ssh::\{/s,
+        regex: /#\[cfg\(not\(feature = "ssh-remote"\)\)\]\s*pub use openbitfun_services_integrations::remote_ssh::\{/s,
         message: 'missing services-owned disabled remote SSH re-export for no-default builds',
       },
       {
@@ -4806,7 +4528,7 @@ export const requiredContentRules = [
         message: 'missing SFTP session owner path',
       },
       {
-        regex: /\bretains_legacy_password_connection_and_workspace_without_vault_entry\b/,
+        regex: /\bretains_password_connection_and_workspace_without_vault_entry\b/,
         message: 'missing saved credential retention regression',
       },
     ],
@@ -5439,8 +5161,14 @@ export const requiredContentRules = [
       ...agentRuntimeRootPublicModules
         .filter((moduleName) => moduleName !== 'native_hooks')
         .map((moduleName) => ({
-          regex: new RegExp(`#\\[cfg\\(feature = "agent-runtime"\\)\\]\\r?\\npub mod ${moduleName};`),
-          message: `${moduleName} must stay behind the full agent-runtime owner`,
+          regex: new RegExp(
+            agentRuntimeDefinitionContractModules.has(moduleName)
+              ? `#\\[cfg\\(any\\(feature = "agent-runtime", feature = "definition-contracts"\\)\\)\\]\\r?\\npub mod ${moduleName};`
+              : `#\\[cfg\\(feature = "agent-runtime"\\)\\]\\r?\\npub mod ${moduleName};`,
+          ),
+          message: agentRuntimeDefinitionContractModules.has(moduleName)
+            ? `${moduleName} must stay behind the full runtime or definition-contracts owner`
+            : `${moduleName} must stay behind the full agent-runtime owner`,
         })),
     ],
   },
@@ -5468,6 +5196,10 @@ export const requiredContentRules = [
       { regex: /#\[cfg\(feature = "agent-api"\)\]\r?\npub use agent_api::\*;/, message: 'agent-api must gate its public exports' },
       { regex: /#\[cfg\(feature = "plugin-runtime"\)\]\r?\nmod plugin;/, message: 'plugin-runtime must gate its source module' },
       { regex: /#\[cfg\(feature = "plugin-runtime"\)\]\r?\npub use plugin::\{/, message: 'plugin-runtime must gate its public exports' },
+      { regex: /#\[cfg\(feature = "hook-function-runtime"\)\]\r?\nmod hook_function;/, message: 'hook-function-runtime must gate its source module' },
+      { regex: /#\[cfg\(feature = "hook-function-runtime"\)\]\r?\npub use hook_function::\*;/, message: 'hook-function-runtime must gate its public exports' },
+      { regex: /#\[cfg\(feature = "product-search"\)\]\r?\nmod product_search;/, message: 'product-search must gate its source module' },
+      { regex: /#\[cfg\(feature = "product-search"\)\]\r?\npub use product_search::ProductSearchPort;/, message: 'product-search must gate its public exports' },
       { regex: /#\[cfg\(feature = "script-tool-runtime"\)\]\r?\nmod script_tool;/, message: 'script-tool-runtime must gate its source module' },
       { regex: /#\[cfg\(feature = "script-tool-runtime"\)\]\r?\npub use script_tool::\{/, message: 'script-tool-runtime must gate its public exports' },
       { regex: /#\[cfg\(feature = "workspace-ports"\)\]\r?\nmod workspace_ports;/, message: 'workspace-ports must gate its source module' },
@@ -5504,7 +5236,7 @@ export const requiredContentRules = [
       'core subagent runtime must preserve legacy import path while runtime-ports owns portable subagent contracts',
     patterns: [
       {
-        regex: /pub\(crate\) use bitfun_runtime_ports::\{DelegationPolicy, SubagentContextMode\};/,
+        regex: /pub\(crate\) use openbitfun_runtime_ports::\{DelegationPolicy, SubagentContextMode\};/,
         message: 'missing core compatibility re-export for subagent runtime contracts',
       },
     ],
@@ -5901,28 +5633,6 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/execution/tool-contracts/src/file_read_freshness.rs',
-    reason: 'agent-tools owns pure file-read freshness policy for Read/Edit/Write guardrails',
-    patterns: [
-      {
-        regex: /\bpub struct FileReadFreshnessFacts\b/,
-        message: 'missing file-read freshness facts contract',
-      },
-      {
-        regex: /\bpub fn normalize_tool_file_content\b/,
-        message: 'missing provider-neutral file content normalization helper',
-      },
-      {
-        regex: /\bpub fn file_read_facts_content_matches\b/,
-        message: 'missing file-read content equivalence helper',
-      },
-      {
-        regex: /\bpub fn file_read_facts_are_fresh\b/,
-        message: 'missing file-read freshness policy helper',
-      },
-    ],
-  },
-  {
     path: 'src/crates/execution/tool-contracts/src/tool_result_storage.rs',
     reason:
       'agent-tools owns pure oversized tool-result storage policy and rendering without session IO',
@@ -6026,19 +5736,19 @@ export const requiredContentRules = [
       'core must keep current coordinator port adapters and attachment guard until remote runtime migration is reviewed',
     patterns: [
       {
-        regex: /impl bitfun_runtime_ports::AgentSubmissionPort for ConversationCoordinator/,
+        regex: /impl openbitfun_runtime_ports::AgentSubmissionPort for ConversationCoordinator/,
         message: 'missing agent submission port adapter',
       },
       {
-        regex: /impl bitfun_runtime_ports::SessionTranscriptReader for ConversationCoordinator/,
+        regex: /impl openbitfun_runtime_ports::SessionTranscriptReader for ConversationCoordinator/,
         message: 'missing session transcript reader adapter',
       },
       {
-        regex: /impl bitfun_runtime_ports::AgentTurnCancellationPort for ConversationCoordinator/,
+        regex: /impl openbitfun_runtime_ports::AgentTurnCancellationPort for ConversationCoordinator/,
         message: 'missing turn cancellation port adapter',
       },
       {
-        regex: /impl bitfun_runtime_ports::AgentSessionManagementPort for ConversationCoordinator/,
+        regex: /impl openbitfun_runtime_ports::AgentSessionManagementPort for ConversationCoordinator/,
         message: 'missing session management port adapter',
       },
       {
@@ -6050,7 +5760,7 @@ export const requiredContentRules = [
         message: 'missing runtime session summary contract binding',
       },
       {
-        regex: /impl bitfun_runtime_ports::RemoteControlStatePort for ConversationCoordinator/,
+        regex: /impl openbitfun_runtime_ports::RemoteControlStatePort for ConversationCoordinator/,
         message: 'missing remote control state port adapter',
       },
       {
@@ -6058,11 +5768,11 @@ export const requiredContentRules = [
         message: 'missing generic attachment guard on agent submission port',
       },
       {
-        regex: /pub use bitfun_runtime_ports::DialogTriggerSource;/,
+        regex: /pub use openbitfun_runtime_ports::DialogTriggerSource;/,
         message: 'missing dialog trigger source compatibility re-export',
       },
       {
-        regex: /bitfun_agent_runtime::subagent_task::subagent_task_completion_result/,
+        regex: /openbitfun_agent_runtime::subagent_task::subagent_task_completion_result/,
         message: 'missing delegated command provider-neutral Task result formatting',
       },
     ],
@@ -6074,17 +5784,17 @@ export const requiredContentRules = [
     patterns: [
       {
         regex:
-          /pub use bitfun_runtime_ports::\{[\s\S]*AgentSessionReplyRoute[\s\S]*DialogQueuePriority[\s\S]*DialogSteerOutcome[\s\S]*DialogSubmissionPolicy[\s\S]*DialogSubmitOutcome[\s\S]*\};/,
+          /pub use openbitfun_runtime_ports::\{[\s\S]*AgentSessionReplyRoute[\s\S]*DialogQueuePriority[\s\S]*DialogSteerOutcome[\s\S]*DialogSubmissionPolicy[\s\S]*DialogSubmitOutcome[\s\S]*\};/,
         message: 'missing dialog submission policy compatibility re-export',
       },
       {
         regex:
-          /use bitfun_runtime_ports::\{(?=[\s\S]*DialogSessionStateFact)(?=[\s\S]*DialogSubmitQueueAction)(?=[\s\S]*DialogSubmitQueueFacts)(?=[\s\S]*resolve_dialog_submit_queue_action)[\s\S]*\};/,
+          /use openbitfun_runtime_ports::\{(?=[\s\S]*DialogSessionStateFact)(?=[\s\S]*DialogSubmitQueueAction)(?=[\s\S]*DialogSubmitQueueFacts)(?=[\s\S]*resolve_dialog_submit_queue_action)[\s\S]*\};/,
         message: 'missing dialog scheduler decision contract import',
       },
       {
         regex:
-          /use bitfun_agent_runtime::scheduler::\{(?=[\s\S]*ActiveDialogTurn)(?=[\s\S]*ActiveDialogTurnStore)(?=[\s\S]*AgentSessionReplyAction)(?=[\s\S]*AgentSessionReplyPlan)(?=[\s\S]*BackgroundDeliveryAction)(?=[\s\S]*BackgroundDeliveryFacts)(?=[\s\S]*BackgroundInjectionKind)(?=[\s\S]*DialogReplySuppressionSet)(?=[\s\S]*DialogSteeringAction)(?=[\s\S]*DialogTurnQueue)(?=[\s\S]*SessionAbortFlags)(?=[\s\S]*resolve_agent_session_reply_action)(?=[\s\S]*resolve_background_delivery_action)(?=[\s\S]*resolve_background_delivery_injection)(?=[\s\S]*resolve_dialog_steering_action)[\s\S]*\};/,
+          /use openbitfun_agent_runtime::scheduler::\{(?=[\s\S]*ActiveDialogTurn)(?=[\s\S]*ActiveDialogTurnStore)(?=[\s\S]*AgentSessionReplyAction)(?=[\s\S]*AgentSessionReplyPlan)(?=[\s\S]*BackgroundDeliveryAction)(?=[\s\S]*BackgroundDeliveryFacts)(?=[\s\S]*BackgroundInjectionKind)(?=[\s\S]*DialogReplySuppressionSet)(?=[\s\S]*DialogSteeringAction)(?=[\s\S]*DialogTurnQueue)(?=[\s\S]*SessionAbortFlags)(?=[\s\S]*resolve_agent_session_reply_action)(?=[\s\S]*resolve_background_delivery_action)(?=[\s\S]*resolve_background_delivery_injection)(?=[\s\S]*resolve_dialog_steering_action)[\s\S]*\};/,
         message: 'missing agent-runtime scheduler owner imports',
       },
       {
@@ -6100,12 +5810,12 @@ export const requiredContentRules = [
     patterns: [
       {
         regex:
-          /pub use bitfun_agent_runtime::scheduler::\{[\s\S]*DialogRoundInjectionInterrupt[\s\S]*SessionRoundInjectionBuffer[\s\S]*\};/,
+          /pub use openbitfun_agent_runtime::scheduler::\{[\s\S]*DialogRoundInjectionInterrupt[\s\S]*SessionRoundInjectionBuffer[\s\S]*\};/,
         message: 'missing agent-runtime round-boundary state compatibility re-export',
       },
       {
         regex:
-          /pub use bitfun_runtime_ports::\{[\s\S]*DialogRoundInjectionSource[\s\S]*RoundInjection[\s\S]*RoundInjectionKind[\s\S]*RoundInjectionTarget[\s\S]*\};/,
+          /pub use openbitfun_runtime_ports::\{[\s\S]*DialogRoundInjectionSource[\s\S]*RoundInjection[\s\S]*RoundInjectionKind[\s\S]*RoundInjectionTarget[\s\S]*\};/,
         message: 'missing round injection compatibility re-export',
       },
     ],
@@ -6117,12 +5827,12 @@ export const requiredContentRules = [
     patterns: [
       {
         regex:
-          /pub use bitfun_runtime_ports::\{[\s\S]*SetThreadGoalResult[\s\S]*ThreadGoal[\s\S]*ThreadGoalContinuationPlan[\s\S]*ThreadGoalStatus[\s\S]*ThreadGoalToolResponse[\s\S]*GOAL_MODE_METADATA_KEY[\s\S]*MAX_CONTEXT_SUMMARY_CHARS[\s\S]*MAX_THREAD_GOAL_OBJECTIVE_CHARS[\s\S]*THREAD_GOAL_METADATA_KEY[\s\S]*\};/,
+          /pub use openbitfun_runtime_ports::\{[\s\S]*SetThreadGoalResult[\s\S]*ThreadGoal[\s\S]*ThreadGoalContinuationPlan[\s\S]*ThreadGoalStatus[\s\S]*ThreadGoalToolResponse[\s\S]*GOAL_MODE_METADATA_KEY[\s\S]*MAX_CONTEXT_SUMMARY_CHARS[\s\S]*MAX_THREAD_GOAL_OBJECTIVE_CHARS[\s\S]*THREAD_GOAL_METADATA_KEY[\s\S]*\};/,
         message: 'missing thread goal compatibility re-export',
       },
       {
         regex:
-          /pub use bitfun_agent_runtime::thread_goal::\{[\s\S]*build_thread_goal_continuation_plan[\s\S]*goal_tool_response[\s\S]*should_skip_goal_for_turn[\s\S]*ThreadGoalRuntime[\s\S]*\};/,
+          /pub use openbitfun_agent_runtime::thread_goal::\{[\s\S]*build_thread_goal_continuation_plan[\s\S]*goal_tool_response[\s\S]*should_skip_goal_for_turn[\s\S]*ThreadGoalRuntime[\s\S]*\};/,
         message: 'missing thread goal runtime owner compatibility re-export',
       },
     ],
@@ -6133,7 +5843,7 @@ export const requiredContentRules = [
       'core message model must preserve legacy compression contract import path while runtime-ports owns portable compaction facts',
     patterns: [
       {
-        regex: /pub use bitfun_runtime_ports::\{CompressionContract, CompressionContractItem\};/,
+        regex: /pub use openbitfun_runtime_ports::\{CompressionContract, CompressionContractItem\};/,
         message: 'missing compression contract compatibility re-export',
       },
     ],
@@ -6144,7 +5854,7 @@ export const requiredContentRules = [
       'core workspace manager must preserve legacy related-path import path while runtime-ports owns portable request-context facts',
     patterns: [
       {
-        regex: /pub use bitfun_runtime_ports::RelatedPath;/,
+        regex: /pub use openbitfun_runtime_ports::RelatedPath;/,
         message: 'missing related path compatibility re-export',
       },
     ],
@@ -7005,8 +6715,8 @@ export const requiredContentRules = [
         message: 'missing remote dialog outcome builder contract test',
       },
       {
-        regex: /\bremote_connect_dialog_runtime_keeps_legacy_restore_failure_tolerance\b/,
-        message: 'missing restore failure tolerance test',
+        regex: /\bremote_connect_dialog_runtime_stops_before_prewarm_when_restore_fails\b/,
+        message: 'missing restore failure propagation test',
       },
       {
         regex: /\bremote_chat_history_assembly_preserves_message_shape_and_item_order\b/,
@@ -7100,23 +6810,23 @@ export const requiredContentRules = [
       'core remote-connect root keeps compatibility re-exports while services-integrations owns device, pairing, encryption, QR, and relay primitives',
     patterns: [
       {
-        regex: /\bpub mod device\s*\{[\s\S]*bitfun_services_integrations::remote_connect::device::\*/m,
+        regex: /\bpub mod device\s*\{[\s\S]*openbitfun_services_integrations::remote_connect::device::\*/m,
         message: 'missing device compatibility re-export module',
       },
       {
-        regex: /\bpub mod encryption\s*\{[\s\S]*bitfun_services_integrations::remote_connect::encryption::\*/m,
+        regex: /\bpub mod encryption\s*\{[\s\S]*openbitfun_services_integrations::remote_connect::encryption::\*/m,
         message: 'missing encryption compatibility re-export module',
       },
       {
-        regex: /\bpub mod pairing\s*\{[\s\S]*bitfun_services_integrations::remote_connect::pairing::\*/m,
+        regex: /\bpub mod pairing\s*\{[\s\S]*openbitfun_services_integrations::remote_connect::pairing::\*/m,
         message: 'missing pairing compatibility re-export module',
       },
       {
-        regex: /\bpub mod qr_generator\s*\{[\s\S]*bitfun_services_integrations::remote_connect::qr_generator::\*/m,
+        regex: /\bpub mod qr_generator\s*\{[\s\S]*openbitfun_services_integrations::remote_connect::qr_generator::\*/m,
         message: 'missing QR compatibility re-export module',
       },
       {
-        regex: /\bpub mod relay_client\s*\{[\s\S]*bitfun_services_integrations::remote_connect::relay_client::\*/m,
+        regex: /\bpub mod relay_client\s*\{[\s\S]*openbitfun_services_integrations::remote_connect::relay_client::\*/m,
         message: 'missing relay client compatibility re-export module',
       },
     ],
@@ -7998,7 +7708,7 @@ export const requiredContentRules = [
         message: 'missing DeepResearch post-process runtime gate',
       },
       {
-        regex: /\bbitfun_services_integrations::deep_research::run_for_session_workspace\b/,
+        regex: /\bopenbitfun_services_integrations::deep_research::run_for_session_workspace\b/,
         message: 'missing DeepResearch report IO owner delegation',
       },
     ],
@@ -8029,7 +7739,7 @@ export const requiredContentRules = [
   {
     path: 'src/crates/assembly/core/src/agentic/agents/registry/availability.rs',
     reason:
-      'core agent registry must adapt config and AgentEntry facts while bitfun-agent-runtime owns mode-scoped subagent availability decisions',
+      'core agent registry must adapt config and AgentEntry facts while openbitfun-agent-runtime owns mode-scoped subagent availability decisions',
     patterns: [
       {
         regex: /\bfn resolve_availability\b/,
@@ -8056,14 +7766,14 @@ export const requiredContentRules = [
   {
     path: 'src/crates/assembly/core/src/agentic/agents/registry/types.rs',
     reason:
-      'core agent registry must preserve legacy DTO fields while bitfun-agent-runtime owns query scope and availability reason contracts',
+      'core agent registry must preserve legacy DTO fields while openbitfun-agent-runtime owns query scope and availability reason contracts',
     patterns: [
       {
         regex: /\bSubagentOverrideState\b/,
         message: 'missing agent-runtime subagent override contract',
       },
       {
-        regex: /pub use bitfun_agent_runtime::agents::\{[\s\S]*SubAgentSource[\s\S]*SubagentListScope[\s\S]*SubagentQueryContext[\s\S]*SubagentStateReason[\s\S]*\};/,
+        regex: /pub use openbitfun_agent_runtime::agents::\{[\s\S]*SubAgentSource[\s\S]*SubagentListScope[\s\S]*SubagentQueryContext[\s\S]*SubagentStateReason[\s\S]*\};/,
         message: 'missing agent-runtime subagent registry contract re-export',
       },
       {
@@ -8077,21 +7787,6 @@ export const requiredContentRules = [
       {
         regex: /\beffective_enabled\b/,
         message: 'missing effective availability field',
-      },
-    ],
-  },
-  {
-    path: 'src/crates/assembly/core/src/agentic/agents/definitions/modes/mod.rs',
-    reason:
-      'core agent mode definitions must continue exposing Multitask mode until an approved agent-runtime migration preserves mode registration semantics',
-    patterns: [
-      {
-        regex: /\bmod multitask\b/,
-        message: 'missing Multitask mode module',
-      },
-      {
-        regex: /\bpub use multitask::MultitaskMode\b/,
-        message: 'missing Multitask mode export',
       },
     ],
   },
@@ -8135,15 +7830,11 @@ export const requiredContentRules = [
         message: 'missing builtin agent definition catalog owner',
       },
       {
-        regex: /builtin_agent_spec\(\s*"Multitask",\s*Mode,\s*"auto"/,
-        message: 'missing Multitask runtime default model mapping',
-      },
-      {
         regex: /builtin_agent_spec\(\s*"GeneralPurpose",\s*SubAgent,\s*"primary"/,
         message: 'missing GeneralPurpose runtime default model mapping',
       },
       {
-        regex: /SubagentVisibilityPolicy::restricted\(\["Claw",\s*"Team"\]\)/,
+        regex: /SubagentVisibilityPolicy::restricted\(\["Claw"\]\)/,
         message: 'missing ComputerUse restricted visibility mapping',
       },
     ],
@@ -8173,8 +7864,12 @@ export const requiredContentRules = [
       'core Task execution must continue owning background subagent launch semantics until a reviewed agent-runtime port preserves delivery behavior',
     patterns: [
       {
-        regex: /delegation_policy\(\)\.spawn_child\(\)/,
-        message: 'missing child delegation policy propagation',
+        regex: /\blet\s+delegation_policy\s*=\s*child_delegation_policy\(/,
+        message: 'missing policy-aware child delegation for background launches',
+      },
+      {
+        regex: /delegation_policy:\s*child_delegation_policy\(/,
+        message: 'missing policy-aware child delegation for foreground execution',
       },
       {
         regex: /\bstart_background_subagent\b/,
@@ -8215,7 +7910,7 @@ export const requiredContentRules = [
   {
     path: 'src/crates/assembly/core/src/agentic/coordination/scheduler.rs',
     reason:
-      'core scheduler keeps concrete background delivery entry points while bitfun-agent-runtime owns running-turn injection construction',
+      'core scheduler keeps concrete background delivery entry points while openbitfun-agent-runtime owns running-turn injection construction',
     patterns: [
       {
         regex: /\bdeliver_background_result\b/,
@@ -8463,7 +8158,7 @@ export const requiredContentRules = [
         message: 'missing product config hook for workspace-search repo config',
       },
       {
-        regex: /\bensure_workspace_gitignore_ignores_bitfun\b/,
+        regex: /\bensure_workspace_gitignore_ignores_openbitfun\b/,
         message: 'missing workspace bootstrap hook for search warmup',
       },
     ],
@@ -8632,23 +8327,31 @@ export const requiredContentRules = [
   {
     path: 'src/web-ui/src/flow_chat/tool-cards/FileOperationToolCard.tsx',
     reason:
-      'web-ui file operation surface must continue owning snapshot-to-local diff fallback until product surface migration is reviewed',
+      'web-ui file operation surface must preserve snapshot-independent inline diffs after the design-system migration',
     patterns: [
       {
-        regex: /\bopenLocalDiff\b/,
-        message: 'missing local tool diff fallback',
+        regex: /\bInlineDiffPreview\b/,
+        message: 'missing snapshot-independent inline diff renderer',
       },
       {
-        regex: /snapshotAPI\.getOperationDiff/,
-        message: 'missing snapshot operation diff path',
+        regex: /previewVariant === 'completed-diff'/,
+        message: 'missing completed file-operation diff state',
       },
       {
-        regex: /Snapshot diff unavailable/,
-        message: 'missing snapshot-unavailable fallback diagnostic',
+        regex: /originalContent=\{oldStringContent\}/,
+        message: 'missing Edit original-content projection',
       },
       {
-        regex: /\blocalDiffContent\b/,
-        message: 'missing local diff content fallback state',
+        regex: /modifiedContent=\{newStringContent\}/,
+        message: 'missing Edit modified-content projection',
+      },
+      {
+        regex: /originalContent=""/,
+        message: 'missing Write empty-baseline projection',
+      },
+      {
+        regex: /modifiedContent=\{contentPreview\}/,
+        message: 'missing Write content projection',
       },
     ],
   },
@@ -8737,10 +8440,6 @@ export const requiredContentRules = [
       {
         regex: /\bexport async function initializeAllTools\b/,
         message: 'missing narrow tool startup entry',
-      },
-      {
-        regex: /\binitializeLsp\b/,
-        message: 'missing LSP startup initializer call',
       },
       {
         regex: /\binitializeGit\b/,
@@ -8941,7 +8640,7 @@ export const requiredContentRules = [
         message: 'missing MiniApp host dispatch entry',
       },
       {
-        regex: /\bbitfun_services_integrations::miniapp::host_dispatch::dispatch_host\b/,
+        regex: /\bopenbitfun_services_integrations::miniapp::host_dispatch::dispatch_host\b/,
         message: 'missing MiniApp host dispatch integrations owner delegation',
       },
       {
@@ -9772,7 +9471,7 @@ export const requiredContentRules = [
   {
     path: 'src/crates/services/services-integrations/src/function_agents.rs',
     reason:
-      'services-integrations must own function-agent concrete Git snapshots without depending on bitfun-core',
+      'services-integrations must own function-agent concrete Git snapshots without depending on openbitfun-core',
     patterns: [
       {
         regex: /\bpub struct FunctionAgentGitService\b/,
@@ -10003,7 +9702,7 @@ export const requiredContentRules = [
       'core MiniApp runtime detection must be a compatibility facade over product-domain runtime detection',
     patterns: [
       {
-        regex: /\bpub use bitfun_product_domains::miniapp::runtime::\{/,
+        regex: /\bpub use openbitfun_product_domains::miniapp::runtime::\{/,
         message: 'missing product-domain MiniApp runtime facade re-export',
       },
       {
@@ -10045,7 +9744,7 @@ export const requiredContentRules = [
       'core MiniApp JS worker path must stay a compatibility re-export over the integrations owner',
     patterns: [
       {
-        regex: /\bpub use bitfun_services_integrations::miniapp::worker::\{/,
+        regex: /\bpub use openbitfun_services_integrations::miniapp::worker::\{/,
         message: 'missing services-owned MiniApp JS worker facade re-export',
       },
       {
@@ -10213,15 +9912,11 @@ export const requiredContentRules = [
   {
     path: 'src/crates/assembly/core/src/service/mod.rs',
     reason:
-      'bitfun-core service facades must compile only when their explicit capability profile is selected',
+      'openbitfun-core service facades must compile only when their explicit capability profile is selected',
     patterns: [
       {
         regex: /#\[cfg\(feature = "dispatch-store"\)\]\s*pub mod dispatch\b/s,
         message: 'dispatch store facade must stay gated behind dispatch-store',
-      },
-      {
-        regex: /#\[cfg\(feature = "lsp"\)\]\s*pub mod lsp\b/s,
-        message: 'LSP facade must stay gated behind lsp',
       },
       {
         regex: /#\[cfg\(feature = "remote-workspace"\)\]\s*pub mod remote_ssh\b/s,
@@ -10257,7 +9952,7 @@ export const requiredContentRules = [
       'remote SSH must preserve its public path while delegating stable workspace identity to services-core',
     patterns: [
       {
-        regex: /pub use bitfun_services_core::workspace_identity::\*/,
+        regex: /pub use openbitfun_services_core::workspace_identity::\*/,
         message: 'remote SSH path compatibility module must re-export the services-core owner',
       },
     ],
@@ -10268,12 +9963,127 @@ export const requiredContentRules = [
       'local workspace profiles must use stable service-owned identity and fail closed for unavailable remote runtime behavior',
     patterns: [
       {
-        regex: /use bitfun_services_core::workspace_identity::\{/,
+        regex: /use openbitfun_services_core::workspace_identity::\{/,
         message: 'workspace service must consume the services-core identity owner directly',
       },
       {
         regex: /Remote workspace support is not compiled into this product profile/,
         message: 'workspace service must report an explicit unsupported state without remote-workspace',
+      },
+    ],
+  },
+  {
+    path: 'src/apps/server/src/bootstrap.rs',
+    reason:
+      'Server must remain on the canonical Core Agent Runtime and product event-queue owners',
+    patterns: [
+      {
+        regex: /init_agentic_system_for_profile_with_runtime_ownership\s*\(/,
+        message: 'Server bootstrap must use the canonical Core Agent Runtime initializer',
+      },
+      {
+        regex: /CoreProductEventQueueOwner::new\s*\(/,
+        message: 'Server bootstrap must retain the product event-queue owner',
+      },
+    ],
+  },
+  {
+    path: 'src/apps/server/src/main.rs',
+    reason:
+      'Server App Server event projection must consume the product-owned runtime source',
+    patterns: [
+      {
+        regex: /agent_event_queue_owner\.runtime_source\s*\(\s*\)/,
+        message: 'Server must consume events through CoreProductEventQueueOwner',
+      },
+    ],
+  },
+  {
+    path: 'src/crates/assembly/core/src/agentic/system.rs',
+    reason:
+      'the canonical Core Agent Runtime initializer must publish its token usage service for every embedded host',
+    patterns: [
+      {
+        regex: /set_global_token_usage_service\s*\(\s*token_usage_service\.clone\s*\(\s*\)\s*\)/,
+        message: 'canonical Agent Runtime initialization must publish token usage globally',
+      },
+    ],
+  },
+  {
+    path: 'src/crates/services/services-core/src/tls_provider.rs',
+    reason:
+      'provider-neutral TLS clients must share the services-owned process-level ring selection',
+    patterns: [
+      {
+        regex: /rustls::crypto::ring::default_provider\s*\(\s*\)\.install_default\s*\(\s*\)/,
+        message: 'services-core TLS owner must install the workspace-owned ring provider',
+      },
+    ],
+  },
+  {
+    path: 'src/crates/services/services-core/Cargo.toml',
+    reason:
+      'services-core must own the exact Rustls provider and protocol feature selection',
+    patterns: [
+      {
+        regex: /rustls = \{ workspace = true, features = \["ring", "std", "tls12"\], optional = true \}/,
+        message: 'services-core TLS owner must select only ring, std, and TLS 1.2 support',
+      },
+    ],
+  },
+  {
+    path: 'src/crates/services/services-integrations/src/lib.rs',
+    reason:
+      'integration clients must initialize the reviewed TLS provider through centralized constructors',
+    patterns: [
+      {
+        regex: /fn reqwest_client_builder[\s\S]*?ensure_ring_crypto_provider\s*\(\s*\)/,
+        message: 'integration Reqwest builder must initialize the ring provider',
+      },
+      {
+        regex: /fn reqwest_client\s*\([^)]*\)[\s\S]*?ensure_ring_crypto_provider\s*\(\s*\)/,
+        message: 'integration default Reqwest client must initialize the ring provider',
+      },
+    ],
+  },
+  {
+    path: 'src/crates/adapters/ai-adapters/src/client/http.rs',
+    reason: 'AI transport clients must initialize the reviewed TLS provider before Reqwest',
+    patterns: [
+      {
+        regex: /fn create_http_client[\s\S]*?ensure_ring_crypto_provider\s*\(\s*\)[\s\S]*?Client::builder\s*\(/,
+        message: 'AI client construction must initialize the ring provider first',
+      },
+    ],
+  },
+  {
+    path: 'src/crates/adapters/ai-adapters/src/subscription_auth/mod.rs',
+    reason:
+      'subscription authentication clients must initialize the same reviewed TLS provider as normal AI transport',
+    patterns: [
+      {
+        regex: /fn build_http_client[\s\S]*?ensure_ring_crypto_provider\s*\(\s*\)[\s\S]*?reqwest::Client::builder\s*\(/,
+        message: 'subscription HTTP client construction must initialize the ring provider first',
+      },
+    ],
+  },
+  {
+    path: 'src/crates/services/miniapp-market-service/src/auth.rs',
+    reason: 'MiniApp market HTTP clients must initialize the reviewed TLS provider',
+    patterns: [
+      {
+        regex: /fn new\s*\([^)]*MarketConfig[\s\S]*?ensure_ring_crypto_provider\s*\(\s*\)[\s\S]*?reqwest::Client::builder\s*\(/,
+        message: 'MiniApp market AuthService must initialize the ring provider first',
+      },
+    ],
+  },
+  {
+    path: 'src/crates/services/skin-market-service/src/auth.rs',
+    reason: 'appearance market HTTP clients must initialize the reviewed TLS provider',
+    patterns: [
+      {
+        regex: /fn new\s*\([^)]*Url[\s\S]*?ensure_ring_crypto_provider\s*\(\s*\)[\s\S]*?Client::builder\s*\(/,
+        message: 'appearance market IdentityVerifier must initialize the ring provider first',
       },
     ],
   },

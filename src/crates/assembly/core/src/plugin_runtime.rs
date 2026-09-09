@@ -7,25 +7,33 @@
 //! tools or execute plugin code.
 
 use async_trait::async_trait;
-use bitfun_dsh_adapter::load_dsh_package_adapter;
-use bitfun_opencode_adapter::load_opencode_package_adapter;
-use bitfun_plugin_runtime_client::{DefaultPluginRuntimeClient, PluginRuntimeAdapter};
-use bitfun_product_domains::plugin_source::{
+use openbitfun_dsh_adapter::load_dsh_package_adapter;
+use openbitfun_opencode_adapter::load_opencode_package_adapter;
+use openbitfun_plugin_runtime_client::{DefaultPluginRuntimeClient, PluginRuntimeAdapter};
+use openbitfun_product_domains::plugin_source::{
     PluginActivationAuthority, PluginPackageInput, PluginPackageSourceIdentity,
 };
-use bitfun_runtime_ports::{
+use openbitfun_runtime_ports::{
     PluginCapabilityRef, PluginDispatchEnvelope, PluginEffectCandidatePayload,
     PluginPermissionGate, PluginResponseEnvelope, PluginRiskLevel, PluginRuntimeAvailability,
     PluginRuntimeBinding, PluginRuntimeClient, PluginRuntimeEpochs, PluginRuntimeReadRequest,
     PluginRuntimeReadResponse, PluginSourceRef, PluginStatusKind, PluginTargetRef, PortError,
     PortErrorKind, PortResult,
 };
-use bitfun_services_integrations::plugin_source::{
+use openbitfun_services_integrations::plugin_source::{
     ManagedPluginSourceError, ManagedPluginSourceIssue, ManagedPluginSourceService,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+#[cfg(feature = "opencode-plugin-host")]
+pub(crate) fn opencode_config_snapshot(
+    workspace: &Path,
+) -> Result<openbitfun_opencode_adapter::OpenCodeConfigSnapshot, String> {
+    openbitfun_opencode_adapter::load_opencode_config_snapshot(workspace)
+        .map_err(|error| error.to_string())
+}
 
 const PREVIEW_PROJECT_ID: &str = "managed-plugin-preview";
 const PREVIEW_WORKSPACE_ID: &str = "managed-plugin-preview";
@@ -439,7 +447,7 @@ impl ManagedPluginActivationView {
 }
 
 fn project_candidate(
-    effect: &bitfun_runtime_ports::PluginEffectCandidate,
+    effect: &openbitfun_runtime_ports::PluginEffectCandidate,
 ) -> Option<ManagedPluginCandidateView> {
     let PluginPermissionGate::PermissionRequired { .. } = &effect.permission else {
         return None;
@@ -603,8 +611,8 @@ impl PluginRuntimeClient for ActivationGatedPluginRuntimeClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitfun_product_domains::plugin_source::{PluginPackageFile, PluginPackageManifest};
-    use bitfun_services_integrations::plugin_source::ManagedPluginTrustDecision;
+    use openbitfun_product_domains::plugin_source::{PluginPackageFile, PluginPackageManifest};
+    use openbitfun_services_integrations::plugin_source::ManagedPluginTrustDecision;
     use sha2::{Digest, Sha256};
     use std::fs;
     use tokio::sync::Notify;
@@ -675,7 +683,7 @@ export const WorkspaceToolsPlugin: Plugin = async () => ({
             let temp = tempfile::tempdir().expect("tempdir");
             let workspace = temp.path().join("workspace");
             let user = temp.path().join("user");
-            let package = workspace.join(".bitfun/plugins/acme.demo");
+            let package = workspace.join(".openbitfun/plugins/acme.demo");
             let source_path = package.join(files[0].0);
             fs::create_dir_all(user.join("plugins")).expect("create user plugins");
             let mut manifest_files = Vec::new();
@@ -692,7 +700,7 @@ export const WorkspaceToolsPlugin: Plugin = async () => ({
                 }));
             }
             fs::write(
-                package.join("bitfun.plugin.json"),
+                package.join("openbitfun.plugin.json"),
                 serde_json::to_vec_pretty(&serde_json::json!({
                     "schemaVersion": 1,
                     "id": "acme.demo",
@@ -706,7 +714,7 @@ export const WorkspaceToolsPlugin: Plugin = async () => ({
             let service = Arc::new(ManagedPluginSourceService::new(
                 user.join("plugins"),
                 user.clone(),
-                workspace.join(".bitfun/plugins"),
+                workspace.join(".openbitfun/plugins"),
                 workspace.clone(),
                 user.join("runtime/plugin-trust.json"),
             ));
@@ -806,9 +814,13 @@ export const WorkspaceToolsPlugin: Plugin = async () => ({
                 if package_id == "acme.demo"
         ));
         fixture.activate().await;
-        fs::remove_dir_all(fixture.workspace.join(".bitfun/plugins")).expect("remove plugin root");
-        fs::write(fixture.workspace.join(".bitfun/plugins"), "not a directory")
-            .expect("make plugin root unreadable");
+        fs::remove_dir_all(fixture.workspace.join(".openbitfun/plugins"))
+            .expect("remove plugin root");
+        fs::write(
+            fixture.workspace.join(".openbitfun/plugins"),
+            "not a directory",
+        )
+        .expect("make plugin root unreadable");
 
         let cleared = deactivate_with_service(
             Arc::clone(&fixture.service),

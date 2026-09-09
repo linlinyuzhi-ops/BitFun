@@ -18,11 +18,11 @@ const log = createLogger('DispatchJobStore');
 const MAX_APPLIED_EVENT_IDS = 2048;
 const MAX_DISMISSED_JOB_IDS = 2048;
 const MAX_DISMISSED_SESSION_IDS = 2048;
-const DISPATCH_JOB_STORAGE_KEY = 'bitfun-dispatch-jobs-v1';
+const DISPATCH_JOB_STORAGE_KEY = 'openbitfun-dispatch-jobs-v1';
 // Keep deletion authority outside the general Zustand snapshot. A stale HMR
 // renderer may still persist its old job cache, but it must never erase a
 // dismissal recorded by the current renderer.
-const DISPATCH_DISMISSAL_LEDGER_KEY = 'bitfun-dispatch-dismissals-v1';
+const DISPATCH_DISMISSAL_LEDGER_KEY = 'openbitfun-dispatch-dismissals-v1';
 const reportedSuppressedProjectionKeys = new Set<string>();
 const fallbackStorageValues = new Map<string, string>();
 
@@ -133,6 +133,8 @@ export interface DispatchObserverJob {
   sourceWorkspacePath?: string;
   sourceWorkspaceId?: string;
   title: string;
+  /** Controller projection metadata; absent on legacy renderer snapshots. */
+  titleSource?: 'generated' | 'manual';
   agentType: string;
   approvalPolicy: DispatchApprovalPolicy;
   /** Baseline branch on the controller, once the backend has resolved one. */
@@ -219,7 +221,7 @@ interface DispatchJobStoreState {
       omittedEventCount: number;
     },
   ) => void;
-  updateTitle: (jobId: string, title: string) => void;
+  updateTitle: (jobId: string, title: string, source?: 'generated' | 'manual') => void;
   updateModel: (jobId: string, model: string) => void;
   updateReasoningPreset: (jobId: string, preset: string) => void;
   updateApprovalPolicy: (jobId: string, policy: DispatchApprovalPolicy) => void;
@@ -403,7 +405,16 @@ export const useDispatchJobStore = create<DispatchJobStoreState>()(
                 sourceWorkspacePath,
                 sourceWorkspaceId:
                   record.sourceWorkspaceId || existing.sourceWorkspaceId,
-                title: record.title || existing.title,
+                // The index keeps the submission name. Later observer titles
+                // live in this persisted projection, including old manual names
+                // written before titleSource was recorded.
+                title: existing.titleSource || (existing.title && existing.title !== record.title)
+                  ? existing.title
+                  : record.title || existing.title,
+                titleSource: existing.titleSource
+                  ?? (record.title && existing.title && existing.title !== record.title
+                    ? 'manual'
+                    : undefined),
                 agentType: record.agentType || existing.agentType,
                 approvalPolicy: record.approvalPolicy || existing.approvalPolicy,
                 model: record.model || existing.model,
@@ -629,11 +640,16 @@ export const useDispatchJobStore = create<DispatchJobStoreState>()(
         });
       },
 
-      updateTitle: (jobId, title) => {
+      updateTitle: (jobId, title, source = 'manual') => {
         set(state => {
           const current = state.jobs[jobId];
           const normalizedTitle = title.trim();
-          if (!current || !normalizedTitle || current.title === normalizedTitle) {
+          if (
+            !current
+            || !normalizedTitle
+            || (source === 'generated' && current.titleSource === 'manual')
+            || (current.title === normalizedTitle && current.titleSource === source)
+          ) {
             return state;
           }
           return {
@@ -642,6 +658,7 @@ export const useDispatchJobStore = create<DispatchJobStoreState>()(
               [jobId]: {
                 ...current,
                 title: normalizedTitle,
+                titleSource: source,
                 updatedAt: Date.now(),
               },
             },

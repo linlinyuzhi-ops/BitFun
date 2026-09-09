@@ -1,18 +1,18 @@
-@use '../../../component-library/styles/tokens' as *;
-@use '../../../component-library/styles/_extended-mixins' as mixins;
-
 $_node-height: 24px;
 $_node-padding-y: 3px;
 $_node-padding-x: 8px;
 $_icon-size: 16px;
 $_indent-width: 8px;
 
-.bitfun-file-explorer {
+.openbitfun-file-explorer {
   height: 100%;
   overflow: hidden;
-  @include mixins.flex-layout(column, stretch, start, 0);
-  background: var(--bf-appearance-token-color-bg-secondary);
-  border-radius: $size-radius-sm;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  background: var(--openbitfun-color-surface-panel);
+  border-radius: var(--openbitfun-radius-sm);
   position: relative;
 
   &--empty {
@@ -21,15 +21,19 @@ $_indent-width: 8px;
   }
 }
 
-.bitfun-file-explorer__toolbar {
+.openbitfun-file-explorer__toolbar {
   position: absolute;
-  top: $size-gap-2;
-  right: $size-gap-1;
-  @include mixins.flex-layout(row, center, center, 2px);
+  top: var(--openbitfun-space-2);
+  right: var(--openbitfun-space-1);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   z-index: 10;
   opacity: 0;
   pointer-events: none;
-  transition: opacity $motion-base $easing-standard;
+  transition: opacity var(--openbitfun-motion-duration-base) var(--openbitfun-motion-easing-standard);
   background: transparent;
   border: none;
   border-radius: 0;
@@ -41,47 +45,31 @@ $_indent-width: 8px;
     pointer-events: auto;
   }
   
-  .icon-btn {
-    flex-shrink: 0;
-    width: 24px;
-    height: 24px;
-    color: var(--bf-appearance-token-color-text-muted);
-    
-    &:hover {
-      color: var(--bf-appearance-token-color-text-primary);
-      background: var(--bf-appearance-token-color-overlay-white-08);
-    }
-    
-    svg {
-      width: 14px;
-      height: 14px;
-    }
-  }
 }
 
-.bitfun-file-explorer__empty {
+.openbitfun-file-explorer__empty {
   text-align: center;
-  color: var(--bf-appearance-token-color-text-muted);
-  padding: $size-gap-8;
+  color: var(--openbitfun-color-content-muted);
+  padding: var(--openbitfun-space-8);
 }
 
-.bitfun-file-explorer__empty-icon {
-  margin-bottom: $size-gap-4;
-  opacity: $opacity-disabled;
+.openbitfun-file-explorer__empty-icon {
+  margin-bottom: var(--openbitfun-space-4);
+  opacity: var(--openbitfun-opacity-disabled);
 }
 
-.bitfun-file-explorer__breadcrumb {
+.openbitfun-file-explorer__breadcrumb {
   display: flex;
   align-items: center;
   gap: 1px;
   padding: 4px 8px;
   height: 24px;
-  font-size: 11px;
-  color: var(--bf-appearance-token-color-text-muted);
+  font-size: var(--openbitfun-type-meta-font-size);
+  color: var(--openbitfun-color-content-muted);
   background: linear-gradient(
     180deg,
-    rgba(var(--bf-appearance-token-color-static-white-rgb), 0.025) 0%,
-    rgba(var(--bf-appearance-token-color-static-white-rgb), 0.015) 100%
+    color-mix(in srgb, var(--openbitfun-color-content-on-dark) 2.5%, transparent) 0%,
+    color-mix(in srgb, var(--openbitfun-color-content-on-dark) 1.5%, transparent) 100%
   );
   overflow: hidden;
   
@@ -90,99 +78,102 @@ $_indent-width: 8px;
     border-color 140ms ease;
 }
 
-.bitfun-file-explorer__breadcrumb-separator {
-  color: var(--bf-appearance-token-color-text-disabled);
+.openbitfun-file-explorer__breadcrumb-separator {
+  color: var(--openbitfun-color-content-disabled);
   flex-shrink: 0;
   opacity: 0.4;
   margin: 0 1px;
 }
 
-.bitfun-file-explorer__breadcrumb-item {
+.openbitfun-file-explorer__breadcrumb-item {
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   max-width: 100px;
   padding: 2px 2px 3px;
   border-radius: 3px;
   transition:
-    background-color $motion-fast $easing-standard,
-    color $motion-fast $easing-standard;
+    background-color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+    color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
   
   &--clickable {
     cursor: pointer;
     
     &:hover {
-      color: var(--bf-appearance-token-color-text-primary);
-      background: var(--bf-appearance-token-color-overlay-white-08);
+      color: var(--openbitfun-color-content-primary);
+      background: color-mix(in srgb, var(--openbitfun-color-content-on-dark) 8%, transparent);
     }
   }
   
   &:last-child {
-    color: var(--bf-appearance-token-color-text-secondary);
-    background: var(--bf-appearance-token-color-overlay-white-04);
+    color: var(--openbitfun-color-content-secondary);
+    background: color-mix(in srgb, var(--openbitfun-color-content-on-dark) 4%, transparent);
   }
 }
 
-.bitfun-file-explorer__tree {
+.openbitfun-file-explorer__tree {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: $size-gap-2 0;
+  padding: var(--openbitfun-space-2) 0;
   -webkit-overflow-scrolling: touch;
 
 }
 
-.bitfun-file-explorer__tree--virtual > div {
+.openbitfun-file-explorer__tree--virtual > div {
   scrollbar-gutter: stable;
 }
 
-.bitfun-file-explorer__node {
+.openbitfun-file-explorer__node {
   user-select: none;
 }
 
-.bitfun-file-explorer__node-content {
-  @include mixins.flex-layout(row, center, start, $size-gap-1);
+.openbitfun-file-explorer__node-content {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--openbitfun-space-1);
   padding: $_node-padding-y $_node-padding-x;
   cursor: pointer;
   min-height: $_node-height;
-  border-radius: $size-radius-sm;
-  margin: 0 $size-gap-1;
+  border-radius: var(--openbitfun-radius-sm);
+  margin: 0 var(--openbitfun-space-1);
   position: relative;
   
   background: transparent;
   transition:
-    background-color $motion-base $easing-standard,
-    color $motion-base $easing-standard;
-  color: var(--bf-appearance-token-color-text-secondary);
+    background-color var(--openbitfun-motion-duration-base) var(--openbitfun-motion-easing-standard),
+    color var(--openbitfun-motion-duration-base) var(--openbitfun-motion-easing-standard);
+  color: var(--openbitfun-color-content-secondary);
   
   &:focus {
     outline: none;
-    background: var(--bf-appearance-token-element-bg-base);
-    color: var(--bf-appearance-token-color-text-primary);
+    background: var(--openbitfun-color-action-neutral-surface);
+    color: var(--openbitfun-color-content-primary);
   }
   
   &:focus-visible {
-    outline: 1px solid var(--bf-appearance-token-color-accent-500);
+    outline: 1px solid var(--openbitfun-color-accent-default);
     outline-offset: -1px;
   }
 
   &:hover {
-    background: var(--bf-appearance-token-element-bg-base);
-    color: var(--bf-appearance-token-color-text-primary);
+    background: var(--openbitfun-color-action-neutral-surface);
+    color: var(--openbitfun-color-content-primary);
   }
 
   &--selected {
-    background: var(--bf-appearance-token-git-color-branch-bg);
-    color: var(--bf-appearance-token-git-color-branch);
+    background: var(--openbitfun-domain-git-branch-background);
+    color: var(--openbitfun-domain-git-branch);
 
-    .bitfun-file-explorer__node-name {
-      color: var(--bf-appearance-token-git-color-branch);
-      font-weight: $font-weight-medium;
+    .openbitfun-file-explorer__node-name {
+      color: var(--openbitfun-domain-git-branch);
+      font-weight: var(--openbitfun-type-label-sm-font-weight);
     }
 
     &:hover {
-      background: var(--bf-appearance-token-git-color-branch-bg-hover);
-      color: var(--bf-appearance-token-git-color-branch);
+      background: var(--openbitfun-domain-git-branch-background-hover);
+      color: var(--openbitfun-domain-git-branch);
     }
   }
 
@@ -190,7 +181,7 @@ $_indent-width: 8px;
     font-style: italic;
 
     &:hover {
-      background: var(--bf-appearance-token-element-bg-base);
+      background: var(--openbitfun-color-action-neutral-surface);
     }
   }
 
@@ -201,7 +192,7 @@ $_indent-width: 8px;
       inset: 0;
       z-index: 0;
       border-radius: inherit;
-      background: var(--bf-appearance-token-git-color-branch-bg);
+      background: var(--openbitfun-domain-git-branch-background);
       pointer-events: none;
       animation: file-node-highlight-fade 240ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
     }
@@ -211,9 +202,9 @@ $_indent-width: 8px;
       z-index: 1;
     }
     
-    .bitfun-file-explorer__node-name {
-      color: var(--bf-appearance-token-git-color-branch);
-      font-weight: $font-weight-medium;
+    .openbitfun-file-explorer__node-name {
+      color: var(--openbitfun-domain-git-branch);
+      font-weight: var(--openbitfun-type-label-sm-font-weight);
     }
   }
 }
@@ -223,51 +214,58 @@ $_indent-width: 8px;
   to { opacity: 0; }
 }
 
-.bitfun-file-explorer__expand-icon {
-  @include mixins.flex-layout(row, center, center, 0);
-  @include mixins.size($_icon-size);
-  color: var(--bf-appearance-token-color-text-muted);
+.openbitfun-file-explorer__expand-icon {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: $_icon-size;
+  height: $_icon-size;
+  color: var(--openbitfun-color-content-muted);
   flex-shrink: 0;
   min-width: $_icon-size;
 
-  > svg:not(.bitfun-file-explorer__loading-icon) {
+  > svg:not(.openbitfun-file-explorer__loading-icon) {
     transition: transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
   }
 
-  &--expanded > svg:not(.bitfun-file-explorer__loading-icon) {
+  &--expanded > svg:not(.openbitfun-file-explorer__loading-icon) {
     transform: rotate(90deg);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bitfun-file-explorer__node-content--highlighted::after {
+  .openbitfun-file-explorer__node-content--highlighted::after {
     opacity: 0.2;
     animation: none;
   }
 
-  .bitfun-file-explorer__expand-icon > svg {
+  .openbitfun-file-explorer__expand-icon > svg {
     transition: none;
   }
 }
 
-.bitfun-file-explorer__icon {
-  @include mixins.flex-layout(row, center, center, 0);
+.openbitfun-file-explorer__icon {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
   transition:
-    transform $motion-fast $easing-standard,
-    color $motion-fast $easing-standard;
+    transform var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+    color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
   min-width: $_icon-size;
 
   &--folder {
-    color: var(--bf-appearance-token-git-color-branch);
+    color: var(--openbitfun-domain-git-branch);
   }
 
   &--folder-open {
-    color: var(--bf-appearance-token-color-accent-500);
+    color: var(--openbitfun-color-accent-default);
   }
 
   &--file {
-    color: var(--bf-appearance-token-color-text-muted);
+    color: var(--openbitfun-color-content-muted);
   }
 
   &--code,
@@ -281,161 +279,135 @@ $_indent-width: 8px;
   &--java,
   &--c-cpp,
   &--font {
-    color: var(--bf-appearance-token-color-accent-500);
+    color: var(--openbitfun-color-accent-default);
   }
 
   &--html,
   &--css,
   &--sass,
   &--markdown {
-    color: var(--bf-appearance-token-color-purple-500);
+    color: var(--openbitfun-color-accent-secondary);
   }
 
   &--image,
   &--audio,
   &--video {
-    color: var(--bf-appearance-token-color-success);
+    color: var(--openbitfun-color-status-success-content);
   }
 
   &--config,
   &--json,
   &--database,
   &--archive {
-    color: var(--bf-appearance-token-color-warning);
+    color: var(--openbitfun-color-status-warning-content);
   }
 
   &--text,
   &--binary {
-    color: var(--bf-appearance-token-color-text-muted);
+    color: var(--openbitfun-color-content-muted);
   }
 }
 
-.bitfun-file-explorer__node-wrapper {
-  @include mixins.flex-layout(row, center, start, $size-gap-2);
+.openbitfun-file-explorer__node-wrapper {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--openbitfun-space-2);
   flex: 1;
   min-width: 0;
 }
 
-.bitfun-file-explorer__node-name {
+.openbitfun-file-explorer__node-name {
   flex: 1;
-  font-size: var(--bf-appearance-token-font-size-sm);
-  font-weight: $font-weight-normal;
-  @include mixins.text-ellipsis;
+  font-size: var(--openbitfun-type-label-md-font-size);
+  font-weight: var(--openbitfun-type-body-sm-font-weight);
+  overflow: hidden;
+  white-space: nowrap;
   position: relative;
   z-index: 2;
   color: inherit;
 }
 
-.bitfun-file-explorer__rename-input-wrapper {
+.openbitfun-file-explorer__rename-input-wrapper {
   flex: 1;
   min-width: 0;
   z-index: 10;
-  
-  .bitfun-input-wrapper {
-    gap: 0;
-    border: none;
-    
-    .bitfun-input-container {
-      height: 26px;
-      padding: 0 8px;
-      background: var(--bf-appearance-token-color-bg-elevated);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: none !important;
-      box-shadow:
-        0 0 0 1px color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 80%, transparent),
-        0 2px 8px color-mix(in srgb, var(--bf-appearance-token-color-text-primary) 10%, transparent);
-
-      &:hover {
-        background: var(--bf-appearance-token-element-bg-soft);
-        box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 90%, transparent),
-          0 2px 8px color-mix(in srgb, var(--bf-appearance-token-color-text-primary) 12%, transparent);
-      }
-
-      &:focus-within {
-        background: var(--bf-appearance-token-color-bg-elevated);
-        box-shadow:
-          0 0 0 1px var(--bf-appearance-token-color-accent-500),
-          0 4px 12px color-mix(in srgb, var(--bf-appearance-token-color-text-primary) 16%, transparent);
-      }
-    }
-    
-    .bitfun-input {
-      font-size: var(--bf-appearance-token-font-size-sm);
-      color: var(--bf-appearance-token-color-text-primary);
-      font-weight: $font-weight-medium;
-      border: none !important;
-      outline: none !important;
-    }
-    
-    .bitfun-input-prefix {
-      color: color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 85%, transparent);
-    }
-  }
 }
 
-.bitfun-file-explorer__compressed-path {
+.openbitfun-file-explorer__rename-input {
+  width: 100%;
+}
+
+.openbitfun-file-explorer__compressed-path {
   font-style: italic;
   opacity: 0.85;
-  color: var(--bf-appearance-token-color-text-muted);
+  color: var(--openbitfun-color-content-muted);
 }
 
-.bitfun-file-explorer__node-size {
-  font-size: var(--bf-appearance-token-font-size-xs);
-  color: var(--bf-appearance-token-color-text-muted);
+.openbitfun-file-explorer__node-size {
+  font-size: var(--openbitfun-type-label-sm-font-size);
+  color: var(--openbitfun-color-content-muted);
   opacity: 0.7;
   flex-shrink: 0;
   position: relative;
   z-index: 2;
 }
 
-.bitfun-file-explorer__node-modified {
-  font-size: var(--bf-appearance-token-font-size-xs);
-  color: var(--bf-appearance-token-color-text-muted);
+.openbitfun-file-explorer__node-modified {
+  font-size: var(--openbitfun-type-label-sm-font-size);
+  color: var(--openbitfun-color-content-muted);
   opacity: 0.7;
   flex-shrink: 0;
   position: relative;
   z-index: 2;
 }
 
-.bitfun-file-explorer__node-actions {
-  @include mixins.flex-layout(row, center, start, $size-gap-1);
+.openbitfun-file-explorer__node-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--openbitfun-space-1);
   opacity: 0;
-  transition: opacity $motion-fast $easing-standard;
+  transition: opacity var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
   position: relative;
   z-index: 2;
 
-  .bitfun-file-explorer__node-content:hover & {
+  .openbitfun-file-explorer__node-content:hover & {
     opacity: 1;
   }
 }
 
-.bitfun-file-explorer__node-children {
+.openbitfun-file-explorer__node-children {
   // Indentation is computed in JS via paddingLeft; avoid additional spacing here.
   position: relative;
 }
 
-.bitfun-file-explorer__load-more {
-  @include mixins.flex-layout(row, center, start, $size-gap-2);
-  width: calc(100% - #{$size-gap-2});
-  margin: 0 $size-gap-1;
+.openbitfun-file-explorer__load-more {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--openbitfun-space-2);
+  width: calc(100% - var(--openbitfun-space-2));
+  margin: 0 var(--openbitfun-space-1);
   min-height: $_node-height;
   padding: $_node-padding-y $_node-padding-x;
   border: none;
-  border-radius: $size-radius-sm;
+  border-radius: var(--openbitfun-radius-sm);
   background: transparent;
-  color: var(--bf-appearance-token-color-text-muted);
+  color: var(--openbitfun-color-content-muted);
   cursor: pointer;
   text-align: left;
   transition:
-    transform $motion-fast $easing-standard,
-    background-color $motion-fast $easing-standard,
-    color $motion-fast $easing-standard;
+    transform var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+    background-color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+    color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
 
   &:hover:not(:disabled) {
-    background: var(--bf-appearance-token-element-bg-base);
-    color: var(--bf-appearance-token-color-text-primary);
+    background: var(--openbitfun-color-action-neutral-surface);
+    color: var(--openbitfun-color-content-primary);
   }
 
   &:disabled {
@@ -444,30 +416,33 @@ $_indent-width: 8px;
   }
 }
 
-.bitfun-file-explorer__empty-message {
-  @include mixins.flex-layout(row, center, center, 0);
-  padding: $size-gap-8;
-  color: var(--bf-appearance-token-color-text-muted);
+.openbitfun-file-explorer__empty-message {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  padding: var(--openbitfun-space-8);
+  color: var(--openbitfun-color-content-muted);
   font-style: italic;
 }
 
-@include mixins.respond-to('mobile') {
-  .bitfun-file-explorer__node-content {
+@media (max-width: 767px) {
+  .openbitfun-file-explorer__node-content {
     padding: 6px $_node-padding-x;
     min-height: 32px;
   }
 
-  .bitfun-file-explorer__node-name {
-    font-size: var(--bf-appearance-token-font-size-base);
+  .openbitfun-file-explorer__node-name {
+    font-size: var(--openbitfun-type-body-md-font-size);
   }
 
-  .bitfun-file-explorer__node-size,
-  .bitfun-file-explorer__node-modified {
+  .openbitfun-file-explorer__node-size,
+  .openbitfun-file-explorer__node-modified {
     display: none;
   }
 }
 
-// .file-explorer { @extend .bitfun-file-explorer; }
-// .file-tree { @extend .bitfun-file-explorer__tree; }
-// .file-tree-node { @extend .bitfun-file-explorer__node; }
-// .node-content { @extend .bitfun-file-explorer__node-content; }
+// .file-explorer { @extend .openbitfun-file-explorer; }
+// .file-tree { @extend .openbitfun-file-explorer__tree; }
+// .file-tree-node { @extend .openbitfun-file-explorer__node; }
+// .node-content { @extend .openbitfun-file-explorer__node-content; }

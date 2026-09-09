@@ -2,11 +2,11 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 1.0.0-explore]
     paths-ignore:
       - 'png/**'
   push:
-    branches: [main]
+    branches: [main, 1.0.0-explore]
     paths-ignore:
       - 'png/**'
 
@@ -108,10 +108,10 @@ jobs:
 
           PATH="$test_root/stubs:/usr/bin:/bin" \
             RUNNER_TEMP="$test_root" \
-            BITFUN_SIGNING_KEY="YQ==" \
+            OPENBITFUN_SIGNING_KEY="YQ==" \
             bash scripts/sign-release-assets.sh "$test_root/missing-asset"
 
-          "$test_root/bitfun-minisign-0.12/bin/minisign" -v
+          "$test_root/openbitfun-minisign-0.12/bin/minisign" -v
 
   # ── CLI: independent tests ─────────────────────────────────────────
   cli-test:
@@ -158,11 +158,18 @@ jobs:
 
       - name: Run CLI and ACP tests on macOS
         if: runner.os == 'macOS'
-        run: cargo test --locked -p bitfun-cli -p bitfun-acp
+        run: cargo test --locked -p openbitfun-cli -p openbitfun-acp
 
       - name: Run CLI, ACP, and agent runtime tests
         if: runner.os == 'Linux'
-        run: cargo test --locked -p bitfun-cli -p bitfun-acp -p bitfun-agent-runtime
+        run: cargo test --locked -p openbitfun-cli -p openbitfun-acp -p openbitfun-agent-runtime
+
+      # ConPTY is a Windows-only execution path. Keep its interactive contracts
+      # serialized: concurrent native PTYs contend on hosted runners and used to
+      # race action delivery, TUI restoration, and output observation in Nightly.
+      - name: Run Windows CLI terminal contracts
+        if: runner.os == 'Windows'
+        run: cargo test --locked -p openbitfun-cli --test terminal_process_contracts -- --test-threads=1
 
       # ConPTY is a Windows-only execution path. Keep its interactive contracts
       # serialized: concurrent native PTYs contend on hosted runners and used to
@@ -173,7 +180,7 @@ jobs:
 
       - name: Run SDK Host tests
         if: runner.os == 'Linux'
-        run: cargo test --locked -p bitfun-sdk-host -p bitfun-sdk-host-app
+        run: cargo test --locked -p openbitfun-sdk-host -p openbitfun-sdk-host-app
 
       - name: Run SDK Host terminal cleanup regressions
         if: runner.os == 'Linux'
@@ -213,7 +220,9 @@ jobs:
       # exist during check/test; distributable assets remain frontend-build's owner.
       - name: Create Tauri resource directories
         shell: bash
-        run: mkdir -p dist src/mobile-web/dist
+        run: |
+          mkdir -p dist src/mobile-web/dist src/apps/extension-host/dist
+          touch src/apps/extension-host/dist/extension-host.js
 
       - name: Install Linux system dependencies (Tauri)
         if: runner.os == 'Linux'
@@ -298,23 +307,70 @@ jobs:
       # so the workspace check above cannot catch drift in its shared Rust APIs.
       - name: Check installer compilation
         if: runner.os == 'Windows'
-        run: cargo check --manifest-path BitFun-Installer/src-tauri/Cargo.toml
+        run: cargo check --manifest-path OpenBitFun-Installer/src-tauri/Cargo.toml
 
-      - name: Run core and desktop library tests
-        run: cargo test --locked -p bitfun-core -p bitfun-desktop --lib
+      - name: Run core library tests
+        if: runner.os != 'Linux'
+        run: cargo test --locked -p openbitfun-core --lib
+
+      - name: Run full core library tests on Linux
+        if: runner.os == 'Linux'
+        run: cargo test --locked -p openbitfun-core --features product-full --lib
+
+      - name: Run desktop library tests
+        if: runner.os != 'Windows'
+        run: cargo test --locked -p openbitfun-desktop --lib
+
+      # Tauri issue #13419 prevents some Windows MSVC lib-test harnesses from
+      # entering Rust's test runner at all. Keep probing on every run so the
+      # full suite resumes automatically when upstream fixes it. Only the exact
+      # pre-test loader signature is tolerated; assertions and every other
+      # process failure remain blocking.
+      # https://github.com/tauri-apps/tauri/issues/13419
+      - name: Probe Windows desktop library tests
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $testOutput = cargo test --locked -p openbitfun-desktop --lib 2>&1
+          $testExitCode = $LASTEXITCODE
+          $testOutput | ForEach-Object { Write-Output $_ }
+          if ($testExitCode -eq 0) {
+            exit 0
+          }
+
+          $testLog = $testOutput | Out-String
+          $knownTauriLoaderFailure = (
+            $testLog -match 'process .*exit successfully:.*openbitfun_desktop_lib-' -and
+            $testLog -match 'exit code: 0xc0000139' -and
+            $testLog -match 'STATUS_ENTRYPOINT_NOT_FOUND' -and
+            $testLog -notmatch 'test result: FAILED'
+          )
+          if ($knownTauriLoaderFailure) {
+            Write-Output '::warning title=Tauri Windows test-loader limitation::The desktop test harness hit upstream Tauri issue #13419 before any Rust test ran. Compilation and the cross-platform product-control contracts remain blocking.'
+            exit 0
+          }
+
+          exit $testExitCode
+
+      - name: Run product-control domain and delivery-profile contracts
+        shell: bash
+        run: |
+          cargo test --locked -p openbitfun-product-domains --no-default-features product_control
+          cargo test --locked -p openbitfun-product-domains --no-default-features remote_surface
+          cargo test --locked -p openbitfun-product-capabilities every_agent_runtime_delivery_profile_includes_product_control_discovery
 
       # These crates own platform-sensitive behavior that is not exercised by
-      # testing bitfun-core/bitfun-desktop alone. Keep their focused contract
+      # testing openbitfun-core/openbitfun-desktop alone. Keep their focused contract
       # suites in the OS matrix so Linux success cannot hide Windows/macOS
       # regressions in worker interruption, relay storage, or OAuth handling.
       - name: Run Page Functions runtime tests
-        run: cargo test --locked -p bitfun-page-function-runtime
+        run: cargo test --locked -p openbitfun-page-function-runtime
 
       - name: Run Relay service tests
-        run: cargo test --locked -p bitfun-relay-service
+        run: cargo test --locked -p openbitfun-relay-service
 
       - name: Run subscription authentication tests
-        run: cargo test --locked -p bitfun-ai-adapters --features subscription-auth --lib subscription_auth
+        run: cargo test --locked -p openbitfun-ai-adapters --features subscription-auth --lib subscription_auth
 
       # File watching is backed by a different OS API on every platform
       # (ReadDirectoryChangesW / FSEvents / inotify), so watch registration,
@@ -323,10 +379,16 @@ jobs:
       - name: Run file watch contract tests
         run: cargo test --locked -p bitfun-services-integrations --no-default-features --features file-watch --test file_watch_contracts
 
-      # Search tools resolve paths and symlinks directly, which also differs
-      # across platforms. Scoped to the search module: the glob tests in this
-      # crate fail on Windows independently of this branch (walk-root
-      # derivation treats separators differently) and need their own fix.
+      # Exercise native child cleanup outside the Tauri test harness. In
+      # particular, Windows update/restart cleanup must leave the host alive.
+      - name: Run process lifecycle contract tests
+        shell: bash
+        run: |
+          cargo test --locked -p openbitfun-services-core --no-default-features --features process-runtime --test process_runtime_contracts
+          cargo test --locked -p openbitfun-services-core --no-default-features --features process-runtime --lib process_tree::tests::
+
+      # Search tools share matching but retain provider-specific path and
+      # symlink handling. Keep the search module in the full OS matrix.
       - name: Run search tool tests
         run: "cargo test --locked -p tool-runtime --lib search::"
 
@@ -434,7 +496,7 @@ jobs:
           set -euo pipefail
           root=packages/dsh-acp/dist-profile
           for path in \
-            "$root/.bitfun-bridge.json" \
+            "$root/.openbitfun-bridge.json" \
             "$root/cordis.patch.yml" \
             "$root/package.json" \
             "$root/lib/app.js" \
@@ -453,8 +515,8 @@ jobs:
             exit 1
           fi
           node -e '
-            const stamp = require("./packages/dsh-acp/dist-profile/.bitfun-bridge.json");
-            if (stamp.profile !== "bitfun-acp") throw new Error("wrong profile name: " + stamp.profile);
+            const stamp = require("./packages/dsh-acp/dist-profile/.openbitfun-bridge.json");
+            if (stamp.profile !== "openbitfun-acp") throw new Error("wrong profile name: " + stamp.profile);
             if (!/^[0-9a-f]{64}$/.test(stamp.content)) throw new Error("no content digest");
             process.stdout.write(`profile ${stamp.profile} @ ${stamp.bridge}, min dsh ${stamp.minDshVersion}\n`);
           '
@@ -544,7 +606,7 @@ jobs:
         run: |
           if git rev-parse HEAD^1 >/dev/null 2>&1 &&
             git diff --name-only HEAD^1 HEAD -- scripts/i18n-audit.mjs scripts/i18n-contract.test.mjs | grep -q .; then
-            echo "BITFUN_I18N_CONTRACT_TEST_AUDIT_INTEGRATION=1" >> "$GITHUB_ENV"
+            echo "OPENBITFUN_I18N_CONTRACT_TEST_AUDIT_INTEGRATION=1" >> "$GITHUB_ENV"
           fi
 
       - name: Validate i18n contract

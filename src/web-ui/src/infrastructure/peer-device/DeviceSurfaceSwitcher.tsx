@@ -8,8 +8,9 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { OverflowText, ActionItem, Icon, Menu, MenuItem, MenuSection, MenuSeparator } from '@openbitfun/ui';
 import { createPortal } from 'react-dom';
-import { Check, ChevronUp, Monitor, MonitorSmartphone, Loader2 } from 'lucide-react';
+import { Monitor, MonitorSmartphone, Loader2, Unplug } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
 import { useNotification } from '@/shared/notification-system';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
@@ -154,150 +155,145 @@ export const DeviceSurfaceSwitcher: React.FC = () => {
 
   return (
     <>
-      <button
+      <ActionItem data-overflow-trigger
         ref={triggerRef}
-        type="button"
-        className="bitfun-device-switcher"
+        className={[
+          'openbitfun-device-switcher',
+          isRemote && 'is-remote',
+        ].filter(Boolean).join(' ')}
         data-testid="device-surface-switcher"
-        data-bf-component="peer-device"
-        data-bf-part="switcher"
-        data-bf-state={isRemote ? 'remote' : 'local'}
+        data-openbitfun-component="peer-device"
+        data-openbitfun-part="switcher"
+        data-openbitfun-state={isRemote ? 'remote' : 'local'}
         aria-expanded={open}
         aria-label={t('accountLogin.deviceSwitcher.open')}
         title={t('accountLogin.deviceSwitcher.open')}
+        leading={switching ? (
+          <Loader2 className="openbitfun-device-switcher__icon is-spinning" aria-hidden="true" />
+        ) : (
+          <Monitor className="openbitfun-device-switcher__icon" aria-hidden="true" />
+        )}
+        metadata={(
+          <>
+            {busyElsewhereCount > 0 && (
+              <span
+                className="openbitfun-device-switcher__elsewhere"
+                data-openbitfun-component="peer-device"
+                data-openbitfun-part="switcherElsewhere"
+                title={t('accountLogin.deviceSwitcher.othersRunning', { count: busyElsewhereCount })}
+              >
+                <MonitorSmartphone size={11} aria-hidden="true" />
+                {busyElsewhereCount}
+              </span>
+            )}
+            <Icon name="chevron-up" size="lg" className="openbitfun-device-switcher__chevron" aria-hidden="true" style={{ width: 13, height: 13 }} />
+          </>
+        )}
         onClick={() => setOpen(value => !value)}
       >
-        {switching ? (
-          <Loader2 size={13} className="bitfun-device-switcher__icon is-spinning" aria-hidden="true" />
-        ) : (
-          <Monitor size={13} className="bitfun-device-switcher__icon" aria-hidden="true" />
-        )}
-        <span
-          className="bitfun-device-switcher__label"
-          data-bf-component="peer-device"
-          data-bf-part="switcherLabel"
+        <OverflowText
+          className="openbitfun-device-switcher__label"
+          data-openbitfun-component="peer-device"
+          data-openbitfun-part="switcherLabel"
         >
           {currentLabel}
-        </span>
-        {busyElsewhereCount > 0 && (
-          <span
-            className="bitfun-device-switcher__elsewhere"
-            data-bf-component="peer-device"
-            data-bf-part="switcherElsewhere"
-            title={t('accountLogin.deviceSwitcher.othersRunning', { count: busyElsewhereCount })}
-          >
-            <MonitorSmartphone size={11} aria-hidden="true" />
-            {busyElsewhereCount}
-          </span>
-        )}
-        <ChevronUp size={13} className="bitfun-device-switcher__chevron" aria-hidden="true" />
-      </button>
+        </OverflowText>
+      </ActionItem>
 
       {open && createPortal(
         <>
           <div
-            className="bitfun-device-switcher__backdrop"
+            className="openbitfun-device-switcher__backdrop"
             onClick={() => setOpen(false)}
           />
-          <div
+          <Menu
             ref={popoverRef}
-            className="bitfun-device-switcher__menu"
-            role="menu"
+            className="openbitfun-device-switcher__menu"
             data-testid="device-surface-switcher-menu"
-            data-bf-component="peer-device"
-            data-bf-part="switcherMenu"
+            data-openbitfun-component="peer-device"
+            data-openbitfun-part="switcherMenu"
             style={{
               top: `${layout?.top ?? 0}px`,
               left: `${layout?.left ?? 0}px`,
               visibility: layout ? 'visible' : 'hidden',
             }}
           >
-            <div className="bitfun-device-switcher__menu-title">
-              {t('accountLogin.deviceSwitcher.title')}
-            </div>
-
-            {devices.map(device => {
-              const isCurrent = device.deviceId === activeDeviceId;
-              const busy = isDeviceBusy(activityKeyFor(device));
-              const attached = attachedIds.has(device.deviceId);
-              const selectable = device.online && (!isCurrent || switching);
-              return (
-                <div
-                  key={device.deviceId}
-                  className={[
-                    'bitfun-device-switcher__item',
-                    isCurrent && 'is-current',
-                    !device.online && 'is-offline',
-                  ].filter(Boolean).join(' ')}
-                  data-bf-component="peer-device"
-                  data-bf-part="switcherItem"
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="bitfun-device-switcher__item-main"
-                    disabled={!selectable}
-                    onClick={() => { void handleSelect(device); }}
+            <MenuSection title={t('accountLogin.deviceSwitcher.title')}>
+              {devices.map(device => {
+                const isCurrent = device.deviceId === activeDeviceId;
+                const busy = isDeviceBusy(activityKeyFor(device));
+                const attached = attachedIds.has(device.deviceId);
+                const selectable = device.online && (!isCurrent || switching);
+                return (
+                  <MenuItem
+                    key={device.deviceId}
+                    role="menuitemradio"
+                    checked={isCurrent}
+                    aria-disabled={!selectable}
+                    data-openbitfun-component="peer-device"
+                    data-openbitfun-part="switcherItem"
+                    leading={(
+                      <span
+                        className={[
+                          'openbitfun-device-switcher__dot',
+                          busy && 'is-busy',
+                          !device.online && 'is-offline',
+                        ].filter(Boolean).join(' ')}
+                        data-openbitfun-component="peer-device"
+                        data-openbitfun-part="switcherStatusDot"
+                        data-openbitfun-state={[
+                          busy && 'busy',
+                          !device.online && 'offline',
+                        ].filter(Boolean).join(' ') || undefined}
+                        aria-hidden="true"
+                      />
+                    )}
+                    metadata={(
+                      <span className="openbitfun-device-switcher__item-metadata">
+                        {device.isLocal && (
+                          <span className="openbitfun-device-switcher__tag">
+                            {t('accountLogin.thisDevice')}
+                          </span>
+                        )}
+                        {busy && (
+                          <span className="openbitfun-device-switcher__tag is-busy">
+                            {t('accountLogin.deviceSwitcher.running')}
+                          </span>
+                        )}
+                        {!device.online && (
+                          <span className="openbitfun-device-switcher__tag">
+                            {t('accountLogin.offline')}
+                          </span>
+                        )}
+                        {isCurrent && <Icon name="check-line" size="xs" aria-hidden="true" />}
+                      </span>
+                    )}
+                    actions={attached ? [{
+                      id: 'disconnect',
+                      label: t('accountLogin.deviceSwitcher.disconnectHint'),
+                      icon: <Unplug size={13} aria-hidden="true" />,
+                      disabled: switching,
+                      onClick: event => { void handleDisconnect(event, device); },
+                    }] : undefined}
+                    onClick={() => {
+                      if (selectable) void handleSelect(device);
+                    }}
                   >
-                    <span
-                      className={[
-                        'bitfun-device-switcher__dot',
-                        busy && 'is-busy',
-                        !device.online && 'is-offline',
-                      ].filter(Boolean).join(' ')}
-                      data-bf-component="peer-device"
-                      data-bf-part="switcherStatusDot"
-                      data-bf-state={[
-                        busy && 'busy',
-                        !device.online && 'offline',
-                      ].filter(Boolean).join(' ') || undefined}
-                      aria-hidden="true"
-                    />
-                    <span className="bitfun-device-switcher__item-label">{device.deviceName}</span>
-                    {device.isLocal && (
-                      <span className="bitfun-device-switcher__tag">
-                        {t('accountLogin.thisDevice')}
-                      </span>
-                    )}
-                    {busy && (
-                      <span className="bitfun-device-switcher__tag is-busy">
-                        {t('accountLogin.deviceSwitcher.running')}
-                      </span>
-                    )}
-                    {!device.online && (
-                      <span className="bitfun-device-switcher__tag">
-                        {t('accountLogin.offline')}
-                      </span>
-                    )}
-                    {isCurrent && <Check size={13} aria-hidden="true" />}
-                  </button>
-                  {attached && (
-                    <button
-                      type="button"
-                      className="bitfun-device-switcher__item-disconnect"
-                      data-bf-component="peer-device"
-                      data-bf-part="switcherDisconnect"
-                      disabled={switching}
-                      title={t('accountLogin.deviceSwitcher.disconnectHint')}
-                      onClick={(event) => { void handleDisconnect(event, device); }}
-                    >
-                      {t('accountLogin.disconnectPeer')}
-                    </button>
-                  )}
+                    {device.deviceName}
+                  </MenuItem>
+                );
+              })}
+              {devices.length <= 1 && (
+                <div className="openbitfun-device-switcher__empty">
+                  {t('accountLogin.deviceSwitcher.noDevices')}
                 </div>
-              );
-            })}
-
-            {devices.length <= 1 && (
-              <div className="bitfun-device-switcher__empty">
-                {t('accountLogin.deviceSwitcher.noDevices')}
-              </div>
-            )}
-
-            <div className="bitfun-device-switcher__hint">
+              )}
+            </MenuSection>
+            <MenuSeparator />
+            <div className="openbitfun-device-switcher__hint">
               {t('accountLogin.deviceSwitcher.hint')}
             </div>
-          </div>
+          </Menu>
         </>,
         getAppearanceOverlayHost(),
       )}

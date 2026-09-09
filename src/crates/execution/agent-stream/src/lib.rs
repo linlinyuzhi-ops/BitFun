@@ -12,11 +12,11 @@ use crate::tool_call_accumulator::{
     FinalizedToolCall, PendingToolCalls, ToolCallBoundary, ToolCallFinalizeOptions,
     ToolCallStreamKey,
 };
-use bitfun_core_types::errors::AiProviderError;
-use bitfun_events::{AgenticEvent, AgenticEventPriority as EventPriority, ToolEventData};
 use futures::{Stream, StreamExt};
 pub use hidden_text::{HiddenTextBlock, HiddenTextStreamParser, HiddenTextTag};
 use log::{debug, error, trace};
+use openbitfun_core_types::{errors::AiProviderError, ReasoningContentKind};
+use openbitfun_events::{AgenticEvent, AgenticEventPriority as EventPriority, ToolEventData};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
@@ -248,6 +248,9 @@ const UNKNOWN_TOOL_PLACEHOLDER: &str = "unknown_tool";
 #[derive(Debug, Clone)]
 pub struct StreamResult {
     pub full_thinking: String,
+    /// Source semantics of `full_thinking`; summaries are preferred when both
+    /// provider reasoning text and a displayable summary were emitted.
+    pub reasoning_content_kind: Option<ReasoningContentKind>,
     /// Whether the provider emitted a reasoning/thinking field even if its content was empty.
     pub reasoning_content_present: bool,
     /// Signature of Anthropic extended thinking (passed back in multi-turn conversations)
@@ -313,6 +316,8 @@ struct StreamContext {
 
     // Accumulated results
     full_thinking: String,
+    full_reasoning_text: String,
+    full_reasoning_summary: String,
     reasoning_content_present: bool,
     /// Signature of Anthropic extended thinking (passed back in multi-turn conversations)
     thinking_signature: Option<String>,
@@ -334,7 +339,8 @@ struct StreamContext {
     first_visible_output_ms: Option<u64>,
     text_chunks_count: usize,
     thinking_chunks_count: usize,
-    thinking_completed_sent: bool,
+    thinking_streams: Vec<Option<ReasoningContentKind>>,
+    completed_thinking_streams: HashSet<Option<ReasoningContentKind>>,
     has_effective_output: bool,
     partial_recovery_reason: Option<String>,
     /// Provider finish_reason indicating the response was cut by the model's
@@ -360,6 +366,8 @@ impl StreamContext {
             attempt_id,
             attempt_index,
             full_thinking: String::new(),
+            full_reasoning_text: String::new(),
+            full_reasoning_summary: String::new(),
             reasoning_content_present: false,
             thinking_signature: None,
             full_text: String::new(),
@@ -376,7 +384,8 @@ impl StreamContext {
             first_visible_output_ms: None,
             text_chunks_count: 0,
             thinking_chunks_count: 0,
-            thinking_completed_sent: false,
+            thinking_streams: Vec::new(),
+            completed_thinking_streams: HashSet::new(),
             has_effective_output: false,
             partial_recovery_reason: None,
             token_limit_finish_reason: None,
@@ -386,8 +395,22 @@ impl StreamContext {
     }
 
     fn into_result(self) -> StreamResult {
+        let (full_thinking, reasoning_content_kind) = if !self.full_reasoning_summary.is_empty() {
+            (
+                self.full_reasoning_summary,
+                Some(ReasoningContentKind::Summary),
+            )
+        } else if !self.full_reasoning_text.is_empty() {
+            (
+                self.full_reasoning_text,
+                Some(ReasoningContentKind::Reasoning),
+            )
+        } else {
+            (self.full_thinking, None)
+        };
         StreamResult {
-            full_thinking: self.full_thinking,
+            full_thinking,
+            reasoning_content_kind,
             reasoning_content_present: self.reasoning_content_present,
             thinking_signature: self.thinking_signature,
             full_text: self.full_text,
@@ -400,6 +423,16 @@ impl StreamContext {
             first_chunk_ms: self.first_chunk_ms,
             first_visible_output_ms: self.first_visible_output_ms,
             partial_recovery_reason: self.partial_recovery_reason,
+        }
+    }
+
+    fn preferred_thinking(&self) -> &str {
+        if !self.full_reasoning_summary.is_empty() {
+            &self.full_reasoning_summary
+        } else if !self.full_reasoning_text.is_empty() {
+            &self.full_reasoning_text
+        } else {
+            &self.full_thinking
         }
     }
 
@@ -565,8 +598,10 @@ impl StreamProcessor {
 
     /// Send thinking end event (if needed)
     async fn send_thinking_end_if_needed(&self, ctx: &mut StreamContext) {
-        if ctx.thinking_chunks_count > 0 && !ctx.thinking_completed_sent {
-            ctx.thinking_completed_sent = true;
+        for reasoning_kind in ctx.thinking_streams.clone() {
+            if !ctx.completed_thinking_streams.insert(reasoning_kind) {
+                continue;
+            }
             debug!("Thinking process ended, sending ThinkingChunk end event");
             let _ = self
                 .event_sink
@@ -578,6 +613,7 @@ impl StreamProcessor {
                         attempt_id: Some(ctx.attempt_id.clone()),
                         attempt_index: Some(ctx.attempt_index),
                         content: String::new(),
+                        reasoning_kind,
                         is_end: true,
                     },
                     Some(EventPriority::Normal),
@@ -653,8 +689,10 @@ impl StreamProcessor {
                 tool_call.tool_id
             );
 
-            let identity =
-                bitfun_events::ToolEventIdentity::direct(tool_call.tool_id, tool_call.tool_name);
+            let identity = openbitfun_events::ToolEventIdentity::direct(
+                tool_call.tool_id,
+                tool_call.tool_name,
+            );
             let tool_event = if is_user_cancellation {
                 ToolEventData::Cancelled {
                     identity,
@@ -767,7 +805,7 @@ impl StreamProcessor {
                         attempt_id: Some(ctx.attempt_id.clone()),
                         attempt_index: Some(ctx.attempt_index),
                         tool_event: ToolEventData::EarlyDetected {
-                            identity: bitfun_events::ToolEventIdentity::direct(
+                            identity: openbitfun_events::ToolEventIdentity::direct(
                                 early_detected.tool_id,
                                 early_detected.tool_name,
                             ),
@@ -791,7 +829,7 @@ impl StreamProcessor {
                         attempt_id: Some(ctx.attempt_id.clone()),
                         attempt_index: Some(ctx.attempt_index),
                         tool_event: ToolEventData::ParamsPartial {
-                            identity: bitfun_events::ToolEventIdentity::direct(
+                            identity: openbitfun_events::ToolEventIdentity::direct(
                                 params_partial.tool_id,
                                 params_partial.tool_name,
                             ),
@@ -869,11 +907,27 @@ impl StreamProcessor {
     }
 
     /// Handle thinking chunk
-    async fn handle_thinking_chunk(&self, ctx: &mut StreamContext, thinking_content: String) {
+    async fn handle_thinking_chunk(
+        &self,
+        ctx: &mut StreamContext,
+        thinking_content: String,
+        reasoning_kind: Option<ReasoningContentKind>,
+    ) {
         // Thinking-only output does NOT count as "effective" for retry purposes:
         // if the stream fails after producing only thinking (no text/tool calls),
         // it is safe to retry because the model will re-think from scratch.
-        ctx.full_thinking.push_str(&thinking_content);
+        match reasoning_kind {
+            Some(ReasoningContentKind::Reasoning) => {
+                ctx.full_reasoning_text.push_str(&thinking_content)
+            }
+            Some(ReasoningContentKind::Summary) => {
+                ctx.full_reasoning_summary.push_str(&thinking_content)
+            }
+            None => ctx.full_thinking.push_str(&thinking_content),
+        }
+        if !ctx.thinking_streams.contains(&reasoning_kind) {
+            ctx.thinking_streams.push(reasoning_kind);
+        }
         ctx.mark_first_visible_output();
         ctx.thinking_chunks_count += 1;
 
@@ -888,6 +942,7 @@ impl StreamProcessor {
                     attempt_id: Some(ctx.attempt_id.clone()),
                     attempt_index: Some(ctx.attempt_index),
                     content: thinking_content,
+                    reasoning_kind,
                     is_end: false,
                 },
                 None,
@@ -912,8 +967,9 @@ impl StreamProcessor {
         );
 
         if log::log_enabled!(log::Level::Debug) {
-            if !ctx.full_thinking.is_empty() {
-                debug!(target: "ai::stream_processor", "Full thinking content: \n{}", ctx.full_thinking);
+            let preferred_thinking = ctx.preferred_thinking();
+            if !preferred_thinking.is_empty() {
+                debug!(target: "ai::stream_processor", "Full thinking content: \n{}", preferred_thinking);
             }
             if !ctx.full_text.is_empty() {
                 debug!(target: "ai::stream_processor", "Full text content: \n{}", ctx.full_text);
@@ -937,7 +993,7 @@ impl StreamProcessor {
 
         trace!(
             "Returning StreamResult: thinking_len={}, text_len={}, tool_calls={}, has_usage={}, has_effective_output={}",
-            ctx.full_thinking.len(),
+            ctx.preferred_thinking().len(),
             ctx.full_text.len(),
             ctx.tool_calls.len(),
             ctx.usage.is_some(),
@@ -1123,6 +1179,7 @@ impl StreamProcessor {
                     let UnifiedResponse {
                         text,
                         reasoning_content,
+                        reasoning_content_kind,
                         thinking_signature,
                         tool_call,
                         usage,
@@ -1150,7 +1207,12 @@ impl StreamProcessor {
                     if let Some(thinking_content) = reasoning_content {
                         ctx.reasoning_content_present = true;
                         if !thinking_content.is_empty() {
-                            self.handle_thinking_chunk(&mut ctx, thinking_content).await;
+                            self.handle_thinking_chunk(
+                                &mut ctx,
+                                thinking_content,
+                                reasoning_content_kind,
+                            )
+                            .await;
                             if let Some(err) = self.check_cancellation(&mut ctx, cancellation_token, "processing thinking chunk").await {
                                 return err;
                             }
@@ -1249,10 +1311,10 @@ mod tests {
         ToolCall, ToolCallCompletion,
     };
     use super::{UnifiedResponse, UnifiedTokenUsage, UnifiedToolCall};
-    use bitfun_core_types::errors::{AiProviderError, ErrorCategory};
-    use bitfun_core_types::ModelResponseReplayItem;
-    use bitfun_events::{AgenticEvent, AgenticEventPriority as EventPriority, ToolEventData};
     use futures::StreamExt;
+    use openbitfun_core_types::errors::{AiProviderError, ErrorCategory};
+    use openbitfun_core_types::{ModelResponseReplayItem, ReasoningContentKind};
+    use openbitfun_events::{AgenticEvent, AgenticEventPriority as EventPriority, ToolEventData};
     use serde_json::json;
     use std::sync::Arc;
     use std::time::Duration;
@@ -1472,8 +1534,8 @@ mod tests {
     fn memory_hidden_tag() -> HiddenTextTag {
         HiddenTextTag::new(
             "memory_citation",
-            "<bitfun-mem-citation>",
-            "</bitfun-mem-citation>",
+            "<openbitfun-mem-citation>",
+            "</openbitfun-mem-citation>",
         )
     }
 
@@ -1483,12 +1545,12 @@ mod tests {
         let processor = StreamProcessor::new(sink.clone());
         let stream = iter(vec![
             Ok(UnifiedResponse {
-                text: Some("hello <bitfun-mem-".to_string()),
+                text: Some("hello <openbitfun-mem-".to_string()),
                 ..Default::default()
             }),
             Ok(UnifiedResponse {
                 text: Some(
-                    "citation><citation_entries>\nMEMORY.md:1-2|note=[x]\n</citation_entries></bitfun-mem-citation> world"
+                    "citation><citation_entries>\nMEMORY.md:1-2|note=[x]\n</citation_entries></openbitfun-mem-citation> world"
                         .to_string(),
                 ),
                 ..Default::default()
@@ -1533,14 +1595,14 @@ mod tests {
         assert_eq!(text_chunks, vec!["hello ", " world"]);
         assert!(!text_chunks
             .iter()
-            .any(|text| text.contains("<bitfun-mem-citation>")));
+            .any(|text| text.contains("<openbitfun-mem-citation>")));
     }
 
     #[tokio::test]
     async fn auto_closes_unterminated_hidden_text_tag_on_stream_end() {
         let processor = build_processor();
         let stream = iter(vec![Ok(UnifiedResponse {
-            text: Some("hello<bitfun-mem-citation>payload".to_string()),
+            text: Some("hello<openbitfun-mem-citation>payload".to_string()),
             ..Default::default()
         })])
         .boxed();
@@ -2178,6 +2240,84 @@ mod tests {
         assert!(result.reasoning_content_present);
         assert!(result.full_thinking.is_empty());
         assert!(!result.has_effective_output);
+    }
+
+    #[tokio::test]
+    async fn keeps_reasoning_and_summary_streams_separate_and_prefers_summary() {
+        let sink = Arc::new(RecordingEventSink::default());
+        let processor = StreamProcessor::new(sink.clone());
+        let stream = iter(vec![
+            Ok(UnifiedResponse {
+                reasoning_content: Some("private ".to_string()),
+                reasoning_content_kind: Some(ReasoningContentKind::Reasoning),
+                ..Default::default()
+            }),
+            Ok(UnifiedResponse {
+                reasoning_content: Some("chain".to_string()),
+                reasoning_content_kind: Some(ReasoningContentKind::Reasoning),
+                ..Default::default()
+            }),
+            Ok(UnifiedResponse {
+                reasoning_content: Some("display ".to_string()),
+                reasoning_content_kind: Some(ReasoningContentKind::Summary),
+                ..Default::default()
+            }),
+            Ok(UnifiedResponse {
+                reasoning_content: Some("summary".to_string()),
+                reasoning_content_kind: Some(ReasoningContentKind::Summary),
+                finish_reason: Some("stop".to_string()),
+                ..Default::default()
+            }),
+        ])
+        .boxed();
+
+        let result = processor
+            .process_stream(
+                stream,
+                None,
+                None,
+                "session_1".to_string(),
+                "turn_1".to_string(),
+                "round_1".to_string(),
+                "round_1:attempt:1".to_string(),
+                1,
+                &CancellationToken::new(),
+            )
+            .await
+            .expect("stream result");
+
+        assert_eq!(result.full_thinking, "display summary");
+        assert_eq!(
+            result.reasoning_content_kind,
+            Some(ReasoningContentKind::Summary)
+        );
+
+        let events = sink.events.lock().await;
+        let thinking_events = events
+            .iter()
+            .filter(|event| matches!(event, AgenticEvent::ThinkingChunk { .. }))
+            .collect::<Vec<_>>();
+        assert!(thinking_events.iter().any(|event| matches!(
+            event,
+            AgenticEvent::ThinkingChunk {
+                reasoning_kind: Some(ReasoningContentKind::Reasoning),
+                ..
+            }
+        )));
+        assert!(thinking_events.iter().any(|event| matches!(
+            event,
+            AgenticEvent::ThinkingChunk {
+                reasoning_kind: Some(ReasoningContentKind::Summary),
+                ..
+            }
+        )));
+        assert_eq!(
+            thinking_events
+                .iter()
+                .filter(|event| matches!(event, AgenticEvent::ThinkingChunk { is_end: true, .. }))
+                .count(),
+            2
+        );
     }
 
     #[tokio::test]

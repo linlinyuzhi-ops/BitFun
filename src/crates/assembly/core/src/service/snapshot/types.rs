@@ -48,6 +48,10 @@ pub struct FileOperation {
     pub tool_context: ToolContext,
     pub before_snapshot_id: Option<String>,
     pub after_snapshot_id: Option<String>,
+    /// Explicit completion for new records. Missing legacy values retain the
+    /// previous snapshot/timing-based interpretation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed: Option<bool>,
     pub timestamp: SystemTime,
     pub diff_summary: DiffSummary,
     pub path_before: Option<PathBuf>,
@@ -166,6 +170,9 @@ pub enum SnapshotError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("Workspace IO error: {0}")]
+    WorkspaceIo(#[from] anyhow::Error),
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
@@ -188,7 +195,7 @@ pub enum SnapshotError {
     ConfigError(String),
 
     #[error("Tool execution error: {0}")]
-    ToolExecution(#[from] crate::util::errors::BitFunError),
+    ToolExecution(#[from] crate::util::errors::OpenBitFunError),
 }
 
 pub type SnapshotResult<T> = Result<T, SnapshotError>;

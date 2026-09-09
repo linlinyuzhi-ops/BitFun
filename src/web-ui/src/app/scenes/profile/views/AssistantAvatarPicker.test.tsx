@@ -14,7 +14,8 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@/component-library', () => ({
+vi.mock('@openbitfun/ui', async importOriginal => ({
+  ...await importOriginal<typeof import('@openbitfun/ui')>(),
   Button: ({
     children,
     variant: _variant,
@@ -54,7 +55,7 @@ describe('AssistantAvatarPicker', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
-    document.querySelector('[data-bf-overlay-host="true"]')?.remove();
+    document.querySelector('[data-openbitfun-overlay-host="true"]')?.remove();
   });
 
   it('keeps a combined emoji sequence as one avatar', () => {
@@ -82,7 +83,7 @@ describe('AssistantAvatarPicker', () => {
       document.querySelectorAll<HTMLButtonElement>('.acp-avatar-picker__option'),
     ).find((option) => option.textContent === '🧭');
     expect(compassOption).toBeTruthy();
-    expect(document.querySelector('.acp-avatar-picker__popover')?.parentElement?.getAttribute('data-bf-overlay-host')).toBe('true');
+    expect(document.querySelector('.acp-avatar-picker__popover')?.parentElement?.getAttribute('data-openbitfun-overlay-host')).toBe('true');
 
     act(() => compassOption?.click());
     expect(onChange).toHaveBeenCalledWith('🧭');
@@ -104,5 +105,59 @@ describe('AssistantAvatarPicker', () => {
 
     expect(document.querySelector('.acp-avatar-picker__status')?.textContent)
       .toContain('identity.avatarSaved');
+  });
+
+  it('selects an official preset without overwriting the legacy emoji fallback', () => {
+    const onChange = vi.fn();
+    const onPresetChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <AssistantAvatarPicker
+          value="🧭"
+          presetValue=""
+          saveStatus="idle"
+          onChange={onChange}
+          onPresetChange={onPresetChange}
+        />,
+      );
+    });
+
+    const trigger = container.querySelector('.acp-avatar-picker__trigger') as HTMLButtonElement;
+    act(() => trigger.click());
+    const officialOptions = document.querySelectorAll<HTMLButtonElement>('.acp-avatar-picker__option.is-official');
+    const officialOption = officialOptions[0];
+    act(() => officialOption?.click());
+
+    expect(officialOptions).toHaveLength(2);
+    expect(officialOption.querySelector('img')?.getAttribute('src'))
+      .toBe('/assets/assistant/claw-avatar.webp');
+    expect(onPresetChange).toHaveBeenCalledWith('claw');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('shows a legacy preset value as its corresponding new Claw avatar', () => {
+    act(() => {
+      root.render(
+        <AssistantAvatarPicker
+          value="🧭"
+          presetValue="orbit-nova"
+          saveStatus="idle"
+          onChange={vi.fn()}
+          onPresetChange={vi.fn()}
+        />,
+      );
+    });
+
+    const trigger = container.querySelector('.acp-avatar-picker__trigger') as HTMLButtonElement;
+    expect(trigger.querySelector('img')?.getAttribute('src'))
+      .toBe('/assets/assistant/claw-avatar-alt.webp');
+    act(() => trigger.click());
+
+    const selectedOption = document.querySelector<HTMLButtonElement>(
+      '.acp-avatar-picker__option.is-official.is-selected',
+    );
+    expect(selectedOption?.querySelector('img')?.getAttribute('src'))
+      .toBe('/assets/assistant/claw-avatar-alt.webp');
   });
 });

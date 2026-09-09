@@ -11,8 +11,8 @@ use crate::agentic::events::{
     ModelRoundAttemptToolDiagnostic, ToolEventData,
 };
 use crate::agentic::memories::{
-    parse_bitfun_memory_citation, parse_bitfun_memory_citation_payloads,
-    strip_bitfun_memory_citations,
+    parse_openbitfun_memory_citation, parse_openbitfun_memory_citation_payloads,
+    strip_openbitfun_memory_citations,
 };
 use crate::agentic::permission_policy::{
     permission_mode_from_context, resolve_effective_permission_policy,
@@ -33,18 +33,18 @@ use crate::service::config::types::AgentProfileConfig;
 use crate::service::config::types::SubagentBatchExecutionPolicy as ConfigSubagentBatchExecutionPolicy;
 use crate::service::config::GlobalConfigManager;
 use crate::util::elapsed_ms_u64;
-use crate::util::errors::{BitFunError, BitFunResult};
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use crate::util::types::Message as AIMessage;
 use crate::util::types::ToolDefinition;
-use bitfun_agent_runtime::turn_cancellation::DialogTurnCancellationTokenStore;
-use bitfun_agent_tools::{parse_call_deferred_tool_input, CALL_DEFERRED_TOOL_NAME};
-use bitfun_ai_adapters::{
+use log::{debug, error, warn};
+use openbitfun_agent_runtime::turn_cancellation::DialogTurnCancellationTokenStore;
+use openbitfun_agent_tools::{parse_call_deferred_tool_input, CALL_DEFERRED_TOOL_NAME};
+use openbitfun_ai_adapters::{
     ModelExchangeRequestTraceHandle, ModelExchangeResponseTrace, ModelExchangeTraceConfig,
 };
-use bitfun_core_types::errors::{AiProviderError, ErrorCategory};
-use bitfun_core_types::ModelResponseReplay;
-use bitfun_runtime_ports::PermissionRule;
-use log::{debug, error, warn};
+use openbitfun_core_types::errors::{AiProviderError, ErrorCategory};
+use openbitfun_core_types::ModelResponseReplay;
+use openbitfun_runtime_ports::PermissionRule;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
@@ -121,6 +121,43 @@ impl RoundExecutor {
     const MAX_EXPONENTIAL_DELAY_MS: u64 = 30_000;
     const MAX_RATE_LIMIT_DELAY_MS: u64 = 60_000;
     const MAX_RETRY_EXPONENT_SHIFT: u32 = 6;
+
+    /// Unknown and malformed provider responses retain the bounded recovery
+    /// introduced with the unified attempt budget. Only classified rejections
+    /// leave this loop immediately; context overflow is recovered by the caller.
+    fn should_retry_provider_error(category: &ErrorCategory) -> bool {
+        match category {
+            ErrorCategory::Auth
+            | ErrorCategory::Permission
+            | ErrorCategory::ProviderQuota
+            | ErrorCategory::ProviderBilling
+            | ErrorCategory::InvalidRequest
+            | ErrorCategory::ContentPolicy
+            | ErrorCategory::ContextOverflow => false,
+            ErrorCategory::Network
+            | ErrorCategory::RateLimit
+            | ErrorCategory::Timeout
+            | ErrorCategory::ProviderUnavailable
+            | ErrorCategory::ModelError
+            | ErrorCategory::Unknown => true,
+        }
+    }
+
+    fn terminal_request_error(error: &anyhow::Error, attempts: u32) -> OpenBitFunError {
+        let mut provider_error = error
+            .downcast_ref::<AiProviderError>()
+            .cloned()
+            .unwrap_or_else(|| AiProviderError::from_parts(format!("{error:#}"), None, None, None));
+        provider_error.message = format!(
+            "Model request failed after {attempts} attempts: {}",
+            provider_error.message
+        );
+        if provider_error.category == ErrorCategory::ContextOverflow {
+            OpenBitFunError::RecoverableContextOverflow(provider_error)
+        } else {
+            OpenBitFunError::AIProvider(provider_error)
+        }
+    }
 
     fn has_user_visible_assistant_text(text: &str) -> bool {
         !text.trim().is_empty()
@@ -215,8 +252,8 @@ impl RoundExecutor {
             .map(|block| block.payload.as_str())
             .collect::<Vec<_>>();
 
-        parse_bitfun_memory_citation_payloads(payloads)
-            .or_else(|| parse_bitfun_memory_citation(&stream_result.full_text))
+        parse_openbitfun_memory_citation_payloads(payloads)
+            .or_else(|| parse_openbitfun_memory_citation(&stream_result.full_text))
             .map(Into::into)
     }
 
@@ -246,12 +283,12 @@ impl RoundExecutor {
 
     fn resolve_permission_policy(
         global: &crate::service::config::types::GlobalConfig,
-        mode: bitfun_runtime_ports::PermissionMode,
+        mode: openbitfun_runtime_ports::PermissionMode,
         project_rules: &[PermissionRule],
         agent_profile: Option<&AgentProfileConfig>,
-        agent_definition_constraints: &bitfun_runtime_ports::PermissionConstraintLayer,
-        parent_runtime_ceiling: Option<&bitfun_runtime_ports::PermissionRuntimeCeiling>,
-    ) -> bitfun_runtime_ports::ResolvedPermissionPolicy {
+        agent_definition_constraints: &openbitfun_runtime_ports::PermissionConstraintLayer,
+        parent_runtime_ceiling: Option<&openbitfun_runtime_ports::PermissionRuntimeCeiling>,
+    ) -> openbitfun_runtime_ports::ResolvedPermissionPolicy {
         resolve_effective_permission_policy(
             global,
             Some(mode),
@@ -271,16 +308,16 @@ impl RoundExecutor {
     fn resolve_permission_mode(
         global: &crate::service::config::types::GlobalConfig,
         context_vars: &std::collections::HashMap<String, String>,
-    ) -> bitfun_runtime_ports::PermissionMode {
+    ) -> openbitfun_runtime_ports::PermissionMode {
         permission_mode_from_context(global, context_vars)
     }
 
     async fn sleep_with_cancellation(
         delay_ms: u64,
         cancel_token: &CancellationToken,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         tokio::select! {
-            _ = cancel_token.cancelled() => Err(BitFunError::Cancelled("Execution cancelled".to_string())),
+            _ = cancel_token.cancelled() => Err(OpenBitFunError::Cancelled("Execution cancelled".to_string())),
             _ = tokio::time::sleep(Duration::from_millis(delay_ms)) => Ok(()),
         }
     }
@@ -312,7 +349,7 @@ impl RoundExecutor {
         ai_messages: Vec<AIMessage>,
         tool_definitions: Option<Vec<ToolDefinition>>,
         context_window: Option<usize>,
-    ) -> BitFunResult<RoundResult> {
+    ) -> OpenBitFunResult<RoundResult> {
         let mut lifecycle = ModelRoundLifecycle::new();
         self.execute_round_with_lifecycle(
             ai_client,
@@ -333,7 +370,7 @@ impl RoundExecutor {
         tool_definitions: Option<Vec<ToolDefinition>>,
         context_window: Option<usize>,
         lifecycle: &mut ModelRoundLifecycle,
-    ) -> BitFunResult<RoundResult> {
+    ) -> OpenBitFunResult<RoundResult> {
         let round_started_at = lifecycle.started_at;
         let subagent_parent_info = context.subagent_parent_info.clone();
         let is_subagent = subagent_parent_info.is_some();
@@ -386,7 +423,9 @@ impl RoundExecutor {
                     "Cancel token detected before AI request, stopping execution: session_id={}",
                     context.session_id
                 );
-                return Err(BitFunError::Cancelled("Execution cancelled".to_string()));
+                return Err(OpenBitFunError::Cancelled(
+                    "Execution cancelled".to_string(),
+                ));
             }
 
             let request_started_at = Instant::now();
@@ -411,7 +450,7 @@ impl RoundExecutor {
             );
             let send_result = tokio::select! {
                 _ = cancel_token.cancelled() => {
-                    return Err(BitFunError::Cancelled("Execution cancelled".to_string()));
+                    return Err(OpenBitFunError::Cancelled("Execution cancelled".to_string()));
                 }
                 result = send_future => result,
             };
@@ -430,10 +469,12 @@ impl RoundExecutor {
                     (response, send_to_stream_ms)
                 }
                 Err(e) => {
-                    error!("AI request failed: {}", e);
+                    error!("AI request failed: {:#}", e);
                     let provider_error = e.downcast_ref::<AiProviderError>().cloned();
-                    let err_msg = e.to_string();
-                    if local_attempt_index < max_attempts - 1 {
+                    let err_msg = format!("{e:#}");
+                    let error = Self::terminal_request_error(&e, lifecycle.attempts_started());
+                    let retryable = Self::should_retry_provider_error(&error.error_category());
+                    if retryable && local_attempt_index < max_attempts - 1 {
                         self.record_retry_diagnostic(
                             &context,
                             &round_id,
@@ -463,26 +504,12 @@ impl RoundExecutor {
                         local_attempt_index += 1;
                         continue;
                     }
-                    let category = provider_error
-                        .as_ref()
-                        .map(|error| error.category.clone())
-                        .unwrap_or_else(|| {
-                            bitfun_core_types::errors::classify_ai_error_message(&err_msg)
-                        });
-                    let error = if category == ErrorCategory::ContextOverflow {
-                        BitFunError::RecoverableContextOverflow(provider_error.unwrap_or_else(
-                            || AiProviderError::classified(err_msg, ErrorCategory::ContextOverflow),
-                        ))
-                    } else if let Some(error) = provider_error {
-                        BitFunError::AIProvider(error)
-                    } else {
-                        BitFunError::AIClient(err_msg)
-                    };
                     warn!(
-                        "AI request retry budget exhausted: session_id={}, round_id={}, attempts={}, category={:?}, error={}",
+                        "AI request stopped: session_id={}, round_id={}, attempts={}, reason={}, category={:?}, error={}",
                         context.session_id,
                         round_id,
-                        max_attempts,
+                        lifecycle.attempts_started(),
+                        if retryable { "retry_budget_exhausted" } else { "non_retryable_error" },
                         error.error_category(),
                         error
                     );
@@ -507,7 +534,9 @@ impl RoundExecutor {
                     "Cancel token detected after AI stream opened, stopping execution: session_id={}",
                     context.session_id
                 );
-                return Err(BitFunError::Cancelled("Execution cancelled".to_string()));
+                return Err(OpenBitFunError::Cancelled(
+                    "Execution cancelled".to_string(),
+                ));
             }
 
             debug!(
@@ -647,7 +676,7 @@ impl RoundExecutor {
                             ),
                         )
                         .await;
-                        return Err(BitFunError::AIClient(format!(
+                        return Err(OpenBitFunError::AIClient(format!(
                             "Stream retry budget exhausted after {} attempts: {}",
                             max_attempts, err_msg
                         )));
@@ -712,7 +741,7 @@ impl RoundExecutor {
                             ),
                         )
                         .await;
-                        return Err(BitFunError::AIClient(format!(
+                        return Err(OpenBitFunError::AIClient(format!(
                             "Stream retry budget exhausted after {} attempts: {}",
                             max_attempts, err_msg
                         )));
@@ -771,7 +800,7 @@ impl RoundExecutor {
                             ),
                         )
                         .await;
-                        return Err(BitFunError::AIClient(format!(
+                        return Err(OpenBitFunError::AIClient(format!(
                             "Stream retry budget exhausted after {} attempts: {}",
                             max_attempts, err_msg
                         )));
@@ -802,9 +831,10 @@ impl RoundExecutor {
                 Err(stream_err) => {
                     let err_msg = stream_err.error.to_string();
                     let stream_error_category = stream_err.error.error_category();
+                    let retryable = Self::should_retry_provider_error(&stream_error_category);
                     let provider_error = match &stream_err.error {
-                        BitFunError::AIProvider(error)
-                        | BitFunError::RecoverableContextOverflow(error) => Some(error),
+                        OpenBitFunError::AIProvider(error)
+                        | OpenBitFunError::RecoverableContextOverflow(error) => Some(error),
                         _ => None,
                     };
                     Self::complete_model_exchange_trace(
@@ -813,7 +843,7 @@ impl RoundExecutor {
                         Self::error_trace_response("error", err_msg.clone()),
                     )
                     .await;
-                    if local_attempt_index < max_attempts - 1 {
+                    if retryable && local_attempt_index < max_attempts - 1 {
                         self.record_retry_diagnostic(
                             &context,
                             &round_id,
@@ -846,23 +876,24 @@ impl RoundExecutor {
                         continue;
                     }
                     warn!(
-                        "Stream retry budget exhausted: session_id={}, round_id={}, attempts={}, effective_output={}, category={:?}, error={}",
+                        "Stream stopped: session_id={}, round_id={}, attempts={}, reason={}, effective_output={}, category={:?}, error={}",
                         context.session_id,
                         round_id,
-                        max_attempts,
+                        lifecycle.attempts_started(),
+                        if retryable { "retry_budget_exhausted" } else { "non_retryable_error" },
                         stream_err.has_effective_output,
                         stream_error_category,
                         err_msg
                     );
                     if stream_error_category == ErrorCategory::ContextOverflow {
                         let provider_error = match stream_err.error {
-                            BitFunError::AIProvider(error)
-                            | BitFunError::RecoverableContextOverflow(error) => error,
+                            OpenBitFunError::AIProvider(error)
+                            | OpenBitFunError::RecoverableContextOverflow(error) => error,
                             _ => {
                                 AiProviderError::classified(err_msg, ErrorCategory::ContextOverflow)
                             }
                         };
-                        return Err(BitFunError::RecoverableContextOverflow(provider_error));
+                        return Err(OpenBitFunError::RecoverableContextOverflow(provider_error));
                     }
                     return Err(stream_err.error);
                 }
@@ -921,7 +952,9 @@ impl RoundExecutor {
                 "Cancel token detected after stream processing, stopping execution: session_id={}",
                 context.session_id
             );
-            return Err(BitFunError::Cancelled("Execution cancelled".to_string()));
+            return Err(OpenBitFunError::Cancelled(
+                "Execution cancelled".to_string(),
+            ));
         }
 
         // Emit model round completed event
@@ -974,12 +1007,13 @@ impl RoundExecutor {
             let parsed_memory_citation =
                 Self::parsed_memory_citation_from_stream_result(&stream_result);
             let model_response_replay = Self::model_response_replay(&stream_result);
-            let (clean_text, _) = strip_bitfun_memory_citations(&stream_result.full_text);
+            let (clean_text, _) = strip_openbitfun_memory_citations(&stream_result.full_text);
             let assistant_message =
                 Message::assistant_with_reasoning(reasoning, clean_text, vec![])
                     .with_turn_id(context.dialog_turn_id.clone())
                     .with_round_id(round_id.clone())
                     .with_thinking_signature(stream_result.thinking_signature.clone())
+                    .with_reasoning_content_kind(stream_result.reasoning_content_kind)
                     .with_memory_citation(parsed_memory_citation)
                     .with_model_response_replay(model_response_replay);
 
@@ -1019,7 +1053,9 @@ impl RoundExecutor {
                 "Cancel token detected before tool execution, stopping execution: session_id={}",
                 context.session_id
             );
-            return Err(BitFunError::Cancelled("Execution cancelled".to_string()));
+            return Err(OpenBitFunError::Cancelled(
+                "Execution cancelled".to_string(),
+            ));
         }
 
         let mut tool_calls = stream_result.tool_calls.clone();
@@ -1128,6 +1164,7 @@ impl RoundExecutor {
                     Some(format!("round-budget-{}", round_id)),
                     self.computer_use_host(),
                     CancellationToken::new(),
+                    None,
                 );
 
             // Execute tools — convert pipeline-level Err into per-tool error results
@@ -1198,12 +1235,13 @@ impl RoundExecutor {
         let parsed_memory_citation =
             Self::parsed_memory_citation_from_stream_result(&stream_result);
         let model_response_replay = Self::model_response_replay(&stream_result);
-        let (clean_text, _) = strip_bitfun_memory_citations(&stream_result.full_text);
+        let (clean_text, _) = strip_openbitfun_memory_citations(&stream_result.full_text);
         let assistant_message =
             Message::assistant_with_reasoning(reasoning, clean_text, tool_calls.clone())
                 .with_turn_id(context.dialog_turn_id.clone())
                 .with_round_id(round_id.clone())
                 .with_thinking_signature(stream_result.thinking_signature.clone())
+                .with_reasoning_content_kind(stream_result.reasoning_content_kind)
                 .with_memory_citation(parsed_memory_citation)
                 .with_model_response_replay(model_response_replay);
 
@@ -1294,7 +1332,7 @@ impl RoundExecutor {
     }
 
     /// Cancel dialog turn (using dialog_turn_id)
-    pub async fn cancel_dialog_turn(&self, dialog_turn_id: &str) -> BitFunResult<()> {
+    pub async fn cancel_dialog_turn(&self, dialog_turn_id: &str) -> OpenBitFunResult<()> {
         debug!("Cancelling dialog turn: dialog_turn_id={}", dialog_turn_id);
 
         if self.cancellation_tokens.cancel(dialog_turn_id) {
@@ -1369,7 +1407,7 @@ impl RoundExecutor {
                     attempt_id: None,
                     attempt_index: None,
                     tool_event: ToolEventData::Failed {
-                        identity: bitfun_events::ToolEventIdentity::direct(
+                        identity: openbitfun_events::ToolEventIdentity::direct(
                             tool_call.tool_id.clone(),
                             tool_call.tool_name.clone(),
                         ),
@@ -1581,13 +1619,14 @@ mod tests {
     use crate::agentic::execution::types::RoundContext;
     use crate::agentic::tools::ToolRuntimeRestrictions;
     use crate::service::config::types::{AgentProfileConfig, GlobalConfig};
-    use crate::util::errors::BitFunError;
+    use crate::util::errors::OpenBitFunError;
     use crate::util::types::ai::GeminiUsage;
-    use bitfun_agent_runtime::permission::{
+    use openbitfun_agent_runtime::permission::{
         AUTO_APPROVE_ASK_CONTEXT_KEY, PERMISSION_MODE_CONTEXT_KEY,
     };
-    use bitfun_agent_runtime::turn_cancellation::DialogTurnCancellationTokenStore;
-    use bitfun_runtime_ports::{
+    use openbitfun_agent_runtime::turn_cancellation::DialogTurnCancellationTokenStore;
+    use openbitfun_core_types::errors::{AiProviderError, ErrorCategory};
+    use openbitfun_runtime_ports::{
         DelegationPolicy, PermissionEffect, PermissionEvaluator, PermissionPolicyPreset,
         PermissionRule,
     };
@@ -1624,7 +1663,7 @@ mod tests {
     fn deferred_tool_replay_uses_canonical_gateway_arguments() {
         let mut tool_calls = vec![ToolCall {
             tool_id: "call-1".to_string(),
-            tool_name: bitfun_agent_tools::CALL_DEFERRED_TOOL_NAME.to_string(),
+            tool_name: openbitfun_agent_tools::CALL_DEFERRED_TOOL_NAME.to_string(),
             arguments: json!({
                 "tool_name": "CreatePlan",
                 "overview": "outside",
@@ -1732,6 +1771,243 @@ mod tests {
         }
     }
 
+    struct RetryTestServer {
+        url: String,
+        requests: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        stop: Arc<std::sync::atomic::AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl RetryTestServer {
+        fn new(replies: Vec<(u16, String)>) -> Self {
+            use std::io::{BufRead, Read, Write};
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let url = format!(
+                "http://{}/v1/chat/completions",
+                listener.local_addr().unwrap()
+            );
+            let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let captured = requests.clone();
+            let stop = Arc::new(AtomicBool::new(false));
+            let stopped = stop.clone();
+            assert!(!replies.is_empty());
+            let thread = std::thread::spawn(move || {
+                while !stopped.load(Ordering::Relaxed) {
+                    let mut socket = match listener.accept() {
+                        Ok((socket, _)) => socket,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(5));
+                            continue;
+                        }
+                        Err(error) => panic!("accept retry fixture request: {error}"),
+                    };
+                    socket
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    socket
+                        .set_write_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    let mut reader = std::io::BufReader::new(&mut socket);
+                    let mut content_length = 0;
+                    loop {
+                        let mut line = String::new();
+                        assert!(reader.read_line(&mut line).unwrap() > 0);
+                        if line == "\r\n" {
+                            break;
+                        }
+                        if let Some((name, value)) = line.split_once(':') {
+                            if name.eq_ignore_ascii_case("content-length") {
+                                content_length = value.trim().parse::<usize>().unwrap();
+                            }
+                        }
+                    }
+                    let mut body = vec![0; content_length];
+                    reader.read_exact(&mut body).unwrap();
+                    let mut requests = captured.lock().unwrap();
+                    let index = requests.len().min(replies.len() - 1);
+                    requests.push(serde_json::from_slice(&body).unwrap());
+                    drop(requests);
+                    let (status, body) = &replies[index];
+                    let content_type = if *status == 200 {
+                        "text/event-stream"
+                    } else {
+                        "application/json"
+                    };
+                    write!(socket, "HTTP/1.1 {status} Fixture\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                }
+            });
+            Self {
+                url,
+                requests,
+                stop,
+                thread: Some(thread),
+            }
+        }
+
+        fn client(&self) -> Arc<crate::infrastructure::ai::AIClient> {
+            Arc::new(crate::infrastructure::ai::AIClient::new(
+                openbitfun_core_types::AIConfig {
+                    name: "retry-test".to_string(),
+                    base_url: self.url.clone(),
+                    request_url: self.url.clone(),
+                    api_key: "retry-test-key".to_string(),
+                    model: "retry-test-model".to_string(),
+                    format: "openai".to_string(),
+                    context_window: 4096,
+                    max_tokens: Some(128),
+                    temperature: None,
+                    top_p: None,
+                    inline_think_in_text: false,
+                    custom_headers: None,
+                    custom_headers_mode: None,
+                    skip_ssl_verify: false,
+                    custom_request_body: None,
+                    custom_request_body_mode: None,
+                },
+            ))
+        }
+    }
+
+    impl Drop for RetryTestServer {
+        fn drop(&mut self) {
+            self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            if let Some(thread) = self.thread.take() {
+                if let Err(error) = thread.join() {
+                    if !std::thread::panicking() {
+                        std::panic::resume_unwind(error);
+                    }
+                }
+            }
+        }
+    }
+
+    fn retry_test_success() -> (u16, String) {
+        (
+            200,
+            format!(
+                "data: {}\n\ndata: [DONE]\n\n",
+                json!({
+                    "id": "retry-test",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "retry-test-model",
+                    "choices": [{"index": 0, "delta": {"content": "Recovered"}, "finish_reason": "stop"}]
+                })
+            ),
+        )
+    }
+
+    #[tokio::test]
+    async fn provider_rejections_stop_after_one_request_for_http_and_stream_errors() {
+        for (status, code, category) in [
+            (401, "invalid_api_key", ErrorCategory::Auth),
+            (403, "permission_error", ErrorCategory::Permission),
+            (413, "invalid_request_error", ErrorCategory::InvalidRequest),
+            (402, "insufficient_quota", ErrorCategory::ProviderQuota),
+            (
+                400,
+                "context_length_exceeded",
+                ErrorCategory::ContextOverflow,
+            ),
+        ] {
+            for in_stream in [false, true] {
+                let body =
+                    json!({"error": {"code": code, "message": "Request rejected"}}).to_string();
+                let reply = if in_stream {
+                    (200, format!("data: {body}\n\n"))
+                } else {
+                    (status, body)
+                };
+                // A second request would succeed, making an accidental retry
+                // fail this test immediately instead of waiting for the budget.
+                let server = RetryTestServer::new(vec![reply, retry_test_success()]);
+                let executor = test_round_executor();
+                let error = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    executor.execute_round(
+                        server.client(),
+                        test_round_context(),
+                        vec![super::AIMessage::user("Original request".to_string())],
+                        None,
+                        None,
+                    ),
+                )
+                .await
+                .expect("deterministic error should return promptly")
+                .expect_err("rejection must not retry");
+                assert_eq!(
+                    error.error_category(),
+                    category,
+                    "code={code}, in_stream={in_stream}"
+                );
+                assert_eq!(
+                    error.is_recoverable_context_overflow(),
+                    category == ErrorCategory::ContextOverflow
+                );
+                assert_eq!(server.requests.lock().unwrap().len(), 1);
+                let events = executor.event_queue.dequeue_batch(100).await;
+                assert!(!events.iter().any(|event| matches!(
+                    event.event,
+                    AgenticEvent::ModelRoundAttemptSuperseded { .. }
+                )));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn transient_and_malformed_provider_responses_still_retry() {
+        for reply in [
+            (
+                429,
+                json!({"error": {"code": "rate_limit_exceeded", "message": "Try later"}})
+                    .to_string(),
+            ),
+            (
+                503,
+                json!({"error": {"message": "Temporarily unavailable"}}).to_string(),
+            ),
+            (200, "data: not-json\n\n".to_string()),
+            (
+                200,
+                format!(
+                    "data: {}\n\n",
+                    json!({"error": {"code": "unrecognized", "message": "Unclassified provider failure"}})
+                ),
+            ),
+        ] {
+            let server = RetryTestServer::new(vec![reply, retry_test_success()]);
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                test_round_executor().execute_round(
+                    server.client(),
+                    test_round_context(),
+                    vec![super::AIMessage::user("Retry safely".to_string())],
+                    None,
+                    None,
+                ),
+            )
+            .await
+            .expect("one retry should complete")
+            .expect("recoverable response should retry");
+            assert!(result.had_assistant_text);
+            assert_eq!(server.requests.lock().unwrap().len(), 2);
+        }
+    }
+
+    #[test]
+    fn terminal_request_classification_preserves_full_error_chain() {
+        let source = anyhow::anyhow!("invalid api key").context("Provider request failed");
+        let error = RoundExecutor::terminal_request_error(&source, 1);
+        assert_eq!(error.error_category(), ErrorCategory::Auth);
+        assert!(!RoundExecutor::should_retry_provider_error(
+            &error.error_category()
+        ));
+        assert!(error.to_string().contains("invalid api key"));
+    }
+
     #[test]
     fn resolves_global_project_and_agent_permission_rules_before_execution() {
         let mut global = GlobalConfig::default();
@@ -1754,7 +2030,7 @@ mod tests {
 
         let resolved = RoundExecutor::resolve_permission_policy(
             &global,
-            bitfun_runtime_ports::PermissionMode::Ask,
+            openbitfun_runtime_ports::PermissionMode::Ask,
             &project_rules,
             Some(&agent),
             &Default::default(),
@@ -1782,7 +2058,7 @@ mod tests {
 
     #[test]
     fn permission_mode_context_overrides_persisted_default_mode() {
-        use bitfun_runtime_ports::PermissionMode;
+        use openbitfun_runtime_ports::PermissionMode;
 
         let mut global = GlobalConfig::default();
         global.tool_permissions.interaction.auto_approve_ask = true;
@@ -1924,7 +2200,7 @@ mod tests {
         token.cancel();
 
         let result = waiter.await.expect("sleep task should join");
-        assert!(matches!(result, Err(BitFunError::Cancelled(_))));
+        assert!(matches!(result, Err(OpenBitFunError::Cancelled(_))));
     }
 
     #[tokio::test]
@@ -2001,13 +2277,14 @@ mod tests {
     fn error_trace_response_from_stream_result_preserves_structured_context() {
         let stream_result = StreamResult {
             full_thinking: "reasoning".to_string(),
+            reasoning_content_kind: Some(openbitfun_core_types::ReasoningContentKind::Reasoning),
             reasoning_content_present: true,
             thinking_signature: Some("sig".to_string()),
             full_text: String::new(),
             hidden_text_blocks: Vec::new(),
             tool_calls: vec![ToolCall {
                 tool_id: "tool-1".to_string(),
-                tool_name: "Bash".to_string(),
+                tool_name: "ExecCommand".to_string(),
                 arguments: json!({}),
                 raw_arguments: Some("{\"command\":".to_string()),
                 is_error: true,
@@ -2066,7 +2343,7 @@ mod tests {
             trace.tool_calls,
             Some(json!([{
                 "tool_id": "tool-1",
-                "tool_name": "Bash",
+                "tool_name": "ExecCommand",
                 "arguments": {},
                 "raw_arguments": "{\"command\":",
                 "is_error": true,
@@ -2084,7 +2361,7 @@ mod tests {
             None,
             &[ToolCall {
                 tool_id: "tool-1".to_string(),
-                tool_name: "Bash".to_string(),
+                tool_name: "ExecCommand".to_string(),
                 arguments: json!({}),
                 raw_arguments: Some("{\"command\":".to_string()),
                 is_error: true,
@@ -2130,6 +2407,70 @@ mod tests {
     }
 
     #[test]
+    fn exhausted_request_preserves_timeout_cause_and_total_attempts() {
+        let source = anyhow::anyhow!(
+            "OpenAI Streaming API TTFT timeout after 30s waiting for first effective stream output"
+        )
+        .context("OpenAI Streaming API failed after 1 attempts");
+        let error = RoundExecutor::terminal_request_error(&source, 10);
+        assert_eq!(error.error_category(), ErrorCategory::Timeout);
+        assert!(error
+            .to_string()
+            .contains("Model request failed after 10 attempts"));
+        assert!(error.to_string().contains("TTFT timeout after 30s"));
+    }
+
+    #[test]
+    fn exhausted_request_preserves_normalized_provider_facts_and_old_payload_shape() {
+        let mut provider = AiProviderError::from_parts(
+            "You've reached your concurrent request limit".to_string(),
+            Some("OpenAI Streaming API".to_string()),
+            Some("access_terminated_error".to_string()),
+            Some(403),
+        );
+        provider.category = ErrorCategory::RateLimit;
+        let source = anyhow::Error::new(provider);
+        let error = RoundExecutor::terminal_request_error(&source, 10);
+        let detail = error.error_detail();
+        assert_eq!(detail.category, ErrorCategory::RateLimit);
+        assert_eq!(detail.http_status, Some(403));
+        assert_eq!(
+            detail.provider_code.as_deref(),
+            Some("access_terminated_error")
+        );
+        assert_eq!(detail.retryable, Some(true));
+        assert!(detail
+            .provider_message
+            .unwrap()
+            .contains("after 10 attempts"));
+        let OpenBitFunError::AIProvider(provider) = error else {
+            panic!("expected provider error")
+        };
+        let encoded = serde_json::to_value(&provider).unwrap();
+        let decoded: AiProviderError = serde_json::from_value(encoded).unwrap();
+        assert_eq!(provider, decoded);
+        let legacy: AiProviderError = serde_json::from_value(serde_json::json!({
+            "message": "legacy provider error", "category": "model_error"
+        }))
+        .unwrap();
+        assert_eq!(legacy.category, ErrorCategory::ModelError);
+    }
+
+    #[test]
+    fn exhausted_context_overflow_remains_recoverable() {
+        let source = anyhow::Error::new(AiProviderError::from_parts(
+            "Maximum context length exceeded".to_string(),
+            None,
+            Some("context_length_exceeded".to_string()),
+            Some(400),
+        ));
+        assert!(matches!(
+            RoundExecutor::terminal_request_error(&source, 10),
+            OpenBitFunError::RecoverableContextOverflow(_)
+        ));
+    }
+
+    #[test]
     fn rate_limit_retry_delay_uses_longer_ladder() {
         assert_eq!(
             RoundExecutor::retry_delay_ms_for_error(0, "error 429 Too Many Requests"),
@@ -2148,7 +2489,7 @@ mod tests {
 
     #[test]
     fn provider_retry_after_is_only_a_delay_hint() {
-        let permission_error = bitfun_core_types::errors::AiProviderError::from_parts(
+        let permission_error = openbitfun_core_types::errors::AiProviderError::from_parts(
             "permission denied".to_string(),
             Some("openai".to_string()),
             None,
@@ -2164,7 +2505,7 @@ mod tests {
             1_000
         );
 
-        let rate_limit_error = bitfun_core_types::errors::AiProviderError::from_parts(
+        let rate_limit_error = openbitfun_core_types::errors::AiProviderError::from_parts(
             "too many requests".to_string(),
             Some("openai".to_string()),
             None,

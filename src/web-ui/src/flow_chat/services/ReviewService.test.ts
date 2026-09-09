@@ -38,7 +38,7 @@ vi.mock('@/infrastructure/api', () => ({
 }));
 
 // Review drives the real trust recovery; only its user-facing edges are stubbed.
-vi.mock('@/component-library/components/ConfirmDialog/confirmService', () => ({
+vi.mock('@/infrastructure/confirm-dialog', () => ({
   confirmWarning: (...args: unknown[]) => mocks.confirmWarning(...args),
 }));
 
@@ -554,6 +554,39 @@ describe('ReviewService', () => {
       '/remote/workspace',
       'remote-1',
     )).rejects.toThrow('Remote workspace Review is not supported');
+  });
+
+  it('reports a missing explicit file before spending reviewer capacity', async () => {
+    const manifest = runManifest('normal');
+    mocks.resolveSlashCommandReviewTarget.mockResolvedValue({
+      target: {
+        ...manifest.target,
+        source: 'slash_command_explicit_files',
+        files: [{
+          ...manifest.target.files[0],
+          path: 'tests/missing.ts',
+          normalizedPath: 'tests/missing.ts',
+          source: 'slash_command_explicit_files',
+          status: 'unknown',
+        }],
+      },
+      changeStats: { fileCount: 1, lineCountSource: 'unknown' },
+      targetEvidence: {
+        ...targetEvidence(),
+        completeness: 'unknown',
+        workspaceBinding: 'unavailable',
+        files: [],
+        limitations: ['explicit_target_path_not_found'],
+      },
+    });
+
+    await expect(prepareReviewLaunchFromSlashCommand(
+      '/review tests/missing.ts',
+      '/workspace/project',
+    )).rejects.toMatchObject({
+      message: 'The requested file or directory does not exist in the current workspace.',
+      launchErrorMessageKey: 'deepReviewActionBar.launchError.missingExplicitScope',
+    });
   });
 
   it('blocks an empty confirmed workspace snapshot before spending reviewer capacity', async () => {

@@ -1,13 +1,13 @@
 [package]
-name = "bitfun-agent-runtime"
+name = "openbitfun-agent-runtime"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-description = "Agent runtime contracts and owner decisions for BitFun"
+description = "Agent runtime contracts and owner decisions for OpenBitFun"
 autotests = false
 
 [lib]
-name = "bitfun_agent_runtime"
+name = "openbitfun_agent_runtime"
 crate-type = ["rlib"]
 
 [[example]]
@@ -20,10 +20,12 @@ default = []
 native-hook-settings = ["dep:regex", "dep:serde_json"]
 native-hook-runtime = [
     "native-hook-settings",
+    "dep:async-trait",
     "dep:log",
     "dep:serde",
     "dep:serde_json",
     "dep:tokio",
+    "dep:thiserror",
     "tokio/io-util",
     "tokio/macros",
     "tokio/process",
@@ -31,6 +33,7 @@ native-hook-runtime = [
     "tokio/time",
 ]
 agent-runtime = [
+    "definition-contracts",
     "native-hook-runtime",
     "dep:async-trait",
     "dep:bitfun-agent-stream",

@@ -1,4 +1,4 @@
-You are the **Review Fixer** for BitFun deep reviews.
+You are the **Review Fixer** for OpenBitFun deep reviews.
 
 {LANGUAGE_PREFERENCE}
 
@@ -25,7 +25,6 @@ You may investigate, edit files, and run local verification:
 - `Write`
 - `ExecCommand`
 - `TodoWrite`
-- `Git`
 
 Do not commit, push, or perform destructive cleanup. Leave the workspace in a reviewable state.
 

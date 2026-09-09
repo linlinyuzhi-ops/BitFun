@@ -1,10 +1,11 @@
+use super::manager::WorkspaceInfoRuntimeExt;
 use super::manager::{
     WorkspaceInfo, WorkspaceOpenOptions, WorkspaceStatistics, WorkspaceSummary, WorkspaceType,
 };
 use super::service::{
     BatchImportResult, WorkspaceCreateOptions, WorkspaceHealthStatus, WorkspaceService,
 };
-use crate::util::errors::{BitFunError, BitFunResult};
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -15,7 +16,7 @@ pub struct WorkspaceProvider {
 
 impl WorkspaceProvider {
     /// Creates a new workspace provider.
-    pub async fn new() -> BitFunResult<Self> {
+    pub async fn new() -> OpenBitFunResult<Self> {
         let service = Arc::new(WorkspaceService::new().await?);
         Ok(Self { service })
     }
@@ -26,7 +27,7 @@ impl WorkspaceProvider {
     }
 
     /// Quick-opens a workspace.
-    pub async fn open(&self, path: &str) -> BitFunResult<WorkspaceInfo> {
+    pub async fn open(&self, path: &str) -> OpenBitFunResult<WorkspaceInfo> {
         self.service.quick_open(path).await
     }
 
@@ -35,7 +36,7 @@ impl WorkspaceProvider {
         &self,
         path: &str,
         project_type: WorkspaceType,
-    ) -> BitFunResult<WorkspaceInfo> {
+    ) -> OpenBitFunResult<WorkspaceInfo> {
         let path_buf = PathBuf::from(path);
 
         let options = WorkspaceCreateOptions {
@@ -52,7 +53,7 @@ impl WorkspaceProvider {
     }
 
     /// Switches to a workspace.
-    pub async fn switch(&self, workspace_id: &str) -> BitFunResult<()> {
+    pub async fn switch(&self, workspace_id: &str) -> OpenBitFunResult<()> {
         self.service.switch_to_workspace(workspace_id).await
     }
 
@@ -74,7 +75,7 @@ impl WorkspaceProvider {
     }
 
     /// Closes the current workspace.
-    pub async fn close_current(&self) -> BitFunResult<()> {
+    pub async fn close_current(&self) -> OpenBitFunResult<()> {
         self.service.close_current_workspace().await
     }
 
@@ -116,7 +117,7 @@ impl WorkspaceProvider {
     }
 
     /// Quick cleanup.
-    pub async fn quick_cleanup(&self) -> BitFunResult<WorkspaceCleanupResult> {
+    pub async fn quick_cleanup(&self) -> OpenBitFunResult<WorkspaceCleanupResult> {
         let invalid_count = self.service.cleanup_invalid_workspaces().await?;
 
         Ok(WorkspaceCleanupResult {
@@ -129,16 +130,16 @@ impl WorkspaceProvider {
     pub async fn import_directories(
         &self,
         directories: Vec<String>,
-    ) -> BitFunResult<BatchImportResult> {
+    ) -> OpenBitFunResult<BatchImportResult> {
         self.service.batch_import_workspaces(directories).await
     }
 
     /// Detects project type.
-    pub async fn detect_project_type(&self, path: &str) -> BitFunResult<WorkspaceType> {
+    pub async fn detect_project_type(&self, path: &str) -> OpenBitFunResult<WorkspaceType> {
         let path_buf = PathBuf::from(path);
 
         if !path_buf.exists() {
-            return Err(BitFunError::service("Path does not exist".to_string()));
+            return Err(OpenBitFunError::service("Path does not exist".to_string()));
         }
 
         let temp_workspace = WorkspaceInfo::new(path_buf, WorkspaceOpenOptions::default()).await?;
@@ -149,11 +150,11 @@ impl WorkspaceProvider {
     pub async fn get_file_stats(
         &self,
         workspace_id: &str,
-    ) -> BitFunResult<Option<WorkspaceStatistics>> {
+    ) -> OpenBitFunResult<Option<WorkspaceStatistics>> {
         if let Some(workspace) = self.service.get_workspace(workspace_id).await {
             Ok(workspace.statistics)
         } else {
-            Err(BitFunError::service(format!(
+            Err(OpenBitFunError::service(format!(
                 "Workspace not found: {}",
                 workspace_id
             )))
@@ -161,7 +162,7 @@ impl WorkspaceProvider {
     }
 
     /// Rescans a workspace.
-    pub async fn rescan(&self, workspace_id: &str) -> BitFunResult<WorkspaceInfo> {
+    pub async fn rescan(&self, workspace_id: &str) -> OpenBitFunResult<WorkspaceInfo> {
         self.service.rescan_workspace(workspace_id).await
     }
 }

@@ -7,6 +7,7 @@ import {
   surfaceIdForDevice,
   type DeviceSurfaceId,
 } from '@/infrastructure/peer-device/deviceSurface';
+import { PEER_CONTROLLER_LOCAL_COMMANDS } from '@/infrastructure/api/generated/remoteSurface';
 import { createLogger } from '@/shared/utils/logger';
 import { elapsedMs, nowMs } from '@/shared/utils/timing';
 
@@ -14,10 +15,14 @@ const log = createLogger('PeerDeviceTransport');
 
 /**
  * Commands that must always hit the local Tauri host, even in peer mode.
- * Keep aligned with desktop `peer_host_invoke::LOCAL_ONLY_COMMANDS` and CLI
- * `peer_host/deny.rs`. Account + cloud turn APIs stay on the controller;
- * peer history uses HostInvoke restore. See
- * `src/infrastructure/peer-device/README.md`.
+ *
+ * Derived from the Product Operation Registry
+ * (`openbitfun_product_domains::remote_surface`) through the generated
+ * `remoteSurface.ts`; the desktop and CLI peer hosts refuse the same set from
+ * the same registry, so this list is never edited by hand. Account + cloud turn
+ * APIs stay on the controller; peer history uses HostInvoke restore. See
+ * `src/infrastructure/peer-device/README.md` and
+ * `docs/architecture/remote-surface-contract.md`.
  */
 const LOCAL_ONLY_COMMANDS = new Set([
   'show_main_window',
@@ -216,6 +221,7 @@ const HIGH_PRIORITY_COMMANDS = new Set([
   'list_persisted_sessions',
   'list_persisted_sessions_page',
   'list_persisted_sessions_count',
+  'search_session_content',
   'get_session_lineage',
   'get_session_thread_goal',
   'touch_session_activity',
@@ -233,6 +239,7 @@ const HIGH_PRIORITY_COMMANDS = new Set([
   'reload_config',
   'get_config',
   'get_configs',
+  'get_web_search_credential_status',
   'get_available_modes',
   'get_agent_profile_config',
   'start_dialog_turn',
@@ -272,6 +279,7 @@ const RETRYABLE_READ_COMMANDS = new Set([
   'list_persisted_sessions',
   'list_persisted_sessions_page',
   'list_persisted_sessions_count',
+  'search_session_content',
   'get_session_lineage',
   'get_session_thread_goal',
   'get_opened_workspaces',
@@ -281,6 +289,7 @@ const RETRYABLE_READ_COMMANDS = new Set([
   'get_workspace_info',
   'get_config',
   'get_configs',
+  'get_web_search_credential_status',
   'get_available_modes',
   'get_agent_profile_config',
   'list_pending_permission_requests',
@@ -341,6 +350,24 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function requiresMiniAppAgentContextFilesV1(params: unknown): boolean {
+  const outer = asRecord(params);
+  if (!outer) {
+    return false;
+  }
+  const request = asRecord(outer.request) ?? outer;
+  for (const key of ['contextFiles', 'context_files']) {
+    if (!Object.prototype.hasOwnProperty.call(request, key)) {
+      continue;
+    }
+    const files = request[key];
+    if (files !== undefined && (!Array.isArray(files) || files.length > 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Mutations are retryable only when the peer can deduplicate the same logical
  * submission. Dialog turns carry a controller-generated turnId, which the
@@ -391,7 +418,6 @@ export function peerInvokePriorityFor(command: string): PeerInvokePriority {
   if (
     command.startsWith('git_') ||
     command.startsWith('ssh_') ||
-    command.startsWith('lsp_') ||
     command.startsWith('search_') ||
     command.startsWith('explorer_') ||
     command.startsWith('miniapp_') ||

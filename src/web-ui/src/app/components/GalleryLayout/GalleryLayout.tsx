@@ -1,4 +1,5 @@
 import React from 'react';
+import { ScrollArea } from '@openbitfun/ui';
 import './GalleryLayout.scss';
 
 interface GalleryLayoutProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -8,16 +9,16 @@ interface GalleryLayoutProps extends React.HTMLAttributes<HTMLDivElement> {
 
 const GalleryLayout: React.FC<GalleryLayoutProps> = ({ children, className, ...rootProps }) => (
   <div
-    data-bf-component="gallery-layout"
-    data-bf-part="root"
+    data-openbitfun-component="gallery-layout"
+    data-openbitfun-part="root"
     {...rootProps}
     className={['gallery-layout', className].filter(Boolean).join(' ')}
   >
-    <div className="gallery-layout__body" data-bf-component="gallery-layout" data-bf-part="body">
-      <div className="gallery-layout__body-inner" data-bf-component="gallery-layout" data-bf-part="content">
+    <ScrollArea className="gallery-layout__body" data-openbitfun-component="gallery-layout" data-openbitfun-part="body">
+      <div className="gallery-layout__body-inner" data-openbitfun-component="gallery-layout" data-openbitfun-part="content">
         {children}
       </div>
-    </div>
+    </ScrollArea>
   </div>
 );
 

@@ -5,9 +5,10 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Tooltip } from '@/component-library';
+
 import { LAYOUT_CONFIG, clampSplitRatio } from '../types';
 import './SplitHandle.scss';
+import { Tooltip } from '@openbitfun/ui';
 
 export interface SplitHandleProps {
   /** Split direction */
@@ -102,7 +103,7 @@ export const SplitHandle: React.FC<SplitHandleProps> = ({
 
   return (
     <Tooltip content={t('canvas.dragToResize')}>
-      <div data-bf-component="content-canvas" data-bf-part="splitHandle" data-bf-direction={direction} data-bf-state={isDragging ? 'dragging' : ''}
+      <div data-openbitfun-component="content-canvas" data-openbitfun-part="splitHandle" data-openbitfun-direction={direction} data-openbitfun-state={isDragging ? 'dragging' : ''}
         className={`canvas-split-handle canvas-split-handle--${direction} ${
           isDragging ? 'is-dragging' : ''
         }`}

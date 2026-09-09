@@ -1,6 +1,6 @@
-# BitFun Skin Market Web
+# OpenBitFun Skin Market Web
 
-Public catalog and authenticated contribution workflow for reviewed BitFun
+Public catalog and authenticated contribution workflow for reviewed OpenBitFun
 Appearance packages.
 
 - Web base: `/skin/`

@@ -1,6 +1,6 @@
 # 插件运行时与 Plugin Host 设计
 
-本文定义 BitFun 主应用与第三方插件代码之间的运行边界。OpenCode 的兼容范围见
+本文定义 OpenBitFun 主应用与第三方插件代码之间的运行边界。OpenCode 的兼容范围见
 [`opencode-extension-compatibility.md`](opencode-extension-compatibility.md)，生态语义与脚本接口见
 [`opencode-plugin-runtime-adapter-design.md`](opencode-plugin-runtime-adapter-design.md)，外部来源的发现、确认和状态见
 [`external-ai-work-sources-design.md`](external-ai-work-sources-design.md)。详细设计与
@@ -18,7 +18,7 @@
 |---|---|
 | Plugin Host | 运行 Bun 与第三方 JS/TS 插件的受监督子进程；Host 不在 Rust 主应用进程内 |
 | `PluginRuntimeClient` | Rust 主应用内部现有调用端口；校验请求和响应，管理超时、同一插件的串行调用、重复请求结果缓存、诊断与故障隔离 |
-| `ScriptToolRuntime` / `NodeScriptToolRuntime` | 现有脚本执行端口及 services 实现；当前负责 standalone Tool worker，后续 Plugin Host 的物理进程职责也应沿此边界扩展 |
+| `ScriptToolRuntime` / `NodeScriptToolRuntime` | 现有脚本执行端口及 services 实现；只负责 standalone Tool worker，不拥有共享 Plugin Host |
 | 插件实例 | 由来源、插件身份和当前内容版本确定的已启用插件；启停事实仍由现有来源与能力模块管理 |
 | contribution | Tool、Hook、Command、Route 或界面项等对外行为；由对应能力归属模块注册和提交 |
 
@@ -35,23 +35,27 @@ Tool、Config、Permission、Session、Event、TUI 等模块之前，不得把�
 ```mermaid
 flowchart LR
   Owners["能力归属模块"]
-  Client["PluginRuntimeClient"]
+  Lifecycle["Core package lifecycle"]
+  Runtime["HookFunctionRuntime"]
   Adapter["生态适配器"]
   Service["Process service"]
   Host["Plugin Host\nBun"]
 
-  Owners <--> Client
-  Client <--> Adapter
+  Owners <--> Lifecycle
+  Lifecycle <--> Runtime
+  Runtime <--> Adapter
   Adapter <--> Service
   Service <--> Host
+  Legacy <--> Client
 ```
 
 | 部分 | 负责 | 不负责 |
 |---|---|---|
-| `PluginRuntimeClient` | 当前校验请求和响应；管理超时、同一插件的串行调用、重复请求结果缓存、诊断与故障隔离。目标再增加队列上限、取消后的结果失效，并拒绝旧 Host 的结果 | 运行 JS/TS、持有 OS 进程、决定来源顺序或提交业务状态 |
-| 生态适配器 | 保留对应生态的加载顺序、参数、结果、错误和 Hook 语义 | 创建跨生态最低公分母或成为第二个业务归属模块 |
-| `ScriptToolRuntime` 与 services 实现 | 当前启停 standalone worker；目标态沿同一 services 边界启停 Plugin Host，并持有完整进程树、资源预算、物理健康、IPC 和强制回收 | 解释 Hook、决定权限或保存插件业务状态；不得把 Rust 侧实现命名为 Host |
-| Plugin Host | 加载真实模块，保存进程内模块实例，按适配协议执行 Plugin/Hook/Tool/Client 调用 | 成为第二个 Agent Runtime、写入 Rust 归属模块的权威状态或决定产品策略 |
+| `PluginRuntimeClient` | legacy managed-package 路径的请求校验、超时、串行调用、重复结果与诊断 | 当前 package-plugin Host 生命周期、运行 JS/TS、决定来源顺序或提交业务状态 |
+| Core package lifecycle / `HookFunctionRuntime` | 当前 package-plugin workspace 逻辑实例、代际提交、owner 对接和类型化调用 | Plugin Host wire、进程句柄或 OpenCode 原始语义 |
+| OpenCode 生态适配器 | 保留加载顺序、Config/Hook/Tool 参数、结果和错误语义；持有共享 Plugin Host 的连接和物理生命周期 | 创建跨生态最低公分母或成为第二个业务归属模块 |
+| `ScriptToolRuntime` 与 services 实现 | 启停 standalone worker；通用进程树原语也供 Plugin Host adapter 使用 | 解释 Hook、决定权限、保存插件业务状态或拥有共享 Host 生命周期 |
+| Plugin Host | 监督 Bun 子进程、加载真实模块、保存进程内模块实例，按适配协议执行 Plugin/Hook/Tool/Client 调用，并通过 services 进程树原语回收受管后代 | 成为第二个 Agent Runtime、写入 Rust 归属模块的权威状态或决定产品策略 |
 | 能力归属模块 | 校验并提交 Tool、Hook 变换、配置、权限、会话、事件和界面贡献 | 直接加载第三方模块或管理 Plugin Host 进程 |
 
 来源发现、用户选择和当前启用版本继续由各自已有归属模块管理；`PluginRuntimeClient` 只使用已经允许执行的插件实例，
@@ -88,7 +92,7 @@ workspace 的逻辑实例和多个 session 的调用；这些身份必须随请�
 ### 3.2 插件之间的隔离承诺
 
 Plugin Host 的首要目的，是把第三方 JS/TS 异常与 Rust 主应用进程隔开，不是把插件彼此隔开。共享同一 Host 的
-插件会共同承担同步死循环、OOM、`process.exit`、进程级环境修改和未文档化全局状态带来的风险。BitFun 可以按
+插件会共同承担同步死循环、OOM、`process.exit`、进程级环境修改和未文档化全局状态带来的风险。OpenBitFun 可以按
 插件身份归因普通异常和撤下贡献，但不承诺同一 Host 内的插件故障互不影响，也不承诺兼容插件之间依赖
 `globalThis` 或模块缓存的未文档化协作。
 
@@ -149,6 +153,11 @@ Rust 监督路径检查，不能依赖可能已被同步插件代码阻塞的业
 
 插件 import 可能立即启动后台任务或产生文件、网络和进程副作用。因此新旧 Plugin Host 不能同时加载同一组插件。
 旧 Host 服务期间只能做不执行插件代码的来源、完整性、依赖和策略检查；真正加载新代码需要一个短暂停机窗口。
+
+本节描述完整生命周期目标。当前 OC-R2 可用切片已实现内容摘要、逻辑 generation 撤下、崩溃后的进程树回收与
+下一次使用恢复；正常源码更新、配置停用时的共享 Host 物理 generation 替换仍按兼容矩阵第 6 节作为后续生命周期
+工作跟踪。在该项完成前，更新后的贡献不会与旧逻辑 generation 并行发布，但 import 期创建且未被插件 `dispose`
+清理的进程内副作用可能持续到 Host 崩溃或应用退出，因此当前状态不能表述为已完成安全热更新。
 
 ```mermaid
 flowchart LR
@@ -215,8 +224,8 @@ flowchart LR
 |---|---|---|
 | 来源、用户选择、执行许可和内容摘要 | 外部来源与安全归属模块 | 重新读取，不由 Host 猜测 |
 | 当前内容版本与贡献注册 | 对应来源/能力归属模块 | 重新读取内容版本；完整重载并校验后再发布 |
-| 重复请求结果和故障诊断 | `PluginRuntimeClient` 及只读诊断视图 | 按明确恢复条件清理，不由新进程静默抹除 |
-| 子进程句柄、IPC 连接、物理健康和重启预算 | `ScriptToolRuntime` 所在的 services 实现 | 同一进程故障只消费一次进程级重启预算 |
+| 重复请求结果和故障诊断 | 当前 package 路径由 Core lifecycle 与 OpenCode adapter 共同生成并投影到只读诊断；legacy managed 路径由 `PluginRuntimeClient` 持有 | 按明确恢复条件清理，不由新进程静默抹除 |
+| 子进程句柄、IPC 连接、物理健康和重启预算 | package Host 由 OpenCode adapter 持有并复用 services 进程树原语；standalone worker 由 `ScriptToolRuntime` 持有 | 同一进程故障只消费一次进程级重启预算 |
 | 模块实例、`globalThis`、闭包和内存缓存 | Plugin Host | 易失；不复制、不持久化，也不承诺恢复 |
 | Tool/Hook/Config/Permission/Session 最终状态 | 各能力归属模块 | 不从 Host 内存反向恢复 |
 
@@ -277,19 +286,19 @@ plugin、Hook、完整 Client 或 TUI 插件入口。与其独立的 standalone 
 Bun Host 基础设施仅覆盖模块加载、RPC/HTTP 桥和进程树生命周期等隔离边界；配置插件时 CLI 会明确报告该执行链路
 尚未启用，不会静默导入或运行插件代码。
 
-因此当前代码不得声称已经具备共享 Plugin Host、安全重启、通用进程级恢复或 Bun 兼容。目标实现应先用
-固定 OpenCode fixture 验证多个插件的顺序初始化、Hook 顺序、共享进程崩溃、安全重启和状态恢复，再替换现有
-窄执行路径。
+standalone `.js` Tool 继续由 `ScriptToolRuntime` 为每个脚本启动 Node worker，两条执行路径不共享生命周期对象。当前
+分发仍要求系统 Bun 或 `OPENBITFUN_BUN_COMMAND`，自动目录发现、完整 OpenCode Client/Hook/TUI 表面、安全启用门禁、
+不可变旧版本恢复和资源沙箱仍未完成；共享 Host 进程隔离也不承诺插件间隔离。
 
 ## 8. 验证要求
 
 当前 Rust 边界调整至少运行：
 
-- `cargo test --locked -p bitfun-runtime-ports --no-default-features --features plugin-runtime --test plugin_runtime_contracts plugin_runtime_contracts`
-- `cargo test --locked -p bitfun-runtime-ports --no-default-features --features plugin-runtime --test plugin_runtime_contracts plugin_runtime_diagnostics_contracts`
-- `cargo test -p bitfun-plugin-runtime-client`
-- `cargo test -p bitfun-opencode-adapter --test opencode_source_adapter`
-- `cargo test -p bitfun-core --no-default-features --features plugin-runtime --lib plugin_runtime::tests`
+- `cargo test --locked -p openbitfun-runtime-ports --no-default-features --features plugin-runtime --test plugin_runtime_contracts plugin_runtime_contracts`
+- `cargo test --locked -p openbitfun-runtime-ports --no-default-features --features plugin-runtime --test plugin_runtime_contracts plugin_runtime_diagnostics_contracts`
+- `cargo test -p openbitfun-plugin-runtime-client`
+- `cargo test -p openbitfun-opencode-adapter --test opencode_source_adapter`
+- `cargo test -p openbitfun-core --no-default-features --features plugin-runtime --lib plugin_runtime::tests`
 - `node scripts/check-core-boundaries.mjs`
 
 目标 Plugin Host 还必须使用固定版本真实 fixture 验证：

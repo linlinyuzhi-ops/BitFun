@@ -7,11 +7,22 @@ import { BtwSessionPanel } from './BtwSessionPanel';
 import { useReviewActionBarStore } from '../../store/deepReviewActionBarStore';
 import { loadPersistedReviewState } from '../../services/ReviewActionBarPersistenceService';
 import type { FlowChatState, Session } from '../../types/flow-chat';
+import type { PermissionRequest } from '@/infrastructure/api/service-api/AgentAPI';
 
 const panelMocks = vi.hoisted(() => ({
   cancelSession: vi.fn(),
+  cancelSessionTask: vi.fn(),
   hydrateSessionHistoryForDetail: vi.fn(),
   notificationError: vi.fn(),
+  permissionRequests: [] as PermissionRequest[],
+  ownedPermissionRequests: [] as PermissionRequest[],
+  ownedActivePermissionBatch: undefined as {
+    sessionId: string;
+    roundId: string;
+    requests: PermissionRequest[];
+  } | undefined,
+  respondPermission: vi.fn(() => Promise.resolve()),
+  respondPermissionBatch: vi.fn(() => Promise.resolve()),
   virtualItems: [] as unknown[],
 }));
 
@@ -54,6 +65,37 @@ vi.mock('../modern/useExploreGroupState', () => ({
   }),
 }));
 
+vi.mock('../modern/usePermissionRequests', () => ({
+  usePermissionRequests: () => ({
+    requests: panelMocks.permissionRequests,
+    activeBatch: undefined,
+    ownedRequests: panelMocks.ownedPermissionRequests,
+    ownedActiveBatch: panelMocks.ownedActivePermissionBatch,
+    respond: panelMocks.respondPermission,
+    respondBatch: panelMocks.respondPermissionBatch,
+  }),
+}));
+
+vi.mock('../ChatInputApprovalBand', () => ({
+  ChatInputApprovalBand: ({
+    requests,
+    totalPendingCount,
+    onRespond,
+  }: {
+    requests: PermissionRequest[];
+    totalPendingCount: number;
+    onRespond: (requestId: string, reply: 'once') => Promise<void>;
+  }) => (
+    <button
+      type="button"
+      data-testid="child-permission-approval"
+      data-request-ids={requests.map((request) => request.requestId).join(',')}
+      data-total-pending={totalPendingCount}
+      onClick={() => void onRespond(requests[0].requestId, 'once')}
+    />
+  ),
+}));
+
 vi.mock('@/flow_chat', () => ({
   ScrollToBottomButton: () => <div />,
 }));
@@ -62,17 +104,19 @@ vi.mock('./DeepReviewActionBar', () => ({
   ReviewActionBar: () => <div data-testid="review-action-bar" />,
 }));
 
-vi.mock('@/component-library', () => ({
-  DotMatrixLoader: () => <span data-testid="dot-matrix-loader" />,
+vi.mock('@openbitfun/ui', async importOriginal => ({
+  ...await importOriginal<typeof import('@openbitfun/ui')>(),
   IconButton: ({
     children,
     onClick,
     disabled,
     className,
+    icon,
     'data-testid': testId,
     'aria-label': ariaLabel,
   }: {
-    children: React.ReactNode;
+    children?: React.ReactNode;
+    icon?: React.ReactNode;
     onClick?: () => void;
     disabled?: boolean;
     className?: string;
@@ -87,9 +131,11 @@ vi.mock('@/component-library', () => ({
       data-testid={testId}
       aria-label={ariaLabel}
     >
+      {icon}
       {children}
     </button>
   ),
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock('@/shared/services/FileTabManager', () => ({
@@ -139,10 +185,16 @@ vi.mock('../../store/FlowChatStore', () => ({
   flowChatStore: {
     getState: () => flowChatState,
     subscribe: () => () => {},
+    subscribeSelector: () => () => {},
   },
 }));
 
 vi.mock('../../services/FlowChatManager', () => ({
+  FlowChatManager: {
+    getInstance: () => ({
+      cancelSessionTask: (...args: unknown[]) => panelMocks.cancelSessionTask(...args),
+    }),
+  },
   flowChatManager: {
     hydrateSessionHistoryForDetail: (...args: unknown[]) =>
       panelMocks.hydrateSessionHistoryForDetail(...args),
@@ -323,6 +375,29 @@ function createPendingDeepReviewSession(): Session {
   } as Session;
 }
 
+function createRunningBtwSession(): Session {
+  return {
+    sessionId: 'btw-child',
+    title: 'Side question',
+    dialogTurns: [{
+      id: 'btw-turn-1',
+      sessionId: 'btw-child',
+      userMessage: { id: 'btw-user-1', content: 'question', timestamp: 1 },
+      modelRounds: [],
+      status: 'processing',
+      startTime: 1,
+    }],
+    status: 'running',
+    config: {},
+    createdAt: 1,
+    lastActiveAt: 1,
+    error: null,
+    sessionKind: 'btw',
+    parentSessionId: 'parent-session',
+    workspacePath: 'D:/workspace/project',
+  } as Session;
+}
+
 function createParentSessionWithId(sessionId: string): Session {
   return {
     sessionId,
@@ -447,9 +522,18 @@ describe('BtwSessionPanel review action bar integration', () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     useReviewActionBarStore.getState().reset();
     panelMocks.cancelSession.mockReset();
+    panelMocks.cancelSessionTask.mockReset();
+    panelMocks.cancelSessionTask.mockResolvedValue(true);
     panelMocks.hydrateSessionHistoryForDetail.mockReset();
     panelMocks.hydrateSessionHistoryForDetail.mockResolvedValue(undefined);
     panelMocks.notificationError.mockReset();
+    panelMocks.permissionRequests = [];
+    panelMocks.ownedPermissionRequests = [];
+    panelMocks.ownedActivePermissionBatch = undefined;
+    panelMocks.respondPermission.mockReset();
+    panelMocks.respondPermission.mockResolvedValue(undefined);
+    panelMocks.respondPermissionBatch.mockReset();
+    panelMocks.respondPermissionBatch.mockResolvedValue(undefined);
     panelMocks.virtualItems = [];
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -485,6 +569,177 @@ describe('BtwSessionPanel review action bar integration', () => {
     container.remove();
     useReviewActionBarStore.getState().reset();
     vi.useRealTimers();
+  });
+
+  it('cancels a running side question with Escape inside its panel', async () => {
+    flowChatState = {
+      ...flowChatState,
+      sessions: new Map([
+        ['btw-child', createRunningBtwSession()],
+        ['parent-session', flowChatState.sessions.get('parent-session')!],
+      ]),
+      activeSessionId: 'parent-session',
+    } as FlowChatState;
+
+    await act(async () => {
+      root.render(
+        <BtwSessionPanel
+          childSessionId="btw-child"
+          parentSessionId="parent-session"
+          workspacePath="D:/workspace/project"
+        />,
+      );
+    });
+
+    const panelBody = container.querySelector<HTMLElement>('.btw-session-panel__body');
+    const escape = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+
+    await act(async () => {
+      panelBody?.dispatchEvent(escape);
+      await Promise.resolve();
+    });
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(panelMocks.cancelSessionTask).toHaveBeenCalledTimes(1);
+    expect(panelMocks.cancelSessionTask).toHaveBeenCalledWith('btw-child');
+    expect(panelMocks.cancelSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps Escape with the IME inside a running side-question panel', async () => {
+    flowChatState = {
+      ...flowChatState,
+      sessions: new Map([
+        ['btw-child', createRunningBtwSession()],
+        ['parent-session', flowChatState.sessions.get('parent-session')!],
+      ]),
+      activeSessionId: 'parent-session',
+    } as FlowChatState;
+
+    await act(async () => {
+      root.render(
+        <BtwSessionPanel
+          childSessionId="btw-child"
+          parentSessionId="parent-session"
+          workspacePath="D:/workspace/project"
+        />,
+      );
+    });
+
+    const panelBody = container.querySelector<HTMLElement>('.btw-session-panel__body');
+    const imeEscape = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      keyCode: 229,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    await act(async () => {
+      panelBody?.dispatchEvent(imeEscape);
+      await Promise.resolve();
+    });
+
+    expect(imeEscape.defaultPrevented).toBe(false);
+    expect(panelMocks.cancelSessionTask).not.toHaveBeenCalled();
+  });
+
+  it('answers direct child permissions in the embedded panel without claiming delegated ones', async () => {
+    const directRequest = {
+      requestId: 'direct-child-request',
+      roundId: 'direct-child-round',
+      order: 0,
+      sessionId: 'deep-review-child',
+      toolCallId: 'direct-child-tool',
+      projectId: 'project-1',
+      agentId: 'agentic',
+      action: 'edit',
+      resources: ['src/main.rs'],
+      source: { kind: 'tool_call', identity: 'Write' },
+    } as PermissionRequest;
+    panelMocks.permissionRequests = [directRequest];
+    panelMocks.ownedPermissionRequests = [directRequest];
+    panelMocks.ownedActivePermissionBatch = {
+      sessionId: directRequest.sessionId,
+      roundId: directRequest.roundId,
+      requests: [directRequest],
+    };
+
+    await act(async () => {
+      root.render(
+        <BtwSessionPanel
+          childSessionId="deep-review-child"
+          parentSessionId="parent-session"
+          workspacePath="D:/workspace/project"
+        />,
+      );
+    });
+
+    const approval = container.querySelector<HTMLButtonElement>(
+      '[data-testid="child-permission-approval"]',
+    );
+    expect(approval?.dataset.requestIds).toBe('direct-child-request');
+    expect(approval?.dataset.totalPending).toBe('1');
+
+    await act(async () => {
+      approval?.click();
+      await Promise.resolve();
+    });
+    expect(panelMocks.respondPermission).toHaveBeenCalledWith('direct-child-request', 'once');
+
+    panelMocks.permissionRequests = [{
+      ...directRequest,
+      requestId: 'delegated-child-request',
+      delegation: {
+        parentSessionId: 'parent-session',
+        parentDialogTurnId: 'parent-turn',
+        parentToolCallId: 'parent-task',
+        subagentType: 'Explore',
+      },
+    }];
+    panelMocks.ownedPermissionRequests = [];
+    panelMocks.ownedActivePermissionBatch = undefined;
+
+    await act(async () => {
+      root.render(
+        <BtwSessionPanel
+          childSessionId="deep-review-child"
+          parentSessionId="parent-session"
+          workspacePath="D:/workspace/project"
+        />,
+      );
+    });
+
+    expect(container.querySelector('[data-testid="child-permission-approval"]')).toBeNull();
+  });
+
+  it('shows the session-mapped subagent avatar in the side-thread header', async () => {
+    flowChatState = {
+      ...flowChatState,
+      sessions: new Map([
+        ['review-check-child', createEmptyReviewCheckSession()],
+        ['parent-session', flowChatState.sessions.get('parent-session')!],
+      ]),
+    } as FlowChatState;
+    await act(async () => {
+      root.render(
+        <BtwSessionPanel
+          childSessionId="review-check-child"
+          parentSessionId="parent-session"
+          workspacePath="D:/workspace/project"
+        />,
+      );
+    });
+
+    const avatar = container.querySelector<HTMLElement>(
+      '[data-openbitfun-component="subagent-avatar"][data-openbitfun-avatar-id]',
+    );
+    expect(avatar).toBeTruthy();
+    expect(avatar?.hasAttribute('data-openbitfun-name-id')).toBe(false);
+    expect(container.querySelector('[data-openbitfun-part="subagentName"]')).toBeNull();
+    expect(container.querySelector('[data-openbitfun-part="badge"]')?.textContent).toBe('Agent');
   });
 
   it('shows a Review-check loading state instead of an empty thread', async () => {

@@ -1,22 +1,38 @@
 /**
- * FlowChat header.
- * Shows the currently viewed turn and user message.
- * Height matches side panel headers (40px).
+ * Session-level actions for FlowChat.
+ * The workspace scene renders these actions in the shared scene top bar;
+ * standalone FlowChat hosts keep the inline fallback.
  */
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronUp, GitPullRequest, Keyboard, MoreHorizontal, Search, Square, SquareTerminal, Terminal, X } from 'lucide-react';
-import { Tooltip, IconButton, Input } from '@/component-library';
+import { Keyboard, Square } from 'lucide-react';
+import { OverflowText, Icon, IconButton, Menu, MenuItem, SearchField, Tooltip } from '@openbitfun/ui';
+import {
+  SceneChromeContribution,
+  useSceneChromeContext,
+} from '@/app/components/SceneTopBar/SceneChrome';
 import { useTranslation } from 'react-i18next';
 import { SessionFilesBadge } from './SessionFilesBadge';
 import { SessionTreePopover, type SessionTreeSelection } from './SessionTreePopover';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
+import { gitAPI, reviewPlatformAPI, type ReviewPlatformPullRequest } from '@/infrastructure/api';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance';
 import { computeFixedPopoverPosition } from '@/shared/utils/fixedPopoverViewport';
 import { useAnchoredPopoverPosition } from '@/shared/utils/useAnchoredPopoverPosition';
-import { createReviewPlatformTab } from '@/shared/utils/tabUtils';
+import {
+  createReviewPlatformPullRequestDetailTab,
+  createReviewPlatformTab,
+} from '@/shared/utils/tabUtils';
 import './FlowChatHeader.scss';
+
+const PULL_REQUEST_OVERVIEW_LIMIT = 3;
+
+interface PullRequestOverviewState {
+  status: 'idle' | 'loading' | 'loaded' | 'not-git' | 'no-workspace' | 'error';
+  items: ReviewPlatformPullRequest[];
+  totalCount: number;
+}
 
 export interface FlowChatHeaderCommandSummary {
   execSessionKey: string;
@@ -32,18 +48,10 @@ export interface FlowChatHeaderCommandSummary {
 }
 
 export interface FlowChatHeaderProps {
-  /** Current turn index. */
-  currentTurn: number;
-  /** Total turns. */
-  totalTurns: number;
-  /** Current user message. */
-  currentUserMessage: string;
   /** Whether the header is visible. */
   visible: boolean;
   /** Session ID. */
   sessionId?: string;
-  /** Jump to the currently displayed turn. */
-  onJumpToCurrentTurn?: () => void;
   /** Current search query string. */
   searchQuery?: string;
   /** Called when the user types in the search box. */
@@ -76,14 +84,14 @@ export interface FlowChatHeaderProps {
   onStopBackgroundCommand?: (command: FlowChatHeaderCommandSummary) => void;
   /** Stop all running background commands. */
   onStopAllBackgroundCommands?: () => void;
+  /** Whether the host-owned session right panel is open. */
+  isRightPanelOpen?: boolean;
+  /** Toggle the host-owned session right panel. */
+  onToggleRightPanel?: () => void;
 }
 export const FlowChatHeader: React.FC<FlowChatHeaderProps> = ({
-  currentTurn,
-  totalTurns,
-  currentUserMessage,
   visible,
   sessionId,
-  onJumpToCurrentTurn,
   searchQuery = '',
   onSearchChange,
   searchMatchCount = 0,
@@ -100,54 +108,72 @@ export const FlowChatHeader: React.FC<FlowChatHeaderProps> = ({
   onRequestBackgroundCommandInput,
   onStopBackgroundCommand,
   onStopAllBackgroundCommands,
+  isRightPanelOpen = false,
+  onToggleRightPanel,
 }) => {
   const { t } = useTranslation('flow-chat');
   const { currentWorkspace } = useWorkspaceContext();
-  const [isBackgroundCommandPanelOpen, setIsBackgroundCommandPanelOpen] = useState(false);
+  const sceneChrome = useSceneChromeContext();
+  const isSceneChromeActive = sceneChrome?.activeSceneId === 'session';
+  const [isSessionOverviewOpen, setIsSessionOverviewOpen] = useState(false);
   const [isBackgroundCommandSectionMenuOpen, setIsBackgroundCommandSectionMenuOpen] = useState(false);
   const [openBackgroundCommandMenuId, setOpenBackgroundCommandMenuId] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const headerRef = useRef<HTMLDivElement | null>(null);
-  const leftActionsRef = useRef<HTMLDivElement | null>(null);
-  const rightActionsRef = useRef<HTMLDivElement | null>(null);
-  const backgroundCommandRootRef = useRef<HTMLDivElement | null>(null);
-  const backgroundCommandTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const backgroundCommandPanelRef = useRef<HTMLDivElement | null>(null);
+  const sessionOverviewRootRef = useRef<HTMLDivElement | null>(null);
+  const sessionOverviewTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const sessionOverviewPanelRef = useRef<HTMLDivElement | null>(null);
   const backgroundCommandMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
   const backgroundCommandMenuRef = useRef<HTMLDivElement | null>(null);
+  const pullRequestOverviewRequestRef = useRef(0);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [backgroundCommandMenuPosition, setBackgroundCommandMenuPosition] = useState<{
     top: number;
     left: number;
   } | null>(null);
-
-  // Truncate long messages.
-  const truncatedMessage = currentUserMessage.length > 50
-    ? currentUserMessage.slice(0, 50) + '...'
-    : currentUserMessage;
-  const turnBadgeLabel = t('flowChatHeader.turnBadge', {
-    current: currentTurn
+  const [pullRequestOverview, setPullRequestOverview] = useState<PullRequestOverviewState>({
+    status: 'idle',
+    items: [],
+    totalCount: 0,
   });
+
   const hasBackgroundCommands = backgroundCommands.length > 0;
   const backgroundCommandCount = backgroundCommands.length;
+  const runningBackgroundCommandCount = backgroundCommands.filter(command => command.status === 'running').length;
+  const hasSessionActivity = hasActiveSessionTreeDescendants || runningBackgroundCommandCount > 0;
   const displayBackgroundCommands = useMemo(() => (
     backgroundCommands.map((command) => ({
       ...command,
       title: command.title.trim() || t('flowChatHeader.backgroundCommandUntitled'),
     }))
   ), [backgroundCommands, t]);
-  const hasNoResults = searchQuery.trim().length > 0 && searchMatchCount === 0;
+  const hasSearchQuery = searchQuery.trim().length > 0;
+  const hasNoResults = hasSearchQuery && searchMatchCount === 0;
+  const searchStatus = !hasSearchQuery
+    ? ''
+    : hasNoResults
+      ? t('flowChatHeader.searchNoResults')
+      : t('flowChatHeader.searchResult', {
+        current: searchCurrentMatch,
+        total: searchMatchCount,
+      });
+  const isSearchMode = visible && isSearchOpen;
   const hasOpenBackgroundCommandMenu =
     isBackgroundCommandSectionMenuOpen ||
     openBackgroundCommandMenuId !== null;
-  const backgroundCommandPanelLayout = useAnchoredPopoverPosition({
-    open: isBackgroundCommandPanelOpen,
-    anchorRef: backgroundCommandTriggerRef,
-    popoverRef: backgroundCommandPanelRef,
+  const sessionOverviewPanelLayout = useAnchoredPopoverPosition({
+    open: isSessionOverviewOpen,
+    anchorRef: sessionOverviewTriggerRef,
+    popoverRef: sessionOverviewPanelRef,
     preferredPlacement: 'bottom',
     alignment: 'end',
     gap: 8,
-    layoutRevision: backgroundCommandCount,
+    layoutRevision: [
+      backgroundCommandCount,
+      runningBackgroundCommandCount,
+      hasActiveSessionTreeDescendants,
+      pullRequestOverview.status,
+      pullRequestOverview.items.length,
+    ].join(':'),
   });
 
   const updateBackgroundCommandMenuPosition = useCallback(() => {
@@ -170,27 +196,84 @@ export const FlowChatHeader: React.FC<FlowChatHeaderProps> = ({
     updateBackgroundCommandMenuPosition();
   }, [updateBackgroundCommandMenuPosition]);
 
+  const loadPullRequestOverview = useCallback(async () => {
+    const requestId = pullRequestOverviewRequestRef.current + 1;
+    pullRequestOverviewRequestRef.current = requestId;
+    const repositoryPath = currentWorkspace?.rootPath;
+
+    if (!repositoryPath) {
+      setPullRequestOverview({ status: 'no-workspace', items: [], totalCount: 0 });
+      return;
+    }
+
+    setPullRequestOverview({ status: 'loading', items: [], totalCount: 0 });
+
+    try {
+      const isGitRepository = await gitAPI.isGitRepository(repositoryPath);
+      if (pullRequestOverviewRequestRef.current !== requestId) return;
+      if (!isGitRepository) {
+        setPullRequestOverview({ status: 'not-git', items: [], totalCount: 0 });
+        return;
+      }
+
+      const snapshot = await reviewPlatformAPI.getWorkspaceSnapshot(
+        repositoryPath,
+        null,
+        1,
+        PULL_REQUEST_OVERVIEW_LIMIT,
+      );
+      if (pullRequestOverviewRequestRef.current !== requestId) return;
+
+      setPullRequestOverview({
+        status: 'loaded',
+        items: snapshot.pullRequests.slice(0, PULL_REQUEST_OVERVIEW_LIMIT),
+        totalCount: snapshot.pagination.total ?? snapshot.pullRequests.length,
+      });
+    } catch {
+      if (pullRequestOverviewRequestRef.current !== requestId) return;
+      setPullRequestOverview({ status: 'error', items: [], totalCount: 0 });
+    }
+  }, [currentWorkspace?.rootPath]);
+
   useEffect(() => {
-    if (!isBackgroundCommandPanelOpen) return;
+    if (!isSessionOverviewOpen) return undefined;
+    void loadPullRequestOverview();
+
+    return () => {
+      pullRequestOverviewRequestRef.current += 1;
+    };
+  }, [isSessionOverviewOpen, loadPullRequestOverview]);
+
+  const closeSessionOverview = useCallback((returnFocus = false) => {
+    setIsSessionOverviewOpen(false);
+    setIsBackgroundCommandSectionMenuOpen(false);
+    setOpenBackgroundCommandMenuId(null);
+    setBackgroundCommandMenuPosition(null);
+    if (returnFocus) {
+      requestAnimationFrame(() => sessionOverviewTriggerRef.current?.focus());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isSessionOverviewOpen) return;
 
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
+      const targetElement = event.target instanceof Element ? event.target : null;
       if (
-        !backgroundCommandRootRef.current?.contains(target) &&
-        !backgroundCommandPanelRef.current?.contains(target) &&
-        !backgroundCommandMenuRef.current?.contains(target)
+        !sessionOverviewRootRef.current?.contains(target) &&
+        !sessionOverviewPanelRef.current?.contains(target) &&
+        !backgroundCommandMenuRef.current?.contains(target) &&
+        !targetElement?.closest('[data-openbitfun-part="sessionTreeMenu"]')
       ) {
-        setIsBackgroundCommandPanelOpen(false);
-        setIsBackgroundCommandSectionMenuOpen(false);
-        setOpenBackgroundCommandMenuId(null);
+        closeSessionOverview(false);
       }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsBackgroundCommandPanelOpen(false);
-        setIsBackgroundCommandSectionMenuOpen(false);
-        setOpenBackgroundCommandMenuId(null);
+        event.preventDefault();
+        closeSessionOverview(true);
       }
     };
 
@@ -201,7 +284,7 @@ export const FlowChatHeader: React.FC<FlowChatHeaderProps> = ({
       document.removeEventListener('mousedown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isBackgroundCommandPanelOpen]);
+  }, [closeSessionOverview, isSessionOverviewOpen]);
 
   useLayoutEffect(() => {
     if (!hasOpenBackgroundCommandMenu) {
@@ -228,9 +311,10 @@ export const FlowChatHeader: React.FC<FlowChatHeaderProps> = ({
   useEffect(() => {
     if (searchOpenRequest > 0 && searchOpenRequest !== prevSearchOpenRequestRef.current) {
       prevSearchOpenRequestRef.current = searchOpenRequest;
+      closeSessionOverview(false);
       setIsSearchOpen(true);
     }
-  }, [searchOpenRequest]);
+  }, [closeSessionOverview, searchOpenRequest]);
 
   useEffect(() => {
     if (hasBackgroundCommands) return;
@@ -251,39 +335,12 @@ export const FlowChatHeader: React.FC<FlowChatHeaderProps> = ({
     return () => {
       cancelAnimationFrame(frameId);
     };
-  }, [isSearchOpen]);
-
-  useLayoutEffect(() => {
-    const header = headerRef.current;
-    const leftActions = leftActionsRef.current;
-    const rightActions = rightActionsRef.current;
-    if (!header || !leftActions || !rightActions) return;
-
-    const updateSideWidth = () => {
-      const sideWidth = Math.ceil(Math.max(
-        leftActions.getBoundingClientRect().width,
-        rightActions.getBoundingClientRect().width,
-      ));
-      header.style.setProperty('--bf-appearance-token-flowchat-header-side-width', `${sideWidth}px`);
-    };
-
-    updateSideWidth();
-
-    if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', updateSideWidth);
-      return () => window.removeEventListener('resize', updateSideWidth);
-    }
-
-    const observer = new ResizeObserver(updateSideWidth);
-    observer.observe(leftActions);
-    observer.observe(rightActions);
-
-    return () => observer.disconnect();
-  }, [isSearchOpen, totalTurns, visible]);
+  }, [isSceneChromeActive, isSearchOpen, visible]);
 
   const handleOpenSearch = useCallback(() => {
+    closeSessionOverview(false);
     setIsSearchOpen(true);
-  }, []);
+  }, [closeSessionOverview]);
 
   const handleCloseSearch = useCallback(() => {
     setIsSearchOpen(false);
@@ -291,14 +348,16 @@ export const FlowChatHeader: React.FC<FlowChatHeaderProps> = ({
   }, [onSearchClose]);
 
   const handleSearchKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.defaultPrevented) return;
+
       if (e.key === 'Escape') {
         handleCloseSearch();
         e.preventDefault();
         return;
       }
 
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter' && e.target === searchInputRef.current) {
         if (e.shiftKey) {
           onSearchPrev?.();
         } else {
@@ -310,15 +369,32 @@ export const FlowChatHeader: React.FC<FlowChatHeaderProps> = ({
     [handleCloseSearch, onSearchNext, onSearchPrev],
   );
 
-  const handleToggleBackgroundCommandPanel = () => {
+  const handleToggleSessionOverview = (event: React.MouseEvent<HTMLButtonElement>) => {
+    const nextOpen = !isSessionOverviewOpen;
     setIsBackgroundCommandSectionMenuOpen(false);
     setOpenBackgroundCommandMenuId(null);
-    setIsBackgroundCommandPanelOpen(prev => !prev);
+    setBackgroundCommandMenuPosition(null);
+    setIsSessionOverviewOpen(nextOpen);
+    if (!nextOpen && event.detail === 0) {
+      requestAnimationFrame(() => sessionOverviewTriggerRef.current?.focus());
+    }
   };
 
   const handleOpenPullRequests = useCallback(() => {
     createReviewPlatformTab(currentWorkspace?.rootPath);
-  }, [currentWorkspace?.rootPath]);
+    closeSessionOverview(false);
+  }, [closeSessionOverview, currentWorkspace?.rootPath]);
+
+  const handleOpenPullRequest = useCallback((pullRequest: ReviewPlatformPullRequest) => {
+    createReviewPlatformPullRequestDetailTab({
+      workspacePath: currentWorkspace?.rootPath,
+      remoteId: pullRequest.providerId ?? undefined,
+      pullRequestId: pullRequest.id,
+      pullRequestUrl: pullRequest.webUrl,
+      title: `#${pullRequest.number} ${pullRequest.title}`,
+    });
+    closeSessionOverview(false);
+  }, [closeSessionOverview, currentWorkspace?.rootPath]);
 
   const handleCommandSectionMenuToggle = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -334,7 +410,7 @@ export const FlowChatHeader: React.FC<FlowChatHeaderProps> = ({
 
   const handleCommandSelect = (command: FlowChatHeaderCommandSummary) => {
     onOpenBackgroundCommandOutput?.(command);
-    setIsBackgroundCommandPanelOpen(false);
+    closeSessionOverview(false);
   };
 
   const handleCommandMenuToggle = (
@@ -360,7 +436,7 @@ export const FlowChatHeader: React.FC<FlowChatHeaderProps> = ({
     event.stopPropagation();
     onRequestBackgroundCommandInput?.(command);
     setOpenBackgroundCommandMenuId(null);
-    setIsBackgroundCommandPanelOpen(false);
+    closeSessionOverview(false);
   };
 
   const handleCommandStop = (
@@ -396,380 +472,568 @@ export const FlowChatHeader: React.FC<FlowChatHeaderProps> = ({
     return (
       <div
         className="flowchat-header__background-command-actions"
-        data-bf-component="flow-chat-header"
-        data-bf-part="backgroundActivity"
+        data-openbitfun-component="flow-chat-header"
+        data-openbitfun-part="backgroundActivity"
       >
-        <IconButton
-          className="flowchat-header__background-command-menu-button"
-          variant="ghost"
-          size="xs"
-          onClick={(event) => handleCommandMenuToggle(event, command)}
-          tooltip={t('flowChatHeader.backgroundCommandActions')}
-          aria-label={t('flowChatHeader.backgroundCommandActions')}
-          aria-haspopup="menu"
-          aria-expanded={openBackgroundCommandMenuId === command.execSessionKey}
-        >
-          <MoreHorizontal size={13} aria-hidden="true" />
-        </IconButton>
+        <Tooltip content={t('flowChatHeader.backgroundCommandActions')}>
+          <IconButton
+            className="flowchat-header__background-command-menu-button"
+            size="sm"
+            onClick={(event) => handleCommandMenuToggle(event, command)}
+            aria-label={t('flowChatHeader.backgroundCommandActions')}
+            aria-haspopup="menu"
+            aria-expanded={openBackgroundCommandMenuId === command.execSessionKey}
+            icon={<Icon name="more" size="lg" style={{ width: 13, height: 13 }} aria-hidden="true" />}
+          />
+        </Tooltip>
         {openBackgroundCommandMenuId === command.execSessionKey && backgroundCommandMenuPosition ? createPortal(
-          <div
+          <Menu
             ref={backgroundCommandMenuRef}
             className="flowchat-header__background-command-menu flowchat-header__background-command-menu--portal"
-            data-bf-component="flow-chat-header"
-            data-bf-part="commandMenu"
-            role="menu"
+            data-openbitfun-component="flow-chat-header"
+            data-openbitfun-part="commandMenu"
             aria-label={t('flowChatHeader.backgroundCommandActions')}
             style={backgroundCommandMenuPosition}
             data-testid="flowchat-header-background-menu"
           >
             {canSendBackgroundCommandInput ? (
-              <button
+              <MenuItem
                 type="button"
-                role="menuitem"
-                className="flowchat-header__background-command-menu-item"
-                data-bf-component="flow-chat-header"
-                data-bf-part="commandItem"
+                data-openbitfun-component="flow-chat-header"
+                data-openbitfun-part="commandItem"
                 onClick={(event) => handleCommandInputRequest(event, command)}
+                leading={<Keyboard size={12} aria-hidden="true" />}
               >
-                <Keyboard size={12} aria-hidden="true" />
                 <span>{t('flowChatHeader.backgroundCommandSendInput')}</span>
-              </button>
+              </MenuItem>
             ) : null}
             {canStopBackgroundCommand ? (
-              <button
+              <MenuItem
                 type="button"
-                role="menuitem"
-                className="flowchat-header__background-command-menu-item flowchat-header__background-command-menu-item--danger"
-                data-bf-component="flow-chat-header"
-                data-bf-part="commandItem"
+                tone="danger"
+                data-openbitfun-component="flow-chat-header"
+                data-openbitfun-part="commandItem"
                 onClick={(event) => handleCommandStop(event, command)}
                 disabled={command.isStopping === true}
+                leading={<Square size={12} aria-hidden="true" />}
               >
-                <Square size={12} aria-hidden="true" />
                 <span>
                   {command.isStopping
                     ? t('flowChatHeader.backgroundCommandStopping')
                     : t('flowChatHeader.backgroundCommandStop')}
                 </span>
-              </button>
+              </MenuItem>
             ) : null}
-          </div>,
+          </Menu>,
           getAppearanceOverlayHost(),
         ) : null}
       </div>
     );
   };
 
-  const backgroundCommandLabel = t('flowChatHeader.backgroundCommands', {
-    count: backgroundCommandCount,
-  });
-
-  // The header occupies a row above the message list, so its mount state must
-  // not depend on turn measurement: unmounting on a transient `totalTurns === 0`
-  // would resize the list mid-session. Only the centre message is withheld.
-  if (!visible) {
-    return null;
+  const sessionOverviewLabel = hasSessionActivity
+    ? t('flowChatHeader.sessionOverviewActive')
+    : t('flowChatHeader.sessionOverview');
+  const agentOverviewSummary = !sessionId
+    ? t('flowChatHeader.sessionOverviewAgentsUnavailable')
+    : hasActiveSessionTreeDescendants
+      ? t('flowChatHeader.sessionOverviewAgentsActive')
+      : t('flowChatHeader.sessionOverviewAgentsIdle');
+  const backgroundOverviewSummary = runningBackgroundCommandCount > 0
+    ? t('flowChatHeader.sessionOverviewBackgroundRunning', {
+        count: runningBackgroundCommandCount,
+      })
+    : hasBackgroundCommands
+      ? t('flowChatHeader.sessionOverviewBackgroundFinished', {
+          count: backgroundCommandCount,
+        })
+      : t('flowChatHeader.backgroundTerminalEmpty');
+  let pullRequestOverviewSummary: string;
+  switch (pullRequestOverview.status) {
+    case 'loading':
+      pullRequestOverviewSummary = t('flowChatHeader.pullRequestLoading');
+      break;
+    case 'not-git':
+      pullRequestOverviewSummary = t('flowChatHeader.pullRequestNotGitRepository');
+      break;
+    case 'no-workspace':
+      pullRequestOverviewSummary = t('flowChatHeader.pullRequestWorkspaceUnavailable');
+      break;
+    case 'error':
+      pullRequestOverviewSummary = t('flowChatHeader.pullRequestLoadFailed');
+      break;
+    default:
+      pullRequestOverviewSummary = pullRequestOverview.totalCount > 0
+        ? t('flowChatHeader.pullRequestCount', { count: pullRequestOverview.totalCount })
+        : t('flowChatHeader.pullRequestEmpty');
   }
-  const hasTurnInfo = totalTurns > 0;
+  const isPullRequestOverviewUnavailable =
+    pullRequestOverview.status === 'not-git' || pullRequestOverview.status === 'no-workspace';
+  const rightPanelLabel = isRightPanelOpen
+    ? t('common:header.collapseRightPanel')
+    : t('common:header.expandRightPanel');
 
-  return (
+  const leftActions = (
     <div
-      className="flowchat-header"
-      ref={headerRef}
-      data-bf-component="flow-chat-header"
-      data-bf-part="root"
+      className="flowchat-header__actions flowchat-header__actions--left"
+      data-openbitfun-component="flow-chat-header"
+      data-openbitfun-part="leftActions"
     >
-      <div
-        className="flowchat-header__actions flowchat-header__actions--left"
-        ref={leftActionsRef}
-        data-bf-component="flow-chat-header"
-        data-bf-part="leftActions"
-      >
-        <SessionFilesBadge sessionId={sessionId} />
-      </div>
-
-      {hasTurnInfo ? (
-        <Tooltip content={currentUserMessage} placement="bottom">
+      <SessionFilesBadge sessionId={sessionId} />
+    </div>
+  );
+  const rightActions = (
+    <div
+      className="flowchat-header__actions"
+      data-openbitfun-component="flow-chat-header"
+      data-openbitfun-part="actions"
+    >
+        {isSearchMode ? (
           <div
-            className="flowchat-header__message"
-            data-bf-component="flow-chat-header"
-            data-bf-part="message"
-            role="button"
-            tabIndex={0}
-            onClick={onJumpToCurrentTurn}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onJumpToCurrentTurn?.();
-              }
-            }}
-            aria-label={t('flowChatHeader.jumpToCurrentTurn', {
-              turn: currentTurn
-            })}
+            className="flowchat-header__search"
+            role="search"
+            onKeyDown={handleSearchKeyDown}
+            data-testid="flowchat-header-search-bar"
+            data-openbitfun-component="flow-chat-header"
+            data-openbitfun-part="search"
+            data-openbitfun-state="active"
           >
-            <span
-              className="flowchat-header__turn-badge"
-              aria-label={turnBadgeLabel}
-              data-bf-component="flow-chat-header"
-              data-bf-part="turnBadge"
-            >
-              <span>{turnBadgeLabel}</span>
-            </span>
-            <span className="flowchat-header__message-text">
-              {truncatedMessage}
+            <SearchField
+              ref={searchInputRef}
+              className="flowchat-header__search-field"
+              variant={hasSearchQuery ? 'panel' : 'default'}
+              leadingIcon={<Icon name="search" size="sm" />}
+              footer={hasSearchQuery ? (
+                <>
+                  <span className="flowchat-header__search-status" aria-hidden="true">
+                    <OverflowText>{searchStatus}</OverflowText>
+                  </span>
+                  <span className="flowchat-header__search-navigation">
+                    <Tooltip content={t('flowChatHeader.searchPrevious')}>
+                      <IconButton
+                        size="xs"
+                        shape="circle"
+                        variant="fill"
+                        disabled={hasNoResults || !onSearchPrev}
+                        onClick={onSearchPrev}
+                        onMouseDown={event => event.preventDefault()}
+                        aria-label={t('flowChatHeader.searchPrevious')}
+                        icon={<Icon name="arrow-up" />}
+                      />
+                    </Tooltip>
+                    <Tooltip content={t('flowChatHeader.searchNext')}>
+                      <IconButton
+                        size="xs"
+                        shape="circle"
+                        variant="fill"
+                        disabled={hasNoResults || !onSearchNext}
+                        onClick={onSearchNext}
+                        onMouseDown={event => event.preventDefault()}
+                        aria-label={t('flowChatHeader.searchNext')}
+                        icon={<Icon name="arrow-down" />}
+                      />
+                    </Tooltip>
+                  </span>
+                </>
+              ) : undefined}
+              trailing={
+                <span
+                  className="flowchat-header__search-controls"
+                  data-openbitfun-component="flow-chat-header"
+                  data-openbitfun-part="searchControls"
+                >
+                  <Tooltip content={t('flowChatHeader.searchClose')}>
+                    <IconButton
+                      className="flowchat-header__search-close"
+                      size="xs"
+                      shape="circle"
+                      variant="quiet"
+                      onClick={handleCloseSearch}
+                      onMouseDown={event => event.preventDefault()}
+                      aria-label={t('flowChatHeader.searchClose')}
+                      icon={<Icon name="xmark" />}
+                    />
+                  </Tooltip>
+                </span>
+              }
+              value={searchQuery}
+              onChange={e => onSearchChange?.(e.target.value)}
+              placeholder={t('flowChatHeader.searchPlaceholder')}
+              aria-label={t('flowChatHeader.searchPlaceholder')}
+              size="sm"
+            />
+            <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+              {searchStatus}
             </span>
           </div>
-        </Tooltip>
-      ) : null}
-
-      <div
-        className="flowchat-header__actions"
-        ref={rightActionsRef}
-        data-bf-component="flow-chat-header"
-        data-bf-part="actions"
-      >
-        <SessionTreePopover
-          sessionId={sessionId}
-          fallbackWorkspacePath={currentWorkspace?.rootPath}
-          onSelectSession={onOpenSessionTreeSession}
-          hasActiveDescendants={hasActiveSessionTreeDescendants}
-          onCancelSession={onCancelSessionTreeSession}
-          t={t}
-        />
-        <div
-          className="flowchat-header__background-command-nav"
-          ref={backgroundCommandRootRef}
-          data-bf-component="flow-chat-header"
-          data-bf-part="backgroundActivity"
-        >
-          <IconButton
-            ref={backgroundCommandTriggerRef}
-            className={[
-              'flowchat-header__background-command-nav-button',
-              isBackgroundCommandPanelOpen && 'flowchat-header__background-command-nav-button--active',
-              hasBackgroundCommands && 'flowchat-header__background-command-nav-button--has-commands',
-            ].filter(Boolean).join(' ')}
-            variant="ghost"
-            size="xs"
-            onClick={handleToggleBackgroundCommandPanel}
-            tooltip={backgroundCommandLabel}
-            aria-label={backgroundCommandLabel}
-            aria-expanded={isBackgroundCommandPanelOpen}
-            aria-haspopup="dialog"
-            data-testid="flowchat-header-background-commands"
+        ) : visible ? (
+          <Tooltip content={t('flowChatHeader.searchOpen')}>
+            <IconButton
+              className="flowchat-header__search-btn"
+              size="xs"
+              onClick={handleOpenSearch}
+              aria-label={t('flowChatHeader.searchOpen')}
+              data-testid="flowchat-header-search"
+              icon={<Icon name="search" size="sm" />}
+            />
+          </Tooltip>
+        ) : null}
+        {!isSearchMode ? (
+          <div
+            className="flowchat-header__session-overview"
+            ref={sessionOverviewRootRef}
+            data-openbitfun-component="flow-chat-header"
+            data-openbitfun-part="sessionOverview"
           >
-            <span className="flowchat-header__background-command-nav-button-inner">
-              <SquareTerminal size={14} />
-              {hasBackgroundCommands ? (
-                <span
-                  className="flowchat-header__background-command-status-dot"
-                  aria-hidden="true"
-                />
-              ) : null}
-            </span>
-          </IconButton>
+          <Tooltip content={sessionOverviewLabel}>
+            <IconButton
+              ref={sessionOverviewTriggerRef}
+              className={[
+                'flowchat-header__session-overview-trigger',
+                isSessionOverviewOpen && 'flowchat-header__session-overview-trigger--active',
+                hasSessionActivity && 'flowchat-header__session-overview-trigger--has-activity',
+              ].filter(Boolean).join(' ')}
+              data-openbitfun-component="flow-chat-header"
+              data-openbitfun-part="sessionOverviewTrigger"
+              data-openbitfun-state={[
+                isSessionOverviewOpen ? 'open' : null,
+                hasSessionActivity ? 'active' : null,
+              ].filter(Boolean).join(' ') || undefined}
+              size="xs"
+              onClick={handleToggleSessionOverview}
+              aria-label={sessionOverviewLabel}
+              aria-expanded={isSessionOverviewOpen}
+              aria-haspopup="dialog"
+              data-testid="flowchat-header-session-overview"
+              icon={<span className="flowchat-header__session-overview-trigger-inner">
+                <Icon name="settings" size="sm" />
+                {hasSessionActivity ? (
+                  <span
+                    className="flowchat-header__session-overview-status-dot"
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </span>}
+            />
+          </Tooltip>
 
-          {isBackgroundCommandPanelOpen && createPortal(
+          {isSessionOverviewOpen && createPortal(
             <div
-              ref={backgroundCommandPanelRef}
-              className="flowchat-header__background-command-panel"
-              data-bf-component="flow-chat-header"
-              data-bf-part="activityPanel"
-              data-bf-placement={backgroundCommandPanelLayout?.placement ?? 'bottom'}
+              ref={sessionOverviewPanelRef}
+              className="flowchat-header__session-overview-panel"
+              data-openbitfun-component="flow-chat-header"
+              data-openbitfun-part="sessionOverviewPanel"
+              data-openbitfun-placement={sessionOverviewPanelLayout?.placement ?? 'bottom'}
               role="dialog"
-              aria-label={backgroundCommandLabel}
+              aria-label={t('flowChatHeader.sessionOverview')}
+              data-testid="flowchat-header-session-overview-panel"
               style={{
-                top: `${backgroundCommandPanelLayout?.top ?? 0}px`,
-                left: `${backgroundCommandPanelLayout?.left ?? 0}px`,
-                visibility: backgroundCommandPanelLayout ? 'visible' : 'hidden',
+                top: `${sessionOverviewPanelLayout?.top ?? 0}px`,
+                left: `${sessionOverviewPanelLayout?.left ?? 0}px`,
+                visibility: sessionOverviewPanelLayout ? 'visible' : 'hidden',
               }}
             >
-              <div className="flowchat-header__background-command-panel-header">
-                <span>{backgroundCommandLabel}</span>
-                <div className="flowchat-header__background-command-panel-header-actions">
-                  {hasBackgroundCommands && onStopAllBackgroundCommands ? (
-                    <IconButton
-                      className="flowchat-header__background-command-menu-button"
-                      variant="ghost"
-                      size="xs"
-                      onClick={handleCommandSectionMenuToggle}
-                      tooltip={t('flowChatHeader.backgroundCommandActions')}
-                      aria-label={t('flowChatHeader.backgroundCommandActions')}
-                      aria-haspopup="menu"
-                      aria-expanded={isBackgroundCommandSectionMenuOpen}
-                      disabled={displayBackgroundCommands.every(command => (
-                        command.status !== 'running' || command.isStopping === true
-                      ))}
-                    >
-                      <MoreHorizontal size={13} aria-hidden="true" />
-                    </IconButton>
-                  ) : null}
-                  {isBackgroundCommandSectionMenuOpen && backgroundCommandMenuPosition ? createPortal(
-                    <div
-                      ref={backgroundCommandMenuRef}
-                      className="flowchat-header__background-command-menu flowchat-header__background-command-menu--portal"
-                      data-bf-component="flow-chat-header"
-                      data-bf-part="commandMenu"
-                      role="menu"
-                      aria-label={t('flowChatHeader.backgroundCommandActions')}
-                      style={backgroundCommandMenuPosition}
-                      data-testid="flowchat-header-background-menu"
-                    >
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="flowchat-header__background-command-menu-item flowchat-header__background-command-menu-item--danger"
-                        data-bf-component="flow-chat-header"
-                        data-bf-part="commandItem"
-                        onClick={handleCommandStopAll}
-                      >
-                        <Square size={12} aria-hidden="true" />
-                        <span>{t('flowChatHeader.backgroundCommandStopAll')}</span>
-                      </button>
-                    </div>,
-                    getAppearanceOverlayHost(),
-                  ) : null}
+              <div className="flowchat-header__session-overview-panel-header">
+                <div className="flowchat-header__session-overview-panel-heading">
+                  <OverflowText>{t('flowChatHeader.sessionOverview')}</OverflowText>
                 </div>
               </div>
+
               <div
-                className="flowchat-header__background-command-list"
-                data-bf-component="flow-chat-header"
-                data-bf-part="activitySection"
+                className="flowchat-header__session-overview-list"
+                data-openbitfun-component="flow-chat-header"
+                data-openbitfun-part="sessionOverviewList"
               >
-                {hasBackgroundCommands ? displayBackgroundCommands.map((command) => (
+                <div
+                  className="flowchat-header__session-overview-section"
+                  data-openbitfun-component="flow-chat-header"
+                  data-openbitfun-part="sessionOverviewItem"
+                  data-openbitfun-state={hasActiveSessionTreeDescendants ? 'active' : undefined}
+                  data-testid="flowchat-header-session-tree-section"
+                >
                   <div
-                    key={command.execSessionKey}
-                    className="flowchat-header__background-command-list-item"
+                    className="flowchat-header__session-overview-section-header"
+                    aria-label={`${t('flowChatHeader.agentTree')}, ${agentOverviewSummary}`}
                   >
+                    <span className="flowchat-header__session-overview-section-title">
+                      <OverflowText>{t('flowChatHeader.agentTree')}</OverflowText>
+                      {hasActiveSessionTreeDescendants ? (
+                        <span className="flowchat-header__session-overview-section-status" aria-hidden="true" />
+                      ) : null}
+                    </span>
+                  </div>
+                  {sessionId ? (
+                    <SessionTreePopover
+                      sessionId={sessionId}
+                      fallbackWorkspacePath={currentWorkspace?.rootPath}
+                      onSelectSession={onOpenSessionTreeSession}
+                      hasActiveDescendants={hasActiveSessionTreeDescendants}
+                      onCancelSession={onCancelSessionTreeSession}
+                      embedded
+                      open={isSessionOverviewOpen}
+                      onRequestClose={() => closeSessionOverview(false)}
+                      t={t}
+                    />
+                  ) : (
+                    <div
+                      className="flowchat-header__session-overview-empty-state"
+                      data-openbitfun-state="empty"
+                    >
+                      {t('flowChatHeader.sessionOverviewAgentsUnavailable')}
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  className="flowchat-header__session-overview-section"
+                  data-openbitfun-component="flow-chat-header"
+                  data-openbitfun-part="sessionOverviewItem"
+                  data-openbitfun-state={runningBackgroundCommandCount > 0 ? 'active' : undefined}
+                  data-testid="flowchat-header-background-commands"
+                >
+                  <div
+                    className="flowchat-header__session-overview-section-header"
+                    aria-label={`${t('flowChatHeader.backgroundCommandOverview')}, ${backgroundOverviewSummary}`}
+                  >
+                    <span className="flowchat-header__session-overview-section-title">
+                      <OverflowText>{t('flowChatHeader.backgroundCommandOverview')}</OverflowText>
+                      {runningBackgroundCommandCount > 0 ? (
+                        <span className="flowchat-header__session-overview-section-status" aria-hidden="true" />
+                      ) : null}
+                    </span>
+                    <span className="flowchat-header__session-overview-section-count" aria-hidden="true">
+                      {backgroundCommandCount}
+                    </span>
+                    <div className="flowchat-header__session-overview-section-actions">
+                      {hasBackgroundCommands && onStopAllBackgroundCommands ? (
+                        <Tooltip content={t('flowChatHeader.backgroundCommandActions')}>
+                          <IconButton
+                            className="flowchat-header__background-command-menu-button"
+                            size="sm"
+                            onClick={handleCommandSectionMenuToggle}
+                            aria-label={t('flowChatHeader.backgroundCommandActions')}
+                            aria-haspopup="menu"
+                            aria-expanded={isBackgroundCommandSectionMenuOpen}
+                            disabled={displayBackgroundCommands.every(command => (
+                              command.status !== 'running' || command.isStopping === true
+                            ))}
+                            icon={<Icon name="more" size="lg" style={{ width: 13, height: 13 }} aria-hidden="true" />}
+                          />
+                        </Tooltip>
+                      ) : null}
+                      {isBackgroundCommandSectionMenuOpen && backgroundCommandMenuPosition ? createPortal(
+                        <Menu
+                          ref={backgroundCommandMenuRef}
+                          className="flowchat-header__background-command-menu flowchat-header__background-command-menu--portal"
+                          data-openbitfun-component="flow-chat-header"
+                          data-openbitfun-part="commandMenu"
+                          aria-label={t('flowChatHeader.backgroundCommandActions')}
+                          style={backgroundCommandMenuPosition}
+                          data-testid="flowchat-header-background-menu"
+                        >
+                          <MenuItem
+                            type="button"
+                            tone="danger"
+                            data-openbitfun-component="flow-chat-header"
+                            data-openbitfun-part="commandItem"
+                            onClick={handleCommandStopAll}
+                            leading={<Square size={12} aria-hidden="true" />}
+                          >
+                            <span>{t('flowChatHeader.backgroundCommandStopAll')}</span>
+                          </MenuItem>
+                        </Menu>,
+                        getAppearanceOverlayHost(),
+                      ) : null}
+                    </div>
+                  </div>
+                  {hasBackgroundCommands ? (
+                    <div
+                      className="flowchat-header__background-command-list"
+                      data-openbitfun-component="flow-chat-header"
+                      data-openbitfun-part="activitySection"
+                    >
+                      {displayBackgroundCommands.map((command) => (
+                        <div
+                          key={command.execSessionKey}
+                          className="flowchat-header__background-command-list-item"
+                        >
+                          <button data-overflow-trigger
+                            type="button"
+                            className="flowchat-header__background-command-list-item-button flowchat-header__background-command-open-button"
+                            onClick={() => handleCommandSelect(command)}
+                          >
+                            <span className="flowchat-header__background-command-list-title">
+                              <Icon name="terminal" size="xs" aria-hidden="true" />
+                              <OverflowText>{command.title}</OverflowText>
+                            </span>
+                            <OverflowText className="flowchat-header__background-command-list-meta">
+                              {[
+                                t('flowChatHeader.backgroundCommandSession', { id: command.execSessionId }),
+                                command.status === 'running'
+                                  ? t('flowChatHeader.backgroundCommandStatusRunning')
+                                  : t('flowChatHeader.backgroundCommandStatusFinished'),
+                              ].filter(Boolean).join(' · ')}
+                            </OverflowText>
+                          </button>
+                          {renderBackgroundCommandActions(command)}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div
+                      className="flowchat-header__session-overview-empty-state"
+                      data-openbitfun-component="flow-chat-header"
+                      data-openbitfun-part="activitySection"
+                      data-openbitfun-state="empty"
+                      data-testid="flowchat-header-background-empty"
+                    >
+                      {t('flowChatHeader.backgroundTerminalEmpty')}
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  className="flowchat-header__session-overview-section flowchat-header__session-overview-section--pull-requests"
+                  data-openbitfun-component="flow-chat-header"
+                  data-openbitfun-part="sessionOverviewItem"
+                  data-openbitfun-state={isPullRequestOverviewUnavailable ? 'unavailable' : pullRequestOverview.status}
+                  data-testid="flowchat-header-pull-requests"
+                >
+                  <button data-overflow-trigger
+                    type="button"
+                    className="flowchat-header__session-overview-section-header flowchat-header__session-overview-section-header--action"
+                    onClick={handleOpenPullRequests}
+                    aria-label={`${t('flowChatHeader.pullRequests')}, ${pullRequestOverviewSummary}`}
+                    disabled={isPullRequestOverviewUnavailable}
+                  >
+                    <OverflowText className="flowchat-header__session-overview-section-title">
+                      {t('flowChatHeader.pullRequests')}
+                    </OverflowText>
+                    {pullRequestOverview.status === 'loaded' ? (
+                      <span className="flowchat-header__session-overview-section-count" aria-hidden="true">
+                        {pullRequestOverview.totalCount}
+                      </span>
+                    ) : null}
+                  </button>
+
+                  {pullRequestOverview.status === 'loading' || pullRequestOverview.status === 'idle' ? (
+                    <div
+                      className="flowchat-header__session-overview-empty-state"
+                      data-openbitfun-state="loading"
+                      aria-live="polite"
+                    >
+                      {t('flowChatHeader.pullRequestLoading')}
+                    </div>
+                  ) : pullRequestOverview.status === 'error' ? (
                     <button
                       type="button"
-                      className="flowchat-header__background-command-list-item-button flowchat-header__background-command-open-button"
-                      onClick={() => handleCommandSelect(command)}
+                      className="flowchat-header__session-overview-empty-state flowchat-header__session-overview-empty-state--action flowchat-header__session-overview-empty-state--error"
+                      data-openbitfun-state="error"
+                      onClick={() => void loadPullRequestOverview()}
                     >
-                      <span className="flowchat-header__background-command-list-title">
-                        <Terminal size={12} aria-hidden="true" />
-                        <span>{command.title}</span>
-                      </span>
-                      <span className="flowchat-header__background-command-list-meta">
-                        {[
-                          t('flowChatHeader.backgroundCommandSession', { id: command.execSessionId }),
-                          command.status === 'running'
-                            ? t('flowChatHeader.backgroundCommandStatusRunning')
-                            : t('flowChatHeader.backgroundCommandStatusFinished'),
-                        ].filter(Boolean).join(' · ')}
-                      </span>
+                      {t('flowChatHeader.pullRequestLoadFailed')}
                     </button>
-                    {renderBackgroundCommandActions(command)}
-                  </div>
-                )) : (
-                  <div className="flowchat-header__background-command-empty-state">
-                    {t('flowChatHeader.backgroundCommandEmpty')}
-                  </div>
-                )}
+                  ) : pullRequestOverview.status === 'not-git' ? (
+                    <div
+                      className="flowchat-header__session-overview-empty-state"
+                      data-openbitfun-state="unavailable"
+                      data-testid="flowchat-header-pull-requests-unavailable"
+                    >
+                      {t('flowChatHeader.pullRequestNotGitRepository')}
+                    </div>
+                  ) : pullRequestOverview.status === 'no-workspace' ? (
+                    <div
+                      className="flowchat-header__session-overview-empty-state"
+                      data-openbitfun-state="unavailable"
+                      data-testid="flowchat-header-pull-requests-unavailable"
+                    >
+                      {t('flowChatHeader.pullRequestWorkspaceUnavailable')}
+                    </div>
+                  ) : pullRequestOverview.items.length === 0 ? (
+                    <div
+                      className="flowchat-header__session-overview-empty-state"
+                      data-openbitfun-state="empty"
+                      data-testid="flowchat-header-pull-requests-empty"
+                    >
+                      {t('flowChatHeader.pullRequestEmpty')}
+                    </div>
+                  ) : (
+                    <div className="flowchat-header__pull-request-list">
+                      {pullRequestOverview.items.map(pullRequest => (
+                        <button data-overflow-trigger
+                          key={`${pullRequest.providerId ?? 'auto'}:${pullRequest.id}`}
+                          type="button"
+                          className="flowchat-header__pull-request-item"
+                          onClick={() => handleOpenPullRequest(pullRequest)}
+                          title={`#${pullRequest.number} ${pullRequest.title}`}
+                          data-testid="flowchat-header-pull-request-item"
+                        >
+                          <OverflowText>#{pullRequest.number} {pullRequest.title}</OverflowText>
+                          <Icon name="chevron-right" size="lg" style={{ width: 13, height: 13 }} aria-hidden="true" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>,
             getAppearanceOverlayHost(),
           )}
-        </div>
-
-        <IconButton
-          className="flowchat-header__review-platform-btn"
-          variant="ghost"
-          size="xs"
-          onClick={handleOpenPullRequests}
-          tooltip={t('flowChatHeader.pullRequests')}
-          aria-label={t('flowChatHeader.pullRequests')}
-          data-testid="flowchat-header-pull-requests"
-        >
-          <GitPullRequest size={14} />
-        </IconButton>
-        {isSearchOpen ? (
-          <div
-            className="flowchat-header__search"
-            role="search"
-            data-testid="flowchat-header-search-bar"
-            data-bf-component="flow-chat-header"
-            data-bf-part="search"
-          >
-            <Input
-              ref={searchInputRef}
-              className="flowchat-header__search-field"
-              variant="filled"
-              inputSize="small"
-              prefix={<Search size={12} className="flowchat-header__search-prefix-icon" aria-hidden="true" />}
-              suffix={
-                <span
-                  className="flowchat-header__search-inline-controls"
-                  data-bf-component="flow-chat-header"
-                  data-bf-part="searchControls"
-                >
-                  <span className="flowchat-header__search-count" aria-live="polite">
-                    {searchQuery.trim()
-                      ? hasNoResults
-                        ? t('flowChatHeader.searchNoResults')
-                        : t('flowChatHeader.searchResult', {
-                          current: searchCurrentMatch,
-                          total: searchMatchCount
-                        })
-                      : null}
-                  </span>
-                  <span className="flowchat-header__search-nav">
-                    <button
-                      className="flowchat-header__search-nav-btn"
-                      onClick={onSearchPrev}
-                      disabled={searchMatchCount === 0}
-                      title={t('flowChatHeader.searchPrevious')}
-                      aria-label={t('flowChatHeader.searchPrevious')}
-                      type="button"
-                    >
-                      <ChevronUp size={10} />
-                    </button>
-                    <button
-                      className="flowchat-header__search-nav-btn"
-                      onClick={onSearchNext}
-                      disabled={searchMatchCount === 0}
-                      title={t('flowChatHeader.searchNext')}
-                      aria-label={t('flowChatHeader.searchNext')}
-                      type="button"
-                    >
-                      <ChevronDown size={10} />
-                    </button>
-                  </span>
-                </span>
-              }
-              type="text"
-              value={searchQuery}
-              onChange={e => onSearchChange?.(e.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              placeholder={t('flowChatHeader.searchPlaceholder')}
-              aria-label={t('flowChatHeader.searchPlaceholder')}
-              error={hasNoResults}
-            />
-            <IconButton
-              className="flowchat-header__search-close"
-              variant="ghost"
-              size="xs"
-              onClick={handleCloseSearch}
-              tooltip={t('flowChatHeader.searchClose')}
-              aria-label={t('flowChatHeader.searchClose')}
-            >
-              <X size={14} />
-            </IconButton>
           </div>
-        ) : (
-          <IconButton
-            className="flowchat-header__search-btn"
-            variant="ghost"
-            size="xs"
-            onClick={handleOpenSearch}
-            tooltip={t('flowChatHeader.searchOpen')}
-            aria-label={t('flowChatHeader.searchOpen')}
-            data-testid="flowchat-header-search"
-          >
-            <Search size={14} />
-          </IconButton>
-        )}
+        ) : null}
+        {!isSearchMode && onToggleRightPanel ? (
+          <Tooltip content={rightPanelLabel}>
+            <IconButton
+              className={[
+                'flowchat-header__right-panel-trigger',
+                isRightPanelOpen && 'flowchat-header__right-panel-trigger--active',
+              ].filter(Boolean).join(' ')}
+              data-openbitfun-component="flow-chat-header"
+              data-openbitfun-part="rightPanelTrigger"
+              data-openbitfun-state={isRightPanelOpen ? 'open' : 'collapsed'}
+              size="xs"
+              onClick={onToggleRightPanel}
+              aria-label={rightPanelLabel}
+              aria-pressed={isRightPanelOpen}
+              data-testid="flowchat-header-right-panel"
+              icon={<Icon name="sidebar-right" size="sm" />}
+            />
+          </Tooltip>
+        ) : null}
       </div>
+  );
+
+  if (sceneChrome) {
+    return (
+      <SceneChromeContribution sceneId="session">
+        <div
+          className="flowchat-header__chrome-actions flow-chat-typography"
+          data-shortcut-scope="chat"
+          data-openbitfun-component="flow-chat-header"
+          data-openbitfun-part="root"
+        >
+          {!isSearchMode ? leftActions : null}
+          {rightActions}
+        </div>
+      </SceneChromeContribution>
+    );
+  }
+
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <div
+      className={[
+        'flowchat-header',
+        isSearchMode && 'flowchat-header--searching',
+      ].filter(Boolean).join(' ')}
+      data-openbitfun-component="flow-chat-header"
+      data-openbitfun-part="root"
+    >
+      {!isSearchMode ? leftActions : null}
+      {rightActions}
     </div>
   );
 };

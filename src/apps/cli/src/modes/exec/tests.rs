@@ -10,11 +10,13 @@ use super::patch::write_patch_to_path;
 use super::patch::{git_diff_base, untracked_files};
 use super::verification::{changed_files, detect_verify_command, needs_change_baseline};
 use crate::diagnostics::ExitKind;
-use bitfun_agent_runtime::sdk::{
+use openbitfun_agent_runtime::sdk::{
     PermissionDelegationContext, PermissionRequest, PermissionRequestSource,
     PermissionRequestSourceKind, PortError, PortErrorKind, RuntimeError,
 };
-use bitfun_events::{AgenticEvent, AgenticEventEnvelope, AgenticEventPriority, ToolEventIdentity};
+use openbitfun_events::{
+    AgenticEvent, AgenticEventEnvelope, AgenticEventPriority, ToolEventIdentity,
+};
 use serde_json::json;
 use std::collections::BTreeSet;
 
@@ -684,7 +686,7 @@ fn settlement_failure_overrides_an_observed_cancellation_terminal() {
 fn deferred_exec_event_projects_effective_name_and_input() {
     let identity = ToolEventIdentity::resolved(
         "tool-1",
-        bitfun_agent_tools::CALL_DEFERRED_TOOL_NAME,
+        openbitfun_agent_tools::CALL_DEFERRED_TOOL_NAME,
         "CreatePlan",
     );
     let wire_input = json!({
@@ -719,9 +721,9 @@ fn commit_verification_fixture(workspace: &std::path::Path) {
         workspace,
         &[
             "-c",
-            "user.name=BitFun Test",
+            "user.name=OpenBitFun Test",
             "-c",
-            "user.email=bitfun-test@example.invalid",
+            "user.email=openbitfun-test@example.invalid",
             "commit",
             "--quiet",
             "-m",
@@ -755,9 +757,9 @@ fn patch_and_verifier_keep_agent_commits_and_exclude_preexisting_untracked_files
         workspace,
         &[
             "-c",
-            "user.name=BitFun Test",
+            "user.name=OpenBitFun Test",
             "-c",
-            "user.email=bitfun-test@example.invalid",
+            "user.email=openbitfun-test@example.invalid",
             "commit",
             "--quiet",
             "-m",

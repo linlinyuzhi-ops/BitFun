@@ -3,6 +3,7 @@ members = [
     "src/apps/cli",
     "src/apps/sdk-host",
     "src/apps/desktop",
+    "src/apps/data-migrator",
     "src/apps/server",
     "src/apps/relay-server",
     "src/apps/miniapp-market-server",
@@ -27,6 +28,8 @@ members = [
     "src/crates/adapters/transport",
     "src/crates/services/services-core",
     "src/crates/services/services-integrations",
+    "src/crates/services/legacy-migration",
+    "src/crates/services/legacy-migration-adapters",
     "src/crates/services/miniapp-market-service",
     "src/crates/services/skin-market-service",
     "src/crates/services/relay-service",
@@ -44,12 +47,13 @@ members = [
     "src/crates/execution/tool-provider-groups",
     "src/crates/execution/tool-execution",
     "src/crates/contracts/core-types",
+    "src/crates/contracts/config-contracts",
     "src/crates/contracts/events",
     "src/crates/contracts/runtime-ports",
 ]
 
 exclude = [
-    "BitFun-Installer/src-tauri",
+    "OpenBitFun-Installer/src-tauri",
 ]
 
 resolver = "2"
@@ -145,17 +149,17 @@ tower-http = "0.6.11"
 # File system
 glob = "0.3"
 ignore = "0.4"
+mime_guess = "2.0"
 notify = "8.2"
 dirs = "6.0"
 keyring-core = "1.0.0"
-apple-native-keyring-store = { version = "1.0.1", features = ["keychain"] }
 windows-native-keyring-store = "1.1.0"
 zbus-secret-service-keyring-store = { version = "1.0.0", features = ["crypto-rust"] }
 dark-light = "1.1"
 dunce = "1"
 filetime = "0.2"
 fs2 = "0.4"
-zip = { version = "4.6", default-features = false, features = ["deflate"] } # plugin load
+zip = { version = "4.6", default-features = false, features = ["deflate"] } # archive extraction
 flate2 = "1.0"
 tar = "0.4"
 bzip2 = "0.5"
@@ -197,9 +201,10 @@ urlencoding = "2.1"
 oxc = { version = "0.138.0", default-features = false, features = ["ast_visit", "codegen", "semantic", "transformer"] }
 oxc-parse = { package = "oxc", version = "0.138.0", default-features = false }
 sqlx = { version = "0.8", default-features = false }
+rusqlite = { version = "0.32", default-features = false }
 
 # Tauri (desktop only)
-tauri = { version = "2.11", features = ["unstable", "macos-private-api", "tray-icon"] }
+tauri = { version = "2.11" }
 tauri-plugin-opener = "2.5"
 tauri-plugin-dialog = "2.7"
 tauri-plugin-fs = "2.5"
@@ -209,6 +214,7 @@ tauri-plugin-notification = "2.3"
 tauri-plugin-updater = "2.10"
 tauri-plugin-single-instance = "2.4"
 tauri-plugin-window-state = "2.4"
+notify-rust = { version = "4.18", default-features = false }
 tauri-build = { version = "2.6", features = [] }
 keepawake = "0.6.0"
 
@@ -247,6 +253,7 @@ unic-langid = "0.9"
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 aes-gcm = "0.10"
 sha2 = "0.10"
+minisign-verify = "0.2"
 sha1 = "0.10"
 argon2 = "0.5"
 rand = "0.8"
@@ -266,13 +273,14 @@ tokio-tungstenite = "0.29"
 sherpa-onnx = "1.13.4"
 
 # MCP and remote runtimes
+# Keep RMCP's Reqwest TLS provider-neutral; services-core owns ring selection.
 rmcp = { version = "1.7", default-features = false, features = [
     "auth",
     "base64",
     "client",
     "elicitation",
     "macros",
-    "reqwest",
+    "reqwest-tls-no-provider",
     "schemars",
     "server",
 ] }
@@ -282,7 +290,7 @@ russh-sftp = "2.1"
 russh-keys = "0.45"
 shellexpand = "3"
 ssh_config = "0.1"
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false }
 
 [patch.crates-io]
 # Tauri 2.11 loses keyboard focus for child webviews after Windows reactivates

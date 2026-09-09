@@ -1,4 +1,13 @@
 {
+  "reviewPlatform": {
+    "stateFilterUnsupported": "当前主机不支持 Gitee 全仓库状态筛选。请更新所连接的主机后使用这些页签。",
+    "fileLimit": "Gitee 返回的文件列表可能已被截断，文件数和变更统计可能不完整。",
+    "commitLimit": "Gitee 最多返回 250 条提交记录，提交历史可能不完整。",
+    "commentsLimited": "仅加载了部分评论。",
+    "checksLimited": "仅加载了部分 CI 检查项。",
+    "ciHeadUnavailable": "此 PR 未提供准确的源提交版本，无法加载 CI 检查项。",
+    "limited": "部分平台数据不完整。"
+  },
   "title": "Git",
   "init": {
     "title": "初始化 Git",
@@ -188,18 +197,40 @@
     "current": "当前"
   },
   "quickSwitch": {
+    "menuLabel": "切换分支",
+    "searchLabel": "搜索分支",
     "searchPlaceholder": "搜索分支...",
     "loading": "加载中...",
+    "conflict": {
+      "title": "提交更改后切换分支",
+      "description": "检出目标分支会覆盖以下文件中的更改：",
+      "instruction": "请先提交更改以继续。",
+      "filesUnavailable": "Git 未返回阻止检出的具体文件。",
+      "cancel": "取消",
+      "commitAndSwitch": "提交并切换分支…",
+      "commitTitle": "提交更改并切换到 {{branch}}",
+      "commitDescription": "将暂存并提交此工作区中的所有更改，然后切换到 {{branch}}。",
+      "retryDescription": "更改已提交，请重试切换到 {{branch}}。",
+      "commitMessageLabel": "提交信息",
+      "commitMessagePlaceholder": "输入提交信息...",
+      "commitMessageRequired": "请输入提交信息后继续。",
+      "commitAction": "提交并切换",
+      "retrySwitchAction": "重试切换",
+      "stageFailed": "无法暂存更改：{{error}}",
+      "commitFailed": "无法提交更改：{{error}}",
+      "retryFailed": "更改已提交，但仍无法切换分支：{{error}}"
+    },
     "notifications": {
       "switchSuccess": "已切换到分支 {{branch}}"
     },
     "errors": {
-      "title": "Branch switch failed",
-      "switchFailed": "Failed to switch branch",
-      "switchFailedWithMessage": "Failed to switch branch: {{error}}",
-      "localChanges": "Please commit or stash local changes first",
-      "indexConflict": "Please resolve the current index conflicts first",
-      "unexpected": "Unexpected error while switching branches"
+      "title": "分支切换失败",
+      "loadFailed": "无法加载分支列表",
+      "switchFailed": "无法切换分支",
+      "switchFailedWithMessage": "无法切换分支：{{error}}",
+      "localChanges": "请先提交或暂存本地更改",
+      "indexConflict": "请先解决当前索引冲突",
+      "unexpected": "切换分支时发生意外错误"
     }
   },
   "branchSelect": {
@@ -311,6 +342,8 @@
     "loadFailedTitle": "Failed to load settings",
     "retry": "重试",
     "refresh": "刷新设置",
+    "dismissError": "关闭错误提示",
+    "dismissSuccess": "关闭成功提示",
     "saving": "保存中...",
     "save": "保存设置",
     "success": {

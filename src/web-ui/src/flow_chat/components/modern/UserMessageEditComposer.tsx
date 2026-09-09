@@ -3,10 +3,10 @@ import { Check, Loader2, X } from 'lucide-react';
 import { Textarea } from '@/component-library';
 import { useImeOwnedKeyGuard } from '@/flow_chat/hooks/useImeOwnedKeyGuard';
 import type { ContextItem } from '@/shared/types/context';
-import { FileMentionPicker } from '../FileMentionPicker';
+import { ChatContextPicker } from '../ChatContextPicker';
 import {
   RichTextInput,
-  type MentionState,
+  type ContextTriggerState,
   type RichTextInputElement,
 } from '../RichTextInput';
 import {
@@ -50,11 +50,11 @@ const RichUserMessageEditComposer: React.FC<RichUserMessageEditComposerProps> = 
   excludeSessionId,
 }) => {
   const editorRef = useRef<RichTextInputElement>(null);
-  const mentionAnchorRef = useRef<HTMLDivElement>(null);
+  const contextPickerAnchorRef = useRef<HTMLDivElement>(null);
   const [contexts, setContexts] = useState<ContextItem[]>(() => (
     composerPresentationContexts(presentation)
   ));
-  const [mentionState, setMentionState] = useState<MentionState>({
+  const [contextTriggerState, setContextTriggerState] = useState<ContextTriggerState>({
     isActive: false,
     query: '',
     startOffset: 0,
@@ -82,8 +82,8 @@ const RichUserMessageEditComposer: React.FC<RichUserMessageEditComposerProps> = 
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key === 'Escape') {
       event.preventDefault();
-      if (mentionState.isActive) {
-        editorRef.current?.closeMention?.();
+      if (contextTriggerState.isActive) {
+        editorRef.current?.closeContextPicker?.();
       } else {
         onCancel();
       }
@@ -92,7 +92,7 @@ const RichUserMessageEditComposer: React.FC<RichUserMessageEditComposerProps> = 
 
     if (
       event.key === 'Enter' &&
-      !mentionState.isActive &&
+      !contextTriggerState.isActive &&
       !event.shiftKey &&
       !event.altKey &&
       !event.metaKey &&
@@ -101,7 +101,7 @@ const RichUserMessageEditComposer: React.FC<RichUserMessageEditComposerProps> = 
       event.preventDefault();
       handleSubmit();
     }
-  }, [handleSubmit, mentionState.isActive, onCancel]);
+  }, [contextTriggerState.isActive, handleSubmit, onCancel]);
 
   const handleRemoveContext = useCallback((id: string) => {
     setContexts(current => current.filter(context => context.id !== id));
@@ -112,14 +112,68 @@ const RichUserMessageEditComposer: React.FC<RichUserMessageEditComposerProps> = 
       current.some(item => item.id === context.id) ? current : [...current, context]
     ));
     requestAnimationFrame(() => {
-      editorRef.current?.insertTagReplacingMention?.(context);
+      editorRef.current?.insertContextTagReplacingTrigger?.(context);
       editorRef.current?.focus();
     });
   }, []);
 
   return (
-    <div className="user-message-edit-composer" data-bf-component="user-message-edit-composer" data-bf-part="root" data-bf-mode="rich" data-bf-state={isSubmitting ? 'submitting' : undefined}>
-      <div ref={mentionAnchorRef} className="user-message-edit-composer__rich-input" data-bf-component="user-message-edit-composer" data-bf-part="input">
+    <Composer
+      className="user-message-edit-composer"
+      data-openbitfun-product-component="user-message-edit-composer"
+      data-openbitfun-product-part="root"
+      data-openbitfun-mode="rich"
+      data-openbitfun-state={isSubmitting ? 'submitting' : undefined}
+      disabled={isSubmitting}
+      toolbar={(
+        <ComposerToolbar
+          className="user-message-edit-composer__actions"
+          data-openbitfun-product-component="user-message-edit-composer"
+          data-openbitfun-product-part="actions"
+          trailing={(
+            <>
+              <IconButton
+                aria-label={cancelLabel}
+                data-openbitfun-action="cancel"
+                data-openbitfun-product-component="user-message-edit-composer"
+                data-openbitfun-product-part="action"
+                icon={<Icon name="xmark" size="sm" />}
+                onClick={onCancel}
+                size="xs"
+                title={cancelLabel}
+                variant="quiet"
+              />
+              <IconButton
+                aria-busy={isSubmitting || undefined}
+                aria-label={submitLabel}
+                data-openbitfun-action="submit"
+                data-openbitfun-product-component="user-message-edit-composer"
+                data-openbitfun-product-part="action"
+                disabled={!canSubmit}
+                icon={isSubmitting ? (
+                  <Loader2
+                    className="user-message-edit-composer__spinner"
+                    data-openbitfun-product-component="user-message-edit-composer"
+                    data-openbitfun-product-part="spinner"
+                    size={14}
+                  />
+                ) : <Icon name="check-line" size="sm" />}
+                onClick={handleSubmit}
+                size="xs"
+                title={submitLabel}
+                variant="primary"
+              />
+            </>
+          )}
+        />
+      )}
+    >
+      <div
+        ref={contextPickerAnchorRef}
+        className="user-message-edit-composer__rich-input"
+        data-openbitfun-product-component="user-message-edit-composer"
+        data-openbitfun-product-part="input"
+      >
         <RichTextInput
           ref={editorRef}
           value={value}
@@ -129,49 +183,22 @@ const RichUserMessageEditComposer: React.FC<RichUserMessageEditComposerProps> = 
           disabled={isSubmitting}
           contexts={contexts}
           onRemoveContext={handleRemoveContext}
-          onMentionStateChange={setMentionState}
+          onContextTriggerStateChange={setContextTriggerState}
         />
-        <FileMentionPicker
-          isOpen={mentionState.isActive}
-          searchQuery={mentionState.query}
+        <ChatContextPicker
+          isOpen={contextTriggerState.isActive}
+          searchQuery={contextTriggerState.query}
           workspacePath={workspacePath}
           workspaceId={workspaceId}
           remoteConnectionId={remoteConnectionId}
           excludeSessionId={excludeSessionId}
-          anchorRef={mentionAnchorRef}
-          onSelect={handleSelectContext}
-          onClose={() => editorRef.current?.closeMention?.()}
+          anchorRef={contextPickerAnchorRef}
+          entryView="files"
+          onSelectContext={handleSelectContext}
+          onClose={() => editorRef.current?.closeContextPicker?.()}
         />
       </div>
-      <div className="user-message-edit-composer__actions" data-bf-component="user-message-edit-composer" data-bf-part="actions">
-        <button
-          data-bf-component="user-message-edit-composer"
-          data-bf-part="action"
-          data-bf-action="cancel"
-          type="button"
-          onClick={onCancel}
-          disabled={isSubmitting}
-          className="user-message-edit-composer__icon-button"
-          title={cancelLabel}
-          aria-label={cancelLabel}
-        >
-          <X size={14} />
-        </button>
-        <button
-          data-bf-component="user-message-edit-composer"
-          data-bf-part="action"
-          data-bf-action="submit"
-          type="button"
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          className="user-message-edit-composer__icon-button user-message-edit-composer__icon-button--confirm"
-          title={submitLabel}
-          aria-label={submitLabel}
-        >
-          {isSubmitting ? <Loader2 size={14} className="user-message-edit-composer__spinner" data-bf-component="user-message-edit-composer" data-bf-part="spinner" /> : <Check size={14} />}
-        </button>
-      </div>
-    </div>
+    </Composer>
   );
 };
 
@@ -195,6 +222,12 @@ export const UserMessageEditComposer: React.FC<UserMessageEditComposerProps> = (
   const trimmedValue = value.trim();
   const canSubmit = trimmedValue.length > 0 && !isSubmitting;
 
+  const resizeTextarea = useCallback((textarea: HTMLTextAreaElement | null) => {
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, []);
+
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -202,6 +235,10 @@ export const UserMessageEditComposer: React.FC<UserMessageEditComposerProps> = (
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
   }, []);
+
+  useLayoutEffect(() => {
+    resizeTextarea(textareaRef.current);
+  }, [resizeTextarea, value]);
 
   const handleSubmit = useCallback(() => {
     if (!canSubmit) return;
@@ -246,10 +283,59 @@ export const UserMessageEditComposer: React.FC<UserMessageEditComposerProps> = (
   }
 
   return (
-    <div className="user-message-edit-composer" data-bf-component="user-message-edit-composer" data-bf-part="root" data-bf-mode="plain" data-bf-state={isSubmitting ? 'submitting' : undefined}>
-      <Textarea
-        data-bf-component="user-message-edit-composer"
-        data-bf-part="input"
+    <Composer
+      className="user-message-edit-composer"
+      data-openbitfun-product-component="user-message-edit-composer"
+      data-openbitfun-product-part="root"
+      data-openbitfun-mode="plain"
+      data-openbitfun-state={isSubmitting ? 'submitting' : undefined}
+      disabled={isSubmitting}
+      toolbar={(
+        <ComposerToolbar
+          className="user-message-edit-composer__actions"
+          data-openbitfun-product-component="user-message-edit-composer"
+          data-openbitfun-product-part="actions"
+          trailing={(
+            <>
+              <IconButton
+                aria-label={cancelLabel}
+                data-openbitfun-action="cancel"
+                data-openbitfun-product-component="user-message-edit-composer"
+                data-openbitfun-product-part="action"
+                icon={<Icon name="xmark" size="sm" />}
+                onClick={onCancel}
+                size="xs"
+                title={cancelLabel}
+                variant="quiet"
+              />
+              <IconButton
+                aria-busy={isSubmitting || undefined}
+                aria-label={submitLabel}
+                data-openbitfun-action="submit"
+                data-openbitfun-product-component="user-message-edit-composer"
+                data-openbitfun-product-part="action"
+                disabled={!canSubmit}
+                icon={isSubmitting ? (
+                  <Loader2
+                    className="user-message-edit-composer__spinner"
+                    data-openbitfun-product-component="user-message-edit-composer"
+                    data-openbitfun-product-part="spinner"
+                    size={14}
+                  />
+                ) : <Icon name="check-line" size="sm" />}
+                onClick={handleSubmit}
+                size="xs"
+                title={submitLabel}
+                variant="primary"
+              />
+            </>
+          )}
+        />
+      )}
+    >
+      <textarea
+        data-openbitfun-product-component="user-message-edit-composer"
+        data-openbitfun-product-part="input"
         ref={textareaRef}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -257,39 +343,10 @@ export const UserMessageEditComposer: React.FC<UserMessageEditComposerProps> = (
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
         placeholder={placeholder}
-        autoResize
         disabled={isSubmitting}
         className="user-message-edit-composer__textarea"
       />
-      <div className="user-message-edit-composer__actions" data-bf-component="user-message-edit-composer" data-bf-part="actions">
-        <button
-          data-bf-component="user-message-edit-composer"
-          data-bf-part="action"
-          data-bf-action="cancel"
-          type="button"
-          onClick={onCancel}
-          disabled={isSubmitting}
-          className="user-message-edit-composer__icon-button"
-          title={cancelLabel}
-          aria-label={cancelLabel}
-        >
-          <X size={14} />
-        </button>
-        <button
-          data-bf-component="user-message-edit-composer"
-          data-bf-part="action"
-          data-bf-action="submit"
-          type="button"
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          className="user-message-edit-composer__icon-button user-message-edit-composer__icon-button--confirm"
-          title={submitLabel}
-          aria-label={submitLabel}
-        >
-          {isSubmitting ? <Loader2 size={14} className="user-message-edit-composer__spinner" data-bf-component="user-message-edit-composer" data-bf-part="spinner" /> : <Check size={14} />}
-        </button>
-      </div>
-    </div>
+    </Composer>
   );
 };
 

@@ -5,7 +5,6 @@ export const welcomePanelAppearanceDescriptor: AppearanceSurfaceDescriptor = {
     { id: 'root', propertyProfile: 'layout', visualRole: 'workspace' },
     { id: 'content', visualRole: 'card' },
     { id: 'greeting', visualRole: 'content' },
-    { id: 'mascot', propertyProfile: 'paint', visualRole: 'decoration' },
     { id: 'heading', propertyProfile: 'paint', visualRole: 'content' },
     { id: 'tagline', propertyProfile: 'paint', visualRole: 'content' },
     { id: 'divider', propertyProfile: 'paint', visualRole: 'divider' },
@@ -21,6 +20,6 @@ export const welcomePanelAppearanceDescriptor: AppearanceSurfaceDescriptor = {
     { id: 'hover', selector: { kind: 'self', suffix: ':hover:not(:disabled)' } },
     { id: 'focusVisible', selector: { kind: 'self', suffix: ':focus-visible' } },
     { id: 'disabled', selector: { kind: 'self', suffix: ':disabled' } },
-    { id: 'open', selector: { kind: 'self', suffix: '[data-bf-state~="open"]' } },
+    { id: 'open', selector: { kind: 'self', suffix: '[data-openbitfun-state~="open"]' } },
   ],
 };

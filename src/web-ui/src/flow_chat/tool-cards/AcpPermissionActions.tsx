@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
-import { Check, ShieldCheck, ShieldX, X } from 'lucide-react';
+import { Button, IconButton, Tooltip, Icon } from '@openbitfun/ui';
+import { ShieldCheck, ShieldX } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { IconButton } from '../../component-library';
 import type { FlowToolItem, ToolRejectOptions } from '../types/flow-chat';
 import type { AcpPermissionOption } from '@/infrastructure/api/service-api/ACPClientAPI';
 import './AcpPermissionActions.scss';
@@ -19,7 +19,6 @@ interface AcpPermissionActionsProps {
   disabled?: boolean;
   presentation?: 'icon' | 'text';
   className?: string;
-  buttonClassName?: string;
   onConfirm?: (permissionOptionId?: string, approve?: boolean) => void;
   onReject?: (options?: ToolRejectOptions) => void;
 }
@@ -46,19 +45,15 @@ function fallbackLabel(kind: AcpPermissionOption['kind'], t: TFunction<'flow-cha
 function optionIcon(kind: AcpPermissionOption['kind']): React.ReactNode {
   switch (kind) {
     case 'allow_once':
-      return <Check size={12} />;
+      return <Icon name="check-line" size="xs" />;
     case 'allow_always':
       return <ShieldCheck size={12} />;
     case 'reject_always':
       return <ShieldX size={12} />;
     case 'reject_once':
     default:
-      return <X size={12} />;
+      return <Icon name="xmark" size="xs" />;
   }
-}
-
-function buttonVariant(kind: AcpPermissionOption['kind']): 'success' | 'danger' {
-  return isApprovalKind(kind) ? 'success' : 'danger';
 }
 
 export const AcpPermissionActions: React.FC<AcpPermissionActionsProps> = ({
@@ -66,7 +61,6 @@ export const AcpPermissionActions: React.FC<AcpPermissionActionsProps> = ({
   disabled = false,
   presentation = 'icon',
   className = '',
-  buttonClassName = '',
   onConfirm,
   onReject,
 }) => {
@@ -82,7 +76,7 @@ export const AcpPermissionActions: React.FC<AcpPermissionActionsProps> = ({
   }
 
   return (
-    <span data-bf-component="acp-permission-actions" data-bf-part="root" data-bf-presentation={presentation} className={`acp-permission-actions acp-permission-actions--${presentation} ${className}`}>
+    <span data-openbitfun-component="acp-permission-actions" data-openbitfun-part="root" data-openbitfun-presentation={presentation} className={`acp-permission-actions acp-permission-actions--${presentation} ${className}`}>
       {options.map((option) => {
         const approve = isApprovalKind(option.kind);
         const label = fallbackLabel(option.kind, t);
@@ -100,36 +94,39 @@ export const AcpPermissionActions: React.FC<AcpPermissionActionsProps> = ({
 
         if (presentation === 'text') {
           return (
-            <button data-bf-component="acp-permission-actions" data-bf-part="action" data-bf-decision={approve ? 'allow' : 'reject'}
+            <Button
               key={option.optionId}
               type="button"
-              className={`acp-permission-actions__text-button acp-permission-actions__text-button--${approve ? 'allow' : 'reject'} ${buttonClassName}`}
+              variant={approve ? 'fill' : 'outline'}
+              size="sm"
+              leadingIcon={optionIcon(option.kind)}
+              data-openbitfun-decision={approve ? 'allow' : 'reject'}
               onClick={handleClick}
               disabled={disabled}
               title={tooltip}
               aria-label={tooltip}
             >
               {label}
-            </button>
+            </Button>
           );
         }
 
         return (
-          <IconButton
-            key={option.optionId}
-            data-bf-component="acp-permission-actions"
-            data-bf-part="action"
-            data-bf-decision={approve ? 'allow' : 'reject'}
-            className={`tool-card-header-action acp-permission-actions__icon-button acp-permission-actions__icon-button--${option.kind} ${buttonClassName}`}
-            variant={buttonVariant(option.kind)}
-            size="xs"
-            onClick={handleClick}
-            disabled={disabled}
-            tooltip={tooltip}
-            aria-label={tooltip}
-          >
-            {optionIcon(option.kind)}
-          </IconButton>
+          <Tooltip key={option.optionId} content={tooltip}>
+            <IconButton
+              data-openbitfun-component="acp-permission-actions"
+              data-openbitfun-part="action"
+              data-openbitfun-decision={approve ? 'allow' : 'reject'}
+              className={`tool-card-header-action acp-permission-actions__icon-button acp-permission-actions__icon-button--${option.kind}`}
+              variant={approve ? 'primary' : 'fill'}
+              tone={approve ? 'neutral' : 'danger'}
+              size="xs"
+              onClick={handleClick}
+              disabled={disabled}
+              icon={optionIcon(option.kind)}
+              aria-label={tooltip}
+            />
+          </Tooltip>
         );
       })}
     </span>

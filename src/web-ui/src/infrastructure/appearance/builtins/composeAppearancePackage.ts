@@ -13,7 +13,7 @@ import {
   getBuiltinAppearance,
 } from './catalog';
 
-const COMPOSITION_LAYERS = Symbol('bitfun.appearance.composition-layers');
+const COMPOSITION_LAYERS = Symbol('openbitfun.appearance.composition-layers');
 
 interface AppearanceCompositionLayers {
   base: AppearancePackage;
@@ -104,7 +104,6 @@ function mergeGlobals(base: AppearanceGlobalTokens | undefined, override: Appear
     numbers: { ...(base?.numbers ?? {}), ...(override?.numbers ?? {}) },
     durations: { ...(base?.durations ?? {}), ...(override?.durations ?? {}) },
     easings: { ...(base?.easings ?? {}), ...(override?.easings ?? {}) },
-    fontFamilies: { ...(base?.fontFamilies ?? {}), ...(override?.fontFamilies ?? {}) },
     shadows: { ...(base?.shadows ?? {}), ...(override?.shadows ?? {}) },
   };
 }
@@ -114,17 +113,23 @@ function mergeRenderers(
   override: AppearanceRendererDefinitions | undefined,
 ): AppearanceRendererDefinitions {
   return {
-    'css-tokens': override?.['css-tokens'] ? {
+    'theme-tokens': override?.['theme-tokens'] ? {
       version: 1,
       settings: {
-        ...base?.['css-tokens']?.settings,
-        ...override['css-tokens'].settings,
+        ...base?.['theme-tokens']?.settings,
+        ...override['theme-tokens'].settings,
         tokens: {
-          ...(base?.['css-tokens']?.settings.tokens ?? {}),
-          ...override['css-tokens'].settings.tokens,
+          ...(base?.['theme-tokens']?.settings.tokens ?? {}),
+          ...override['theme-tokens'].settings.tokens,
+        },
+        scopes: {
+          chrome: {
+            ...(base?.['theme-tokens']?.settings.scopes?.chrome ?? {}),
+            ...(override['theme-tokens'].settings.scopes?.chrome ?? {}),
+          },
         },
       },
-    } : base?.['css-tokens'],
+    } : base?.['theme-tokens'],
     monaco: override?.monaco ? {
       version: 1,
       settings: {
@@ -169,10 +174,10 @@ function mergeRenderers(
         },
       },
     } : base?.['generative-widget'],
-    'bitfun-canvas': override?.['bitfun-canvas'] ? {
+    'openbitfun-canvas': override?.['openbitfun-canvas'] ? {
       version: 1,
-      settings: { ...base?.['bitfun-canvas']?.settings, ...override['bitfun-canvas'].settings },
-    } : base?.['bitfun-canvas'],
+      settings: { ...base?.['openbitfun-canvas']?.settings, ...override['openbitfun-canvas'].settings },
+    } : base?.['openbitfun-canvas'],
   };
 }
 

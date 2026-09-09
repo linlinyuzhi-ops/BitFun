@@ -1,6 +1,7 @@
 use crate::service::snapshot::types::{SnapshotError, SnapshotResult};
-use crate::service::workspace_runtime::WorkspaceRuntimeContext;
+use crate::service::workspace_runtime::{WorkspaceRuntimeContext, WorkspaceRuntimeTarget};
 use log::info;
+use openbitfun_runtime_ports::{WorkspaceFileSystem, WorkspacePathKind};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -46,11 +47,18 @@ impl IsolationManager {
 
     /// Verifies no Git operations are impacted.
     async fn verify_no_git_operations(&self) -> SnapshotResult<()> {
-        let git_dir = self.workspace_dir.join(".git");
-        if git_dir.exists() && self.runtime_context.runtime_root.starts_with(&git_dir) {
-            return Err(SnapshotError::GitIsolationFailure(
-                "Snapshot runtime directory should not be inside .git directory".to_string(),
-            ));
+        // Remote workspace paths and the controller's metadata directories are
+        // different filesystems, even when their textual paths happen to match.
+        if matches!(
+            self.runtime_context.target,
+            WorkspaceRuntimeTarget::LocalWorkspace { .. }
+        ) {
+            let git_dir = self.workspace_dir.join(".git");
+            if git_dir.exists() && self.runtime_context.runtime_root.starts_with(&git_dir) {
+                return Err(SnapshotError::GitIsolationFailure(
+                    "Snapshot runtime directory should not be inside .git directory".to_string(),
+                ));
+            }
         }
 
         self.verify_isolation_integrity().await?;
@@ -72,7 +80,7 @@ impl IsolationManager {
                 .any(|&forbidden| file_name_str.starts_with(forbidden))
             {
                 return Err(SnapshotError::GitIsolationFailure(format!(
-                    "Found Git-related file in .bitfun directory: {}",
+                    "Found Git-related file in .openbitfun directory: {}",
                     file_name_str
                 )));
             }
@@ -126,7 +134,7 @@ impl IsolationManager {
     }
 
     /// Returns the snapshot runtime directory path.
-    pub fn get_bitfun_dir(&self) -> &Path {
+    pub fn get_openbitfun_dir(&self) -> &Path {
         &self.runtime_context.runtime_root
     }
 
@@ -142,6 +150,14 @@ impl IsolationManager {
 
     /// Validates that a file path is safe (does not impact Git).
     pub fn is_path_safe_for_modification(&self, path: &Path) -> bool {
+        if matches!(
+            self.runtime_context.target,
+            WorkspaceRuntimeTarget::RemoteWorkspaceMirror { .. }
+        ) {
+            // Remote validation needs provider metadata; never canonicalize on
+            // the controller when a caller uses the synchronous legacy entry.
+            return false;
+        }
         let git_dir = self.workspace_dir.join(".git");
         if path_starts_with_scope(path, &git_dir)
             || path_starts_with_scope(path, &self.runtime_context.runtime_root)
@@ -165,6 +181,82 @@ impl IsolationManager {
         path_starts_with_scope(&path, &workspace_dir)
             && !path_starts_with_scope(&path, &git_dir)
             && !path_starts_with_scope(&path, &runtime_root)
+    }
+
+    pub(crate) async fn validate_workspace_path(
+        &self,
+        path: &Path,
+        workspace_fs: &dyn WorkspaceFileSystem,
+    ) -> SnapshotResult<()> {
+        let WorkspaceRuntimeTarget::RemoteWorkspaceMirror { remote_root, .. } =
+            &self.runtime_context.target
+        else {
+            return if self.is_path_safe_for_modification(path) {
+                Ok(())
+            } else {
+                Err(SnapshotError::GitIsolationFailure(format!(
+                    "File path is outside the snapshot workspace scope: {}",
+                    path.display()
+                )))
+            };
+        };
+        let path = path.to_str().ok_or_else(|| {
+            SnapshotError::ConfigError("Remote snapshot paths must be UTF-8".into())
+        })?;
+        let root = remote_root.trim_end_matches('/');
+        let relative = path
+            .strip_prefix(root)
+            .and_then(|suffix| suffix.strip_prefix('/'));
+        let Some(relative) = relative.filter(|suffix| !suffix.is_empty()) else {
+            return Err(SnapshotError::GitIsolationFailure(format!(
+                "Remote snapshot path is outside the bound workspace: {path}"
+            )));
+        };
+        if !path.starts_with('/')
+            || path.contains('\0')
+            || relative
+                .split('/')
+                .any(|part| matches!(part, "" | "." | ".." | ".git"))
+        {
+            return Err(SnapshotError::GitIsolationFailure(format!(
+                "Unsafe remote snapshot path: {path}"
+            )));
+        }
+
+        // Without a provider canonicalize/no-follow-open capability, following
+        // a symlink could snapshot or overwrite files outside the bound root.
+        // Reject it explicitly rather than consulting the controller's disk.
+        let mut current = if root.is_empty() {
+            "/".to_string()
+        } else {
+            root.to_string()
+        };
+        let mut components = relative.split('/').peekable();
+        loop {
+            match workspace_fs.metadata(&current, false).await? {
+                Some(metadata)
+                    if metadata.kind == WorkspacePathKind::Symlink
+                        || metadata.kind == WorkspacePathKind::Other =>
+                {
+                    return Err(SnapshotError::GitIsolationFailure(format!("Remote snapshot paths cannot traverse symbolic links or special files: {current}")));
+                }
+                Some(metadata)
+                    if components.peek().is_some()
+                        && metadata.kind != WorkspacePathKind::Directory =>
+                {
+                    return Err(SnapshotError::GitIsolationFailure(format!(
+                        "Remote snapshot ancestor is not a directory: {current}"
+                    )));
+                }
+                None => break,
+                _ => {}
+            }
+            let Some(component) = components.next() else {
+                break;
+            };
+            current = workspace_fs.join_path(&current, &[component]);
+        }
+        Ok(())
     }
 
     /// Returns a path relative to the workspace directory.
@@ -256,7 +348,7 @@ mod tests {
         let alias = aliased_workspace(workspace.path());
         let file = workspace.path().join("tracked.txt");
         std::fs::write(&file, "tracked").expect("tracked file");
-        let manager = manager(workspace_root, workspace.path().join(".bitfun"));
+        let manager = manager(workspace_root, workspace.path().join(".openbitfun"));
 
         assert!(manager.is_path_safe_for_modification(&alias.join("tracked.txt")));
     }
@@ -266,7 +358,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("workspace");
         let workspace_root = dunce::canonicalize(workspace.path()).expect("canonical workspace");
         let alias = aliased_workspace(workspace.path());
-        let manager = manager(workspace_root, workspace.path().join(".bitfun"));
+        let manager = manager(workspace_root, workspace.path().join(".openbitfun"));
 
         assert!(manager.is_path_safe_for_modification(&alias.join("new/deep/file.txt")));
     }
@@ -276,7 +368,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("workspace");
         let workspace_root = dunce::canonicalize(workspace.path()).expect("canonical workspace");
         let alias = aliased_workspace(workspace.path());
-        let runtime_root = alias.join(".bitfun");
+        let runtime_root = alias.join(".openbitfun");
         std::fs::create_dir_all(&runtime_root).expect("runtime root");
         let manager = manager(workspace_root, runtime_root.clone());
 
@@ -288,7 +380,7 @@ mod tests {
     fn rejects_case_variant_missing_git_directory() {
         let workspace = tempfile::tempdir().expect("workspace");
         let workspace_root = dunce::canonicalize(workspace.path()).expect("canonical workspace");
-        let manager = manager(workspace_root, workspace.path().join(".bitfun"));
+        let manager = manager(workspace_root, workspace.path().join(".openbitfun"));
 
         assert!(!manager.is_path_safe_for_modification(&workspace.path().join(".GIT/config")));
     }
@@ -304,7 +396,7 @@ mod tests {
         std::fs::write(metadata.join("config"), "config").expect("git config");
         symlink(&metadata, workspace.path().join(".git")).expect("git symlink");
         let workspace_root = dunce::canonicalize(workspace.path()).expect("canonical workspace");
-        let manager = manager(workspace_root, workspace.path().join(".bitfun"));
+        let manager = manager(workspace_root, workspace.path().join(".openbitfun"));
 
         assert!(!manager.is_path_safe_for_modification(&workspace.path().join(".git/config")));
     }
@@ -319,7 +411,7 @@ mod tests {
         std::fs::write(outside.path().join("outside.txt"), "outside").expect("outside file");
         symlink(outside.path(), workspace.path().join("escape")).expect("escape symlink");
         let workspace_root = dunce::canonicalize(workspace.path()).expect("canonical workspace");
-        let manager = manager(workspace_root, workspace.path().join(".bitfun"));
+        let manager = manager(workspace_root, workspace.path().join(".openbitfun"));
 
         assert!(
             !manager.is_path_safe_for_modification(&workspace.path().join("escape/outside.txt"))

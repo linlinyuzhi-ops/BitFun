@@ -18,6 +18,8 @@ export interface CreateSessionRequest {
   sessionId?: string;
   name?: string;
   shellType?: ShellType | string;
+  /** Stable identifier for an exact discovered shell executable. */
+  shellId?: string;
   workingDirectory?: string;
   /** Open a remote PTY on this SSH connection without a registered workspace. */
   connectionId?: string;
@@ -32,6 +34,8 @@ export interface SessionResponse {
   name: string;
   shellType: string;
   cwd: string;
+  /** Immutable creation directory; omitted by older hosts. */
+  initialCwd?: string;
   pid?: number;
   status: SessionStatus | string;
   cols: number;
@@ -42,7 +46,7 @@ export interface SessionResponse {
 
 export interface ShellInfo {
   /** Stable identifier for a discovered executable. */
-  id?: string;
+  id: string;
   shellType: string;
   name: string;
   path: string;
@@ -183,4 +187,3 @@ export type TerminalEvent =
 export type TerminalEventCallback = (event: TerminalEvent) => void;
 
 export type UnsubscribeFunction = () => void;
-

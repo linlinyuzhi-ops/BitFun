@@ -2,7 +2,7 @@
 
 [English](./CONTRIBUTING.md)
 
-感谢你对 BitFun 的兴趣！BitFun 是一个由 Rust 与 TypeScript 驱动的多端 AI 编程环境，桌面端/CLI/Server 共享核心逻辑。本指南说明如何高效参与贡献。
+感谢你对 OpenBitFun 的兴趣！OpenBitFun 是一个由 Rust 与 TypeScript 驱动的多端 AI 编程环境，桌面端/CLI/Server 共享核心逻辑。本指南说明如何高效参与贡献。
 
 ## 行为准则
 
@@ -17,14 +17,14 @@
 - Rust toolchain（通过 rustup 安装）
 - 桌面端开发需准备 Tauri 依赖
 
-BitFun 将本地 JavaScript 构建和 CI 统一到 Node.js 22.12+。仓库里的
+OpenBitFun 将本地 JavaScript 构建和 CI 统一到 Node.js 22.12+。仓库里的
 GitHub Actions 升级使用的是兼容 Node.js 24 的 action runtime，但项目脚本
 默认仍以 Node.js 22.12+ 为基线，除非局部指南另有说明。从旧 Node.js 版本切换
 后，请重新运行 `pnpm install`。
 
 #### 构建前置检查
 
-当 `cargo check --workspace`、`cargo check -p bitfun-desktop` 或 pnpm 构建
+当 `cargo check --workspace`、`cargo check -p openbitfun-desktop` 或 pnpm 构建
 命令报出难以理解的错误（如 "resource path doesn't exist" 或 sherpa-onnx
 下载失败）时，运行前置检查以识别缺失的依赖并获取可操作的修复命令：
 
@@ -37,8 +37,8 @@ pnpm run check:build-prereqs -- --fix  # 尝试自动修复缺失的前置依赖
 
 - 缺少 `node_modules`（修复：`pnpm install`）
 - 缺少 `src/mobile-web/dist`（修复：`pnpm run prepare:mobile-web` —
-  bitfun-desktop 的 Tauri 构建脚本将该目录作为资源引用，缺失时
-  `cargo check -p bitfun-desktop` 和 `cargo check --workspace` 会失败）
+  openbitfun-desktop 的 Tauri 构建脚本将该目录作为资源引用，缺失时
+  `cargo check -p openbitfun-desktop` 和 `cargo check --workspace` 会失败）
 - 缺少 sherpa-onnx 预编译库（sherpa-onnx-sys 构建脚本会在构建时从
   GitHub 下载；若网络连通性差导致下载失败，设置
   `SHERPA_ONNX_LIB_DIR` 指向 `target/sherpa-onnx-prebuilt/` 下的预编译
@@ -74,7 +74,7 @@ pnpm run e2e:test
 ### 桌面端调试工具
 
 桌面端 dev 构建会启用 `devtools` Cargo feature。`F12` 打开原生 webview
-DevTools；`Cmd/Ctrl + Shift + I` 切换 BitFun 元素检查器，`Cmd/Ctrl + Shift + J`
+DevTools；`Cmd/Ctrl + Shift + I` 切换 OpenBitFun 元素检查器，`Cmd/Ctrl + Shift + J`
 也可以打开原生 DevTools。面向最终用户的 `release` 构建不会启用这些工具。
 
 ## 代码规范与架构约束
@@ -95,7 +95,7 @@ DevTools；`Cmd/Ctrl + Shift + I` 切换 BitFun 元素检查器，`Cmd/Ctrl + Sh
    > 欢迎产品经理、UI 设计师通过 PI 快速提交创意，我们会帮助完善开发
 2. 优化 Agent 系统和效果
 3. 对提升系统稳定性和完善基础能力
-4. 扩展生态（Skills、MCP、LSP 插件，或者对某些垂域开发场景的更好支持）
+4. 扩展生态（Skills、MCP，或者对某些垂域开发场景的更好支持）
 
 ## 贡献流程与 PR 约定
 
@@ -108,7 +108,7 @@ DevTools；`Cmd/Ctrl + Shift + I` 切换 BitFun 元素检查器，`Cmd/Ctrl + Sh
 | Prompts | `src/crates/assembly/core/src/agentic/agents/prompts/` | 新增或优化提示词，并按需更新相关逻辑 |
 | Tools | `src/crates/assembly/core/src/agentic/tools/implementations/`、`src/crates/assembly/core/src/agentic/tools/registry.rs` | 新增工具实现，并在工具注册表中注册 |
 | Subagents | `src/crates/assembly/core/src/agentic/agents/custom_subagents/`、`src/crates/assembly/core/src/agentic/agents/registry.rs` | 新增子代理实现，并在子代理注册表中注册 |
-| 模式贡献 | `src/crates/assembly/core/src/agentic/agents/*_mode.rs`、`src/crates/assembly/core/src/agentic/agents/prompts/*_mode.md`、`src/web-ui/src/locales/*/settings/modes.json` | 新增/优化 Agent 模式（例如 Plan/Debug/Agentic 或自定义模式）的逻辑与提示词，并同步前端模式文案 |
+| 模式贡献 | `src/crates/assembly/core/src/agentic/agents/*_mode.rs`、`src/crates/assembly/core/src/agentic/agents/prompts/*_mode.md`、`src/web-ui/src/locales/*/settings/modes.json` | 新增/优化 Agentic 或自定义 Agent 模式的逻辑与提示词，并同步前端模式文案 |
 | Code Agent 与 AIIde 场景指南 | `website/src/docs/` | 补充流程、playbook 与真实场景说明（或从 `README.md` 链接） |
 
 ### 开始前
@@ -134,6 +134,13 @@ UI 改动请附前后对比截图或短录屏，方便快速评审。
 
 不要提交临时 AI prompt、本地绝对路径、生成的草稿文件、配对密钥、token、证书或无关产物。PR 应聚焦于本次产品或维护改动。
 
+Repository Object Sizes 检查会拒绝超过 5 MiB 的 Git 文件对象，包括在中间提交中加入、
+最终又删除的文件。构建产物应放在 Git 仓库之外。现有内置中文字体在
+`scripts/git-object-size-policy.json` 中按精确对象 ID 列出例外，修改例外需要审查。
+提交前可运行 `node scripts/check-git-object-sizes.mjs --base origin/main --head HEAD`，
+省略 `--base` 则检查全部可达历史。检查器的验证命令为
+`node --test scripts/check-git-object-sizes.test.mjs`。
+
 ### 分支管理
 
 **`main` 分支为默认协作分支，并接受特性 PR。** 本仓库欢迎产品经理、开发者使用 AI 生成代码进行快速验证或提交想法，因此 **所有 PR 请直接提交到 `main` 分支**。
@@ -152,13 +159,16 @@ UI 改动请附前后对比截图或短录屏，方便快速评审。
 | 改动类型 | 常用验证 |
 | --- | --- |
 | 仓库元信息或 GitHub 配置 | `pnpm run check:repo-hygiene && pnpm run check:github-config && git diff --check` |
-| 前端运行时或 UI | `pnpm run type-check:web`；行为变化时再加最近的 focused test |
+| 前端运行时或 UI | `pnpm run check:web`；行为变化时再加最近的 focused test |
 | Mobile web | `pnpm --dir src/mobile-web run type-check` |
 | Rust 共享 runtime 或 services | `cargo check --workspace`；行为变化时再加 focused `cargo test` |
-| Desktop/Tauri 集成 | `cargo check -p bitfun-desktop` |
+| Desktop/Tauri 集成 | `cargo check -p openbitfun-desktop` |
 | i18n 资源或契约 | 使用 `AGENTS.md` 中匹配的 i18n 验证行 |
 
 UI 改动在有帮助时附截图或短录屏。无法运行相关检查时，在 PR 中说明原因，并提供风险更低的手动验证路径。
+
+`pnpm run check:web` 会组合执行 Web UI 类型检查，以及 CI 针对前端改动运行的 Appearance contract、
+主题颜色和主题视觉治理门禁。
 
 ## 安全与合规
 

@@ -34,7 +34,15 @@ struct ClaudeModelVersion {
 /// (ANTHROPIC_AUTH_TOKEN) instead of `x-api-key`: Zhipu bigmodel.cn / Z.AI,
 /// Moonshot's /anthropic gateway, and Kimi For Coding.
 fn wants_bearer_auth(url: &str) -> bool {
-    url.contains("bigmodel.cn")
+    // Nous Portal uses the same OAuth bearer for its Messages and model-list
+    // endpoints. Do not send that subscription token as an Anthropic API key.
+    let nous_portal = reqwest::Url::parse(url).ok().is_some_and(|url| {
+        url.scheme() == "https"
+            && url.host_str() == Some("inference-api.nousresearch.com")
+            && url.port_or_known_default() == Some(443)
+    });
+    nous_portal
+        || url.contains("bigmodel.cn")
         || url.contains("api.z.ai")
         || url.contains("api.kimi.com/coding")
         || ((url.contains("api.moonshot.cn") || url.contains("api.moonshot.ai"))
@@ -63,7 +71,7 @@ pub(crate) fn apply_headers(
         }
 
         if url.contains("openbitfun.com") {
-            builder = builder.header("X-Verification-Code", "from_bitfun");
+            builder = builder.header("X-Verification-Code", "from_openbitfun");
         }
 
         builder
@@ -141,6 +149,36 @@ fn compile_reasoning_action(
         .unwrap_or(configured_model)
         .trim()
         .to_ascii_lowercase();
+    let is_generic_reasoning = shared::is_generic_reasoning_preset(preset);
+
+    if is_generic_reasoning {
+        return match action {
+            ReasoningPresetAction::Effort { value } => {
+                let normalized =
+                    shared::normalize_generic_reasoning_effort(value).ok_or_else(|| {
+                        anyhow!("Generic reasoning effort '{}' is unsupported", value)
+                    })?;
+                apply_anthropic_adaptive_reasoning(request_body, Some(normalized));
+                Ok(true)
+            }
+            ReasoningPresetAction::Toggle { enabled: true } => {
+                apply_anthropic_adaptive_reasoning(request_body, None);
+                Ok(true)
+            }
+            ReasoningPresetAction::Toggle { enabled: false } => {
+                request_body["thinking"] = serde_json::json!({ "type": "disabled" });
+                request_body
+                    .as_object_mut()
+                    .map(|body| body.remove("output_config"));
+                Ok(true)
+            }
+            ReasoningPresetAction::BudgetTokens { .. } => Ok(false),
+            ReasoningPresetAction::RequestPatch { .. } => {
+                unreachable!("patches are compiled by shared code")
+            }
+        };
+    }
+
     let is_deepseek_reasoning_target = execution_provider.eq_ignore_ascii_case("deepseek")
         || is_deepseek_url(url)
         || is_deepseek_reasoning_effort_model(&execution_model);
@@ -464,6 +502,7 @@ pub(crate) async fn send_stream(
     request_context: Option<ModelRequestContext>,
 ) -> Result<StreamResponse> {
     let url = client.config.request_url.clone();
+    let request_context = shared::prepare_request_context(client, request_context);
     debug!(
         "Anthropic config: model={}, request_url={}, max_tries={}",
         client.config.model, client.config.request_url, max_tries
@@ -522,6 +561,8 @@ mod tests {
     fn bearer_auth_matches_each_gateway_documented_scheme() {
         // Vendors that document ANTHROPIC_AUTH_TOKEN for their Claude-compatible gateway.
         for url in [
+            "https://inference-api.nousresearch.com/v1/messages",
+            "https://inference-api.nousresearch.com/v1/models",
             "https://open.bigmodel.cn/api/anthropic/v1/messages",
             "https://api.z.ai/api/anthropic/v1/messages",
             "https://api.kimi.com/coding/v1/messages",
@@ -537,6 +578,8 @@ mod tests {
         // These document ANTHROPIC_API_KEY (x-api-key) instead, so they must stay on the
         // default branch even though their paths look similar.
         for url in [
+            "https://inference-api.nousresearch.com.evil.test/v1/messages",
+            "http://inference-api.nousresearch.com/v1/messages",
             "https://api.deepseek.com/anthropic/v1/messages",
             "https://api.minimaxi.com/anthropic/v1/messages",
             "https://api.minimax.io/anthropic/v1/messages",

@@ -4,9 +4,9 @@ use crate::agentic::agents::{get_agent_registry, AgentToolPolicyOverrides};
 use crate::agentic::tools::framework::{Tool, ToolExposure, ToolResult};
 use crate::agentic::tools::registry::{get_global_tool_registry, ToolRef};
 use crate::agentic::tools::tool_context_runtime::ToolUseContext;
-use crate::util::errors::{BitFunError, BitFunResult};
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use crate::util::types::ToolDefinition;
-use bitfun_agent_tools::{
+use openbitfun_agent_tools::{
     resolve_contextual_tool_manifest, resolve_contextual_visible_tools, ContextualToolManifest,
     ContextualVisibleTools, DynamicToolInfo,
     GetToolSpecCatalogProvider, GetToolSpecDeferredToolSummary,
@@ -237,9 +237,9 @@ impl ProductToolCatalogProvider {
     async fn contextual_deferred_tools(
         &self,
         context: &ToolUseContext,
-    ) -> BitFunResult<Vec<ToolRef>> {
+    ) -> OpenBitFunResult<Vec<ToolRef>> {
         let agent_type = context.agent_type.as_deref().ok_or_else(|| {
-            BitFunError::Validation("GetToolSpec requires agent type context".to_string())
+            OpenBitFunError::Validation("GetToolSpec requires agent type context".to_string())
         })?;
         let workspace_root = context.workspace_root();
         let agent_registry = get_agent_registry();
@@ -259,9 +259,9 @@ impl ProductToolCatalogProvider {
     async fn contextual_available_tools(
         &self,
         context: &ToolUseContext,
-    ) -> BitFunResult<Vec<ToolRef>> {
+    ) -> OpenBitFunResult<Vec<ToolRef>> {
         let agent_type = context.agent_type.as_deref().ok_or_else(|| {
-            BitFunError::Validation("GetToolSpec requires agent type context".to_string())
+            OpenBitFunError::Validation("GetToolSpec requires agent type context".to_string())
         })?;
         let workspace_root = context.workspace_root();
         let agent_registry = get_agent_registry();
@@ -298,12 +298,14 @@ pub(crate) async fn resolve_product_visible_tools(
     exposure_overrides: &AgentToolPolicyOverrides,
     context: &ToolUseContext,
 ) -> ContextualVisibleTools<dyn Tool> {
-    let (allowed_tools, exposure_overrides) = ProductToolCatalogProvider::resolve_manifest_inputs(
-        allowed_tools,
-        exposure_overrides,
-        context,
-    );
+    let (mut allowed_tools, exposure_overrides) =
+        ProductToolCatalogProvider::resolve_manifest_inputs(
+            allowed_tools,
+            exposure_overrides,
+            context,
+        );
     let tool_snapshot = contextual_tool_snapshot(context).await;
+    append_selected_plugin_tool_names(&mut allowed_tools, &tool_snapshot, context).await;
     resolve_contextual_visible_tools(
         &tool_snapshot,
         &allowed_tools,
@@ -319,12 +321,14 @@ pub(crate) async fn resolve_product_tool_manifest(
     exposure_overrides: &AgentToolPolicyOverrides,
     context: &ToolUseContext,
 ) -> ContextualToolManifest<dyn Tool> {
-    let (allowed_tools, exposure_overrides) = ProductToolCatalogProvider::resolve_manifest_inputs(
-        allowed_tools,
-        exposure_overrides,
-        context,
-    );
+    let (mut allowed_tools, exposure_overrides) =
+        ProductToolCatalogProvider::resolve_manifest_inputs(
+            allowed_tools,
+            exposure_overrides,
+            context,
+        );
     let tool_snapshot = contextual_tool_snapshot(context).await;
+    append_selected_plugin_tool_names(&mut allowed_tools, &tool_snapshot, context).await;
     resolve_contextual_tool_manifest(
         &tool_snapshot,
         &allowed_tools,
@@ -333,6 +337,29 @@ pub(crate) async fn resolve_product_tool_manifest(
         GET_TOOL_SPEC_TOOL_NAME,
     )
     .await
+}
+
+async fn append_selected_plugin_tool_names(
+    allowed_tools: &mut Vec<String>,
+    tool_snapshot: &[ToolRef],
+    context: &ToolUseContext,
+) {
+    #[cfg(feature = "opencode-plugin-host")]
+    if !context.is_remote() {
+        for tool in tool_snapshot {
+            let name = tool.name();
+            if tool.dynamic_provider_id() != Some("opencode-plugin")
+                || !context.runtime_tool_restrictions.is_tool_allowed(name)
+                || allowed_tools.iter().any(|allowed| allowed == name)
+                || !tool.is_available_in_context(Some(context)).await
+            {
+                continue;
+            }
+            allowed_tools.push(name.to_string());
+        }
+    }
+    #[cfg(not(feature = "opencode-plugin-host"))]
+    let _ = (allowed_tools, tool_snapshot, context);
 }
 
 async fn contextual_tool_snapshot(context: &ToolUseContext) -> Vec<ToolRef> {
@@ -346,14 +373,10 @@ async fn contextual_tool_snapshot(context: &ToolUseContext) -> Vec<ToolRef> {
         }
         let registry = get_global_tool_registry();
         let tools = registry.read().await.get_all_tools();
-        let route_root = crate::external_tools::external_tool_route_root(
-            context.workspace_root(),
-            context.is_remote(),
-        );
         return tools
             .into_iter()
             .filter_map(|tool| {
-                crate::external_tools::resolve_external_tool_for_workspace(tool, route_root)
+                crate::external_tools::resolve_external_tool_for_context(tool, context)
             })
             .collect();
     }
@@ -409,21 +432,21 @@ pub(crate) async fn resolve_product_get_tool_spec_results(
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_product_get_tool_spec_results, resolve_product_readonly_enabled_tools,
-        resolve_product_resolved_tool_manifest, resolve_product_resolved_visible_tools,
-        resolve_product_tool_manifest, ProductToolCatalogProvider,
-        DEFERRED_TOOL_LOADING_CONTEXT_KEY,
+        append_selected_plugin_tool_names, resolve_product_get_tool_spec_results,
+        resolve_product_readonly_enabled_tools, resolve_product_resolved_tool_manifest,
+        resolve_product_resolved_visible_tools, resolve_product_tool_manifest,
+        ProductToolCatalogProvider, DEFERRED_TOOL_LOADING_CONTEXT_KEY,
     };
     use crate::agentic::agents::AgentToolPolicyOverrides;
     use crate::agentic::tools::framework::{
         DynamicMcpToolInfo, DynamicToolInfo, Tool, ToolExposure, ToolResult,
     };
-    use crate::agentic::tools::registry::create_tool_registry;
+    use crate::agentic::tools::registry::{create_tool_registry, ToolRef};
     use crate::agentic::tools::tool_context_runtime::ToolUseContext;
     use crate::agentic::tools::ToolRuntimeRestrictions;
     #[cfg(feature = "external-sources")]
     use crate::agentic::WorkspaceBinding;
-    use bitfun_agent_tools::{
+    use openbitfun_agent_tools::{
         GetToolSpecCatalogProvider, ToolCatalogSnapshotProvider, CALL_DEFERRED_TOOL_NAME,
         GET_TOOL_SPEC_TOOL_NAME,
     };
@@ -435,13 +458,49 @@ mod tests {
 
     struct DeferredMcpCatalogTool;
 
+    struct SelectedCatalogTool {
+        name: &'static str,
+        provider: Option<&'static str>,
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for SelectedCatalogTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        async fn description(&self) -> crate::util::errors::OpenBitFunResult<String> {
+            Ok(self.name.to_string())
+        }
+
+        fn short_description(&self) -> String {
+            self.name.to_string()
+        }
+
+        fn input_schema(&self) -> Value {
+            json!({"type": "object"})
+        }
+
+        fn dynamic_provider_id(&self) -> Option<&str> {
+            self.provider
+        }
+
+        async fn call_impl(
+            &self,
+            _input: &Value,
+            _context: &ToolUseContext,
+        ) -> crate::util::errors::OpenBitFunResult<Vec<ToolResult>> {
+            Ok(Vec::new())
+        }
+    }
+
     #[async_trait::async_trait]
     impl Tool for DeferredMcpCatalogTool {
         fn name(&self) -> &str {
             "mcp__github__search_repos"
         }
 
-        async fn description(&self) -> crate::util::errors::BitFunResult<String> {
+        async fn description(&self) -> crate::util::errors::OpenBitFunResult<String> {
             Ok("Search GitHub repositories".to_string())
         }
 
@@ -479,7 +538,7 @@ mod tests {
             &self,
             _input: &serde_json::Value,
             _context: &ToolUseContext,
-        ) -> crate::util::errors::BitFunResult<Vec<ToolResult>> {
+        ) -> crate::util::errors::OpenBitFunResult<Vec<ToolResult>> {
             Ok(Vec::new())
         }
     }
@@ -496,7 +555,7 @@ mod tests {
             custom_data: HashMap::new(),
             computer_use_host: None,
             runtime_tool_restrictions: ToolRuntimeRestrictions::default(),
-            runtime_handles: bitfun_runtime_ports::ToolRuntimeHandles::default(),
+            runtime_handles: openbitfun_runtime_ports::ToolRuntimeHandles::default(),
         }
     }
 
@@ -509,6 +568,32 @@ mod tests {
 
     fn context_without_agent_type() -> ToolUseContext {
         tool_context(None)
+    }
+
+    #[cfg(feature = "opencode-plugin-host")]
+    #[tokio::test]
+    async fn selected_plugin_tools_extend_manifest_inputs_without_unlocking_colliding_builtins() {
+        let selected: Vec<ToolRef> = vec![
+            Arc::new(SelectedCatalogTool {
+                name: "shadowed_builtin",
+                provider: None,
+            }),
+            Arc::new(SelectedCatalogTool {
+                name: "plugin_only",
+                provider: Some("opencode-plugin"),
+            }),
+        ];
+        let mut allowed_tools = vec!["Read".to_string()];
+
+        append_selected_plugin_tool_names(
+            &mut allowed_tools,
+            &selected,
+            &tool_context(Some("Agentic")),
+        )
+        .await;
+
+        assert!(allowed_tools.iter().any(|name| name == "plugin_only"));
+        assert!(!allowed_tools.iter().any(|name| name == "shadowed_builtin"));
     }
 
     #[cfg(feature = "external-sources")]
@@ -729,7 +814,7 @@ mod tests {
             Arc::new(DeferredMcpCatalogTool) as Arc<dyn Tool>,
         ];
         let context = tool_context(Some("agentic"));
-        let manifest = bitfun_agent_tools::resolve_contextual_tool_manifest(
+        let manifest = openbitfun_agent_tools::resolve_contextual_tool_manifest(
             &tool_snapshot,
             &["mcp__github__search_repos".to_string()],
             &AgentToolPolicyOverrides::default(),
@@ -751,7 +836,7 @@ mod tests {
             vec![GET_TOOL_SPEC_TOOL_NAME, "CallDeferredTool"]
         );
 
-        let detail = bitfun_agent_tools::resolve_get_tool_spec_detail(
+        let detail = openbitfun_agent_tools::resolve_get_tool_spec_detail(
             &manifest.deferred_tools,
             "mcp__github__search_repos",
             &context,
@@ -815,7 +900,7 @@ mod tests {
                 &AgentToolPolicyOverrides::default(),
                 &context,
             );
-        let manifest = bitfun_agent_tools::resolve_contextual_tool_manifest(
+        let manifest = openbitfun_agent_tools::resolve_contextual_tool_manifest(
             &tool_snapshot,
             &allowed_tools,
             &exposure_overrides,
@@ -945,7 +1030,7 @@ mod tests {
 
     #[cfg(feature = "product-full")]
     #[tokio::test]
-    async fn product_agentic_manifest_exposes_default_product_tools() {
+    async fn product_agentic_manifest_keeps_canvas_tools_opt_in() {
         let policy = crate::agentic::agents::get_agent_registry()
             .get_agent_tool_policy("agentic", None)
             .await;
@@ -956,22 +1041,29 @@ mod tests {
         )
         .await;
 
-        assert!(manifest
+        assert!(!manifest
             .allowed_tool_names
             .contains(&"CreateCanvas".to_string()));
-        assert!(manifest
+        assert!(!manifest
             .allowed_tool_names
             .contains(&"PatchCanvas".to_string()));
         assert!(manifest
             .allowed_tool_names
             .contains(&"ReviewPlatform".to_string()));
         assert!(manifest
+            .allowed_tool_names
+            .contains(&"OpenBitFunControl".to_string()));
+        assert!(manifest
             .deferred_tool_names
             .contains(&"ReviewPlatform".to_string()));
-        assert!(manifest
+        assert!(!manifest
             .tool_definitions
             .iter()
             .any(|tool| tool.name == "CreateCanvas"));
+        assert!(manifest
+            .tool_definitions
+            .iter()
+            .any(|tool| tool.name == "OpenBitFunControl"));
     }
 
     #[tokio::test]
@@ -1107,13 +1199,19 @@ mod tests {
             "Read".to_string(),
             "WebFetch".to_string(),
             "GetFileDiff".to_string(),
-            "Git".to_string(),
+            "Worktree".to_string(),
         ];
+
+        let mut context = tool_context(Some("test-agent"));
+        context.workspace = Some(crate::agentic::WorkspaceBinding::new(
+            None,
+            std::env::current_dir().expect("absolute test workspace root"),
+        ));
 
         let manifest = resolve_product_resolved_tool_manifest(
             &allowed_tools,
             &AgentToolPolicyOverrides::default(),
-            &tool_context(Some("test-agent")),
+            &context,
         )
         .await;
 
@@ -1123,7 +1221,7 @@ mod tests {
                 "Read".to_string(),
                 "WebFetch".to_string(),
                 "GetFileDiff".to_string(),
-                "Git".to_string(),
+                "Worktree".to_string(),
                 GET_TOOL_SPEC_TOOL_NAME.to_string(),
                 "CallDeferredTool".to_string(),
             ],
@@ -1134,7 +1232,7 @@ mod tests {
             vec![
                 "GetFileDiff".to_string(),
                 "WebFetch".to_string(),
-                "Git".to_string()
+                "Worktree".to_string()
             ],
             "deferred loaded-spec list must follow product registry snapshot order"
         );
@@ -1148,7 +1246,7 @@ mod tests {
             "prompt-visible definitions must keep the current discovery insertion and policy order stable"
         );
 
-        for tool_name in ["GetFileDiff", "WebFetch", "Git"] {
+        for tool_name in ["GetFileDiff", "WebFetch", "Worktree"] {
             assert!(
                 !manifest
                     .tool_definitions

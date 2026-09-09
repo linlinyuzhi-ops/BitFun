@@ -17,7 +17,7 @@ Server**。因此，Rich Client 这一产品分类不再意味着所有部署都
 wire。
 
 - Embedded Host 直接持有产品组装得到的 `AgentRuntime` 和必要的 owner/service，
-  通过 Rust 类型调用 Runtime 方法；不创建 `BitfunAppServer`、
+  通过 Rust 类型调用 Runtime 方法；不创建 `OpenBitFunAppServer`、
   `AppServerClient` 或 in-memory transport。
 - Embedded TUI 仍只依赖 app-local composition。TUI controller 不直接依赖
   Runtime 实现或私有 IPC operation；`CliAgentRuntimeClient` 承载
@@ -111,7 +111,7 @@ GUI、Web 和 TUI 若分别围绕 Tauri command、WebSocket route、CLI/Core 直
 - UI 组件与 Tauri、Core singleton 或私有 Runtime IPC 绑定，无法验证跨入口行为等价。
 - “handler 已存在”“DTO 已生成”或“能力被硬编码为 available”被误当成端到端能力已交付。
 
-BitFun 的目标是让 direct adapter 与连接型 App Server adapter 共享可验证的产品后端行为合同，同时保持业务 owner 平台无关。App Server 为需要连接边界的 Host 提供可版本化、可生成 client 的 wire；它不再是 Embedded 的统一 transport，也不统一 GUI/TUI renderer、布局、键位、窗口、终端或 controller-local effect。
+OpenBitFun 的目标是让 direct adapter 与连接型 App Server adapter 共享可验证的产品后端行为合同，同时保持业务 owner 平台无关。App Server 为需要连接边界的 Host 提供可版本化、可生成 client 的 wire；它不再是 Embedded 的统一 transport，也不统一 GUI/TUI renderer、布局、键位、窗口、终端或 controller-local effect。
 
 ## 3. 范围与非目标
 
@@ -383,8 +383,8 @@ Embedded direct invocation 可以依赖同进程构造身份，但仍必须传�
 
 边界规则：
 
-- protocol/client 的依赖闭包不得引入 `bitfun-core`、Runtime 实现、Service 实现或 `product-full`。
-- server wiring 可以依赖生产 handler 所需的明确 owner feature，但禁止选择 `bitfun-core/product-full`。
+- protocol/client 的依赖闭包不得引入 `openbitfun-core`、Runtime 实现、Service 实现或 `product-full`。
+- server wiring 可以依赖生产 handler 所需的明确 owner feature，但禁止选择 `openbitfun-core/product-full`。
 - 新 domain 只能增加真实 handler 所需的最窄 owner feature，并通过边界检查证明依赖方向。
 - protocol DTO 不复制 Runtime 内部对象；只暴露 Rich Client 需要的稳定字段和 read model。
 - `app-server-protocol` 是 TypeScript wire schema 的唯一导出 owner；`app-server/ts`
@@ -408,7 +408,7 @@ Embedded direct invocation 可以依赖同进程构造身份，但仍必须传�
    直接调用各自使用的 owner/service API，不定义第二套 `TuiBackend`、catch-all TUI client、
    surface service、owner adapter 或统一 TUI management 模块。
  3. **迁移 Embedded TUI**：扩展既有 `CliAgentRuntimeClient` 支持 TUI Runtime 用例，将调用从
-   `AppServerTuiBackend` 移出；再移除 in-memory transport、Embedded `BitfunAppServer`、
+   `AppServerTuiBackend` 移出；再移除 in-memory transport、Embedded `OpenBitFunAppServer`、
    server thread 和 TUI-facing App Server client 依赖。非 Runtime 能力保留按领域拆分的
    直调 owner/service，并在 controller-local 调用前执行 Remote workspace fail-closed 检查。
 4. **迁移 Desktop GUI**：Embedded 时使用 direct Runtime adapter；Web/Shared 或需要连接治理

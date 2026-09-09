@@ -4,15 +4,16 @@ use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
 
-use bitfun_core::service::config::get_global_config_service;
-use bitfun_core::util::errors::BitFunError;
+use openbitfun_core::agentic::tools::openbitfun_control_config::global_shared_product_control_executor;
+use openbitfun_core::service::config::get_global_config_service;
+use openbitfun_core::util::errors::OpenBitFunError;
 
 use crate::peer_host::args::{optional_bool, request_value};
 use crate::peer_host::state::PeerHostState;
 
-fn is_expected_config_path_not_found(error: &BitFunError, path: Option<&str>) -> bool {
+fn is_expected_config_path_not_found(error: &OpenBitFunError, path: Option<&str>) -> bool {
     match (error, path) {
-        (BitFunError::NotFound(message), Some(path)) => {
+        (OpenBitFunError::NotFound(message), Some(path)) => {
             message == &format!("Config path '{path}' not found")
         }
         _ => false,
@@ -100,20 +101,55 @@ pub(crate) async fn set_config(state: &PeerHostState, args: &Value) -> Result<Va
         .cloned()
         .ok_or_else(|| "Missing 'value' field".to_string())?;
 
-    let config_service = get_global_config_service()
+    let outcome = global_shared_product_control_executor()
+        .await?
+        .configure_legacy_path(&path, value)
         .await
-        .map_err(|e| format!("Failed to get config service: {e}"))?;
-
-    config_service.set_config(&path, value).await.map_err(|e| {
-        tracing::error!("Failed to set config: path={path}, error={e}");
-        format!("Failed to set config: {e}")
-    })?;
+        .map_err(|error| {
+            tracing::error!(
+                "Failed to set config through ProductControl: path={path}, error={error}"
+            );
+            format!("Failed to set config: {error}")
+        })?;
 
     // Config changed on this host via a peer controller — schedule the cloud
     // push so other same-account devices converge.
     state.account_runtime.notify_local_settings_changed();
 
-    Ok(json!("Configuration set successfully"))
+    Ok(outcome)
+}
+
+pub(crate) async fn get_web_search_credential_status(args: &Value) -> Result<Value, String> {
+    let request = request_value(args);
+    let provider = request
+        .get("provider")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Missing or invalid 'provider' field".to_string())?;
+    let status = openbitfun_core::service::web_search::get_web_search_credential_status(provider)
+        .await
+        .map_err(|error| format!("Failed to read WebSearch credential status: {error}"))?;
+    serde_json::to_value(status)
+        .map_err(|error| format!("Failed to serialize WebSearch credential status: {error}"))
+}
+
+pub(crate) async fn save_web_search_credential(args: &Value) -> Result<Value, String> {
+    let request = serde_json::from_value(request_value(args).clone())
+        .map_err(|error| format!("Invalid WebSearch credential request: {error}"))?;
+    let status = openbitfun_core::service::web_search::save_web_search_credential(request)
+        .await
+        .map_err(|error| format!("Failed to save WebSearch credential: {error}"))?;
+    serde_json::to_value(status)
+        .map_err(|error| format!("Failed to serialize WebSearch credential status: {error}"))
+}
+
+pub(crate) async fn clear_web_search_credential(args: &Value) -> Result<Value, String> {
+    let request = serde_json::from_value(request_value(args).clone())
+        .map_err(|error| format!("Invalid WebSearch credential clear request: {error}"))?;
+    let status = openbitfun_core::service::web_search::clear_web_search_credential(request)
+        .await
+        .map_err(|error| format!("Failed to clear WebSearch credential: {error}"))?;
+    serde_json::to_value(status)
+        .map_err(|error| format!("Failed to serialize WebSearch credential status: {error}"))
 }
 
 pub(crate) async fn get_agent_profile_config(args: &Value) -> Result<Value, String> {
@@ -122,15 +158,17 @@ pub(crate) async fn get_agent_profile_config(args: &Value) -> Result<Value, Stri
         .or_else(|_| crate::peer_host::args::get_string(request_value(args), "agentId"))?;
 
     let config =
-        bitfun_core::service::config::mode_config_canonicalizer::get_agent_profile_view(&agent_id)
-            .await
-            .map_err(|e| format!("Failed to get agent profile config: {e}"))?;
+        openbitfun_core::service::config::mode_config_canonicalizer::get_agent_profile_view(
+            &agent_id,
+        )
+        .await
+        .map_err(|e| format!("Failed to get agent profile config: {e}"))?;
     serde_json::to_value(config).map_err(|e| format!("Failed to serialize agent profile: {e}"))
 }
 
 pub(crate) async fn get_agent_profile_configs() -> Result<Value, String> {
     let configs =
-        bitfun_core::service::config::mode_config_canonicalizer::get_agent_profile_views()
+        openbitfun_core::service::config::mode_config_canonicalizer::get_agent_profile_views()
             .await
             .map_err(|e| format!("Failed to get agent profile configs: {e}"))?;
     serde_json::to_value(configs)

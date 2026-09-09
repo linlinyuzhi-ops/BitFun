@@ -30,7 +30,7 @@ export interface SessionTitleGeneratedEvent {
   timestamp: number;
 }
 
-export interface SessionModelAutoMigratedEvent {
+export interface SessionModelFallbackAppliedEvent {
   sessionId: string;
   previousModelId: string;
   newModelId: string;
@@ -613,6 +613,7 @@ export interface RecoverInterruptedDialogTurnResponse {
 export type DialogTurnStartedEvent = AgenticEvent;
 
 export interface OpenBuiltInBrowserEvent {
+  requestId?: string;
   url: string;
   title?: string;
   replaceExisting?: boolean;
@@ -1376,8 +1377,8 @@ export class AgentAPI {
   onSessionModelAutoMigrated(
     callback: (event: SessionModelAutoMigratedEvent) => void
   ): () => void {
-    return api.listen<SessionModelAutoMigratedEvent>(
-      'agentic://session-model-auto-migrated',
+    return api.listen<SessionModelFallbackAppliedEvent>(
+      'agentic://session-model-fallback-applied',
       callback
     );
   }

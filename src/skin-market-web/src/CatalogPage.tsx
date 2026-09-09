@@ -284,7 +284,7 @@ function AppearanceRow({ eager, item, locale, onNavigate, t }: AppearanceRowProp
         <p className="appearance-row__author">{t('by', { author })}</p>
         <dl className="appearance-row__facts">
           <div><dt>{t('version')}</dt><dd>{item.packageVersion}</dd></div>
-          <div><dt>{t('compatibility')}</dt><dd>{t('minBitfun', { version: item.minBitfunVersion })}</dd></div>
+          <div><dt>{t('compatibility')}</dt><dd>{t('minOpenBitFun', { version: item.minOpenBitFunVersion })}</dd></div>
         </dl>
         <a className="text-link" href={path} onClick={follow}>
           {t('openDetail', { name: item.name })}

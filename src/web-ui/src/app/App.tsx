@@ -1,7 +1,4 @@
 import { lazy, Suspense, useEffect, useCallback, useLayoutEffect, useState, useRef } from 'react';
-import { useShortcut } from '@/infrastructure/hooks/useShortcut';
-import { useHasDismissibleLayer } from '@/infrastructure/hooks/useDismissibleLayer';
-import { dismissibleLayerManager } from '@/infrastructure/services/DismissibleLayerManager';
 import { ChatProvider } from '../infrastructure/contexts/ChatProvider';
 import { ViewModeProvider } from '../infrastructure/contexts/ViewModeProvider';
 import { SSHRemoteProvider } from '../features/ssh-remote';
@@ -9,7 +6,7 @@ import { ContextMenuRenderer } from '../shared/context-menu-system/components/Co
 import { NotificationContainer, notificationService } from '../shared/notification-system';
 import { NotificationCenter } from '../shared/notification-system/components/NotificationCenter';
 import { AnnouncementProvider } from '../shared/announcement-system';
-import { ConfirmDialogRenderer } from '../component-library';
+import { ConfirmDialogRenderer } from '@/infrastructure/confirm-dialog';
 import { SessionUsageModal } from '../flow_chat/components/usage/SessionUsageModal';
 import { createLogger } from '@/shared/utils/logger';
 import { startupTrace } from '@/shared/utils/startupTrace';
@@ -27,9 +24,20 @@ import {
   hideStartupOverlay,
   isStartupOverlayPresent,
 } from './startup/startupOverlay';
+import {
+  clearStartupModuleReloadAttempt,
+  retryStartupAfterModuleLoadFailure,
+} from './startup/startupModuleRecovery';
 import { ToolbarModeProvider } from '../flow_chat/components/toolbar-mode/ToolbarModeProvider';
+import { RealtimeVoiceCallProvider } from '../flow_chat/components/voice/RealtimeVoiceCallContext';
 import type { AgentCompanionPetCommand } from './services/agentCompanionPetCommands';
 import AskUserAnnouncer from './components/NavPanel/AskUserAnnouncer';
+import { handleBrowserShortcut } from './browserShortcutPolicy';
+import { fontPreferenceService } from '@/infrastructure/font-preference/core/FontPreferenceService';
+import { activateCreationRuntime } from '@/infrastructure/creation/creationRuntime';
+import { attachCreationRuntime, recordCreationActivationError } from '@/infrastructure/creation/creationBridge';
+import { createCreationUiApi } from './creation/creationUiApi';
+import { usePeerDeviceModeOptional } from '@/infrastructure/peer-device/peerDeviceContextState';
 
 const log = createLogger('App');
 
@@ -45,6 +53,7 @@ const LazyAppLayout = lazy(async () => {
   startupTrace.markPhase('app_layout_import_start');
   try {
     const module = await import('./layout/AppLayout');
+    clearStartupModuleReloadAttempt();
     startupTrace.markPhase('app_layout_import_end');
     return {
       default: function AppLayoutStartupGate({ onReady }: AppLayoutStartupGateProps) {
@@ -58,12 +67,21 @@ const LazyAppLayout = lazy(async () => {
     };
   } catch (error) {
     startupTrace.markPhase('app_layout_import_failed');
+    if (retryStartupAfterModuleLoadFailure(error)) {
+      startupTrace.markPhase('app_layout_import_reload_requested');
+      return await new Promise<never>(() => undefined);
+    }
+    // The static overlay otherwise hides AppErrorBoundary and makes a real
+    // startup failure look like an endless loading state.
+    void hideStartupOverlay();
     throw error;
   }
 });
 
+const LazyGlobalSearchRoot = lazy(() => import('./global-search/GlobalSearchRoot'));
+
 /**
- * BitFun main application component.
+ * OpenBitFun main application component.
  *
  * Unified architecture:
  * - Use a single AppLayout component
@@ -79,17 +97,20 @@ const MIN_SPLASH_MS = 650;
 const DEFERRED_TRAY_INIT_DELAY_MS = 1500;
 
 function App() {
-  const { t } = useI18n('settings/basics');
+  const { t } = useI18n('settings/application');
 
   // Workspace loading state — drives splash exit timing
   const { loading: workspaceLoading } = useWorkspaceContext();
+  const peerSurfaceActive = usePeerDeviceModeOptional()?.peerMode.active ?? false;
 
   const [startupOverlayVisible, setStartupOverlayVisible] = useState(isStartupOverlayPresent);
-  const hasAppDismissibleLayer = useHasDismissibleLayer('app');
   const mainWindowShownRef = useRef(false);
   const userCloseRequestedRef = useRef(false);
   const interactiveShellReadyRef = useRef(false);
   const interactiveShellReadyFrameRef = useRef<number | null>(null);
+  const reportedFrontendTransactionRef = useRef<string | null>(null);
+  const openBitFunControlStartupRef = useRef(false);
+  const [openBitFunControlReady, setOpenBitFunControlReady] = useState(false);
   const workspaceLoadingRef = useRef(workspaceLoading);
   const appLayoutReadyRef = useRef(false);
   const [interactiveShellReady, setInteractiveShellReady] = useState(false);
@@ -97,7 +118,7 @@ function App() {
 
   workspaceLoadingRef.current = workspaceLoading;
 
-  const releaseInteractiveShellReadyIfReady = useCallback((reason: string) => {
+  const releaseInteractiveShellReadyIfReady = useCallback((reason: string, afterPaint = true) => {
     const latestWorkspaceLoading = workspaceLoadingRef.current;
     const latestAppLayoutReady = appLayoutReadyRef.current;
     startupTrace.markPhase('interactive_shell_ready_gate_check', {
@@ -105,14 +126,18 @@ function App() {
       appLayoutReady: latestAppLayoutReady,
       alreadyReady: interactiveShellReadyRef.current,
       reason,
-      afterPaint: true,
+      afterPaint,
     });
     if (latestWorkspaceLoading || !latestAppLayoutReady || interactiveShellReadyRef.current) {
       return;
     }
+    if (interactiveShellReadyFrameRef.current !== null) {
+      window.cancelAnimationFrame(interactiveShellReadyFrameRef.current);
+      interactiveShellReadyFrameRef.current = null;
+    }
     interactiveShellReadyRef.current = true;
-    startupTrace.markPhase('interactive_shell_ready', { reason });
-    window.dispatchEvent(new CustomEvent('bitfun:interactive-shell-ready', {
+    startupTrace.markPhase('interactive_shell_ready', { reason, afterPaint });
+    window.dispatchEvent(new CustomEvent('openbitfun:interactive-shell-ready', {
       detail: { reason },
     }));
     setInteractiveShellReady(true);
@@ -160,6 +185,77 @@ function App() {
     };
   }, []);
 
+  // A Creative frontend candidate is not confirmable merely because its HTML
+  // finished loading. Report readiness only after the real app layout and
+  // workspace shell have rendered through the infrastructure adapter. The
+  // immutable host confirmation window keeps its primary action disabled
+  // until this handshake succeeds.
+  useEffect(() => {
+    if (!interactiveShellReady || !openBitFunControlReady || !isTauriRuntime() || peerSurfaceActive) {
+      return;
+    }
+    const transactionId = new URLSearchParams(window.location.search)
+      .get('openbitfunFrontendTransaction');
+    const controller = new AbortController();
+    const creation = createCreationUiApi(controller.signal);
+    recordCreationActivationError(null);
+    let detachCreation: (() => void) | undefined;
+    let cancelled = false;
+    let retryTimer: number | undefined;
+    const retryUntil = Date.now() + 12_000;
+    const reportReady = async (): Promise<void> => {
+      try {
+        await api.invoke('frontend_update_candidate_ready', {
+          request: { transactionId },
+        });
+        if (!cancelled) {
+          reportedFrontendTransactionRef.current = transactionId;
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        if (Date.now() < retryUntil) {
+          retryTimer = window.setTimeout(() => void reportReady(), 250);
+          return;
+        }
+        log.error('Failed to report Creative frontend readiness', error);
+      }
+    };
+    void activateCreationRuntime({
+      api: creation.api, disposeApi: creation.dispose, signal: controller.signal,
+    }).then(() => {
+      if (cancelled) return;
+      detachCreation = attachCreationRuntime(creation);
+      if (!cancelled && transactionId && reportedFrontendTransactionRef.current !== transactionId) {
+        return reportReady();
+      }
+    }).catch(async error => {
+      if (cancelled) return;
+      recordCreationActivationError(error);
+      log.error('Failed to activate UI customization', error);
+      if (transactionId) {
+        try {
+          await api.invoke('frontend_update_candidate_failed', {
+            request: { transactionId, message: error instanceof Error ? error.message : String(error) },
+          });
+        } catch (reportError) {
+          // An older host can reject this additive command; its independent
+          // deadline still rolls back. Never send success on the failure path.
+          log.warn('Failed to report UI customization failure', reportError);
+        }
+      }
+    });
+    return () => {
+      cancelled = true;
+      detachCreation?.();
+      controller.abort();
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+      }
+    };
+  }, [interactiveShellReady, openBitFunControlReady, peerSurfaceActive]);
+
   // Once the workspace finishes loading, wait for the remaining min-display
   // time and then begin the exit animation.
   useEffect(() => {
@@ -177,6 +273,10 @@ function App() {
         if (!cancelled) {
           setStartupOverlayVisible(false);
           startupTrace.markPhase('startup_overlay_hidden');
+          // WebKit can suspend animation frames in an occluded/reloaded window.
+          // The completed handoff still proves the layout and workspace mounted;
+          // do not leave product control and customization waiting for a paint.
+          releaseInteractiveShellReadyIfReady('startup-overlay-hidden', false);
           window.dispatchEvent(new CustomEvent(STARTUP_OVERLAY_HIDDEN_EVENT));
         }
       });
@@ -185,7 +285,7 @@ function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [workspaceLoading, appLayoutReady]);
+  }, [workspaceLoading, appLayoutReady, releaseInteractiveShellReadyIfReady]);
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -196,7 +296,7 @@ function App() {
     let disposed = false;
 
     void import('@tauri-apps/api/event')
-      .then(({ listen }) => listen('bitfun_main_window_close_requested', () => {
+      .then(({ listen }) => listen('openbitfun_main_window_close_requested', () => {
         userCloseRequestedRef.current = true;
         startupTrace.markPhase('main_window_user_close_requested', { reason: 'user-close-requested' });
       }))
@@ -229,7 +329,7 @@ function App() {
       await api.invoke('show_main_window');
       log.debug('Main window shown', { reason });
       startupTrace.markPhase('main_window_shown', { reason });
-      window.dispatchEvent(new CustomEvent('bitfun:main-window-shown', { detail: { reason } }));
+      window.dispatchEvent(new CustomEvent('openbitfun:main-window-shown', { detail: { reason } }));
     } catch (error: any) {
       log.error('Failed to show main window', error);
 
@@ -240,7 +340,7 @@ function App() {
         await mainWindow.setFocus();
         log.debug('Main window shown via fallback', { reason });
         startupTrace.markPhase('main_window_shown_fallback', { reason });
-        window.dispatchEvent(new CustomEvent('bitfun:main-window-shown', { detail: { reason } }));
+        window.dispatchEvent(new CustomEvent('openbitfun:main-window-shown', { detail: { reason } }));
       } catch (fallbackError) {
         log.error('Fallback window show failed', fallbackError);
         mainWindowShownRef.current = false;
@@ -284,7 +384,7 @@ function App() {
     if (isTauriRuntime()) {
       mainWindowShownRef.current = true;
       startupTrace.markPhase('main_window_shown', { reason: 'startup-native' });
-      window.dispatchEvent(new CustomEvent('bitfun:main-window-shown', {
+      window.dispatchEvent(new CustomEvent('openbitfun:main-window-shown', {
         detail: { reason: 'startup-native' },
       }));
       return;
@@ -320,6 +420,30 @@ function App() {
 
     return () => window.clearTimeout(timer);
   }, [verifyMainWindowVisible]);
+
+  // Register presentation routing as soon as the product surface is usable.
+  // Native discovery, readback, and settings mutations are installed during
+  // Desktop setup; only UI navigation/product actions require this handshake.
+  useEffect(() => {
+    if (
+      !isTauriRuntime()
+      || !shouldScheduleDeferredStartupSystems({ interactiveShellReady, startupOverlayVisible })
+      || openBitFunControlStartupRef.current
+    ) {
+      return;
+    }
+    openBitFunControlStartupRef.current = true;
+    void import('./global-search/openBitFunControlBridge')
+      .then(({ initializeOpenBitFunControlBridge }) => initializeOpenBitFunControlBridge())
+      .then(() => {
+        startupTrace.markPhase('openbitfun_control_surface_ready');
+        setOpenBitFunControlReady(true);
+      })
+      .catch(error => {
+        openBitFunControlStartupRef.current = false;
+        log.error('Failed to initialize the OpenBitFun control surface', error);
+      });
+  }, [interactiveShellReady, startupOverlayVisible]);
 
   // Non-critical systems are delayed until the shell is interactive and the
   // startup overlay has fully handed off to the app surface.
@@ -729,35 +853,18 @@ function App() {
     };
   }, []);
 
-  // Block browser-native Ctrl+F (find bar) and Ctrl+R (hard reload).
-  // On macOS the equivalent modifiers are Cmd+F / Cmd+R.
+  // Control typography and block browser-native find/print. Reload remains available while the
+  // frontend runs in dev mode and is blocked in release builds. The desktop
+  // host independently applies the matching Rust build-profile policy.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const primary = e.ctrlKey || e.metaKey;
-      if (!primary) return;
-      const key = e.key.toLowerCase();
-      if (key === 'f' || key === 'r') {
-        e.preventDefault();
-        e.stopPropagation();
-      }
+      handleBrowserShortcut(e, import.meta.env.DEV, delta => {
+        void fontPreferenceService.adjustUiSize(delta);
+      });
     };
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, []);
-
-  // Escape closes preview overlay (registered via ShortcutManager)
-  useShortcut(
-    'app.closePreview',
-    { key: 'Escape', scope: 'app', allowInInput: true },
-    () => {
-      dismissibleLayerManager.dismissTop('app');
-    },
-    {
-      enabled: hasAppDismissibleLayer,
-      priority: 1,
-      description: 'keyboard.shortcuts.app.closePreview',
-    }
-  );
 
   // Top SceneBar: Mod+Alt+1..9 / Mod+Alt+PageUp/PageDown
   useGlobalSceneShortcuts();
@@ -778,7 +885,7 @@ function App() {
         if (cancelled || !runtimeInfo.previousUnexpectedExit?.notifyOnStartup) {
           return;
         }
-        const recoveryKey = `bitfun:unexpected-exit-notice:${runtimeInfo.previousUnexpectedExit.sessionLogDir || 'unknown'}`;
+        const recoveryKey = `openbitfun:unexpected-exit-notice:${runtimeInfo.previousUnexpectedExit.sessionLogDir || 'unknown'}`;
         if (sessionStorage.getItem(recoveryKey) === 'shown') {
           return;
         }
@@ -808,7 +915,7 @@ function App() {
               label: t('logging.actions.openLoggingSettings'),
               onClick: () => {
                 void import('@/shared/services/ide-control').then(({ quickActions }) => {
-                  quickActions.openSettings('basics');
+                  quickActions.openSettings({ pageId: 'data.diagnostics' });
                 });
               },
             },
@@ -829,91 +936,49 @@ function App() {
     };
   }, [interactiveShellReady, t]);
 
-  useEffect(() => {
-    if (!interactiveShellReady) {
-      return;
-    }
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        const { configAPI } = await import('@/infrastructure/api');
-        const validation = await configAPI.validateConfig();
-        const recoveryDiagnostics = (validation.diagnostics || []).filter(diagnostic =>
-          diagnostic.code === 'CONFIG_DEFAULT_RECOVERY' ||
-          diagnostic.code === 'CONFIG_SHAPE_REPAIRED' ||
-          diagnostic.code === 'INVALID_MODEL_DISABLED' ||
-          diagnostic.code === 'MODEL_FIELD_NOT_APPLICABLE' ||
-          diagnostic.code === 'MODEL_REFERENCE_REPAIRED'
-        );
-        if (cancelled || recoveryDiagnostics.length === 0) {
-          return;
-        }
-        const recoveryKey = `bitfun:config-recovery-notice:${recoveryDiagnostics
-          .map(diagnostic => `${diagnostic.code}:${diagnostic.path}`)
-          .join('|')}`;
-        if (sessionStorage.getItem(recoveryKey) === 'shown') {
-          return;
-        }
-        sessionStorage.setItem(recoveryKey, 'shown');
-        notificationService.warning(t('logging.configRecovery.message', {
-          count: recoveryDiagnostics.length,
-        }), {
-          title: t('logging.configRecovery.title'),
-          duration: 0,
-          metadata: {
-            source: 'config-startup-recovery',
-            diagnosticCodes: recoveryDiagnostics.map(diagnostic => diagnostic.code),
-            diagnosticPaths: recoveryDiagnostics.map(diagnostic => diagnostic.path),
-          },
-        });
-      } catch (error) {
-        log.warn('Failed to check configuration recovery status', error);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [interactiveShellReady, t]);
-
   // Unified layout via a single AppLayout
   return (
     <ChatProvider>
-      <ViewModeProvider defaultMode="coder">
-        <SSHRemoteProvider>
-          <ToolbarModeProvider>
-            {/* Unified app layout with startup/workspace modes */}
-            <Suspense fallback={null}>
-              <LazyAppLayout onReady={handleAppLayoutReady} />
-            </Suspense>
+        <ViewModeProvider defaultMode="coder">
+          <SSHRemoteProvider>
+            <RealtimeVoiceCallProvider>
+              <ToolbarModeProvider>
+              {/* One shell-owned command/search surface for every scene and nav mode. */}
+              <Suspense fallback={null}>
+                <LazyGlobalSearchRoot />
+              </Suspense>
 
-            {/* Context menu renderer */}
-            <ContextMenuRenderer />
+              {/* Unified app layout with startup/workspace modes */}
+              <Suspense fallback={null}>
+                <LazyAppLayout onReady={handleAppLayoutReady} />
+              </Suspense>
 
-            {/* Notification system */}
-            <NotificationContainer />
-            <NotificationCenter />
+              {/* Context menu renderer */}
+              <ContextMenuRenderer />
 
-            {/* Confirm dialog */}
-            <ConfirmDialogRenderer />
+              {/* Notification system */}
+              <NotificationContainer />
+              <NotificationCenter />
 
-            {/* Session usage report. Mounted here rather than in a chat view:
-                the request runs below any component, and the report outlives
-                whichever session view is on screen. */}
-            <SessionUsageModal />
+              {/* Confirm dialog */}
+              <ConfirmDialogRenderer />
 
-            {/* Announcement / feature-demo / tips system */}
-            <AnnouncementProvider />
+              {/* Session usage report. Mounted here rather than in a chat view:
+                  the request runs below any component, and the report outlives
+                  whichever session view is on screen. */}
+              <SessionUsageModal />
 
-            {/* AskUserQuestion waiting-state aria-live announcer.
-                Mounted here (inside ToolbarModeProvider, outside LazyAppLayout)
-                so it persists across both normal and Toolbar Mode. */}
-            <AskUserAnnouncer />
+              {/* Announcement / feature-demo / tips system */}
+              <AnnouncementProvider ready={interactiveShellReady && !startupOverlayVisible} />
 
-          </ToolbarModeProvider>
-        </SSHRemoteProvider>
-      </ViewModeProvider>
+              {/* AskUserQuestion waiting-state aria-live announcer.
+                  Mounted here (inside ToolbarModeProvider, outside LazyAppLayout)
+                  so it persists across both normal and Toolbar Mode. */}
+              <AskUserAnnouncer />
+              </ToolbarModeProvider>
+            </RealtimeVoiceCallProvider>
+          </SSHRemoteProvider>
+        </ViewModeProvider>
     </ChatProvider>
   );
 }

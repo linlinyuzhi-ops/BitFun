@@ -1,5 +1,5 @@
 import React, { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { workspaceManager } from '../services/business/workspaceManager';
+import { workspaceManager, type WorkspaceSection } from '../services/business/workspaceManager';
 import { WorkspaceInfo, WorkspaceKind } from '../../shared/types';
 import { createLogger } from '@/shared/utils/logger';
 import { startupTrace } from '@/shared/utils/startupTrace';
@@ -47,7 +47,7 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
         switchWorkspace: async (workspace: WorkspaceInfo) => workspaceManager.switchWorkspace(workspace),
         setActiveWorkspace: async (workspaceId: string) => workspaceManager.setActiveWorkspace(workspaceId),
         reorderOpenedWorkspacesInSection: async (
-          section: 'assistants' | 'projects',
+          section: WorkspaceSection,
           sourceWorkspaceId: string,
           targetWorkspaceId: string,
           position: 'before' | 'after'
@@ -100,7 +100,7 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
         switchWorkspace: async (workspace: WorkspaceInfo) => workspaceManager.switchWorkspace(workspace),
         setActiveWorkspace: async (workspaceId: string) => workspaceManager.setActiveWorkspace(workspaceId),
         reorderOpenedWorkspacesInSection: async (
-          section: 'assistants' | 'projects',
+          section: WorkspaceSection,
           sourceWorkspaceId: string,
           targetWorkspaceId: string,
           position: 'before' | 'after'
@@ -268,7 +268,7 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
   }, []);
 
   const reorderOpenedWorkspacesInSection = useCallback(async (
-    section: 'assistants' | 'projects',
+    section: WorkspaceSection,
     sourceWorkspaceId: string,
     targetWorkspaceId: string,
     position: 'before' | 'after'

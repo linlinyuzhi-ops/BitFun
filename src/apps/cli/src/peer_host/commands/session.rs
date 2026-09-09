@@ -5,16 +5,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
-use bitfun_agent_runtime::sdk::{
+use openbitfun_agent_runtime::sdk::{
     AgentSessionModelSelection, AgentSessionModelSelectionUpdateRequest,
     AgentSessionRestoreRequest, AgentSessionRestoreResult, PortErrorKind, RuntimeError,
     SessionEventBackfill, SessionEventProjectionSnapshot, SessionInteractionSnapshot,
 };
-use bitfun_core::agentic::core::Session;
-use bitfun_core::agentic::get_agent_registry;
-use bitfun_core::util::errors::BitFunError;
-use bitfun_events::{project_agentic_frontend_event, AgenticEvent};
-use bitfun_runtime_ports::{
+use openbitfun_core::agentic::core::Session;
+use openbitfun_core::agentic::get_agent_registry;
+use openbitfun_core::util::errors::OpenBitFunError;
+use openbitfun_events::{project_agentic_frontend_event, AgenticEvent};
+use openbitfun_product_domains::product_search::SessionContentSearchRequest;
+use openbitfun_runtime_ports::{
     AgentSessionArchiveRequest, AgentSessionCreateRequest, AgentSessionDeleteRequest,
     AgentSessionModeUpdateRequest, AgentSessionRenameRequest, AgentThreadGoalGetRequest,
     SessionStoragePathRequest, SessionTurnWindowRequest,
@@ -143,7 +144,7 @@ pub(super) async fn resolved_session_storage_scope(
 
 fn validated_session_id(request: &Value) -> Result<String, String> {
     let session_id = get_string(request, "sessionId")?;
-    bitfun_agent_runtime::session_control::validate_session_id(&session_id)?;
+    openbitfun_agent_runtime::session_control::validate_session_id(&session_id)?;
     Ok(session_id)
 }
 
@@ -193,9 +194,9 @@ fn restored_session_to_json(restored: AgentSessionRestoreResult) -> Value {
     })
 }
 
-fn peer_core_session_error(operation: &str, error: BitFunError) -> String {
+fn peer_core_session_error(operation: &str, error: OpenBitFunError) -> String {
     match error {
-        BitFunError::SessionInUse { session_id } => format!(
+        OpenBitFunError::SessionInUse { session_id } => format!(
             "{SESSION_IN_USE_ERROR_CODE}: Session is already open for writing: {session_id}"
         ),
         error => format!("{operation}: {error}"),
@@ -236,9 +237,22 @@ pub(crate) async fn list_persisted_sessions_page(
     let workspace_path = resolved_session_storage_path(state, request).await?;
     let limit = request.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
     let cursor = optional_string(request, "cursor");
+    let session_ids = request
+        .get("session_ids")
+        .or_else(|| request.get("sessionIds"))
+        .filter(|value| !value.is_null())
+        .map(|value| serde_json::from_value::<Vec<String>>(value.clone()))
+        .transpose()
+        .map_err(|error| format!("Invalid session activity ids: {error}"))?;
     let page = state
         .compatibility
-        .list_persisted_sessions_page(&workspace_path, cursor.as_deref(), limit)
+        .list_persisted_sessions_page_with_activity(
+            &state.agent_runtime,
+            &workspace_path,
+            cursor.as_deref(),
+            limit,
+            session_ids.as_deref(),
+        )
         .await
         .map_err(|e| format!("Failed to list persisted session page: {e}"))?;
     serde_json::to_value(page).map_err(|e| format!("serialize session page: {e}"))
@@ -256,6 +270,65 @@ pub(crate) async fn list_persisted_sessions_count(
         .await
         .map_err(|e| format!("Failed to count persisted sessions: {e}"))?;
     Ok(json!(list.len()))
+}
+
+/// CLI Peer observers can acknowledge results without projecting Session
+/// history back into the Runtime. Other metadata edits remain unsupported.
+pub(crate) async fn save_session_metadata(
+    state: &PeerHostState,
+    args: &Value,
+) -> Result<Value, String> {
+    use openbitfun_core::service::session::{apply_session_unread_completion, SessionMetadata};
+    let request = request_value(args);
+    let fields: Vec<String> =
+        serde_json::from_value(request.get("fields").cloned().unwrap_or(Value::Null))
+            .map_err(|error| format!("Invalid session metadata fields: {error}"))?;
+    if fields
+        .iter()
+        .any(|field| !matches!(field.as_str(), "unreadCompletion" | "needsUserAttention"))
+    {
+        return Err(
+            "CLI Peer Host supports only session notification metadata updates".to_string(),
+        );
+    }
+    let incoming: SessionMetadata =
+        serde_json::from_value(request.get("metadata").cloned().unwrap_or(Value::Null))
+            .map_err(|error| format!("Invalid session notification metadata: {error}"))?;
+    let workspace_path = resolved_session_storage_path(state, request).await?;
+    state
+        .compatibility
+        .update_persisted_session_metadata(&workspace_path, &incoming.session_id, |current| {
+            if fields.iter().any(|field| field == "unreadCompletion") {
+                apply_session_unread_completion(current, &incoming);
+            }
+            if fields.iter().any(|field| field == "needsUserAttention") {
+                current.needs_user_attention = incoming.needs_user_attention.clone();
+            }
+        })
+        .await
+        .map_err(|error| format!("Failed to update session notification metadata: {error}"))?;
+    Ok(Value::Null)
+}
+
+pub(crate) async fn search_session_content(
+    state: &PeerHostState,
+    args: &Value,
+) -> Result<Value, String> {
+    let request = request_value(args);
+    let search_request: SessionContentSearchRequest = serde_json::from_value(request.clone())
+        .map_err(|error| format!("Invalid session content search request: {error}"))?;
+    let workspace_path = resolved_session_storage_path(state, request).await?;
+    let response = state
+        .compatibility
+        .search_persisted_session_content(
+            &workspace_path,
+            &search_request.query,
+            search_request.normalized_limit(),
+            search_request.include_archived,
+        )
+        .await
+        .map_err(|error| format!("Failed to search persisted session content: {error}"))?;
+    serde_json::to_value(response).map_err(|error| format!("serialize search response: {error}"))
 }
 
 pub(crate) async fn load_session_turns(
@@ -445,6 +518,7 @@ pub(crate) async fn create_session(state: &PeerHostState, args: &Value) -> Resul
     let create_request = AgentSessionCreateRequest {
         session_name,
         agent_type,
+        agent_route_key: None,
         workspace_path: Some(workspace_path),
         project_workspace_path: None,
         execution_target: None,
@@ -629,6 +703,7 @@ pub(crate) async fn update_session_mode(
         .update_session_mode(AgentSessionModeUpdateRequest {
             session_id,
             mode_id,
+            agent_route_key: None,
         })
         .await
         .map_err(|error| format!("Failed to update session mode: {}", error.into_message()))?;
@@ -669,8 +744,23 @@ pub(crate) async fn get_available_modes(
         .await
         .map_err(|error| error.encode())?;
     if let Some(workspace) = workspace.as_deref() {
+        if let Err(error) = openbitfun_core::plugin_host::ensure_configured_plugin_instance(
+            crate::PLUGIN_HOST_LAUNCH_POLICY,
+            workspace.to_path_buf(),
+            workspace.to_path_buf(),
+            optional_string(request, "workspaceId"),
+        )
+        .await
+        {
+            openbitfun_core::plugin_host::report_configured_plugin_activation_failure(
+                "CLI Peer mode catalog",
+                Some(workspace),
+                error,
+            )
+            .await;
+        }
         if let Err(error) =
-            bitfun_core::external_sources::ensure_external_source_workspace_snapshot(Some(
+            openbitfun_core::external_sources::ensure_external_source_workspace_snapshot(Some(
                 workspace,
             ))
             .await
@@ -717,7 +807,7 @@ pub(crate) async fn get_session_stats(
     let request = request_value(args);
     let session_id = get_string(request, "sessionId")?;
     let workspace_path = get_string(request, "workspacePath")?;
-    bitfun_agent_runtime::session_control::validate_session_id(&session_id)
+    openbitfun_agent_runtime::session_control::validate_session_id(&session_id)
         .map_err(session_stats_validation_error)?;
     require_local_snapshot_workspace(request, &workspace_path).await?;
 
@@ -762,11 +852,11 @@ pub(crate) async fn save_session_turn(
         .cloned()
         .ok_or_else(|| "Missing 'turn_data' field".to_string())?;
 
-    let turn: bitfun_core::service::session::DialogTurnData =
+    let turn: openbitfun_core::service::session::DialogTurnData =
         serde_json::from_value(turn_data).map_err(|e| format!("Invalid turn_data: {e}"))?;
-    bitfun_agent_runtime::session_control::validate_session_id(&turn.session_id)?;
+    openbitfun_agent_runtime::session_control::validate_session_id(&turn.session_id)?;
     if let Some(request_session_id) = optional_string(request, "sessionId") {
-        bitfun_agent_runtime::session_control::validate_session_id(&request_session_id)?;
+        openbitfun_agent_runtime::session_control::validate_session_id(&request_session_id)?;
         if request_session_id != turn.session_id {
             return Err("turn_data session_id does not match request session_id".to_string());
         }
@@ -796,21 +886,21 @@ mod tests {
         overlay_live_session_state, peer_core_session_error, peer_runtime_session_error,
         restored_session_to_json, runtime_event_snapshot_to_json, session_stats_validation_error,
     };
-    use bitfun_agent_runtime::sdk::{
+    use openbitfun_agent_runtime::sdk::{
         AgentSessionRestoreResult, AgentSessionSummary, PortError, PortErrorKind, RuntimeError,
         SessionEventProjectionSnapshot, SessionState,
     };
-    use bitfun_core::agentic::core::{
+    use openbitfun_core::agentic::core::{
         ProcessingPhase, Session as CoreSession, SessionConfig, SessionState as CoreSessionState,
     };
-    use bitfun_core::util::errors::BitFunError;
-    use bitfun_events::AgenticEvent;
+    use openbitfun_core::util::errors::OpenBitFunError;
+    use openbitfun_events::AgenticEvent;
 
     #[test]
     fn peer_writer_conflicts_keep_the_stable_transport_code() {
         let core_error = peer_core_session_error(
             "Failed to restore session with turns",
-            BitFunError::SessionInUse {
+            OpenBitFunError::SessionInUse {
                 session_id: "session-1".to_string(),
             },
         );
@@ -917,6 +1007,26 @@ mod tests {
             .expect("Peer rollback boundary")
             .0;
         assert!(rollback.contains("ensure_session_workspace_runtime_ownership"));
+    }
+
+    #[test]
+    fn peer_mode_catalog_activates_plugins_before_reading_the_registry() {
+        let source = include_str!("session.rs").replace("\r\n", "\n");
+        let command = source
+            .split_once("pub(crate) async fn get_available_modes(")
+            .expect("Peer mode catalog")
+            .1
+            .split_once("pub(crate) async fn get_session_stats(")
+            .expect("Peer mode catalog boundary")
+            .0;
+
+        let activation = command
+            .find("ensure_configured_plugin_instance(")
+            .expect("configured plugin activation");
+        let catalog_read = command
+            .find(".get_modes_info_for_workspace(")
+            .expect("registry mode catalog read");
+        assert!(activation < catalog_read);
     }
 
     #[test]

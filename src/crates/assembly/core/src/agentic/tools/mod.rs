@@ -7,28 +7,37 @@ pub mod computer_use_capability;
 pub mod computer_use_host;
 pub mod computer_use_optimizer;
 pub(crate) mod file_permissions;
-pub mod file_read_state_runtime;
 pub mod file_tool_guidance;
 pub mod framework;
+#[cfg(feature = "tools-creation")]
+pub mod frontend_workbench_host;
 pub mod image_context;
 pub mod implementations;
 pub mod manifest_resolver;
+#[cfg(feature = "tools-miniapp")]
+pub(crate) mod miniapp_context_runtime;
+pub mod openbitfun_control_config;
+pub mod openbitfun_control_host;
 #[cfg(feature = "tools-miniapp")]
 pub mod page_deploy_host;
 #[cfg(feature = "tools-miniapp")]
 pub mod page_publish_host;
 pub mod pipeline;
+#[cfg(feature = "plugin-runtime")]
+#[cfg(feature = "opencode-plugin-host")]
+pub mod plugin_host_tool;
 pub(crate) mod post_call_hooks;
 #[doc(hidden)]
 pub mod product_runtime;
 pub mod registry;
 pub mod restrictions;
+pub mod review_read_receipt_runtime;
 pub(crate) mod tool_adapter;
 pub(crate) mod tool_context_runtime;
 pub(crate) mod tool_result_storage;
 pub mod user_input_manager;
 pub mod workspace_paths;
-pub use bitfun_agent_tools::input_validator;
+pub use openbitfun_agent_tools::input_validator;
 
 pub use framework::{
     PortableToolContextProvider, Tool, ToolContextFacts, ToolResult, ToolUseContext,

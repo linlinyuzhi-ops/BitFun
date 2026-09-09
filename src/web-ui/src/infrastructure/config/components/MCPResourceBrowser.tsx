@@ -1,10 +1,10 @@
  
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { OverflowText, Button, Icon, ScrollArea, SearchField } from '@openbitfun/ui';
 import { useTranslation } from 'react-i18next';
-import { FileText, FileImage, FileJson, FileCode, File, Search as SearchIcon, ArrowLeft } from 'lucide-react';
+import { FileText, FileJson, FileCode } from 'lucide-react';
 import MCPAPI, { MCPResource } from '../../api/service-api/MCPAPI';
-import { Button } from '../../../component-library';
 import { createLogger } from '@/shared/utils/logger';
 import './MCPResourceBrowser.scss';
 
@@ -115,31 +115,31 @@ export const MCPResourceBrowser: React.FC<MCPResourceBrowserProps> = ({ serverId
   };
 
   const getMimeTypeIcon = (mimeType?: string): React.ReactNode => {
-    if (!mimeType) return <File size={16} />;
+    if (!mimeType) return <Icon name="files" size="md" />;
     if (mimeType.startsWith('text/')) return <FileText size={16} />;
-    if (mimeType.startsWith('image/')) return <FileImage size={16} />;
+    if (mimeType.startsWith('image/')) return <Icon name="image" size="md" />;
     if (mimeType.includes('json')) return <FileJson size={16} />;
     if (mimeType.includes('html')) return <FileCode size={16} />;
     if (mimeType.includes('pdf')) return <FileText size={16} />;
-    return <File size={16} />;
+    return <Icon name="files" size="md" />;
   };
 
   return (
-    <div className="mcp-resource-browser" data-bf-component="mcp-resource-browser" data-bf-part="root">
-      <div data-bf-component="mcp-resource-browser" data-bf-part="header" className="browser-header">
+    <div className="mcp-resource-browser" data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="root">
+      <div data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="header" className="browser-header">
         <h2>{t('resourceBrowser.title')}</h2>
-        <div data-bf-component="mcp-resource-browser" data-bf-part="headerActions" className="header-actions">
+        <div data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="headerActions" className="header-actions">
           <Button
-            variant="secondary"
-            size="small"
+            variant="outline"
+            size="sm"
             onClick={loadResources}
           >
             {t('resourceBrowser.actions.refresh')}
           </Button>
           {onClose && (
             <Button
-              variant="ghost"
-              size="small"
+              variant="outline"
+              size="sm"
               onClick={onClose}
             >
               {t('resourceBrowser.actions.close')}
@@ -148,74 +148,74 @@ export const MCPResourceBrowser: React.FC<MCPResourceBrowserProps> = ({ serverId
         </div>
       </div>
 
-      <div data-bf-component="mcp-resource-browser" data-bf-part="search" className="browser-search">
-        <input
-          type="text"
+      <div data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="search" className="browser-search">
+        <SearchField
+          className="browser-search-field"
+          leadingIcon={<Icon name="search" size="sm" />}
           placeholder={t('resourceBrowser.search.placeholder')}
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="search-input"
+          onValueChange={setSearchQuery}
         />
       </div>
 
-      <div data-bf-component="mcp-resource-browser" data-bf-part="content" className="browser-content">
-        <div data-bf-component="mcp-resource-browser" data-bf-part="list" className="resources-list">
+      <div data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="content" className="browser-content">
+        <ScrollArea data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="list" className="resources-list">
           {loading ? (
-            <div data-bf-component="mcp-resource-browser" data-bf-part="loading" className="loading-state">{t('resourceBrowser.loading.resources')}</div>
+            <div data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="loading" className="loading-state">{t('resourceBrowser.loading.resources')}</div>
           ) : filteredResources.length === 0 ? (
-            <div data-bf-component="mcp-resource-browser" data-bf-part="empty" className="empty-state">
+            <div data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="empty" className="empty-state">
               <div className="empty-icon">
-                <SearchIcon size={28} />
+                <Icon name="search" size="lg" />
               </div>
               <p>{searchQuery ? t('resourceBrowser.empty.noMatch') : t('resourceBrowser.empty.noResources')}</p>
             </div>
           ) : (
             filteredResources.map((resource) => (
-              <div
-                data-bf-component="mcp-resource-browser"
-                data-bf-part="resource"
-                data-bf-state={selectedResource?.uri === resource.uri ? 'selected' : undefined}
+              <div data-overflow-trigger
+                data-openbitfun-component="mcp-resource-browser"
+                data-openbitfun-part="resource"
+                data-openbitfun-state={selectedResource?.uri === resource.uri ? 'selected' : undefined}
                 key={resource.uri}
                 className={`resource-item ${selectedResource?.uri === resource.uri ? 'selected' : ''}`}
                 onClick={() => loadResourceContent(resource)}
               >
-                <div data-bf-component="mcp-resource-browser" data-bf-part="resourceIcon" className="resource-icon">{getMimeTypeIcon(resource.mimeType)}</div>
-                <div data-bf-component="mcp-resource-browser" data-bf-part="resourceInfo" className="resource-info">
-                  <div className="resource-name">{resource.name}</div>
+                <div data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="resourceIcon" className="resource-icon">{getMimeTypeIcon(resource.mimeType)}</div>
+                <div data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="resourceInfo" className="resource-info">
+                  <div className="resource-name"><OverflowText>{resource.name}</OverflowText></div>
                   {resource.description && (
                     <div className="resource-description">{resource.description}</div>
                   )}
-                  <div className="resource-uri">{resource.uri}</div>
+                  <div className="resource-uri"><OverflowText>{resource.uri}</OverflowText></div>
                 </div>
               </div>
             ))
           )}
-        </div>
+        </ScrollArea>
 
-        <div data-bf-component="mcp-resource-browser" data-bf-part="viewer" className="resource-viewer">
+        <div data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="viewer" className="resource-viewer">
           {selectedResource ? (
             <>
-              <div data-bf-component="mcp-resource-browser" data-bf-part="viewerHeader" className="viewer-header">
+              <div data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="viewerHeader" className="viewer-header">
                 <div className="viewer-title">
                   <span className="viewer-icon">{getMimeTypeIcon(selectedResource.mimeType)}</span>
-                  <span className="viewer-name">{selectedResource.title || selectedResource.name}</span>
+                  <OverflowText className="viewer-name">{selectedResource.title || selectedResource.name}</OverflowText>
                 </div>
                 {selectedResource.mimeType && (
                   <div className="viewer-mime-type">{selectedResource.mimeType}</div>
                 )}
               </div>
-              <div data-bf-component="mcp-resource-browser" data-bf-part="viewerContent" className="viewer-content">
+              <ScrollArea data-openbitfun-component="mcp-resource-browser" data-openbitfun-part="viewerContent" className="viewer-content">
                 {loadingContent ? (
                   <div className="loading-content">{t('resourceBrowser.loading.content')}</div>
                 ) : resourceContent ? (
                   <pre className="content-pre">{resourceContent}</pre>
                 ) : null}
-              </div>
+              </ScrollArea>
             </>
           ) : (
             <div className="viewer-empty">
               <div className="empty-icon">
-                <ArrowLeft size={28} />
+                <Icon name="arrow-left" size="lg" />
               </div>
               <p>{t('resourceBrowser.empty.selectToView')}</p>
             </div>

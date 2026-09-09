@@ -1,15 +1,7 @@
+import { Button, Icon } from '@openbitfun/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  Bot,
-  ChevronRight,
-  CircleAlert,
-  LoaderCircle,
-  Plus,
-  Puzzle,
-  Settings2,
-  Wrench,
-} from 'lucide-react';
+import { Bot, CircleAlert, LoaderCircle, Wrench } from 'lucide-react';
 import {
   GalleryEmpty,
   GalleryLayout,
@@ -18,11 +10,9 @@ import {
   GalleryGrid,
   GallerySkeleton,
 } from '@/app/components';
-import { Button } from '@/component-library';
-import { confirmDanger } from '@/component-library/components/ConfirmDialog/confirmService';
+import { confirmDanger } from '@/infrastructure/confirm-dialog';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
-import { useApp } from '@/app/hooks/useApp';
-import { useSceneStore } from '@/app/stores/sceneStore';
+import { openMainSession } from '@/flow_chat/services/sessionActivation';
 import { flowChatManager } from '@/flow_chat/services/FlowChatManager';
 import type { WorkspaceInfo } from '@/shared/types';
 import { configAPI } from '@/infrastructure/api/service-api/ConfigAPI';
@@ -42,27 +32,6 @@ interface TemplateStats {
 
 type TemplateStatsStatus = 'loading' | 'ready' | 'error';
 
-const NurseryPandaAvatar: React.FC = () => (
-  <div className="nursery-defaults__avatar" aria-hidden="true" data-bf-component="nursery-gallery" data-bf-part="avatar">
-    <span className="nursery-defaults__avatar-art">
-      <img
-        className="nursery-defaults__avatar-image"
-        src="/panda_1.png"
-        alt=""
-        draggable={false}
-        onError={(e) => { e.currentTarget.src = '/Logo-ICON.png'; }}
-      />
-      <img
-        className="nursery-defaults__avatar-image nursery-defaults__avatar-image--wink"
-        src="/panda_wink.png"
-        alt=""
-        draggable={false}
-        onError={(e) => { e.currentTarget.hidden = true; }}
-      />
-    </span>
-  </div>
-);
-
 const NurseryGallery: React.FC = () => {
   const { t } = useTranslation('scenes/profile');
   const {
@@ -75,8 +44,6 @@ const NurseryGallery: React.FC = () => {
     setActiveWorkspace,
     setPrimaryAssistantWorkspace,
   } = useWorkspaceContext();
-  const openScene = useSceneStore(s => s.openScene);
-  const { switchLeftPanelTab } = useApp();
   const { openDefaults, openAssistant } = useNurseryStore();
   const notification = useNotification();
   const [creating, setCreating] = useState(false);
@@ -189,11 +156,12 @@ const NurseryGallery: React.FC = () => {
     async (workspace: WorkspaceInfo) => {
       if (startingSessionWorkspaceId) return;
       setStartingSessionWorkspaceId(workspace.id);
-      openScene('session');
-      switchLeftPanelTab('sessions');
       try {
-        await flowChatManager.createChatSession({ workspacePath: workspace.rootPath }, 'Claw');
-        await setActiveWorkspace(workspace.id);
+        const sessionId = await flowChatManager.createChatSession({ workspacePath: workspace.rootPath }, 'Claw');
+        await openMainSession(sessionId, {
+          workspaceId: workspace.id,
+          activateWorkspace: setActiveWorkspace,
+        });
       } catch (e) {
         log.error('Failed to create assistant session from gallery', e);
         notification.error(t('nursery.card.newSessionFailed'));
@@ -203,10 +171,8 @@ const NurseryGallery: React.FC = () => {
     },
     [
       notification,
-      openScene,
       setActiveWorkspace,
       startingSessionWorkspaceId,
-      switchLeftPanelTab,
       t,
     ],
   );
@@ -214,8 +180,8 @@ const NurseryGallery: React.FC = () => {
   return (
     <GalleryLayout
       className="nursery-gallery"
-      data-bf-component="nursery-gallery"
-      data-bf-part="root"
+      data-openbitfun-component="nursery-gallery"
+      data-openbitfun-part="root"
     >
       <GalleryPageHeader
         title={t('nursery.gallery.title')}
@@ -223,9 +189,8 @@ const NurseryGallery: React.FC = () => {
         actions={(
           <Button
             type="button"
-            variant="primary"
-            size="small"
-            className="nursery-gallery__create-button"
+            variant="fill"
+            size="sm"
             onClick={handleCreateAssistant}
             disabled={creating}
             aria-busy={creating}
@@ -233,7 +198,7 @@ const NurseryGallery: React.FC = () => {
             {creating ? (
               <LoaderCircle className="nursery-spinning" size={15} aria-hidden="true" />
             ) : (
-              <Plus size={15} aria-hidden="true" />
+              <Icon name="plus" size="sm" aria-hidden="true" />
             )}
             <span>
               {t(creating ? 'nursery.gallery.creating' : 'nursery.gallery.newAssistant')}
@@ -242,20 +207,21 @@ const NurseryGallery: React.FC = () => {
         )}
       />
 
-      <div className="gallery-zones" data-bf-component="nursery-gallery" data-bf-part="content">
-        <section className="nursery-defaults" aria-labelledby="nursery-defaults-title" data-bf-component="nursery-gallery" data-bf-part="defaults">
-          <NurseryPandaAvatar />
-
-          <div className="nursery-defaults__content" data-bf-component="nursery-gallery" data-bf-part="defaultsContent">
-            <h3 className="nursery-defaults__title" id="nursery-defaults-title">
-              {t('nursery.template.title')}
-            </h3>
+      <div className="gallery-zones" data-openbitfun-component="nursery-gallery" data-openbitfun-part="content">
+        <section className="nursery-defaults" aria-labelledby="nursery-defaults-title" data-openbitfun-component="nursery-gallery" data-openbitfun-part="defaults">
+          <div className="nursery-defaults__content" data-openbitfun-component="nursery-gallery" data-openbitfun-part="defaultsContent">
+            <div className="nursery-defaults__title-row">
+              <h3 className="nursery-defaults__title" id="nursery-defaults-title">
+                {t('nursery.template.title')}
+              </h3>
+              <span className="nursery-defaults__badge">{t('nursery.template.defaultBadge')}</span>
+            </div>
             <p className="nursery-defaults__subtitle">{t('nursery.template.subtitle')}</p>
 
             <div
               className="nursery-defaults__stats"
-              data-bf-component="nursery-gallery"
-              data-bf-part="stats"
+              data-openbitfun-component="nursery-gallery"
+              data-openbitfun-part="stats"
               aria-live="polite"
               aria-busy={templateStatsStatus === 'loading'}
             >
@@ -266,17 +232,17 @@ const NurseryGallery: React.FC = () => {
                 </>
               ) : templateStatsStatus === 'error' ? (
                 <span className="nursery-defaults__stat nursery-defaults__stat--error">
-                  <CircleAlert size={13} strokeWidth={1.8} aria-hidden="true" />
+                  <Icon glyph={CircleAlert} size="xs" />
                   {t('nursery.template.statsUnavailable')}
                 </span>
               ) : templateStats ? (
                 <>
                   <span className="nursery-defaults__stat">
-                    <Wrench size={13} strokeWidth={1.8} aria-hidden="true" />
+                    <Icon glyph={Wrench} size="xs" />
                     {t('nursery.template.stats.tools', { count: templateStats.enabledToolCount })}
                   </span>
                   <span className="nursery-defaults__stat">
-                    <Puzzle size={13} strokeWidth={1.8} aria-hidden="true" />
+                    <Icon name="extension" size="xs" aria-hidden="true" />
                     {t('nursery.template.stats.skills', { count: templateStats.enabledSkillCount })}
                   </span>
                 </>
@@ -285,20 +251,20 @@ const NurseryGallery: React.FC = () => {
           </div>
 
           <Button
-            type="button"
-            variant="secondary"
-            size="small"
+            variant="outline"
+            size="sm"
             className="nursery-defaults__action"
+            leadingIcon={<Icon name="settings" size="sm" />}
+            trailingIcon={<Icon name="chevron-right" size="sm" />}
             onClick={openDefaults}
           >
-            <Settings2 size={14} strokeWidth={1.8} aria-hidden="true" />
-            <span>{t('nursery.template.configure')}</span>
-            <ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />
+            {t('nursery.template.configure')}
           </Button>
         </section>
 
         <GalleryZone
           id="nursery-assistants-zone"
+          className="nursery-gallery__assistant-zone"
           title={t('nursery.gallery.assistantsTitle')}
           subtitle={t('nursery.gallery.assistantsSubtitle')}
           tools={(
@@ -308,13 +274,13 @@ const NurseryGallery: React.FC = () => {
           {workspaceLoading && sortedAssistantWorkspacesList.length === 0 ? (
             <GallerySkeleton
               count={3}
-              cardHeight={176}
-              minCardWidth={320}
+              cardHeight={168}
+              minCardWidth={340}
               className="nursery-gallery__skeleton"
             />
           ) : workspaceError && sortedAssistantWorkspacesList.length === 0 ? (
             <GalleryEmpty
-              icon={<CircleAlert size={32} strokeWidth={1.5} aria-hidden="true" />}
+              icon={{ glyph: CircleAlert }}
               message={t('nursery.gallery.loadFailed')}
               isError
               className="nursery-gallery__empty"
@@ -322,7 +288,7 @@ const NurseryGallery: React.FC = () => {
             />
           ) : sortedAssistantWorkspacesList.length === 0 ? (
             <GalleryEmpty
-              icon={<Bot size={32} strokeWidth={1.5} aria-hidden="true" />}
+              icon={{ glyph: Bot }}
               message={(
                 <>
                   <strong>{t('nursery.gallery.emptyTitle')}</strong>
@@ -332,12 +298,13 @@ const NurseryGallery: React.FC = () => {
               action={(
                 <Button
                   type="button"
-                  variant="primary"
-                  size="small"
+                  variant="fill"
+                  size="sm"
                   onClick={handleCreateAssistant}
                   disabled={creating}
+                  leadingIcon={<Icon name="plus" size="sm" aria-hidden="true" />}
                 >
-                  <Plus size={15} aria-hidden="true" />
+
                   {t('nursery.gallery.newAssistant')}
                 </Button>
               )}
@@ -346,7 +313,7 @@ const NurseryGallery: React.FC = () => {
             />
           ) : (
             <GalleryGrid
-              minCardWidth={320}
+              minCardWidth={340}
               className="nursery-gallery__assistant-grid"
               role="list"
             >

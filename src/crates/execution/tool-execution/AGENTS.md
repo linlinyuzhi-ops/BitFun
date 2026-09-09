@@ -12,7 +12,7 @@ agent-facing tool surface.
 
 ## Guardrails
 
-- Do not depend on `bitfun-core`, app crates, Tauri, product-domain crates,
+- Do not depend on `openbitfun-core`, app crates, Tauri, product-domain crates,
   transport adapters, or AI providers.
 - Keep this crate focused on reusable execution primitives and pure utilities.
   Product-specific tool exposure, prompt-visible manifests, `GetToolSpec`,
@@ -21,6 +21,17 @@ agent-facing tool surface.
 - Preserve existing filesystem/search/Web tool behavior when moving helpers
   here. Do not change path containment, encoding, cancellation, extraction, or
   result presentation semantics as a side effect of refactoring.
+- Listing and search algorithms consume `WorkspaceFileSystem` from
+  `runtime-ports/workspace-ports`; concrete SSH/SFTP clients stay in services.
+  Native and workspace-stream Grep share the Rust matcher and output reducer;
+  optional target `rg` or batched system `grep` supplies conservative literal
+  candidates only, after behavior probes. Complex/case-folded regex stays in the
+  shared matcher; never translate it to a weaker shell regex. `tokio-util/io-util`
+  bridges provider read streams into the existing blocking matcher, with
+  cancellation closing pending readers.
+- Glob and ignore matching compile POSIX patterns to byte regexes without host
+  path normalization. The shared `regex` dependency belongs to the baseline
+  search utilities; HTML extractors remain optional under `web-readable`.
 - Background exec-output and ExecCommand presentation helpers may own retained
   output buffers, cursors, lifecycle metadata, assistant response text, and
   provider-neutral completion shapes; concrete local/remote process managers
@@ -28,14 +39,26 @@ agent-facing tool surface.
 - Computer Use helpers here may own provider-neutral loop detection, screenshot
   hash, verification, and retry policy. Host APIs, permissions, captures, OCR,
   accessibility, and OS input remain in host adapters.
-- Provider-neutral contracts belong in `tool-contracts` (`bitfun-agent-tools`);
+- Provider-neutral contracts belong in `tool-contracts` (`openbitfun-agent-tools`);
   product provider grouping belongs in `tool-provider-groups`
-  (`bitfun-tool-packs`).
+  (`openbitfun-tool-packs`).
+- `shell-analysis` owns non-executing syntax facts for complete ExecCommand
+  inputs. Core's Agent Runtime selects it for task constraints; session state,
+  path IO and permission decisions stay in Core. Keep the default empty;
+  regex is shared with baseline filename matching. See `src/shell_analysis/README.md`.
 
 ## Verification
 
 ```bash
 cargo test -p tool-runtime
+cargo test -p tool-runtime --features shell-analysis --lib shell_analysis
+cargo test -p tool-runtime --lib fs::read_file::tests::
+cargo test -p tool-runtime --no-default-features --lib search::
+cargo test -p tool-runtime --no-default-features --test tool_io_contracts
+# Production LocalWorkspaceFs and bound remote-provider conformance fixtures:
+cargo test -p openbitfun-core --no-default-features --features agent-runtime,git --lib grep_tool::tests::workspace_io
+cargo test -p openbitfun-core --no-default-features --features agent-runtime,git --lib glob_tool::tests
+cargo test -p openbitfun-core --no-default-features --features agent-runtime,git --lib ls_tool::tests
 cargo test -p tool-runtime --features document-read fs::document
 cargo test -p tool-runtime --features web-readable web
 node scripts/check-core-boundaries.mjs

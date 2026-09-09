@@ -66,9 +66,11 @@
       "archivedSessions": "查看、恢复或永久删除已归档的会话。"
     },
     "categories": {
-      "general": "通用",
-      "smartCapabilities": "智慧化配置",
-      "devkit": "开发套件"
+      "application": "应用与界面",
+      "ai": "AI 与模型",
+      "workspace": "会话与工作区",
+      "tools": "工具与集成",
+      "data": "数据与维护"
     },
     "tabs": {
       "basics": "基础",
@@ -93,6 +95,27 @@
       "keyboard": "快捷键",
       "archivedSessions": "已归档会话"
     }
+  },
+  "changeGuard": {
+    "title": "保存未完成的设置？",
+    "message": "离开前需要处理未保存的设置。",
+    "message_one": "离开前需要处理 {{count}} 项未保存的设置。保存失败时会留在当前页面。",
+    "message_other": "离开前需要处理 {{count}} 项未保存的设置。保存失败时会留在当前页面，已经保存的项目不会重复提交。",
+    "saveFailed": "部分设置未能保存。请检查当前页面的错误后重试，或放弃这些更改再离开。",
+    "saveAndLeave": "保存并离开",
+    "discardAndLeave": "放弃并离开",
+    "keepEditing": "继续编辑",
+    "unsavedPage": "此页面有未保存的更改"
+  },
+  "changeStatus": {
+    "unsaved": "尚未保存",
+    "saving": "正在保存…",
+    "saved": "已保存",
+    "error": "保存失败"
+  },
+  "changeActions": {
+    "save": "保存更改",
+    "discard": "放弃更改"
   },
   "general": {
     "title": "通用",
@@ -205,17 +228,28 @@
     "apply": "应用",
     "saving": "保存中…",
     "reset": "重置为默认",
+    "resetConfirmTitle": "重置所有快捷键？",
+    "resetConfirmMessage": "所有自定义键位将被清除并恢复为默认快捷键。",
     "clickToRecord": "点击录制新的快捷键",
     "recording": "按下新键位…",
     "revertChange": "撤销此更改",
-    "fixedBinding": "系统固定快捷键，无法自定义",
     "noResults": "未找到匹配的快捷键",
     "conflict": "冲突",
+    "conflictBlocking": "存在快捷键冲突。请为其中一个冲突操作录制其他键位，或撤销本次修改后再应用。",
     "saveError": "保存失败，请重试",
     "resetError": "重置失败，请重试",
     "mergedNonUniform": "键位不一致，可重新录制为一组",
     "keyLabels": {
-      "space": "空格"
+      "space": "空格",
+      "enter": "回车",
+      "escape": "Esc",
+      "tab": "Tab",
+      "delete": "删除",
+      "backspace": "退格",
+      "arrowUp": "上方向键",
+      "arrowDown": "下方向键",
+      "arrowLeft": "左方向键",
+      "arrowRight": "右方向键"
     },
     "scopes": {
       "app": "全局",
@@ -242,16 +276,12 @@
         "openSettings": "打开设置",
         "openTerminal": "打开终端"
       },
-      "app": {
-        "closePreview": "关闭预览 / 关闭弹窗"
-      },
       "canvas": {
         "missionControl": "Mission Control",
         "splitHorizontal": "水平分屏",
         "splitVertical": "垂直分屏",
         "anchorZone": "切换锚点区",
-        "maximize": "最大化编辑器",
-        "closePreview": "关闭预览"
+        "maximize": "最大化编辑器"
       },
       "editor": {
         "findInFile": "在文件中查找（Monaco）"
@@ -293,11 +323,6 @@
     "experimental": {
       "title": "实验性功能",
       "description": "这些功能可能不稳定"
-    },
-    "debug": {
-      "title": "调试",
-      "logging": "启用日志",
-      "developerTools": "开发者工具"
     },
     "data": {
       "title": "数据",
@@ -528,20 +553,6 @@
     "wordWrap": "自动换行",
     "minimap": "显示缩略图",
     "lineNumbers": "显示行号"
-  },
-  "lspConfig": {
-    "title": "语言服务",
-    "subtitle": "配置语言服务器",
-    "installedServers": "已安装的语言服务器",
-    "noServers": "暂无语言服务器",
-    "noServersHint": "语言服务器提供代码智能功能"
-  },
-  "debugConfig": {
-    "title": "调试",
-    "subtitle": "配置调试选项",
-    "enableLogging": "启用日志",
-    "logLevel": "日志级别",
-    "developerTools": "开发者工具"
   },
   "terminalConfig": {
     "title": "终端",

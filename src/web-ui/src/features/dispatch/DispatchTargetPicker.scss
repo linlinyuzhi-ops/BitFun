@@ -1,4 +1,4 @@
-@use '../../component-library/styles/tokens' as *;
+@use '@/shared/styles/overlay-layout' as overlay-layout;
 
 .dispatch-target-picker {
   position: relative;
@@ -16,13 +16,13 @@
     height: 18px;
     padding: 0 5px;
     overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 28%, transparent);
-    border-radius: $size-radius-sm;
-    background: color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 7%, transparent);
-    color: var(--bf-appearance-token-color-text-secondary);
+    border: 1px solid color-mix(in srgb, var(--openbitfun-color-accent-default) 28%, transparent);
+    border-radius: var(--openbitfun-radius-sm);
+    background: color-mix(in srgb, var(--openbitfun-color-accent-default) 7%, transparent);
+    color: var(--openbitfun-color-content-secondary);
     font: inherit;
-    font-size: var(--bf-appearance-token-flowchat-font-size-xxs);
-    line-height: 1;
+    font-size: var(--openbitfun-type-flow-micro-font-size);
+    line-height: var(--openbitfun-type-modifier-leading-none-line-height);
     cursor: pointer;
     transition:
       background-color 120ms ease,
@@ -32,13 +32,13 @@
 
     &:hover:not(:disabled),
     &[aria-expanded='true'] {
-      border-color: color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 52%, transparent);
-      background: color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 12%, transparent);
-      color: var(--bf-appearance-token-color-text-primary);
+      border-color: color-mix(in srgb, var(--openbitfun-color-accent-default) 52%, transparent);
+      background: color-mix(in srgb, var(--openbitfun-color-accent-default) 12%, transparent);
+      color: var(--openbitfun-color-content-primary);
     }
 
     &:focus-visible {
-      outline: 2px solid var(--bf-appearance-token-color-accent-500);
+      outline: 2px solid var(--openbitfun-color-accent-default);
       outline-offset: 1px;
     }
 
@@ -51,10 +51,9 @@
       transform: scale(0.97);
     }
 
-    > span {
+    > span:not([data-overflow-content]) {
       min-width: 0;
       overflow: hidden;
-      text-overflow: ellipsis;
       white-space: nowrap;
     }
 
@@ -64,166 +63,73 @@
   }
 
   &__menu {
+    @include overlay-layout.anchored-picker-inline-size;
+
+    --openbitfun-overlay-menu-section-gap: var(--openbitfun-space-1);
+
     position: fixed;
-    z-index: $z-popover;
-    box-sizing: border-box;
+    z-index: var(--openbitfun-layer-popover);
+  }
+
+  &__option-row {
+    min-height: var(--openbitfun-control-height-md);
+
+    // The two local execution modes keep matching title ink regardless of
+    // which row is selected. Every option detail shares the quieter treatment
+    // declared on `small` below.
+    &[data-openbitfun-part='option'] {
+      .dispatch-target-picker__option-copy {
+        strong {
+          color: var(--openbitfun-color-content-secondary);
+          opacity: var(--openbitfun-opacity-focus);
+        }
+      }
+    }
+  }
+
+  &__option-copy {
     display: flex;
-    width: min(300px, calc(100vw - 16px));
-    max-height: min(410px, calc(100vh - 16px));
+    min-width: 0;
     flex-direction: column;
-    gap: 4px;
-    padding: 6px;
-    overflow-x: hidden;
-    overflow-y: auto;
-    border: 1px solid var(--bf-appearance-token-border-subtle);
-    border-radius: $size-radius-base;
-    background: var(--bf-appearance-token-color-bg-elevated);
-    box-shadow: var(--bf-appearance-token-shadow-lg);
-    color: var(--bf-appearance-token-color-text-primary);
-    font-family: var(--bf-appearance-token-font-family-sans);
-    font-size: var(--bf-appearance-token-flowchat-font-size-xxs);
-    user-select: none;
-  }
-
-  &__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: $size-gap-2;
-    padding: 2px 7px 5px;
-    color: var(--bf-appearance-token-color-text-secondary);
-    font-size: var(--bf-appearance-token-font-size-xxs);
-    font-weight: 600;
-
-    small {
-      color: var(--bf-appearance-token-color-text-muted);
-      font: inherit;
-      font-weight: 400;
-    }
-  }
-
-  &__section {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  &__section-title {
-    padding: 4px 8px 2px;
-    color: var(--bf-appearance-token-color-text-muted);
-    font-size: var(--bf-appearance-token-font-size-xxs);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  &__option {
-    display: grid;
-    grid-template-columns: 18px minmax(0, 1fr) 16px;
-    align-items: center;
-    gap: $size-gap-2;
-    width: 100%;
-    min-height: 46px;
-    padding: 7px 8px;
-    border: 0;
-    border-radius: $size-radius-sm;
-    background: transparent;
-    color: var(--bf-appearance-token-color-text-primary);
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-    transition:
-      background-color 120ms ease,
-      transform 100ms ease-out;
-
-    &:hover,
-    &:focus-visible,
-    &[aria-checked='true'] {
-      background: var(--bf-appearance-token-element-bg-medium);
-      outline: none;
-    }
-
-    &:disabled {
-      cursor: not-allowed;
-      opacity: 0.5;
-    }
-
-    &:active:not(:disabled) {
-      transform: scale(0.99);
-    }
-
-    &[aria-checked='true'] > svg:last-child {
-      color: var(--bf-appearance-token-color-accent-500);
-    }
-
-    > span {
-      display: flex;
-      min-width: 0;
-      flex-direction: column;
-      gap: 2px;
-    }
+    gap: calc(var(--openbitfun-space-1) / 2);
 
     strong,
     small {
       overflow: hidden;
-      text-overflow: ellipsis;
       white-space: nowrap;
     }
 
     strong {
-      font-size: var(--bf-appearance-token-font-size-xs);
-      font-weight: 500;
+      font-family: var(--openbitfun-type-label-md-font-family);
+      font-size: var(--openbitfun-type-label-md-font-size);
+      font-weight: var(--openbitfun-type-label-md-font-weight);
+      line-height: var(--openbitfun-type-label-md-line-height);
+      letter-spacing: var(--openbitfun-type-label-md-letter-spacing);
     }
 
     small {
-      color: var(--bf-appearance-token-color-text-muted);
-      font-size: var(--bf-appearance-token-font-size-xxs);
+      color: var(--openbitfun-color-content-muted);
+      opacity: 0.5;
+      font-family: var(--openbitfun-type-meta-font-family);
+      font-size: var(--openbitfun-type-meta-font-size);
+      font-weight: var(--openbitfun-type-meta-font-weight);
+      line-height: var(--openbitfun-type-meta-line-height);
+      letter-spacing: var(--openbitfun-type-meta-letter-spacing);
     }
   }
 
   &__status {
     display: flex;
     align-items: center;
-    gap: $size-gap-2;
-    padding: 9px 8px;
-    color: var(--bf-appearance-token-color-text-muted);
-    font-size: var(--bf-appearance-token-font-size-xs);
-  }
-
-  &__divider {
-    height: 1px;
-    margin: 3px 2px;
-    background: var(--bf-appearance-token-border-subtle);
-  }
-
-  &__footer-action {
-    display: flex;
-    align-items: center;
-    gap: $size-gap-2;
-    min-height: 32px;
-    padding: 6px 8px;
-    border: 0;
-    border-radius: $size-radius-sm;
-    background: transparent;
-    color: var(--bf-appearance-token-color-text-secondary);
-    font: inherit;
-    font-size: var(--bf-appearance-token-font-size-xs);
-    cursor: pointer;
-    transition:
-      background-color 120ms ease,
-      color 120ms ease,
-      transform 100ms ease-out;
-
-    &:hover,
-    &:focus-visible {
-      background: var(--bf-appearance-token-element-bg-medium);
-      color: var(--bf-appearance-token-color-text-primary);
-      outline: none;
-    }
-
-    &:active {
-      transform: scale(0.99);
-    }
+    gap: var(--openbitfun-space-2);
+    min-height: var(--openbitfun-overlay-menu-heading-height);
+    padding-inline: var(--openbitfun-overlay-menu-item-padding-inline);
+    color: var(--openbitfun-color-content-muted);
+    font-family: var(--openbitfun-type-meta-font-family);
+    font-size: var(--openbitfun-type-meta-font-size);
+    font-weight: var(--openbitfun-type-meta-font-weight);
+    line-height: var(--openbitfun-type-meta-line-height);
+    letter-spacing: var(--openbitfun-type-meta-letter-spacing);
   }
 
   &__spin {
@@ -232,9 +138,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dispatch-target-picker__trigger,
-  .dispatch-target-picker__option,
-  .dispatch-target-picker__footer-action {
+  .dispatch-target-picker__trigger {
     transition-duration: 0.01ms;
   }
 }
@@ -250,8 +154,7 @@
     width: 18px;
     padding: 0;
 
-    > span,
-    > .dispatch-target-picker__chevron {
+    > span:not([data-overflow-content]) {
       display: none;
     }
   }

@@ -16,6 +16,7 @@ pub enum ToolPackFeatureGroup {
     ComputerUse,
     ImageAnalysis,
     MiniApp,
+    Creation,
     Canvas,
     AgentControl,
 }
@@ -30,6 +31,7 @@ impl ToolPackFeatureGroup {
             Self::ComputerUse => "computer-use",
             Self::ImageAnalysis => "image-analysis",
             Self::MiniApp => "miniapp",
+            Self::Creation => "creation",
             Self::Canvas => "canvas",
             Self::AgentControl => "agent-control",
         }
@@ -44,6 +46,7 @@ pub const ALL_FEATURE_GROUPS: &[ToolPackFeatureGroup] = &[
     ToolPackFeatureGroup::ComputerUse,
     ToolPackFeatureGroup::ImageAnalysis,
     ToolPackFeatureGroup::MiniApp,
+    ToolPackFeatureGroup::Creation,
     ToolPackFeatureGroup::Canvas,
     ToolPackFeatureGroup::AgentControl,
 ];
@@ -70,6 +73,7 @@ pub fn enabled_feature_groups() -> Vec<ToolPackFeatureGroup> {
             ToolPackFeatureGroup::ImageAnalysis,
         ),
         (cfg!(feature = "miniapp"), ToolPackFeatureGroup::MiniApp),
+        (cfg!(feature = "creation"), ToolPackFeatureGroup::Creation),
         (cfg!(feature = "canvas"), ToolPackFeatureGroup::Canvas),
         (
             cfg!(feature = "agent-control"),
@@ -87,7 +91,7 @@ pub fn tool_feature_group(tool_name: &str) -> Option<ToolPackFeatureGroup> {
         | "WriteStdin" | "ExecControl" | "GetTime" | "ListModels" => {
             Some(ToolPackFeatureGroup::Basic)
         }
-        "Git" | "Worktree" | "ReviewPlatform" | "GetFileDiff" => Some(ToolPackFeatureGroup::Git),
+        "Worktree" | "ReviewPlatform" | "GetFileDiff" => Some(ToolPackFeatureGroup::Git),
         "ListMCPResources" | "ReadMCPResource" | "ListMCPPrompts" | "GetMCPPrompt" => {
             Some(ToolPackFeatureGroup::Mcp)
         }
@@ -98,13 +102,17 @@ pub fn tool_feature_group(tool_name: &str) -> Option<ToolPackFeatureGroup> {
         | "PublishAppearance" | "PageDeploy" | "PagePublish" | "Playbook" => {
             Some(ToolPackFeatureGroup::MiniApp)
         }
+        "FrontendWorkbench" => Some(ToolPackFeatureGroup::Creation),
         "CreateCanvas" | "ReadCanvas" | "UpdateCanvas" | "PatchCanvas" => {
             Some(ToolPackFeatureGroup::Canvas)
         }
-        "Task" | "AgentWait" | "LaunchReviewAgent" | "Skill" | "AskUserQuestion" | "TodoWrite"
-        | "get_goal" | "create_goal" | "update_goal" | "CreatePlan" | "submit_code_review"
+        "Task" | "AgentSpawn" | "AgentSendInput" | "AgentInterrupt" | "AgentList"
+        | "AgentDelete" | "AgentWait" | "LaunchReviewAgent" | "Skill" | "AskUserQuestion"
+        | "TodoWrite" | "get_goal" | "create_goal" | "update_goal" | "submit_code_review"
         | "GetToolSpec" | "CallDeferredTool" | "SessionControl" | "SessionMessage"
-        | "SessionHistory" | "Cron" => Some(ToolPackFeatureGroup::AgentControl),
+        | "SessionHistory" | "Cron" | "PortForward" | "OpenBitFunControl" => {
+            Some(ToolPackFeatureGroup::AgentControl)
+        }
         _ => None,
     }
 }
@@ -182,6 +190,11 @@ const PRODUCT_TOOL_PROVIDER_GROUP_PLAN: &[ToolProviderGroupPlan] = &[
         feature_groups: CORE_AGENT_FEATURE_GROUPS,
         tool_names: &[
             "Task",
+            "AgentSpawn",
+            "AgentSendInput",
+            "AgentInterrupt",
+            "AgentList",
+            "AgentDelete",
             "AgentWait",
             "Skill",
             "AskUserQuestion",
@@ -197,7 +210,13 @@ const PRODUCT_TOOL_PROVIDER_GROUP_PLAN: &[ToolProviderGroupPlan] = &[
     ToolProviderGroupPlan {
         provider_id: "core.session",
         feature_groups: CORE_SESSION_FEATURE_GROUPS,
-        tool_names: &["SessionControl", "SessionMessage", "SessionHistory", "Cron"],
+        tool_names: &[
+            "SessionControl",
+            "SessionMessage",
+            "SessionHistory",
+            "Cron",
+            "PortForward",
+        ],
     },
     ToolProviderGroupPlan {
         provider_id: "core.git",
@@ -323,6 +342,7 @@ mod tests {
                 "computer-use",
                 "image-analysis",
                 "miniapp",
+                "creation",
                 "canvas",
                 "agent-control"
             ]
@@ -360,6 +380,10 @@ mod tests {
         assert_eq!(
             groups.contains(&ToolPackFeatureGroup::MiniApp),
             cfg!(feature = "miniapp")
+        );
+        assert_eq!(
+            groups.contains(&ToolPackFeatureGroup::Creation),
+            cfg!(feature = "creation")
         );
         assert_eq!(
             groups.contains(&ToolPackFeatureGroup::Canvas),
@@ -439,6 +463,7 @@ mod tests {
         assert_eq!(ToolPackFeatureGroup::ComputerUse.id(), "computer-use");
         assert_eq!(ToolPackFeatureGroup::ImageAnalysis.id(), "image-analysis");
         assert_eq!(ToolPackFeatureGroup::MiniApp.id(), "miniapp");
+        assert_eq!(ToolPackFeatureGroup::Creation.id(), "creation");
         assert_eq!(ToolPackFeatureGroup::Canvas.id(), "canvas");
         assert_eq!(ToolPackFeatureGroup::AgentControl.id(), "agent-control");
     }
@@ -492,6 +517,11 @@ mod tests {
                 "GetTime",
                 "ListModels",
                 "Task",
+                "AgentSpawn",
+                "AgentSendInput",
+                "AgentInterrupt",
+                "AgentList",
+                "AgentDelete",
                 "AgentWait",
                 "Skill",
                 "AskUserQuestion",

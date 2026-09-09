@@ -40,6 +40,7 @@ impl SkillCandidate {
                 source_slot: data.source_slot,
                 source_id: source_id.to_string(),
                 source_label: source_label.to_string(),
+                installation_source: None,
                 dir_name: data.dir_name,
                 is_builtin,
                 group_key,
@@ -281,9 +282,8 @@ pub fn resolve_default_hidden_builtin_for_explicit_invocation(
         return ExplicitSkillInvocationResolution::NotFound;
     };
 
-    // gstack and computer-use builtins are default-hidden but remain explicitly
-    // invocable: computer-use (agent-browser) is opt-in everywhere because
-    // ControlHub's browser domain is the default browser-automation path.
+    // A mode may keep gstack and computer-use builtins default-hidden while
+    // still allowing an exact explicit invocation.
     if info.level == SkillLocation::User
         && info.is_builtin
         && matches!(
@@ -333,6 +333,7 @@ mod tests {
                 source_slot: String::new(),
                 source_id: String::new(),
                 source_label: String::new(),
+                installation_source: None,
                 dir_name: name.to_string(),
                 is_builtin: false,
                 group_key: None,

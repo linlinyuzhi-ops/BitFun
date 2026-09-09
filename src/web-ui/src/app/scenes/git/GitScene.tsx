@@ -4,13 +4,14 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Button, Icon, IconButton, Tooltip } from '@openbitfun/ui';
 import { useTranslation } from 'react-i18next';
-import { GitBranch, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
+import { ShieldAlert } from 'lucide-react';
 import { useGitSceneStore } from './gitSceneStore';
 import { WorkingCopyView, BranchesView, GraphView } from './views';
 import { useGitState } from '@/tools/git/hooks';
 import { useCurrentWorkspace } from '@/infrastructure/contexts/WorkspaceContext';
-import { IconButton, CubeLoading } from '@/component-library';
+import { LoadingState } from '@openbitfun/ui';
 import { globalEventBus } from '@/infrastructure/event-bus';
 import { requestGitRepositoryTrust } from '@/shared/services/gitTrustService';
 import './GitScene.scss';
@@ -104,7 +105,7 @@ const GitScene: React.FC<GitSceneProps> = ({
   }, [activeView, isActive, workspacePath]);
 
   if (!isActive) {
-    return <div className="bitfun-git-scene" aria-hidden="true" data-bf-scene="git" data-bf-part="root" data-bf-view="hidden" />;
+    return <div className="openbitfun-git-scene" aria-hidden="true" data-openbitfun-scene="git" data-openbitfun-part="root" data-openbitfun-view="hidden" />;
   }
 
   // Ownership trust outranks `isRepository`. A repository Git refuses on
@@ -112,21 +113,26 @@ const GitScene: React.FC<GitSceneProps> = ({
   // this view on `!isRepository` made it unreachable exactly where it matters.
   if (!repoLoading && repositoryTrustRequired) {
     return (
-      <div className="bitfun-git-scene bitfun-git-scene--not-repository" data-bf-scene="git" data-bf-part="root" data-bf-view="trust-required">
-        <div className="bitfun-git-scene__content" data-bf-scene="git" data-bf-part="content">
-          <div className="bitfun-git-scene__init-container" data-bf-scene="git" data-bf-part="empty">
-            <div className="bitfun-git-scene__init-card">
-              <div className="bitfun-git-scene__init-icon">
+      <div className="openbitfun-git-scene openbitfun-git-scene--not-repository" data-openbitfun-scene="git" data-openbitfun-part="root" data-openbitfun-view="trust-required">
+        <div className="openbitfun-git-scene__content" data-openbitfun-scene="git" data-openbitfun-part="content">
+          <div className="openbitfun-git-scene__init-container" data-openbitfun-scene="git" data-openbitfun-part="empty">
+            <div className="openbitfun-git-scene__init-card">
+              <div className="openbitfun-git-scene__init-icon">
                 <ShieldAlert size={24} />
               </div>
-              <div className="bitfun-git-scene__init-text">
+              <div className="openbitfun-git-scene__init-text">
                 <h3>{t('trust.title')}</h3>
                 <p>{t('trust.required', { path: workspacePath })}</p>
               </div>
-              <button type="button" className="bitfun-git-scene__init-button" onClick={handleTrustRepository} disabled={isTrusting}>
-                <ShieldAlert size={14} />
-                <span>{t('trust.confirm')}</span>
-              </button>
+              <Button
+                variant="fill"
+                size="sm"
+                leadingIcon={<ShieldAlert />}
+                onClick={handleTrustRepository}
+                disabled={isTrusting}
+              >
+                {t('trust.confirm')}
+              </Button>
             </div>
           </div>
         </div>
@@ -136,33 +142,37 @@ const GitScene: React.FC<GitSceneProps> = ({
 
   if (!repoLoading && !isRepository) {
     return (
-      <div className="bitfun-git-scene bitfun-git-scene--not-repository" data-bf-scene="git" data-bf-part="root" data-bf-view="not-repository">
-        <div className="bitfun-git-scene__content" data-bf-scene="git" data-bf-part="content">
-          <div className="bitfun-git-scene__init-container" data-bf-scene="git" data-bf-part="empty">
-            <div className="bitfun-git-scene__init-decoration">
-              <div className="bitfun-git-scene__init-line bitfun-git-scene__init-line--dashed" />
-              <div className="bitfun-git-scene__init-dot" />
-              <div className="bitfun-git-scene__init-line bitfun-git-scene__init-line--solid" />
+      <div className="openbitfun-git-scene openbitfun-git-scene--not-repository" data-openbitfun-scene="git" data-openbitfun-part="root" data-openbitfun-view="not-repository">
+        <div className="openbitfun-git-scene__content" data-openbitfun-scene="git" data-openbitfun-part="content">
+          <div className="openbitfun-git-scene__init-container" data-openbitfun-scene="git" data-openbitfun-part="empty">
+            <div className="openbitfun-git-scene__init-decoration">
+              <div className="openbitfun-git-scene__init-line openbitfun-git-scene__init-line--dashed" />
+              <div className="openbitfun-git-scene__init-dot" />
+              <div className="openbitfun-git-scene__init-line openbitfun-git-scene__init-line--solid" />
             </div>
-            <div className="bitfun-git-scene__init-card">
-              <div className="bitfun-git-scene__init-icon">
-                <GitBranch size={24} />
+            <div className="openbitfun-git-scene__init-card">
+              <div className="openbitfun-git-scene__init-icon">
+                <Icon name="git" size="lg" />
               </div>
-              <div className="bitfun-git-scene__init-text">
+              <div className="openbitfun-git-scene__init-text">
                 <h3>{t('init.title')}</h3>
                 <p>{t('init.notRepository')}</p>
               </div>
-              <button type="button" className="bitfun-git-scene__init-button" onClick={handleInitGitRepository}>
-                <Plus size={14} />
-                <span>{t('init.initButton')}</span>
-              </button>
+              <Button
+                variant="fill"
+                size="sm"
+                leadingIcon={<Icon name="plus" size="lg" />}
+                onClick={handleInitGitRepository}
+              >
+                {t('init.initButton')}
+              </Button>
             </div>
-            <div className="bitfun-git-scene__init-decoration">
-              <div className="bitfun-git-scene__init-line bitfun-git-scene__init-line--solid" />
-              <div className="bitfun-git-scene__init-dot bitfun-git-scene__init-dot--muted" />
-              <div className="bitfun-git-scene__init-line bitfun-git-scene__init-line--dashed" />
+            <div className="openbitfun-git-scene__init-decoration">
+              <div className="openbitfun-git-scene__init-line openbitfun-git-scene__init-line--solid" />
+              <div className="openbitfun-git-scene__init-dot openbitfun-git-scene__init-dot--muted" />
+              <div className="openbitfun-git-scene__init-line openbitfun-git-scene__init-line--dashed" />
             </div>
-            <div className="bitfun-git-scene__init-hint">
+            <div className="openbitfun-git-scene__init-hint">
               <span>{t('init.hint')}</span>
             </div>
           </div>
@@ -173,16 +183,27 @@ const GitScene: React.FC<GitSceneProps> = ({
 
   if ((repoLoading || statusLoading) && !forceReset) {
     return (
-      <div className="bitfun-git-scene bitfun-git-scene--loading" data-bf-scene="git" data-bf-part="root" data-bf-view="loading">
-        <div className="bitfun-git-scene__content" data-bf-scene="git" data-bf-part="content">
-          <div className="bitfun-git-scene__loading-actions">
-            <IconButton size="xs" variant="ghost" onClick={() => { setForceReset(true); setTimeout(() => { setForceReset(false); handleRefresh(); }, 100); }} tooltip={t('actions.forceRefresh')}>
-              <RefreshCw size={14} />
-            </IconButton>
+      <div className="openbitfun-git-scene openbitfun-git-scene--loading" data-openbitfun-scene="git" data-openbitfun-part="root" data-openbitfun-view="loading">
+        <div className="openbitfun-git-scene__content" data-openbitfun-scene="git" data-openbitfun-part="content">
+          <div className="openbitfun-git-scene__loading-actions">
+            <Tooltip content={t('actions.forceRefresh')}>
+              <IconButton
+                size="sm"
+                aria-label={t('actions.forceRefresh')}
+                icon={<Icon name="refresh" size="lg" />}
+                onClick={() => {
+                  setForceReset(true);
+                  setTimeout(() => {
+                    setForceReset(false);
+                    handleRefresh();
+                  }, 100);
+                }}
+              />
+            </Tooltip>
           </div>
-          <div className="bitfun-git-scene__loading-state" data-bf-scene="git" data-bf-part="loading">
-            <CubeLoading size="medium" text={t('loading.text')} />
-            <p className="bitfun-git-scene__loading-hint">{t('loading.hint')}</p>
+          <div className="openbitfun-git-scene__loading-state" data-openbitfun-scene="git" data-openbitfun-part="loading">
+            <LoadingState size="md">{t('loading.text')}</LoadingState>
+            <p className="openbitfun-git-scene__loading-hint">{t('loading.hint')}</p>
           </div>
         </div>
       </div>
@@ -191,11 +212,11 @@ const GitScene: React.FC<GitSceneProps> = ({
 
   return (
     <div
-      className="bitfun-git-scene"
+      className="openbitfun-git-scene"
       data-shortcut-scope="git"
-      data-bf-scene="git"
-      data-bf-part="root"
-      data-bf-view="repository"
+      data-openbitfun-scene="git"
+      data-openbitfun-part="root"
+      data-openbitfun-view="repository"
     >
       {renderView()}
     </div>

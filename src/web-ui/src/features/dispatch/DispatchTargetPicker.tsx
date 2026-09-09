@@ -7,17 +7,9 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  Check,
-  ChevronDown,
-  Laptop,
-  Loader2,
-  MonitorSmartphone,
-  Plus,
-  RefreshCw,
-  Server,
-} from 'lucide-react';
-import { Tooltip } from '@/component-library';
+import { FolderGit2, Laptop, Loader2, MonitorSmartphone, Server } from 'lucide-react';
+
+import { OverflowText, Icon, Menu, MenuItem, MenuSection, MenuSeparator, Tooltip } from '@openbitfun/ui';
 import { SSHConnectionDialog } from '@/features/ssh-remote/SSHConnectionDialog';
 import { useAccountLoginState } from '@/infrastructure/account/useAccountLoginState';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
@@ -37,6 +29,13 @@ interface DispatchTargetPickerProps {
   sourceWorkspacePath?: string;
   locked: boolean;
   disabled?: boolean;
+  localWorktreeControl?: {
+    enabled: boolean;
+    locked: boolean;
+    label: string;
+    description: string;
+    onChange: (enabled: boolean) => void;
+  };
   onSelectLocal?: () => void;
   onSelectTarget: (selection: DispatchSelection) => void;
 }
@@ -50,6 +49,7 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
   sourceWorkspacePath,
   locked,
   disabled = false,
+  localWorktreeControl,
   onSelectLocal,
   onSelectTarget,
 }) => {
@@ -73,8 +73,11 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
     layoutRevision: `${targets.length}:${loading}:${error ?? ''}`,
   });
 
+  const localDisplayLabel = localWorktreeControl?.enabled
+    ? localWorktreeControl.label
+    : t('chatInput.dispatch.local');
   const displayLabel = target.kind === 'local'
-    ? t('chatInput.dispatch.local')
+    ? localDisplayLabel
     : target.displayName;
   const tooltip = locked
     ? t('chatInput.dispatch.locked', { target: displayLabel })
@@ -117,69 +120,89 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
     [targets],
   );
 
+  const selectLocalMode = (worktreeEnabled: boolean) => {
+    setOpen(false);
+    onSelectLocal?.();
+    if (
+      localWorktreeControl
+      && localWorktreeControl.enabled !== worktreeEnabled
+    ) {
+      localWorktreeControl.onChange(worktreeEnabled);
+    }
+  };
+
+  const localDirectorySelected =
+    target.kind === 'local' && !localWorktreeControl?.enabled;
+  const localWorktreeSelected =
+    target.kind === 'local' && !!localWorktreeControl?.enabled;
+
   const menu = open ? (
-    <div
+    <Menu
       ref={menuRef}
       className="dispatch-target-picker__menu"
-      data-bf-component="dispatch-target-picker"
-      data-bf-part="menu"
-      data-bf-placement={menuLayout?.placement ?? 'top'}
+      data-openbitfun-component="dispatch-target-picker"
+      data-openbitfun-part="menu"
+      data-openbitfun-placement={menuLayout?.placement ?? 'top'}
       style={{
         top: `${menuLayout?.top ?? 0}px`,
         left: `${menuLayout?.left ?? 0}px`,
         visibility: menuLayout ? 'visible' : 'hidden',
       }}
-      role="menu"
       aria-label={t('chatInput.dispatch.menuLabel')}
       data-testid="dispatch-target-menu"
+      autoFocusFirstItem
     >
-      <div className="dispatch-target-picker__header">
-        <span>{t('chatInput.dispatch.menuLabel')}</span>
-        <small>{t('chatInput.dispatch.sessionScope')}</small>
-      </div>
-      <div className="dispatch-target-picker__section">
-        <div className="dispatch-target-picker__section-title">
-          {t('chatInput.dispatch.localSection')}
-        </div>
-        <button
-          type="button"
+      <MenuSection title={t('chatInput.dispatch.localSection')}>
+        <MenuItem data-overflow-trigger
           role="menuitemradio"
-          aria-checked={target.kind === 'local'}
-          className="dispatch-target-picker__option"
-          data-bf-component="dispatch-target-picker"
-          data-bf-part="option"
-          onClick={() => {
-            setOpen(false);
-            onSelectLocal?.();
-          }}
+          checked={localDirectorySelected}
+          className="dispatch-target-picker__option-row"
+          data-openbitfun-component="dispatch-target-picker"
+          data-openbitfun-part="option"
+          data-testid="dispatch-target-local-option"
+          disabled={localWorktreeControl?.locked}
+          leading={<Laptop size={15} aria-hidden />}
+          metadata={localDirectorySelected ? <Icon name="check-line" size="sm" aria-hidden /> : null}
+          onClick={() => selectLocalMode(false)}
         >
-          <Laptop size={15} aria-hidden />
-          <span>
-            <strong>{t('chatInput.dispatch.local')}</strong>
-            <small>{t('chatInput.dispatch.localDescription')}</small>
+          <span className="dispatch-target-picker__option-copy">
+            <strong><OverflowText>{t('chatInput.dispatch.local')}</OverflowText></strong>
+            <small><OverflowText>{t('chatInput.dispatch.localDescription')}</OverflowText></small>
           </span>
-          {target.kind === 'local' ? <Check size={14} aria-hidden /> : null}
-        </button>
-      </div>
+        </MenuItem>
+        {localWorktreeControl ? (
+          <MenuItem data-overflow-trigger
+            role="menuitemradio"
+            checked={localWorktreeSelected}
+            className="dispatch-target-picker__option-row"
+            data-openbitfun-component="dispatch-target-picker"
+            data-openbitfun-part="option"
+            data-testid="dispatch-target-new-worktree-option"
+            disabled={localWorktreeControl.locked}
+            leading={<FolderGit2 size={15} aria-hidden />}
+            metadata={localWorktreeSelected ? <Icon name="check-line" size="sm" aria-hidden /> : null}
+            onClick={() => selectLocalMode(true)}
+          >
+            <span className="dispatch-target-picker__option-copy">
+              <strong><OverflowText>{localWorktreeControl.label}</OverflowText></strong>
+              <small><OverflowText>{localWorktreeControl.description}</OverflowText></small>
+            </span>
+          </MenuItem>
+        ) : null}
+      </MenuSection>
 
-      <div className="dispatch-target-picker__divider" role="separator" />
-      <div className="dispatch-target-picker__section">
-        <div className="dispatch-target-picker__section-title">
-          {t('chatInput.dispatch.deviceSection')}
-        </div>
+      <MenuSeparator />
+      <MenuSection title={t('chatInput.dispatch.deviceSection')}>
         {!loggedIn ? (
-          <button
-            type="button"
-            role="menuitem"
-            className="dispatch-target-picker__footer-action"
+          <MenuItem
+            leading={<MonitorSmartphone size={14} aria-hidden />}
             onClick={() => {
               setOpen(false);
               setAccountDialogOpen(true);
             }}
           >
-            <MonitorSmartphone size={14} aria-hidden />
-            <span>{t('chatInput.dispatch.signInDevices')}</span>
-          </button>
+            {t('chatInput.dispatch.signInDevices')}
+          </MenuItem>
         ) : null}
         {loggedIn && !loading && deviceTargets.length === 0 ? (
           <div className="dispatch-target-picker__status">
@@ -190,39 +213,34 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
           const selected = target.kind === 'device' && target.deviceId === option.deviceId;
           const online = option.online !== false;
           return (
-            <button
+            <MenuItem data-overflow-trigger
               key={option.deviceId}
-              type="button"
               role="menuitemradio"
-              aria-checked={selected}
-              aria-disabled={!online}
-              className="dispatch-target-picker__option"
+              checked={selected}
+              className="dispatch-target-picker__option-row"
               disabled={!online}
+              leading={<MonitorSmartphone size={15} aria-hidden />}
+              metadata={selected ? <Icon name="check-line" size="sm" aria-hidden /> : null}
               onClick={() => {
                 setOpen(false);
                 setConfigureTarget(option);
               }}
             >
-              <MonitorSmartphone size={15} aria-hidden />
-              <span>
-                <strong>{option.displayName}</strong>
-                <small>
+              <span className="dispatch-target-picker__option-copy">
+                <strong><OverflowText>{option.displayName}</OverflowText></strong>
+                <small><OverflowText>
                   {online
                     ? t('chatInput.dispatch.deviceDescription')
                     : t('chatInput.dispatch.deviceOffline')}
-                </small>
+                </OverflowText></small>
               </span>
-              {selected ? <Check size={14} aria-hidden /> : null}
-            </button>
+            </MenuItem>
           );
         })}
-      </div>
+      </MenuSection>
 
-      <div className="dispatch-target-picker__divider" role="separator" />
-      <div className="dispatch-target-picker__section">
-        <div className="dispatch-target-picker__section-title">
-          {t('chatInput.dispatch.sshSection')}
-        </div>
+      <MenuSeparator />
+      <MenuSection title={t('chatInput.dispatch.sshSection')}>
         {loading ? (
           <div className="dispatch-target-picker__status">
             <Loader2 size={14} className="dispatch-target-picker__spin" />
@@ -230,15 +248,12 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
           </div>
         ) : null}
         {!loading && error ? (
-          <button
-            type="button"
-            role="menuitem"
-            className="dispatch-target-picker__footer-action"
+          <MenuItem
+            leading={<Icon name="refresh" size="sm" aria-hidden />}
             onClick={() => void refresh()}
           >
-            <RefreshCw size={14} aria-hidden />
-            <span>{t('chatInput.dispatch.targetLoadFailed')}</span>
-          </button>
+            {t('chatInput.dispatch.targetLoadFailed')}
+          </MenuItem>
         ) : null}
         {!loading && !error && sshTargets.length === 0 ? (
           <div className="dispatch-target-picker__status">
@@ -248,42 +263,38 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
         {sshTargets.map(option => {
           const selected = target.kind === 'ssh' && target.connectionId === option.connectionId;
           return (
-            <button
+            <MenuItem data-overflow-trigger
               key={option.connectionId}
-              type="button"
               role="menuitemradio"
-              aria-checked={selected}
-              className="dispatch-target-picker__option"
+              checked={selected}
+              className="dispatch-target-picker__option-row"
+              leading={<Server size={15} aria-hidden />}
+              metadata={selected ? <Icon name="check-line" size="sm" aria-hidden /> : null}
               onClick={() => {
                 setOpen(false);
                 setConfigureTarget(option);
               }}
             >
-              <Server size={15} aria-hidden />
-              <span>
-                <strong>{option.displayName}</strong>
-                <small>{option.description || t('chatInput.dispatch.sshDescription')}</small>
+              <span className="dispatch-target-picker__option-copy">
+                <strong><OverflowText>{option.displayName}</OverflowText></strong>
+                <small><OverflowText>{option.description || t('chatInput.dispatch.sshDescription')}</OverflowText></small>
               </span>
-              {selected ? <Check size={14} aria-hidden /> : null}
-            </button>
+            </MenuItem>
           );
         })}
-      </div>
+      </MenuSection>
 
-      <div className="dispatch-target-picker__divider" role="separator" />
-      <button
-        type="button"
-        role="menuitem"
-        className="dispatch-target-picker__footer-action"
+      <MenuSeparator />
+      <MenuItem
+        leading={<Icon name="plus" size="sm" aria-hidden />}
         onClick={() => {
           setOpen(false);
           setSshDialogOpen(true);
         }}
       >
-        <Plus size={14} aria-hidden />
-        <span>{t('chatInput.dispatch.addSsh')}</span>
-      </button>
-    </div>
+        {t('chatInput.dispatch.addSsh')}
+      </MenuItem>
+    </Menu>
   ) : null;
 
   return (
@@ -291,16 +302,16 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
       <div
         ref={rootRef}
         className="dispatch-target-picker"
-        data-bf-component="dispatch-target-picker"
-        data-bf-part="root"
+        data-openbitfun-component="dispatch-target-picker"
+        data-openbitfun-part="root"
       >
         <Tooltip content={tooltip} placement="top">
-          <button
+          <button data-overflow-trigger
             ref={triggerRef}
             type="button"
             className="dispatch-target-picker__trigger"
-            data-bf-component="dispatch-target-picker"
-            data-bf-part="trigger"
+            data-openbitfun-component="dispatch-target-picker"
+            data-openbitfun-part="trigger"
             aria-haspopup="menu"
             aria-expanded={open}
             aria-label={tooltip}
@@ -313,18 +324,13 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
             }}
           >
             {target.kind === 'local'
-              ? <Laptop size={12} />
+              ? localWorktreeControl?.enabled
+                ? <FolderGit2 size={12} />
+                : <Laptop size={12} />
               : target.kind === 'device'
                 ? <MonitorSmartphone size={12} />
                 : <Server size={12} />}
-            <span>{displayLabel}</span>
-            {!locked ? (
-              <ChevronDown
-                className="dispatch-target-picker__chevron"
-                size={11}
-                aria-hidden
-              />
-            ) : null}
+            <span><OverflowText>{displayLabel}</OverflowText></span>
           </button>
         </Tooltip>
         {menu && createPortal(menu, getAppearanceOverlayHost())}

@@ -27,16 +27,17 @@ Peer Device Mode (same-account remote full client) is documented in
 `docs/architecture/peer-device-mode.md`. Frontend invariants:
 `src/infrastructure/peer-device/README.md`. Do not reintroduce nested
 sessions/chat shells; enter peer mode from the device list (Remote Connect →
-My BitFun) instead.
+My OpenBitFun) instead.
 
 One-click relay deploy wizard: `src/features/relay-deploy/` (see its README).
-The Remote Connect account group (My BitFun) login form and the Remote Connect
+The Remote Connect account group (My OpenBitFun) login form and the Remote Connect
 Self-Hosted entries must open `RelayDeployWizard`, not an external README.
 
 ## Local rules
 
 - Do not call Tauri APIs directly from UI components; go through the adapter / infrastructure layer
-- Reuse existing theme, i18n, component-library, and Zustand stores before adding new frontend primitives
+- Reuse `@openbitfun/ui`, design tokens, theme, i18n, and Zustand stores before adding new frontend primitives
+- Prefer the design system's `OverflowText` for single-line labels over local ellipsis rules or sliced strings. Plain text defaults to fade plus hover/focus marquee; set `behavior="marquee"` for text-only highlights and keep icons/actions outside. Put `data-overflow-trigger` on the owning control; standard component label slots already provide overflow handling. Keep multiline, touch-first, and editable content in their appropriate layout.
 - Theme and color-token changes must follow
   `docs/architecture/theme-token-optimization.md`: failing audits should be
   fixed by reusing tokens, merging redundant values, or adding a scoped owner
@@ -76,13 +77,23 @@ pnpm run i18n:audit
 pnpm run i18n:generate && pnpm run i18n:contract:test && pnpm run i18n:audit
 pnpm run type-check:web && pnpm --dir src/web-ui run test:run src/infrastructure/i18n/core/I18nService.test.ts
 pnpm run motion:audit
-pnpm run type-check:web
+pnpm run check:web
 ```
 
 Use the first line for resource-only locale changes, the second for
 contract/shared-term changes, the third for i18n runtime/namespace-loading
 changes, the fourth for presentation or interaction-motion changes, and the
-fifth for ordinary Web UI code. The motion audit is an intent-review inventory,
-not a pass/fail gate; do not mechanically replace deliberate layout transitions
-or animate virtualized content. Rely on CI for full lint, build, and broad test
-coverage unless the local change specifically needs it.
+fifth for ordinary Web UI code. `check:web` runs type-check plus the same
+Appearance contract, theme color, and theme visual governance gates used by CI,
+so rendered DOM or styling regressions are caught locally. The motion audit is
+an intent-review inventory, not a pass/fail gate; do not mechanically replace
+deliberate layout transitions or animate virtualized content. Rely on CI for
+full lint, build, and broad test coverage unless the local change specifically
+needs it.
+
+For Session selection, presentation synchronization, and scene lifetime changes,
+also run the focused state contracts:
+
+```bash
+pnpm --dir src/web-ui run test:run src/app/services/sessionSceneLifecycle.test.ts src/flow_chat/services/sessionActivation.test.ts src/flow_chat/services/storeSync.test.ts src/app/stores/sceneStore.test.ts
+```

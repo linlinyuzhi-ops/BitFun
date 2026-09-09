@@ -38,9 +38,11 @@
       "archivedSessions": "View, restore, or permanently delete archived sessions."
     },
     "categories": {
-      "general": "General",
-      "smartCapabilities": "Smart Configuration",
-      "devkit": "Dev Kit"
+      "application": "App & Interface",
+      "ai": "AI & Models",
+      "workspace": "Sessions & Workspace",
+      "tools": "Tools & Integrations",
+      "data": "Data & Maintenance"
     },
     "tabs": {
       "basics": "Basics",
@@ -65,6 +67,27 @@
       "keyboard": "Keyboard",
       "archivedSessions": "Archived Sessions"
     }
+  },
+  "changeGuard": {
+    "title": "Save unfinished settings?",
+    "message": "Unsaved settings need attention before you leave.",
+    "message_one": "{{count}} unsaved settings item needs attention before you leave. If it fails, you will stay here.",
+    "message_other": "{{count}} unsaved settings items need attention before you leave. If one fails, you will stay here and completed saves will not run again.",
+    "saveFailed": "Some settings could not be saved. Review the error on this page and retry, or discard those changes before leaving.",
+    "saveAndLeave": "Save and Leave",
+    "discardAndLeave": "Discard and Leave",
+    "keepEditing": "Keep Editing",
+    "unsavedPage": "This page has unsaved changes"
+  },
+  "changeStatus": {
+    "unsaved": "Not saved",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "error": "Save failed"
+  },
+  "changeActions": {
+    "save": "Save Changes",
+    "discard": "Discard Changes"
   },
   "general": {
     "title": "General",
@@ -177,17 +200,28 @@
     "apply": "Apply",
     "saving": "Saving…",
     "reset": "Reset to Defaults",
+    "resetConfirmTitle": "Reset all keyboard shortcuts?",
+    "resetConfirmMessage": "All custom key bindings will be removed and the defaults restored.",
     "clickToRecord": "Click to record a new key binding",
     "recording": "Press new key combination…",
     "revertChange": "Revert this change",
-    "fixedBinding": "This shortcut is fixed and cannot be changed",
     "noResults": "No matching shortcuts found",
     "conflict": "Conflict",
+    "conflictBlocking": "Some shortcuts conflict. Record a different binding for one of the conflicting actions, or revert the change before applying.",
     "saveError": "Failed to save, please try again",
     "resetError": "Failed to reset, please try again",
     "mergedNonUniform": "Mixed bindings — record to reset as a set",
     "keyLabels": {
-      "space": "Space"
+      "space": "Space",
+      "enter": "Enter",
+      "escape": "Escape",
+      "tab": "Tab",
+      "delete": "Delete",
+      "backspace": "Backspace",
+      "arrowUp": "Up Arrow",
+      "arrowDown": "Down Arrow",
+      "arrowLeft": "Left Arrow",
+      "arrowRight": "Right Arrow"
     },
     "scopes": {
       "app": "Global",
@@ -214,16 +248,12 @@
         "openSettings": "Open Settings",
         "openTerminal": "Open Terminal"
       },
-      "app": {
-        "closePreview": "Close Preview / Dismiss Dialog"
-      },
       "canvas": {
         "missionControl": "Mission Control",
         "splitHorizontal": "Horizontal Split",
         "splitVertical": "Vertical Split",
         "anchorZone": "Toggle Anchor Zone",
-        "maximize": "Maximize Editor",
-        "closePreview": "Close Preview"
+        "maximize": "Maximize Editor"
       },
       "editor": {
         "findInFile": "Find in file (Monaco)"
@@ -265,11 +295,6 @@
     "experimental": {
       "title": "Experimental Features",
       "description": "These features may be unstable"
-    },
-    "debug": {
-      "title": "Debug",
-      "logging": "Enable Logging",
-      "developerTools": "Developer Tools"
     },
     "data": {
       "title": "Data",
@@ -500,20 +525,6 @@
     "wordWrap": "Word Wrap",
     "minimap": "Show Minimap",
     "lineNumbers": "Show Line Numbers"
-  },
-  "lspConfig": {
-    "title": "LSP",
-    "subtitle": "Configure language servers",
-    "installedServers": "Installed Language Servers",
-    "noServers": "No language servers",
-    "noServersHint": "Language servers provide code intelligence features"
-  },
-  "debugConfig": {
-    "title": "Debug",
-    "subtitle": "Configure debug options",
-    "enableLogging": "Enable Logging",
-    "logLevel": "Log Level",
-    "developerTools": "Developer Tools"
   },
   "terminalConfig": {
     "title": "Terminal",

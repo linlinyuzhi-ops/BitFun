@@ -8,6 +8,7 @@ use crate::service::snapshot::types::{
 };
 use crate::service::workspace_runtime::WorkspaceRuntimeContext;
 use log::{debug, info};
+use openbitfun_runtime_ports::WorkspaceFileSystem;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -21,6 +22,7 @@ pub struct SnapshotService {
     snapshot_core: Arc<RwLock<SnapshotCore>>,
     workspace_dir: PathBuf,
     runtime_context: WorkspaceRuntimeContext,
+    workspace_fs: Option<Arc<dyn WorkspaceFileSystem>>,
     initialized: bool,
     read_only: bool,
 }
@@ -31,12 +33,33 @@ impl SnapshotService {
         runtime_context: WorkspaceRuntimeContext,
         config: Option<SnapshotConfig>,
     ) -> Self {
+        Self::build(workspace_dir, runtime_context, config, None)
+    }
+
+    pub fn with_workspace_fs(
+        workspace_dir: PathBuf,
+        runtime_context: WorkspaceRuntimeContext,
+        config: Option<SnapshotConfig>,
+        workspace_fs: Arc<dyn WorkspaceFileSystem>,
+    ) -> Self {
+        Self::build(workspace_dir, runtime_context, config, Some(workspace_fs))
+    }
+
+    fn build(
+        workspace_dir: PathBuf,
+        runtime_context: WorkspaceRuntimeContext,
+        config: Option<SnapshotConfig>,
+        workspace_fs: Option<Arc<dyn WorkspaceFileSystem>>,
+    ) -> Self {
         let config = config.unwrap_or_default();
         let isolation_manager = Arc::new(RwLock::new(IsolationManager::new(
             workspace_dir.clone(),
             runtime_context.clone(),
         )));
-        let snapshot_system = FileSnapshotSystem::new(runtime_context.clone());
+        let snapshot_system = match &workspace_fs {
+            Some(fs) => FileSnapshotSystem::with_workspace_fs(runtime_context.clone(), fs.clone()),
+            None => FileSnapshotSystem::new(runtime_context.clone()),
+        };
         let snapshot_core = Arc::new(RwLock::new(SnapshotCore::new(
             runtime_context.clone(),
             snapshot_system,
@@ -50,6 +73,7 @@ impl SnapshotService {
             snapshot_core,
             workspace_dir,
             runtime_context,
+            workspace_fs,
             initialized: false,
             read_only: false,
         }
@@ -102,7 +126,7 @@ impl SnapshotService {
             step_started_at.elapsed().as_millis()
         );
         info!(
-            "Snapshot service initialized: git_isolated={} bitfun_dir={} duration_ms={}",
+            "Snapshot service initialized: git_isolated={} openbitfun_dir={} duration_ms={}",
             isolation_status,
             self.runtime_context.runtime_root.display(),
             total_started_at.elapsed().as_millis()
@@ -205,6 +229,21 @@ impl SnapshotService {
             .await
     }
 
+    pub async fn get_operation_diff_before(
+        &self,
+        session_id: &str,
+        file_path: &Path,
+        operation_id: &str,
+        max_turn_exclusive: Option<usize>,
+    ) -> SnapshotResult<(String, String, Option<usize>)> {
+        self.ensure_initialized().await?;
+        self.snapshot_core
+            .read()
+            .await
+            .get_operation_diff_before(file_path, session_id, operation_id, max_turn_exclusive)
+            .await
+    }
+
     pub async fn get_file_diff_with_anchor_before(
         &self,
         session_id: &str,
@@ -263,7 +302,14 @@ impl SnapshotService {
     ) -> SnapshotResult<crate::service::snapshot::types::FileOperation> {
         self.ensure_initialized().await?;
         let snapshot_core = self.snapshot_core.read().await;
-        snapshot_core.get_operation_before(session_id, operation_id, max_turn_exclusive)
+        let operation =
+            snapshot_core.get_operation_before(session_id, operation_id, max_turn_exclusive)?;
+        if operation.completed == Some(false) {
+            return Err(SnapshotError::ConfigError(format!(
+                "Snapshot operation is not completed: {operation_id}"
+            )));
+        }
+        Ok(operation)
     }
 
     /// Complete a file modification (after snapshot + diff summary).
@@ -547,7 +593,7 @@ impl SnapshotService {
         };
         Ok(SystemStats {
             git_isolated: isolation_status,
-            bitfun_dir: self.runtime_context.runtime_root.clone(),
+            openbitfun_dir: self.runtime_context.runtime_root.clone(),
         })
     }
 
@@ -697,6 +743,11 @@ impl SnapshotService {
 
     async fn validate_file_path(&self, file_path: &Path) -> SnapshotResult<()> {
         let isolation_manager = self.isolation_manager.read().await;
+        if let Some(workspace_fs) = &self.workspace_fs {
+            return isolation_manager
+                .validate_workspace_path(file_path, workspace_fs.as_ref())
+                .await;
+        }
         if !isolation_manager.is_path_safe_for_modification(file_path) {
             return Err(SnapshotError::GitIsolationFailure(format!(
                 "file path is not safe, may affect Git repository: {}",
@@ -714,7 +765,7 @@ impl SnapshotService {
         &self.workspace_dir
     }
 
-    pub fn get_bitfun_dir(&self) -> &Path {
+    pub fn get_openbitfun_dir(&self) -> &Path {
         &self.runtime_context.runtime_root
     }
 
@@ -745,5 +796,5 @@ impl SnapshotService {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SystemStats {
     pub git_isolated: bool,
-    pub bitfun_dir: PathBuf,
+    pub openbitfun_dir: PathBuf,
 }

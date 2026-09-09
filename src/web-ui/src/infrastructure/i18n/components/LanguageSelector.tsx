@@ -1,11 +1,10 @@
  
 
 import React, { useCallback } from 'react';
-import { Globe } from 'lucide-react';
+
+import { ActionItem, Button, Select, Tooltip, Icon } from '@openbitfun/ui';
 import { useLanguageSelector } from '../hooks/useI18n';
 import type { LocaleId } from '../types';
-import { IconButton } from '@components/IconButton/IconButton';
-import { Select } from '@components/Select/Select';
 import './LanguageSelector.scss';
 
 export interface LanguageSelectorProps {
@@ -39,67 +38,65 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
     return (
       <div
         className={`language-selector language-selector--icon-only ${className}`}
-        data-bf-component="language-selector"
-        data-bf-part="root"
-        data-bf-mode="icon-only"
-        data-bf-state={isChanging ? 'changing' : undefined}
+        data-openbitfun-component="language-selector"
+        data-openbitfun-part="root"
+        data-openbitfun-mode="icon-only"
+        data-openbitfun-state={isChanging ? 'changing' : undefined}
       >
-        <IconButton
-          className="language-selector__button"
-          variant="ghost"
-          size="small"
-          disabled={isChanging}
-          tooltip={currentLocale?.nativeName || currentLanguage}
-          data-bf-component="language-selector"
-          data-bf-part="trigger"
-        >
-          <span
-            className="language-selector__icon"
-            data-bf-component="language-selector"
-            data-bf-part="icon"
-          >
-            <Globe size={16} />
-          </span>
-          <span
-            className="language-selector__code"
-            data-bf-component="language-selector"
-            data-bf-part="code"
-          >
-            {currentLanguage.split('-')[0].toUpperCase()}
-          </span>
-        </IconButton>
+        <span data-openbitfun-component="language-selector" data-openbitfun-part="trigger">
+          <Tooltip content={currentLocale?.nativeName || currentLanguage}>
+            <Button
+              aria-label={currentLocale?.nativeName || currentLanguage}
+              className="language-selector__button"
+              variant="outline"
+              size="sm"
+              disabled={isChanging}
+              leadingIcon={(
+                <span data-openbitfun-component="language-selector" data-openbitfun-part="icon">
+                  <Icon name="browser" size="md" />
+                </span>
+              )}
+            >
+              <span
+                className="language-selector__code"
+                data-openbitfun-component="language-selector"
+                data-openbitfun-part="code"
+              >
+                {currentLanguage.split('-')[0].toUpperCase()}
+              </span>
+            </Button>
+          </Tooltip>
+        </span>
         <div
           className="language-selector__dropdown"
-          data-bf-component="language-selector"
-          data-bf-part="menu"
+          data-openbitfun-component="language-selector"
+          data-openbitfun-part="menu"
         >
           {supportedLocales.map(locale => (
-            <IconButton
+            <ActionItem
               key={locale.id}
               className={`language-selector__option ${locale.id === currentLanguage ? 'language-selector__option--active' : ''}`}
-              variant="ghost"
-              size="small"
               onClick={() => handleChange(locale.id)}
               disabled={isChanging}
-              data-bf-component="language-selector"
-              data-bf-part="option"
-              data-bf-state={locale.id === currentLanguage ? 'active' : undefined}
+              data-openbitfun-component="language-selector"
+              data-openbitfun-part="option"
+              data-openbitfun-state={locale.id === currentLanguage ? 'active' : undefined}
+              metadata={locale.id === currentLanguage ? (
+                <span
+                  className="language-selector__check"
+                  data-openbitfun-component="language-selector"
+                  data-openbitfun-part="check"
+                >✓</span>
+              ) : undefined}
             >
               <span
                 className="language-selector__option-name"
-                data-bf-component="language-selector"
-                data-bf-part="optionLabel"
+                data-openbitfun-component="language-selector"
+                data-openbitfun-part="optionLabel"
               >
                 {showNativeName ? locale.nativeName : locale.englishName}
               </span>
-              {locale.id === currentLanguage && (
-                <span
-                  className="language-selector__check"
-                  data-bf-component="language-selector"
-                  data-bf-part="check"
-                >✓</span>
-              )}
-            </IconButton>
+            </ActionItem>
           ))}
         </div>
       </div>
@@ -110,25 +107,25 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
     return (
       <div
         className={`language-selector language-selector--inline ${className}`}
-        data-bf-component="language-selector"
-        data-bf-part="root"
-        data-bf-mode="inline"
-        data-bf-state={isChanging ? 'changing' : undefined}
+        data-openbitfun-component="language-selector"
+        data-openbitfun-part="root"
+        data-openbitfun-mode="inline"
+        data-openbitfun-state={isChanging ? 'changing' : undefined}
       >
         {supportedLocales.map(locale => (
-          <IconButton
+          <Button
             key={locale.id}
             className={`language-selector__inline-button ${locale.id === currentLanguage ? 'language-selector__inline-button--active' : ''}`}
-            variant="ghost"
-            size="small"
+            variant="text"
+            size="sm"
             onClick={() => handleChange(locale.id)}
             disabled={isChanging}
-            data-bf-component="language-selector"
-            data-bf-part="option"
-            data-bf-state={locale.id === currentLanguage ? 'active' : undefined}
+            data-openbitfun-component="language-selector"
+            data-openbitfun-part="option"
+            data-openbitfun-state={locale.id === currentLanguage ? 'active' : undefined}
           >
             {showNativeName ? locale.nativeName : locale.englishName}
-          </IconButton>
+          </Button>
         ))}
       </div>
     );
@@ -138,15 +135,15 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
   return (
     <div
       className={`language-selector language-selector--dropdown ${className}`}
-      data-bf-component="language-selector"
-      data-bf-part="root"
-      data-bf-mode="dropdown"
-      data-bf-state={isChanging ? 'changing' : undefined}
+      data-openbitfun-component="language-selector"
+      data-openbitfun-part="root"
+      data-openbitfun-mode="dropdown"
+      data-openbitfun-state={isChanging ? 'changing' : undefined}
     >
       <Select
         className="language-selector__select"
         value={currentLanguage}
-        onChange={(value) => handleChange(value as LocaleId)}
+        onValueChange={(value) => handleChange(value as LocaleId)}
         disabled={isChanging}
         options={supportedLocales.map(locale => ({
           value: locale.id,
@@ -156,9 +153,9 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
       {isChanging && (
         <span
           className="language-selector__loading"
-          data-bf-component="language-selector"
-          data-bf-part="loading"
-          data-bf-state="changing"
+          data-openbitfun-component="language-selector"
+          data-openbitfun-part="loading"
+          data-openbitfun-state="changing"
         >...</span>
       )}
     </div>

@@ -1,9 +1,13 @@
 //! Core service owner crate.
 //!
 //! This crate owns platform-agnostic service building blocks that can be
-//! tested without compiling the full BitFun product runtime.
+//! tested without compiling the full OpenBitFun product runtime.
 
 pub mod bounded_fs;
+#[cfg(feature = "coordination-store")]
+pub mod coordination_persistence;
+#[cfg(feature = "credential-vault")]
+pub mod credential_vault;
 #[cfg(feature = "diagnostics")]
 pub mod diagnostics;
 #[cfg(feature = "diff")]
@@ -23,12 +27,12 @@ pub mod jsonc;
 pub mod local_instructions;
 #[cfg(feature = "workspace-runtime")]
 pub mod local_runtime_ports;
-#[cfg(feature = "lsp")]
-pub mod lsp;
 #[cfg(feature = "process-runtime")]
 pub mod managed_runtime;
 #[cfg(feature = "markdown")]
 pub mod markdown;
+#[cfg(feature = "memory-store")]
+pub mod memory_store;
 #[cfg(feature = "permission")]
 pub mod permission_store;
 #[cfg(feature = "local-storage")]
@@ -37,16 +41,33 @@ pub mod persistence;
 pub mod process_manager;
 #[cfg(feature = "process-runtime")]
 pub mod process_tree;
+#[cfg(feature = "session-event-format")]
+pub mod session_projection_format;
+pub mod storage_error;
+#[cfg(feature = "workspace-persistence")]
+pub mod workspace_persistence;
+#[cfg(feature = "workspace-persistence")]
+pub mod workspace_records;
+#[cfg(any(
+    feature = "filesystem",
+    feature = "local-storage",
+    feature = "product-identity"
+))]
+pub use openbitfun_core_types::product_identity;
 #[cfg(feature = "runtime-ownership")]
 pub mod runtime_ownership;
 #[cfg(feature = "local-storage")]
 pub mod session;
+#[cfg(feature = "session-search")]
+pub mod session_search;
 #[cfg(feature = "local-storage")]
 pub mod session_usage;
 #[cfg(feature = "local-storage")]
 pub mod storage_cleanup;
 #[cfg(feature = "process-runtime")]
 pub mod system;
+#[cfg(feature = "tls-provider")]
+pub mod tls_provider;
 #[cfg(feature = "local-storage")]
 pub mod token_usage;
 #[cfg(feature = "workspace-runtime")]

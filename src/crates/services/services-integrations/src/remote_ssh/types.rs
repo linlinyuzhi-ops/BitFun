@@ -55,6 +55,9 @@ pub struct SSHConnectionConfig {
     /// Optional Docker container that becomes the effective workspace target.
     #[serde(default)]
     pub container: Option<ContainerWorkspaceConfig>,
+    /// A Linux distribution owned by the Windows host running OpenBitFun.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wsl: Option<WslWorkspaceConfig>,
     /// Connection and authentication timeout/retry policy.
     #[serde(default)]
     pub options: SSHConnectionOptions,
@@ -72,6 +75,7 @@ impl SSHConnectionConfig {
             && self.auth.connection_params_equal(&other.auth)
             && self.proxy_jump == other.proxy_jump
             && self.container == other.container
+            && self.wsl == other.wsl
             && self.options == other.options
     }
 
@@ -79,6 +83,14 @@ impl SSHConnectionConfig {
         self.container
             .as_ref()
             .is_some_and(|container| container.local)
+    }
+
+    pub fn uses_local_process(&self) -> bool {
+        self.wsl.is_some() || self.uses_local_docker()
+    }
+
+    pub fn uses_shell_filesystem(&self) -> bool {
+        self.wsl.is_some() || self.uses_docker_exec()
     }
 
     pub fn uses_docker_exec(&self) -> bool {
@@ -170,6 +182,23 @@ fn default_docker_path() -> String {
     "docker".to_string()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WslWorkspaceConfig {
+    pub distribution: String,
+    /// Omitted means the distribution's configured default Linux user.
+    #[serde(default)]
+    pub user: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WslDistributions {
+    /// Describes the executing host, never the controller's operating system.
+    pub supported: bool,
+    pub distributions: Vec<String>,
+}
+
 fn default_container_shell() -> String {
     "/bin/sh".to_string()
 }
@@ -178,7 +207,7 @@ fn default_true() -> bool {
     true
 }
 
-/// How BitFun enters a configured container workspace.
+/// How OpenBitFun enters a configured container workspace.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ContainerAccess {
@@ -198,7 +227,7 @@ pub struct ContainerWorkspaceConfig {
     /// Container name or ID.
     pub name: String,
     pub access: ContainerAccess,
-    /// Run Docker on the local BitFun machine instead of an SSH host.
+    /// Run Docker on the local OpenBitFun machine instead of an SSH host.
     #[serde(default)]
     pub local: bool,
     /// Docker CLI path on the machine that owns the container.
@@ -334,6 +363,8 @@ pub struct SavedConnection {
     pub proxy_jump: Option<String>,
     #[serde(default)]
     pub container: Option<ContainerWorkspaceConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wsl: Option<WslWorkspaceConfig>,
     #[serde(default)]
     pub options: SSHConnectionOptions,
 }
@@ -550,7 +581,7 @@ pub struct RemoteWorkspace {
     pub remote_path: String,
     #[serde(default)]
     pub connection_name: String,
-    /// SSH config `host`; used for `~/.bitfun/remote_ssh/{host}/...` session storage.
+    /// SSH config `host`; used for `~/.openbitfun/remote_ssh/{host}/...` session storage.
     #[serde(default)]
     pub ssh_host: String,
 }
@@ -587,4 +618,137 @@ pub struct SSHConfigLookupResult {
     pub found: bool,
     /// Config entry if found
     pub config: Option<SSHConfigEntry>,
+}
+
+/// Direction of an SSH port forward.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PortForwardDirection {
+    /// `ssh -L`: a listener on this machine whose connections are carried to
+    /// the remote end.
+    Local,
+    /// `ssh -R`: a listener on the remote whose connections are carried back
+    /// to this machine.
+    Remote,
+    /// `ssh -D`: a local SOCKS proxy.
+    Dynamic,
+}
+
+/// A user-requested local port forward.
+///
+/// Only the remote port is required. Everything else has a default that suits
+/// the common case: a dev server bound to the remote's loopback interface,
+/// reachable from this machine on the same port number when it happens to be
+/// free.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortForwardRequest {
+    /// SSH connection that carries the forward.
+    pub connection_id: String,
+    /// Port the service listens on, as seen from the remote host.
+    pub remote_port: u16,
+    /// Address used by the remote sshd to reach the service. Defaults to
+    /// loopback, which is what a server bound to `localhost` needs.
+    #[serde(default)]
+    pub remote_host: Option<String>,
+    /// Port to bind on this machine. `None` or `0` allocates a free one.
+    #[serde(default)]
+    pub local_port: Option<u16>,
+    /// Bind every interface instead of loopback only.
+    ///
+    /// This republishes the remote service to the local network, so it stays
+    /// opt-in and is never implied by any other field.
+    #[serde(default)]
+    pub expose_on_lan: bool,
+    /// Optional user-facing name for the mapping.
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+impl PortForwardRequest {
+    /// Address the remote sshd should dial, defaulting to loopback.
+    pub fn effective_remote_host(&self) -> &str {
+        match self.remote_host.as_deref().map(str::trim) {
+            Some(host) if !host.is_empty() => host,
+            _ => "127.0.0.1",
+        }
+    }
+
+    /// Interface to bind on this machine.
+    pub fn effective_local_host(&self) -> &'static str {
+        if self.expose_on_lan {
+            "0.0.0.0"
+        } else {
+            "127.0.0.1"
+        }
+    }
+
+    /// Requested local port, with `0` normalized to "allocate one for me".
+    pub fn preferred_local_port(&self) -> Option<u16> {
+        self.local_port.filter(|port| *port != 0)
+    }
+
+    /// Trimmed label, dropping a blank one.
+    pub fn normalized_label(&self) -> Option<String> {
+        self.label
+            .as_deref()
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
+            .map(str::to_string)
+    }
+}
+
+/// A live port forward as reported to the UI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortForward {
+    pub id: String,
+    pub connection_id: String,
+    pub direction: PortForwardDirection,
+    pub label: Option<String>,
+    /// Interface the listener is bound to on this machine.
+    pub local_host: String,
+    /// Port actually bound, which is not always the port that was asked for.
+    pub local_port: u16,
+    /// Set only when the requested port was unavailable and a different one was
+    /// bound instead. The UI needs this to explain the mismatch rather than
+    /// silently handing back an address the user did not ask for.
+    pub requested_local_port: Option<u16>,
+    pub remote_host: String,
+    pub remote_port: u16,
+    /// Connections currently being carried.
+    pub active_connections: u32,
+    /// Connections accepted since the forward started.
+    pub total_connections: u64,
+    /// Most recent per-connection failure. Kept as the forward's health signal:
+    /// a forward stays listening even when the remote service is not up yet.
+    pub last_error: Option<String>,
+}
+
+impl PortForward {
+    /// Address to hand a browser, in `host:port` form.
+    ///
+    /// A wildcard bind is displayed as loopback because that is the address
+    /// that actually works on this machine.
+    pub fn local_address(&self) -> String {
+        let host = match self.local_host.as_str() {
+            "0.0.0.0" => "127.0.0.1",
+            "::" => "[::1]",
+            other => other,
+        };
+        format!("{}:{}", host, self.local_port)
+    }
+}
+
+/// A listening TCP port discovered on the remote host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteListeningPort {
+    pub port: u16,
+    /// Address the remote service is bound to, as reported by the remote.
+    pub bind_address: String,
+    /// Owning process name when the remote tool exposed it.
+    pub process: Option<String>,
+    /// Owning process id when the remote tool exposed it.
+    pub pid: Option<u32>,
 }

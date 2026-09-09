@@ -6,16 +6,19 @@ use crate::runtime::{
     UiSessionMetadataField,
 };
 use crate::startup_trace::DesktopStartupTrace;
-use bitfun_agent_runtime::sdk::AgentSessionLineageSnapshot;
-use bitfun_core::agentic::coordination::get_global_scheduler;
-use bitfun_core::agentic::persistence::{SessionBranchResult, SessionMetadataPage};
-use bitfun_core::service::remote_ssh::normalize_remote_workspace_path;
-use bitfun_core::service::session::{
+use openbitfun_agent_runtime::sdk::AgentSessionLineageSnapshot;
+use openbitfun_core::agentic::coordination::get_global_scheduler;
+use openbitfun_core::agentic::persistence::{SessionBranchResult, SessionMetadataPage};
+use openbitfun_core::service::remote_ssh::normalize_remote_workspace_path;
+use openbitfun_core::service::session::{
     DialogTurnData, SessionKind, SessionMetadata, SessionStatus, SessionTranscriptExport,
     SessionTranscriptExportOptions,
 };
-use bitfun_core::service::session_usage::SessionUsageReport;
-use bitfun_core::service::workspace::WorkspaceKind;
+use openbitfun_core::service::session_usage::SessionUsageReport;
+use openbitfun_core::service::workspace::WorkspaceKind;
+use openbitfun_product_domains::product_search::{
+    SessionContentSearchRequest, SessionContentSearchResponse,
+};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use tauri::State;
@@ -49,6 +52,9 @@ pub struct ListPersistedSessionsRequest {
 pub struct ListPersistedSessionsPageRequest {
     pub workspace_path: String,
     pub limit: usize,
+    /// Optional compact status batch; omitted by older clients.
+    #[serde(default, alias = "sessionIds")]
+    pub session_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -265,6 +271,33 @@ pub async fn list_persisted_sessions(
         })
 }
 
+#[tauri::command]
+pub async fn search_session_content(
+    request: SessionContentSearchRequest,
+    runtime: State<'_, DesktopRuntimeContext>,
+) -> Result<SessionContentSearchResponse, String> {
+    let limit = request.normalized_limit();
+    runtime
+        .session_application()
+        .search_session_content(
+            desktop_session_scope(
+                request.workspace_path,
+                request.remote_connection_id,
+                request.remote_ssh_host,
+            ),
+            &request.query,
+            limit,
+            request.include_archived,
+        )
+        .await
+        .map_err(|error| {
+            format!(
+                "Failed to search persisted session content: {}",
+                desktop_session_error(error)
+            )
+        })
+}
+
 /// Search lightweight persisted metadata across open local and SSH
 /// workspaces. This deliberately never loads dialog turns or generates a
 /// transcript; that work happens only when the selected message is dispatched.
@@ -358,6 +391,7 @@ pub async fn list_persisted_sessions_page(
             ),
             request.cursor.as_deref(),
             request.limit,
+            request.session_ids.as_deref(),
         )
         .await
         .map_err(|error| {

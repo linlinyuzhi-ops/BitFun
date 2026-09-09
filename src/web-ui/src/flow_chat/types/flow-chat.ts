@@ -12,6 +12,7 @@ import type {
 } from '@/shared/types/session-history';
 import type { AiErrorDetail } from '@/shared/ai-errors/aiErrorPresenter';
 import type { ReviewTargetEvidence, ReviewTeamRunManifest } from '@/shared/services/reviewTeamService';
+import type { ContextItem } from '@/shared/types/context';
 
 export type ModelRoundAttemptDiagnostic = import('@/shared/types/session-history').ModelRoundAttemptDiagnostic;
 
@@ -41,6 +42,7 @@ export interface FlowTextItem extends FlowItem {
 export interface FlowThinkingItem extends FlowItem {
   type: 'thinking';
   content: string;
+  reasoningKind?: 'reasoning' | 'summary';
   isStreaming: boolean;
   isCollapsed: boolean; // Whether the thinking block is collapsed.
 }
@@ -290,6 +292,8 @@ export interface DialogTurn {
   /** Why the turn finished. */
   finishReason?: string;
   /** Additive recovery metadata for an intentionally interrupted turn. */
+  /** Runtime generation retained after recovery has settled. */
+  recoveryEpoch?: number;
   recovery?: {
     status: 'interrupted' | 'recovering';
     executionGeneration: number;
@@ -480,7 +484,7 @@ export interface Session {
   /** SSH remote: same `workspacePath` on different hosts must not share coordinator/persistence. */
   remoteConnectionId?: string;
 
-  /** SSH config host for `~/.bitfun/remote_ssh/{host}/...` session paths when disconnected. */
+  /** SSH config host for `~/.openbitfun/remote_ssh/{host}/...` session paths when disconnected. */
   remoteSshHost?: string;
 
   /** Persisted workspace identity host; `localhost` is the local-workspace sentinel. */
@@ -552,6 +556,9 @@ export interface Session {
    * 'completed' → green dot, 'error' → red dot, 'interrupted' → red dot (partial stream recovery).
    */
   hasUnreadCompletion?: 'completed' | 'error' | 'interrupted';
+  /** Result identity from a lightweight summary that may precede transcript hydration. */
+  unreadCompletionTurnId?: string;
+  unreadCompletionGeneration?: number;
 
   /**
    * Set when a session requires user attention while not the active session.
@@ -644,6 +651,15 @@ export interface SessionConfig {
  * once the session returns to IDLE; users may also "send now" to inject the item
  * mid-turn (Codex-style steering) via the new `steer_dialog_turn` Tauri command.
  */
+export interface QueuedComposerDraft {
+  /** Original editor value before transport-specific prompt expansion. */
+  value: string;
+  /** Composer-owned context chips, including the original image attachments. */
+  contexts: ContextItem[];
+  /** Large-paste substitutions needed to expand placeholders on resubmission. */
+  pendingLargePastes: Record<string, string>;
+}
+
 export interface QueuedMessage {
   id: string;
   sessionId: string;
@@ -668,6 +684,8 @@ export interface QueuedMessage {
   /** Image / attachment payloads forwarded to `start_dialog_turn` when drained. */
   imageContexts?: unknown[];
   imageDisplayData?: unknown[];
+  /** Optional for upgrade compatibility with queues persisted by older builds. */
+  composerDraft?: QueuedComposerDraft;
   /** Structured metadata forwarded to `start_dialog_turn` when drained. */
   userMessageMetadata?: Record<string, unknown>;
   localDialogTurnId?: string;
@@ -690,6 +708,8 @@ export interface ParsedChunk {
 }
 
 export interface ToolCardConfig {
+  attention: 'ambient' | 'prominent';
+  presentation: 'standard' | 'dedicated';
   toolName: string;
   displayName: string;
   icon: string;
@@ -749,13 +769,4 @@ export interface FlowChatActions {
   clearSession: (sessionId?: string) => void;
   deleteSession: (sessionId: string) => Promise<void>; // Now async.
   retryLastMessage: () => void;
-}
-
-// Flow Chat configuration.
-export interface FlowChatConfig {
-  enableMarkdown: boolean;
-  autoScroll: boolean;
-  showTimestamps: boolean;
-  maxHistoryRounds: number;
-  enableVirtualScroll: boolean;
 }

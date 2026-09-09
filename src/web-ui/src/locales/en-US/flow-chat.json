@@ -2,13 +2,13 @@
   "permission": {
     "title": "Permission required",
     "subagentOwner": "{{subagent}} subagent",
-    "feedbackLabel": "Rejection feedback",
-    "feedbackPlaceholder": "Optional guidance when rejecting",
     "responseFailed": "The permission response could not be delivered. Try again.",
     "allowOnce": "Allow once",
-    "allowAlways": "Always allow",
-    "allowAlwaysTooltip": "Always allow saves matching access for {{projectPath}}.",
-    "allowAlwaysTooltipCurrentProject": "Always allow saves matching access for the current project.",
+    "allowAlways": "Always allow this scope",
+    "allowAlwaysCommand": "Always allow this command",
+    "allowAlwaysCommandDescription": "Applies only to this exact command, including its arguments, in the current project. Other commands are not authorized.",
+    "allowAlwaysTooltip": "Remember approval for this action in {{projectPath}}, limited to the following scope:\n{{resources}}",
+    "allowAlwaysTooltipCurrentProject": "Remember approval for this action in the current project, limited to the following scope:\n{{resources}}",
     "allowAlwaysTooltipNoGrant": "This request has no savable access scope; always allow applies only to this request.",
     "risks": {
       "pageSave": "Save a new immutable version of “{{slug}}” with {{visibility}} visibility without changing production.",
@@ -21,11 +21,12 @@
       "public": "public"
     },
     "reject": "Reject",
+    "rejectWithReason": "Reject with reason",
+    "rejectWithReasonTooltip": "Rejects with what you typed in the composer, then clears it.",
+    "scopeLabel": "Reply scope",
+    "scopeThis": "This one",
+    "scopeAll": "All",
     "batchCount": "{{count}} permission requests",
-    "collapsePanel": "Collapse permission requests",
-    "expandPanel": "Expand {{count}} pending permission requests",
-    "current": "Current",
-    "pending": "Pending",
     "actions": {
       "read": "Read files",
       "edit": "Edit files",
@@ -172,11 +173,13 @@
       "turns": "{{count}} turns",
       "calls": "{{count}} calls",
       "operations": "{{count}} ops",
-      "tokens": "{{value}} tokens"
+      "tokens": "{{value}} tokens",
+      "tokenUsage": "Tokens usage",
+      "dataDelayDisclaimer": "Usage statistics may be delayed. System records are authoritative."
     },
     "loading": {
       "title": "Generating usage report",
-      "description": "Reading local session records and preparing a privacy-safe summary.",
+      "description": "Reading session records and preparing a privacy-safe summary.",
       "steps": {
         "collecting": "Reading session records",
         "tokens": "Summarizing token and tool activity",
@@ -226,7 +229,7 @@
       "legacyModel": "Older sessions did not store per-round model names, so this report cannot identify the exact model.",
       "inferredModel": "Inferred from the session model setting because older turns did not store per-round model names.",
       "filesUnavailable": "No file snapshot or file-edit tool record was found for this session.",
-      "filesNoRecordedChanges": "BitFun did not detect file changes in this session. This is expected when the agent did not edit files.",
+      "filesNoRecordedChanges": "OpenBitFun did not detect file changes in this session. This is expected when the agent did not edit files.",
       "filesRemoteUnavailable": "No remote snapshot summary was found for this session. File rows can still appear from recognized file-edit tool records.",
       "filesNotTracked": "No local snapshot or identifiable file-edit tool record was found for this session.",
       "fileTurnIndexes": "Turn indexes are not recorded when file activity comes from a summary instead of per-turn operation records.",
@@ -454,7 +457,7 @@
     "more": "More Sessions",
     "restoreMain": "Restore Main Window",
     "inUseTitle": "Session open elsewhere",
-    "inUseMessage": "This session is open in another BitFun instance. Close it there, then retry.",
+    "inUseMessage": "This session is open in another OpenBitFun instance. Close it there, then retry.",
     "surfaceSwitchDroppedTitle": "Message not sent",
     "surfaceSwitchDropped": "The device switched before this message was sent, and its queue is full. Send it again.",
     "retry": "Retry"
@@ -479,12 +482,14 @@
     "edit": "Edit Message",
     "delete": "Delete Message",
     "retry": "Retry",
+    "sentAt": "Sent at {{time}}",
     "clickToExpand": "Click to expand",
     "clickToCollapse": "Click to collapse",
     "fillToInput": "Fill to input",
     "cannotRollback": "Cannot rollback",
     "rollbackDisabledBusy": "Wait until the session is idle before rolling back.",
     "rollbackDisabledRemote": "Remote workspaces do not support complete rollback because remote file snapshots are not recorded. No files or messages will be changed.",
+    "rollbackDisabledDispatch": "Remote tasks do not yet support history rollback from this device.",
     "rollbackTo": "Rollback to before turn {{index}} (delete this and following turns)",
     "rollbackDialogTitle": "Rollback to before turn {{index}}?",
     "rollbackDialogIntro": "This will:",
@@ -499,6 +504,7 @@
     "editDisabledBusy": "Wait until the session is idle before editing and rerunning.",
     "editDisabledImages": "Image messages cannot be edited yet",
     "editDisabledRemote": "Editing and rerunning requires complete rollback, which is unavailable because remote file snapshots are not recorded.",
+    "editDisabledDispatch": "Editing and rerunning requires history rollback, which is not yet available for remote tasks.",
     "editDisabledLocalCommand": "Local command messages cannot be edited",
     "editDisabledHistoryNotReady": "Session history is not ready yet",
     "editDialogTitle": "Edit and rerun from turn {{index}}?",
@@ -547,8 +553,27 @@
     "addImage": "Add image",
     "maxImagesWarning": "Maximum {{count}} images allowed",
     "imagePasteFailed": "Image paste failed",
+    "externalFiles": {
+      "clipboardPathsUnavailable": "The clipboard reported files, but their local paths could not be read.",
+      "dropPathsUnavailable": "This file drop did not expose local paths. Copy the files and paste them into the composer instead.",
+      "partialFailure": "Added {{added}} item(s); {{failed}} item(s) were unavailable or unsupported.",
+      "unsupported": {
+        "web": "This web session cannot reference local files. Use a Desktop local session.",
+        "remote-workspace": "This remote workspace cannot reference files from this device.",
+        "peer-device": "A peer-device session cannot reference files from the controller device.",
+        "detached-dispatch": "A detached task cannot depend on files from the submitting device."
+      }
+    },
     "removeImage": "Remove image",
     "largePastePlaceholder": "[Pasted Content {{count}} chars]",
+    "largePasteOpen": "View and edit {{placeholder}}",
+    "largePasteRemove": "Remove pasted content",
+    "largePasteDialogTitle": "Pasted content",
+    "largePasteContentLabel": "Content",
+    "largePasteCopy": "Copy",
+    "largePasteCopied": "Copied",
+    "largePasteCancel": "Cancel",
+    "largePasteSave": "Save",
     "messageTooLarge": "Message exceeds the maximum length of {{max}} characters ({{count}} provided).",
     "openWorkspaceFolder": "Open workspace folder",
     "openWorkspaceFolderFailed": "Failed to open workspace folder: {{error}}",
@@ -563,6 +588,14 @@
       "disabled": "Voice input is disabled",
       "unsupported": "Microphone capture is unavailable",
       "modelMissing": "Download the local speech model first",
+      "setupRequired": "Download the {{size}} local speech model",
+      "setupRequiredUnknownSize": "Download the local speech model",
+      "downloadAndStart": "Download and start",
+      "downloadingModel": "Downloading model {{percent}}%",
+      "setupTooltip": "Download the local model to start voice input",
+      "downloadingTooltip": "Downloading the local speech model",
+      "downloadFailed": "The local speech model could not be downloaded",
+      "cancelSetup": "Cancel voice input setup",
       "cloudPending": "Cloud transcription is configured but not connected yet",
       "permissionDenied": "Microphone permission was denied",
       "deviceDisconnected": "The selected microphone was disconnected",
@@ -574,8 +607,11 @@
     }
   },
   "workspaceStrip": {
+    "branchSwitchLabel": "Switch branch. Current branch: {{branch}}",
     "branchTooltipUnavailable": "Not a git repository or no current branch",
-    "branchTooltipUntrusted": "Git will not read this repository because the folder is owned by another user. Trust the folder to see the branch."
+    "branchTooltipUntrusted": "Git will not read this repository because the folder is owned by another user. Trust the folder to see the branch.",
+    "primaryAssistant": "Primary assistant",
+    "personalAssistant": "Personal assistant"
   },
   "context": {
     "title": "Context",
@@ -649,7 +685,7 @@
       "menuLabel": "Where this task runs",
       "sessionScope": "This task only",
       "localSection": "Local",
-      "localDescription": "Run in this BitFun app",
+      "localDescription": "Run in this OpenBitFun app",
       "sshSection": "SSH",
       "loading": "Loading targets…",
       "noSshTargets": "No saved SSH targets",
@@ -664,8 +700,8 @@
       "createFailed": "Could not create the remote task. Check the target and try again.",
       "remoteTarget": "the remote device",
       "transferInProgress": "Preparing the target and transferring the project…",
-      "cliInstallStarted": "Preparing BitFun {{version}} on the remote device…",
-      "cliInstallSucceeded": "BitFun {{version}} is ready on the remote device.",
+      "cliInstallStarted": "Preparing OpenBitFun {{version}} on the remote device…",
+      "cliInstallSucceeded": "OpenBitFun {{version}} is ready on the remote device.",
       "cliInstallFailed": "Could not prepare the remote environment. Check the SSH connection and try again.",
       "cliInstallInProgress": "Preparing the remote environment…",
       "cliInstallUnknownVersion": "required version",
@@ -683,18 +719,69 @@
         "compactWhileRunning": "Wait for the current remote task to finish before compacting the context.",
         "compactRejected": "The target could not start compaction. Try again shortly.",
         "sessionNotReady": "The remote task is still being prepared. Try sending again shortly.",
-        "submissionUnconfirmed": "BitFun cannot yet confirm whether the target received this task. Check the task status shortly."
+        "submissionUnconfirmed": "OpenBitFun cannot yet confirm whether the target received this task. Check the task status shortly."
       }
     },
-    "addBoostTooltip": "Agent modes, image, or skills",
+    "harness": {
+      "selectorTooltip": "Current execution: {{name}}",
+      "fixedTooltip": "This session uses {{name}} and is now fixed.",
+      "activateBalanced": "Switch to Standard Harness",
+      "compatibilityShort": "Legacy",
+      "comingSoon": "In development",
+      "comingSoonNotice": "The {{name}} Harness execution framework is in development.",
+      "legacySessionNotice": "This legacy session keeps its original Agent execution mode. Create a new session to use the Agent Harness execution framework.",
+      "sessionStartedNotice": "Harness and main Agent are set before the first turn starts. Create a new session to use another selection.",
+      "newSessionConfirmation": {
+        "title": "Create a new session with {{name}}?",
+        "message": "The current session will remain unchanged. The new session will use {{name}}.",
+        "confirm": "Create new session"
+      },
+      "unsupportedProfile": "Unsupported Harness ({{id}})",
+      "unsupportedProfileNotice": "This session uses {{id}}, which this version cannot run. Select a supported Harness explicitly.",
+      "profileChangeBusy": "Wait for the current turn to finish before changing Harness.",
+      "profileChangeOutcomeUnknown": "OpenBitFun cannot confirm whether the Harness changed. Refresh the session before trying again.",
+      "profileUnavailable": "This Harness is not supported by the current OpenBitFun Host.",
+      "profileChangeFailed": "Failed to change Harness. Try again.",
+      "otherAgentsTitle": "Agents",
+      "otherAgentsEmpty": "No main Agents are available",
+      "unavailable": "Unavailable",
+      "agentUnavailable": "{{name}} is not available with the current Host or settings.",
+      "profiles": {
+        "minimal": { "name": "Minimal" },
+        "balanced": { "name": "Standard" },
+        "ultimate": { "name": "Ultimate" },
+        "creative": { "name": "Creative" },
+        "other": { "name": "Agents" }
+      }
+    },
+    "agents": {
+      "available": "Available",
+      "needsChanges": "Needs changes",
+      "comingSoon": "In development",
+      "comingSoonNotice": "Direct {{name}} Agent invocation is in development.",
+      "reviewUnavailable": "Review Agent needs an active session with reviewable changes.",
+      "review": { "name": "Review" },
+      "cowork": { "name": "Cowork" },
+      "computerUse": { "name": "Computer Use" }
+    },
+    "addBoostTooltip": "Directives, context, images, or skills",
     "modeChangeFailed": "Failed to change the agent mode. Try again.",
+    "reasoningStatus": {
+      "levels": {
+        "none": "Off",
+        "minimal": "Minimal",
+        "low": "Low",
+        "medium": "Standard",
+        "high": "High",
+        "xhigh": "Extra high",
+        "max": "Maximum"
+      }
+    },
     "permissionMode": {
       "menuLabel": "Permission mode",
       "globalScope": "Global",
       "current": "Permissions: {{mode}}",
       "changeFailed": "Failed to change the permission mode.",
-      "hideControl": "Hide permission mode selector",
-      "hideControlFailed": "Failed to hide the permission mode selector.",
       "ask": {
         "label": "Ask",
         "description": "External access, file changes, and command execution require confirmation."
@@ -724,8 +811,12 @@
       "resetToDefault": "Follow the default mode",
       "noSession": "Open or start a session before changing its permission mode.",
       "turnScope": "Next message only",
+      "turnSettings": "Next message settings",
+      "followSessionMode": "Follow this session",
+      "backToSessionSettings": "Back to this session's permission settings",
       "currentTurnOverride": "Permissions: {{mode}} (next message only)",
       "activeTurnScope": "This turn",
+      "activeTurnSettings": "This turn settings",
       "currentActiveTurnOverride": "Permissions: {{mode}} (this turn only)",
       "nextTurnOnly": "Use {{mode}} for the next message only",
       "nextTurnOnlyShort": "Once",
@@ -735,22 +826,18 @@
       "fullAccessWarningMessageActiveTurn": "Full access allows tools by default without asking each time. This applies to later model rounds in the current turn; project and enforced rules still apply.",
       "openDefaultSettings": "Open permission settings"
     },
-    "addModeTooltip": "Add Plan or Debug",
-    "boostSectionAgent": "Agent",
     "boostSectionContext": "Context",
     "boostStartBtw": "Start side question",
     "boostNewSession": "New session",
     "boostAddContext": "Reference file or folder",
     "boostSkills": "Skills",
-    "modeSection": "Modes",
+    "boostAdditionalModes": "Additional modes",
     "boostSkillsLoading": "Loading skills…",
+    "boostSkillsLoadFailed": "Skills failed to load. Retry",
     "boostSkillsEmpty": "No enabled skills",
     "openSkillsLibrary": "Manage skills…",
     "insertSkillLine": "Please use the Skill tool with command \"{{name}}\".",
-    "addModeMenuTitle": "Add mode",
-    "createCustomMode": "Custom mode",
-    "resetToAgentic": "Back to default mode",
-    "noIncrementalModes": "No add-on modes available",
+    "resetToAgentic": "Remove selected Agent",
     "defaultModeSetTooltip": "Use {{mode}} as the default mode for new chats",
     "defaultModeUnsetTooltip": "Default mode override is active. Click to clear it.",
     "defaultModeSet": "{{mode}} is now the default mode for new chats.",
@@ -817,11 +904,10 @@
     "reloadInstructionsDone": "Instructions will be reread for the next message.",
     "reloadFailed": "Reload failed",
     "currentMode": "Current mode: {{mode}}",
-    "noMatchingMode": "No matching mode",
     "noMatchingCommand": "No matching command",
     "externalCommandContextUnsupported": "Remove composer attachments and references before running this delegated command.",
     "nativeCommandChoiceNotSaved": "This command will run once, but your conflict choice could not be saved.",
-    "nativeCommandReconfirmationRequired": "The external command you previously chose is no longer available. Choose the BitFun command from the slash menu to run it.",
+    "nativeCommandReconfirmationRequired": "The external command you previously chose is no longer available. Choose the OpenBitFun command from the slash menu to run it.",
     "selectHint": "↑↓ Select · Enter Confirm · Esc Cancel",
     "current": "Current",
     "commandStatus": {
@@ -840,25 +926,19 @@
     "sendingToBtw": "Side session: {{title}}",
     "modeDescriptions": {
       "agentic": "Full-featured AI assistant with access to all tools for comprehensive software development tasks",
-      "Multitask": "Multitask mode: decompose work into orthogonal branches and proactively use subagents in parallel when it helps",
       "Claw": "Personal assistant mode for dedicated assistant workspaces and everyday task support",
-      "Plan": "Plan first, execute later — clarify requirements and create an implementation plan before coding",
-      "debug": "Evidence-driven systematic debugging: form hypotheses, gather runtime evidence, and fix with confidence",
       "Cowork": "Collaborative mode: clarify first, track progress lightly, verify outcomes anytime",
       "ComputerUse": "Dedicated desktop automation agent for perceiving and operating apps, browsers, and OS UI",
       "DeepResearch": "Deep research with parallel sub-agents: dispatches multiple agents to investigate concurrently, producing comprehensive sourced reports",
-      "Team": "Virtual engineering team: CEO, Eng Manager, Designer, QA Lead, Security Officer, Release Engineer — orchestrated through a full sprint workflow"
+      "Ultra": "Swarm planning mode for complex work; it can issue many concurrent model requests, increasing API cost and provider rate-limit pressure"
     },
     "modeNames": {
       "agentic": "Agentic",
-      "Multitask": "Multitask",
       "Claw": "Claw",
-      "Plan": "Plan",
-      "debug": "Debug",
       "Cowork": "Cowork",
       "ComputerUse": "Computer Use",
       "DeepResearch": "Deep Research",
-      "Team": "Team"
+      "Ultra": "Ultra"
     },
     "openFolder": "Open folder…",
     "selectWorkspaceTitle": "Select workspace directory",
@@ -887,12 +967,13 @@
     "percentComplete": "{{percent}}% Complete",
     "currentStatus": "Current status: {{status}}"
   },
-  "fileMention": {
+  "contextPicker": {
+    "menuTitle": "Choose context",
     "searchResults": "Search Results",
     "loading": "Loading...",
     "browseUnavailable": "Workspace files are unavailable. Check the connection and try again.",
     "searchUnavailable": "Workspace search is unavailable. Check the connection and try again.",
-    "noMatchingFiles": "No matching files found",
+    "noMatchingResults": "No matching context found",
     "emptyDirectory": "Empty directory",
     "rootDirectory": "Root",
     "goBack": "Go back",
@@ -1017,6 +1098,8 @@
     "fixRunning": "Fixing in progress...",
     "fixCompleted": "Fix completed",
     "fixFailed": "Fix failed",
+    "actionStartFailed": "Unable to start this action.",
+    "actionStartFailedWithReason": "Unable to start this action: {{reason}}",
     "fixTimeout": "Fix timed out",
     "fixInterrupted": "Fix was interrupted. Up to {{count}} selected items may still need attention.",
     "reviewWaitingCapacity": "Review waiting for capacity",
@@ -1046,7 +1129,7 @@
     },
     "decisionGate": {
       "title": "Confirm decision items before fixing",
-      "description": "Choose how each selected decision should be handled before BitFun starts editing.",
+      "description": "Choose how each selected decision should be handled before OpenBitFun starts editing.",
       "supplementLabel": "Additional requirements",
       "supplementPlaceholder": "Optional: add constraints, scope limits, or implementation preferences before starting.",
       "missingSelection": "Choose an option for each selected decision item before starting.",
@@ -1122,8 +1205,8 @@
     },
     "resultRecovery": {
       "title": "Strict review needs a report",
-      "missingSubmitCodeReview": "The review finished, but BitFun did not receive a structured result to confirm. Continue preserves completed review work and asks the agent to submit the missing report.",
-      "invalidSubmitCodeReview": "The review returned a result BitFun could not read. Continue preserves completed review work and asks the agent to repair the report.",
+      "missingSubmitCodeReview": "The review finished, but OpenBitFun did not receive a structured result to confirm. Continue preserves completed review work and asks the agent to submit the missing report.",
+      "invalidSubmitCodeReview": "The review returned a result OpenBitFun could not read. Continue preserves completed review work and asks the agent to repair the report.",
       "wrongReviewMode": "The review returned a standard Review result. Continue preserves completed review work and asks the agent to submit the strict review report."
     },
     "capacityQueue": {
@@ -1134,7 +1217,7 @@
       "detail": "Capacity wait does not count against review runtime.",
       "activeReviewerDetail": "Waiting review work starts when active review work frees capacity. Capacity wait does not count against review runtime.",
       "longLaunchBatchWaitDetail": "This review has waited longer than the configured capacity window because earlier review work is still running. You can keep waiting, pause waiting, cancel the waiting review, or open Review settings.",
-      "providerDetail": "BitFun is waiting for temporary model capacity. This wait does not count against review runtime.",
+      "providerDetail": "OpenBitFun is waiting for temporary model capacity. This wait does not count against review runtime.",
       "reason": "Reason: {{reason}}",
       "elapsed": "Waited {{elapsed}}",
       "elapsedWithMax": "Waited {{elapsed}} of {{max}}",
@@ -1148,12 +1231,12 @@
         "temporaryOverload": "temporary overload"
       },
       "reasonDetails": {
-        "providerRateLimit": "The model provider rate-limited this review request. BitFun will retry after capacity opens.",
-        "providerConcurrencyLimit": "The model provider rejected another concurrent review request. BitFun will retry after capacity opens.",
-        "retryAfter": "The model provider asked BitFun to wait before retrying this review request.",
+        "providerRateLimit": "The model provider rate-limited this review request. OpenBitFun will retry after capacity opens.",
+        "providerConcurrencyLimit": "The model provider rejected another concurrent review request. OpenBitFun will retry after capacity opens.",
+        "retryAfter": "The model provider asked OpenBitFun to wait before retrying this review request.",
         "localConcurrencyCap": "The configured strict review capacity is full. Waiting review work will start after active work finishes.",
         "launchBatchBlocked": "Earlier review work is still running. Waiting preserves the planned review order and prevents later work from overtaking it.",
-        "temporaryOverload": "The model provider is temporarily overloaded. BitFun will retry when capacity is available."
+        "temporaryOverload": "The model provider is temporarily overloaded. OpenBitFun will retry when capacity is available."
       },
       "sessionBusy": "Your active session is busy. Pause strict review or continue later.",
       "stopHint": "Use Stop to interrupt this review.",
@@ -1188,6 +1271,7 @@
       "unresolvedGitRange": "The requested Git range could not be resolved. Check the ref or range and try again.",
       "emptyWorkspace": "There are no workspace changes to review.",
       "emptyExplicitScope": "The requested files or directories contain no workspace changes.",
+      "missingExplicitScope": "The requested file or directory does not exist in the current workspace.",
       "unresolvedTarget": "The Review target could not be prepared as bounded evidence. Open its workspace or narrow the target and try again.",
       "repositoryUntrusted": "Git will not read this repository because the folder is owned by another user. Trust the folder when prompted, then start Review again.",
       "uncertain": "The Review request may already be running. Its session was preserved so you can inspect or retry it safely.",
@@ -1208,7 +1292,7 @@
     "windowTitle": "Review plan",
     "eyebrow": "Review plan",
     "title": "Start this review?",
-    "body": "BitFun reviews this change directly and adds additional checks only when the evidence needs them. Confirm the target, expected time, and read-only boundary before continuing.",
+    "body": "OpenBitFun reviews this change directly and adds additional checks only when the evidence needs them. Confirm the target, expected time, and read-only boundary before continuing.",
     "readonlyLabel": "Read-only",
     "readonly": "The review does not modify files.",
     "sessionConcurrencyTitle": "Active session is busy",
@@ -1259,13 +1343,20 @@
     "btwBackTooltipWithoutTurn": "Go back to the source session: {{title}}",
     "btwCreateTooltip": "Start a quick side question",
     "searchPlaceholder": "Search messages",
-    "searchResult": "{{current}} / {{total}}",
+    "searchResult": "{{current}} / {{total}} results",
     "searchNoResults": "No results",
     "searchPrevious": "Previous match",
     "searchNext": "Next match",
     "searchClose": "Close search",
     "searchOpen": "Search messages",
-    "jumpToCurrentTurn": "Jump to Turn {{turn}}",
+    "sessionOverview": "Session overview",
+    "sessionOverviewActive": "Session overview, activity in progress",
+    "sessionOverviewAgentsUnavailable": "No active session",
+    "sessionOverviewAgentsActive": "Agent work in progress",
+    "sessionOverviewAgentsIdle": "View the Agent session tree",
+    "sessionOverviewBackgroundRunning": "{{count}} running",
+    "sessionOverviewBackgroundFinished": "{{count}} recently finished",
+    "sessionOverviewPullRequests": "Open workspace pull requests",
     "agentTree": "Agents",
     "agentTreeLoading": "Loading Agent tree...",
     "agentTreeEmpty": "No subagents in this session",
@@ -1286,8 +1377,10 @@
       "error": "$t(shared:statuses.failed)",
       "idle": "Idle"
     },
+    "backgroundCommandOverview": "Background terminals",
     "backgroundCommands": "Background commands ({{count}})",
     "backgroundCommandEmpty": "No background commands",
+    "backgroundTerminalEmpty": "No background terminals",
     "backgroundCommandUntitled": "Background command",
     "backgroundCommandSession": "Session #{{id}}",
     "backgroundCommandStatusRunning": "Active",
@@ -1298,7 +1391,13 @@
     "backgroundCommandStopping": "Stopping command",
     "backgroundCommandStopAll": "Stop all",
     "backgroundCommandStopFailed": "Failed to stop background command.",
-    "pullRequests": "Pull requests"
+    "pullRequests": "Pull requests",
+    "pullRequestCount": "{{count}} pull requests",
+    "pullRequestEmpty": "No pull requests",
+    "pullRequestLoading": "Loading pull requests...",
+    "pullRequestNotGitRepository": "This workspace is not a Git repository",
+    "pullRequestWorkspaceUnavailable": "No active workspace",
+    "pullRequestLoadFailed": "Unable to load pull requests. Select to retry."
   },
   "backgroundCommandInput": {
     "title": "Send command input",
@@ -1401,7 +1500,7 @@
     "dialogNotFound": "Dialog data not found",
     "containerNotFound": "Export container not found",
     "generateFailed": "Failed to generate image",
-    "fileNamePrefix": "BitFun-Chat",
+    "fileNamePrefix": "OpenBitFun-Chat",
     "exportSuccess": "Image exported: {{filePath}}",
     "exportSuccessPrefix": "Image exported: ",
     "exportFailed": "Export failed, please try again",
@@ -1418,6 +1517,40 @@
     "providerError": "Provider error",
     "copy": "Copy",
     "copied": "Copied"
+  },
+  "deepResearchProtocol": {
+    "phaseProgress": "{{current}} / {{total}}",
+    "phases": {
+      "orient": "Understand the question and plan the research",
+      "specialists": "Gather evidence in parallel",
+      "citations": "Build the source registry",
+      "debateRound1": "Challenge the evidence · Round 1",
+      "debateRound2": "Challenge the evidence · Round 2",
+      "factCheck": "Verify conflicts and uncertain claims",
+      "arbitration": "Weigh the evidence and decide",
+      "report": "Write the research report",
+      "complete": "Deep research complete"
+    },
+    "subquestions": {
+      "title": "Research questions",
+      "count": "{{count}} questions"
+    },
+    "citations": {
+      "title": "Sources registered",
+      "count": "{{count}} sources",
+      "corroborated": "{{count}} cross-checked"
+    },
+    "verdicts": {
+      "title": "Evidence conclusions",
+      "count": "{{count}} conclusions",
+      "confidence": "{{value}} confidence",
+      "status": {
+        "decided": "Supported",
+        "contested": "Contested",
+        "gap": "Evidence gap",
+        "tentative": "Tentative"
+      }
+    }
   },
   "modelRound": {
     "copyDialog": "Copy dialog",
@@ -1503,8 +1636,6 @@
       "delete": "Delete File",
       "deletedLabel": "Deleted",
       "failed": "Failed",
-      "guidanceHint": " hint",
-      "guidanceTitle": "Hint",
       "parsingPath": "Parsing file path...",
       "receivingContent": "Receiving file content...",
       "unknownFile": "Unknown file",
@@ -1513,7 +1644,7 @@
       "expandPreview": "Expand preview",
       "collapsePreview": "Collapse preview",
       "openFullCodeHint": "Open full code",
-      "viewGitDiff": "View Diff",
+      "changeSummary": "{{additions}} additions and {{deletions}} deletions",
       "viewBaselineDiff": "View Baseline Diff"
     },
     "getFileDiff": {
@@ -1541,52 +1672,7 @@
       "openSourceFailed": "Failed to open the generated UI source editor"
     },
     "generativeWidget": {
-      "exportFileNamePrefix": "BitFun-Widget"
-    },
-    "git": {
-      "title": "Git",
-      "commandFailed": "Git command failed",
-      "executionFailed": "Git command execution failed",
-      "failed": "Failed",
-      "confirmExecute": "Confirm execute",
-      "cancel": "Cancel",
-      "copyCommand": "Copy git command",
-      "commandCopied": "Git command copied",
-      "copyCommandFailed": "Failed to copy git command",
-      "expandOutput": "Expand output",
-      "collapseOutput": "Collapse output",
-      "noOutput": "(no output)",
-      "exitCode": "Exit code: {{code}}",
-      "duration": "Duration: {{time}}",
-      "directory": "Directory: {{dir}}",
-      "output": "Output:",
-      "warning": "Warning:",
-      "error": "Error:",
-      "operation": "Operation: git {{op}}",
-      "args": "Args: {{args}}",
-      "status": "Status",
-      "diff": "Diff",
-      "log": "Log",
-      "add": "Stage",
-      "commit": "Commit",
-      "branch": "Branch",
-      "checkout": "Checkout",
-      "switch": "Switch",
-      "pull": "Pull",
-      "push": "Push",
-      "fetch": "Fetch",
-      "merge": "Merge",
-      "rebase": "Rebase",
-      "stash": "Stash",
-      "reset": "Reset",
-      "restore": "Restore",
-      "show": "Show",
-      "tag": "Tag",
-      "remote": "Remote",
-      "clone": "Clone",
-      "init": "Init",
-      "blame": "Blame",
-      "cherryPick": "Cherry-pick"
+      "exportFileNamePrefix": "OpenBitFun-Widget"
     },
     "initMiniApp": {
       "title": "Mini App",
@@ -1606,7 +1692,7 @@
       "title": "Deploy Page",
       "deployingShort": "…",
       "untitled": "(unnamed)",
-      "deployFailed": "Could not deploy BitFun Page version",
+      "deployFailed": "Could not deploy OpenBitFun Page version",
       "openFailed": "Could not create a secure link for this Page.",
       "labelSlug": "slug",
       "labelVersion": "version",
@@ -1617,7 +1703,7 @@
       "title": "Publish Page",
       "publishingShort": "…",
       "untitled": "(unnamed)",
-      "publishFailed": "Could not publish BitFun Page",
+      "publishFailed": "Could not publish OpenBitFun Page",
       "openFailed": "Could not create a secure link for this Page.",
       "labelSlug": "slug",
       "labelVersion": "version",
@@ -1689,7 +1775,7 @@
     },
     "execProcess": {
       "executeCommand": "Run command:",
-      "writeStdin": "Write stdin:",
+      "writeStdin": "Send input:",
       "pollProcess": "Poll process:",
       "interruptProcess": "Interrupt process:",
       "killProcess": "Kill process:",
@@ -1718,12 +1804,14 @@
     },
     "plan": {
       "loadingPlan": "Loading plan...",
+      "invalidFormat": "Invalid plan format",
+      "invalidFormatDescription": "Open the plan file to inspect and correct its YAML frontmatter or Markdown body.",
       "generating": "Generating...",
       "clickToOpenPlan": "Click to open plan file",
       "saveToProject": "Save to Project",
       "savingToProject": "Saving plan to project...",
       "saveToProjectUnavailable": "A workspace is required to save the plan",
-      "saveToProjectSuccess": "Plan saved to .bitfun/plans",
+      "saveToProjectSuccess": "Plan saved to .openbitfun/plans",
       "saveToProjectFailed": "Failed to save plan to project",
       "revealPlanInExplorer": "Reveal plan file in file manager",
       "revealPlanUnavailable": "Plan files can only be revealed for local workspaces",
@@ -1757,6 +1845,8 @@
       "completed": "Completed",
       "submittedWaiting": "Submitted, waiting for processing",
       "submitting": "Submitting...",
+      "submitFailed": "Could not submit the answer. Check the connection and try again.",
+      "unsupportedOnPeer": "This device's OpenBitFun version cannot answer the question. Update OpenBitFun on that device.",
       "waitingAnswer": "Waiting for answer",
       "questionsCount": "{{count}} questions",
       "answerAllBeforeSubmit": "Please answer all questions before submitting",
@@ -1775,10 +1865,12 @@
       "thinking": "Thinking...",
       "preparing": "Preparing to think",
       "thinkingProcess": "Thinking Process",
+      "thinkingSummary": "Thinking Summary",
       "thinkingComplete": "Thinking complete",
       "thinkingCharacters": "Thought {{count}} characters"
     },
     "webSearch": {
+      "action": "Web Search",
       "parsingSearchTerm": "Parsing search term...",
       "searchTitle": "Web Search: \"{{term}}\"",
       "resultsCount": "{{count}} results",
@@ -1798,7 +1890,7 @@
       "appLabel": "Application",
       "targetLabel": "Target",
       "permissionDenied": "Permission required for desktop control",
-      "permissionDeniedHint": "BitFun needs macOS Accessibility and Screen Recording permissions before it can control other apps. Open System Settings, grant access to BitFun, then retry.",
+      "permissionDeniedHint": "OpenBitFun needs macOS Accessibility and Screen Recording permissions before it can control other apps. Open System Settings, grant access to OpenBitFun, then retry.",
       "openSettings": "Open System Settings",
       "openSettingsFailed": "Could not open System Settings"
     },
@@ -1832,6 +1924,15 @@
       "unknownTool": "Unknown tool",
       "descriptionLabel": "Description",
       "schemaLabel": "Input schema"
+    },
+    "agentWait": {
+      "title": "Wait for subagents to finish",
+      "completed": "Received {{count}} results",
+      "steered": "Wait ended early",
+      "timedOut": "Wait deadline reached; {{count}} tasks are still running",
+      "failed": "Execution failed",
+      "failedWithError": "Execution failed: {{error}}",
+      "steeringHint": "Send a steering message to end the wait early and let the agent handle new instructions"
     },
     "todoWrite": {
       "tasksCount": "{{count}} tasks",
@@ -1932,6 +2033,8 @@
       "interactiveApp": "interactive app",
       "actionLabel": "MCP:",
       "failedLabel": "MCP failed",
+      "copyInputParams": "Copy input parameters",
+      "copyTextResult": "Copy text result",
       "executionFailed": "MCP execution failed"
     },
     "acpPermission": {
@@ -1967,16 +2070,6 @@
       "permissionRequest": "Requesting read permission:",
       "readingFile": "Reading",
       "preparingRead": "Preparing to read"
-    },
-    "terminalControl": {
-      "terminatingSession": "Terminating terminal",
-      "sessionKilled": "Terminal killed",
-      "killFailed": "Failed to kill terminal",
-      "preparingKill": "Preparing to kill terminal",
-      "interruptingSession": "Interrupting terminal",
-      "sessionInterrupted": "Terminal interrupted",
-      "interruptFailed": "Failed to interrupt terminal",
-      "preparingInterrupt": "Preparing to interrupt terminal"
     },
     "sessionControl": {
       "title": "Session",
@@ -2037,6 +2130,7 @@
       "noSummaryNotice": "No additional summary was generated for this compaction pass.",
       "tokenChange": "{{before}} → {{after}} tokens",
       "savingsTag": "Saved {{saved}} · Ratio {{ratio}}%",
+      "resultSummary": "Compressed context length {{length}} (compression ratio {{ratio}}%)",
       "compressingContext": "Compressing context...",
       "compressionCount": "Compression #{{count}}"
     },
@@ -2113,6 +2207,7 @@
       "startNewChat": "Start new chat...",
       "openSessionMenu": "Sessions & new",
       "moreMenu": "More",
+      "newSessionItem": "New session",
       "newCodeSessionItem": "Code session",
       "newCoworkSessionItem": "Cowork session"
     },
@@ -2295,7 +2390,7 @@
         "saveSuccess": "Review report exported.",
         "saveFailed": "Failed to export review report.",
         "saveDialogTitle": "Export review report",
-        "fileNamePrefix": "BitFun-Review",
+        "fileNamePrefix": "OpenBitFun-Review",
         "editorTitle": "Review Report"
       },
       "reviewModes": {
@@ -2406,11 +2501,15 @@
   "modelSelector": {
     "model": "Model",
     "modelExplanation": "Model explanation",
+    "modelSettings": "Model settings",
     "modelSelection": "Select Model",
-    "autoModel": "Auto",
-    "autoModelDesc": "Automatically Routing",
     "primaryModel": "Primary Model",
+    "primaryModelDesc": "Uses the configured primary model",
     "fastModel": "Fast Model",
+    "fastModelDesc": "Uses the configured fast model",
+    "providerModelCount": "{{total}} models",
+    "backToProviders": "Back to providers",
+    "backToSettings": "Back to model settings",
     "fastMode": "Fast mode",
     "fastModeDescription": "1.5x speed with higher credit usage",
     "acpMode": "Mode",
@@ -2418,10 +2517,28 @@
     "acpModeFailed": "Failed to switch mode",
     "switchFailed": "Failed to switch model",
     "modelNotConfigured": "Not Configured",
+    "openModelSettings": "Open model settings",
+    "status": {
+      "loading": "Loading models…",
+      "loadError": "Model configuration failed to load",
+      "unconfigured": "No model configured",
+      "noEnabledChatModel": "No enabled chat model",
+      "catalogUnavailable": "Model catalog unavailable",
+      "degraded": "Using a recovered model",
+      "targetModelUnavailable": "Target model unavailable"
+    },
+    "tooltip": {
+      "configName": "Configuration",
+      "modelName": "Model name",
+      "contextWindow": "Context window",
+      "compressionTrigger": "Compression trigger",
+      "longContextWarning": "This model's configured context window exceeds 400K. Very long context can reduce model quality; consider setting it to around 300K."
+    },
     "contextUsage": {
       "agentPrompt": "Last request prompt: {{usage}}",
+      "agentPromptLabel": "Last request prompt",
       "acpContext": "ACP reported context: {{usage}}",
-      "toolNote": "Tool outputs may be summarized or truncated before later requests."
+      "acpContextLabel": "ACP reported context"
     }
   },
   "reasoningEffort": {
@@ -2438,21 +2555,22 @@
     "xhighDesc": "Maximum reasoning depth (slower)"
   },
   "reasoningSelector": {
-    "title": "Reasoning",
+    "title": "Reasoning effort",
     "auto": "Auto",
     "modelDefault": "model default",
-    "current": "Reasoning: {{preset}}",
-    "currentAuto": "Reasoning: Auto ({{preset}})",
+    "current": "Reasoning effort: {{preset}}",
+    "currentAuto": "Reasoning effort: Auto ({{preset}})",
     "updateFailed": "Failed to update reasoning preset",
-    "source": {
-      "models_dev": "models.dev",
-      "adapter_fallback": "Built in",
-      "model_config": "Custom"
-    },
-    "sourceTooltip": {
-      "models_dev": "Generated automatically from models.dev model metadata",
-      "adapter_fallback": "Built into BitFun for this model adapter",
-      "model_config": "Defined in this model's custom configuration"
+    "levels": {
+      "off": "Off",
+      "on": "On",
+      "none": "Off",
+      "minimal": "Minimal",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "xhigh": "Extra high",
+      "max": "Maximum"
     }
   },
   "coworkScope": {
@@ -2545,24 +2663,24 @@
     "showAll": "Show all"
   },
   "pendingQueue": {
-    "title": "Queued ({{count}})",
-    "hint": "Will auto-send in order when the current turn finishes",
-    "editorHint": "⌘/Ctrl+Enter to save · Esc to cancel",
+    "title": "Wait for sending",
+    "label": "Wait for sending {{count}}",
+    "attachmentCount": "{{count}} image attachment(s)",
+    "attachmentCount_one": "{{count}} image attachment",
+    "attachmentCount_other": "{{count}} image attachments",
     "emptyPlaceholder": "(empty message)",
     "statusSending": "Steering…",
     "statusFailed": "Send failed — edit / send now / delete to clear",
     "actions": {
       "edit": "Edit",
       "sendNow": "Send now (steer)",
-      "delete": "Delete",
-      "saveEdit": "Save (⌘/Ctrl+Enter)",
-      "cancelEdit": "Cancel (Esc)"
+      "delete": "Delete"
     },
     "tooltip": {
       "sendNow": "Inject this message into the running turn as a steering prompt"
     },
     "errors": {
-      "emptyContent": "Message content cannot be empty",
+      "composerNotEmpty": "Send or clear the current input and attachments before editing this queued message",
       "sendNowFailed": "Send now failed; please try again"
     }
   },

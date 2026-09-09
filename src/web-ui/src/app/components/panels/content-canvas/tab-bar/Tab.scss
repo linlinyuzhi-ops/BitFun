@@ -21,15 +21,15 @@
   border-bottom: 1px solid transparent;
 
   &:hover {
-    background: var(--bf-appearance-token-element-bg-hover);
+    background: var(--openbitfun-color-action-neutral-surface-hover);
   }
 
   // ==================== State styles ====================
 
   // Active state - match canvas-tab-bar is-active-group background
   &.is-active {
-    background: var(--bf-appearance-token-color-bg-scene);
-    border-bottom: 1px solid var(--bf-appearance-token-color-accent-500);
+    background: var(--openbitfun-color-surface-scene);
+    border-bottom: 1px solid var(--openbitfun-color-accent-default);
   }
 
   // Preview state - italic title
@@ -57,7 +57,7 @@
 
   &.is-file-deleted {
     .canvas-tab__title {
-      color: var(--bf-appearance-token-color-text-secondary);
+      color: var(--openbitfun-color-content-secondary);
     }
   }
 
@@ -71,7 +71,7 @@
   // Type icon (e.g. task-detail)
   &__type-icon {
     flex-shrink: 0;
-    color: var(--bf-appearance-token-color-text-secondary);
+    color: var(--openbitfun-color-content-secondary);
     display: flex;
     align-items: center;
   }
@@ -81,26 +81,25 @@
     flex: 1;
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--openbitfun-type-label-sm-font-size);
     // Inactive state: lighter text color
-    color: var(--bf-appearance-token-color-text-secondary);
-    line-height: 1.4;
+    color: var(--openbitfun-color-content-secondary);
+    line-height: var(--openbitfun-type-modifier-leading-ui-line-height);
     transition: color 0.15s ease;
   }
 
   // Active state title color is brighter
   &.is-active &__title {
-    color: var(--bf-appearance-token-color-text-primary);
+    color: var(--openbitfun-color-content-primary);
   }
 
   // Dirty indicator
   &__dirty-indicator {
     display: none;
     flex-shrink: 0;
-    font-size: 10px;
-    color: var(--bf-appearance-token-color-warning);
+    font-size: var(--openbitfun-type-micro-font-size);
+    color: var(--openbitfun-color-status-warning-content);
     margin-left: 2px;
   }
 
@@ -114,7 +113,7 @@
     padding: 0;
     background: none;
     border: none;
-    color: var(--bf-appearance-token-color-text-secondary);
+    color: var(--openbitfun-color-content-secondary);
     cursor: pointer;
     border-radius: 2px;
     flex-shrink: 0;
@@ -123,8 +122,8 @@
     transition: opacity 0.15s ease, background-color 0.15s ease;
 
     &:hover {
-      background: var(--bf-appearance-token-element-bg-hover);
-      color: var(--bf-appearance-token-color-text-primary);
+      background: var(--openbitfun-color-action-neutral-surface-hover);
+      color: var(--openbitfun-color-content-primary);
     }
   }
 
@@ -143,7 +142,7 @@
     padding: 0;
     background: none;
     border: none;
-    color: var(--bf-appearance-token-color-text-secondary);
+    color: var(--openbitfun-color-content-secondary);
     cursor: pointer;
     border-radius: 2px;
     flex-shrink: 0;
@@ -152,8 +151,8 @@
     transition: opacity 0.15s ease, background-color 0.15s ease;
 
     &:hover {
-      background: var(--bf-appearance-token-element-bg-hover);
-      color: var(--bf-appearance-token-color-text-primary);
+      background: var(--openbitfun-color-action-neutral-surface-hover);
+      color: var(--openbitfun-color-content-primary);
     }
   }
 
@@ -164,7 +163,7 @@
   }
 
   &__close-btn--pin {
-    color: var(--bf-appearance-token-color-accent-500);
+    color: var(--openbitfun-color-accent-default);
     opacity: 1;
     pointer-events: auto;
   }
@@ -179,7 +178,7 @@
   top: 0;
   bottom: 0;
   width: 2px;
-  background: var(--bf-appearance-token-color-accent-500);
+  background: var(--openbitfun-color-accent-default);
   border-radius: 1px;
   z-index: 10;
   pointer-events: none;

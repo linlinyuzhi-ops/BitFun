@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
-use bitfun_core::service::config::AIConfig;
-use bitfun_core_types::model::{ModelListProjection, ModelMutation, ModelSummary, SecretUpdate};
+use openbitfun_core::service::config::AIConfig;
+use openbitfun_core_types::model::{
+    ModelListProjection, ModelMutation, ModelSummary, SecretUpdate,
+};
 
-pub(crate) use bitfun_core::service::config::model_projection::{
+pub(crate) use openbitfun_core::service::config::model_projection::{
     model_catalog_projection, model_edit_projection, model_list_projection, resolve_model_selector,
 };
 
@@ -37,7 +39,7 @@ pub(crate) fn resolve_tui_model_id(
         .filter(|selector| !selector.is_empty());
     match selector {
         None => catalog.mode_default_model_id.clone(),
-        Some("auto" | "default" | "primary") => catalog.primary_model_id.clone(),
+        Some("default" | "primary") => catalog.primary_model_id.clone(),
         Some("fast") => catalog
             .fast_model_id
             .clone()
@@ -72,14 +74,14 @@ pub(crate) fn tui_model_display_name(model: &ModelSummary) -> String {
 
 pub(crate) fn model_from_mutation(
     mutation: ModelMutation,
-    existing: Option<bitfun_core::service::config::AIModelConfig>,
-) -> Result<bitfun_core::service::config::AIModelConfig> {
+    existing: Option<openbitfun_core::service::config::AIModelConfig>,
+) -> Result<openbitfun_core::service::config::AIModelConfig> {
     let current = existing.unwrap_or_default();
     let api_key = secret_update_value(mutation.api_key, Some(current.api_key));
     let custom_headers = headers_update(mutation.custom_headers, current.custom_headers)?;
     let custom_request_body =
         string_update(mutation.custom_request_body, current.custom_request_body);
-    Ok(bitfun_core::service::config::AIModelConfig {
+    Ok(openbitfun_core::service::config::AIModelConfig {
         id: mutation.id,
         name: mutation.name,
         provider: mutation.provider,
@@ -179,7 +181,7 @@ mod tests {
     #[test]
     fn resolves_symbolic_and_explicit_mode_defaults_for_cli_display() {
         assert_eq!(
-            resolve_mode_model_id(&config_with_selector("auto")).as_deref(),
+            resolve_mode_model_id(&config_with_selector("primary")).as_deref(),
             Some("primary-model")
         );
         assert_eq!(
@@ -196,10 +198,6 @@ mod tests {
     fn resolves_runtime_session_selectors_to_the_effective_catalog_model() {
         let config = config_with_selector("fast");
 
-        assert_eq!(
-            resolve_session_model_display_id(&config, Some("auto")).as_deref(),
-            Some("primary-model")
-        );
         assert_eq!(
             resolve_session_model_display_id(&config, Some("primary")).as_deref(),
             Some("primary-model")

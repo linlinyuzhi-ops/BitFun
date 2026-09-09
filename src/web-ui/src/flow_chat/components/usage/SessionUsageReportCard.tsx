@@ -1,22 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { OverflowText, Button, Card, Icon, IconButton, Tooltip } from '@openbitfun/ui';
 import { useTranslation } from 'react-i18next';
-import {
-  Activity,
-  AlertTriangle,
-  Check,
-  ChevronRight,
-  Copy,
-  Clock3,
-  Database,
-  FileText,
-} from 'lucide-react';
-import { IconButton, MarkdownRenderer, ToolProcessingDots, Tooltip } from '@/component-library';
+import { Activity, AlertTriangle, Database, FileText, Wrench, type LucideProps } from 'lucide-react';
+import { MarkdownRenderer } from '@/infrastructure/markdown';
+import { ToolProcessingDots } from '@openbitfun/ui/flow-chat';
 import type { SessionUsageReport } from '@/infrastructure/api/service-api/SessionAPI';
+import { copyTextToClipboard } from '@/shared/utils/textSelection';
 import {
   buildSessionUsageExportMarkdown,
   formatHitRateSuffix,
   formatUsageDuration,
   formatUsageNumber,
+  formatTokenCount,
   formatUsageTimestamp,
   getCoverageLabel,
   getCoverageTone,
@@ -40,20 +35,30 @@ import './SessionUsageReportCard.scss';
 
 const SUMMARY_LIST_LIMIT = 3;
 
+const UsageClockIcon: React.FC<LucideProps> = ({ className, size = 18, style }) => (
+  <Icon
+    name="clock"
+    size="lg"
+    className={className}
+    style={{ width: size, height: size, ...style }}
+  />
+);
+
 interface SessionUsageReportCardProps {
   report?: SessionUsageReport;
   markdown?: string;
   generatedAt?: number;
   isLoading?: boolean;
+  compact?: boolean;
   onOpenDetails?: (report: SessionUsageReport, initialTab?: SessionUsagePanelTab) => void;
 }
 
 const UsageMiniListFilePathLabel = React.forwardRef<HTMLSpanElement, { pathLabel: string }>(
   function UsageMiniListFilePathLabel({ pathLabel }, ref) {
     return (
-      <span data-bf-component="session-usage-report-card" data-bf-part="listRow" ref={ref} className="session-usage-report-card__mini-list-file-name">
+      <OverflowText data-openbitfun-component="session-usage-report-card" data-openbitfun-part="listRow" ref={ref} className="session-usage-report-card__mini-list-file-name">
         {getUsageFileNameFromPath(pathLabel)}
-      </span>
+      </OverflowText>
     );
   }
 );
@@ -63,6 +68,7 @@ export const SessionUsageReportCard: React.FC<SessionUsageReportCardProps> = ({
   markdown = '',
   generatedAt,
   isLoading = false,
+  compact = false,
   onOpenDetails,
 }) => {
   const { t } = useTranslation('flow-chat');
@@ -72,14 +78,14 @@ export const SessionUsageReportCard: React.FC<SessionUsageReportCardProps> = ({
 
   const handleCopy = useCallback(async (event: React.MouseEvent) => {
     event.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(buildSessionUsageExportMarkdown(markdown, report, {
-        redactPaths: redactExportPaths,
-        t,
-      }));
+    const didCopy = await copyTextToClipboard(buildSessionUsageExportMarkdown(markdown, report, {
+      redactPaths: redactExportPaths,
+      t,
+    }));
+    if (didCopy) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
-    } catch {
+    } else {
       setCopied(false);
     }
   }, [markdown, redactExportPaths, report, t]);
@@ -110,6 +116,7 @@ export const SessionUsageReportCard: React.FC<SessionUsageReportCardProps> = ({
     t('usage.loading.steps.tokens'),
     t('usage.loading.steps.safety'),
   ], [t]);
+  const compactClassName = compact ? ' session-usage-report-card--compact' : '';
 
   useEffect(() => {
     if (!isLoading || loadingHints.length <= 1) {
@@ -129,7 +136,7 @@ export const SessionUsageReportCard: React.FC<SessionUsageReportCardProps> = ({
 
   if (isLoading) {
     return (
-      <div data-bf-component="session-usage-report-card" data-bf-part="loading" data-bf-state="loading" className="session-usage-report-card session-usage-report-card--loading" aria-live="polite">
+      <div data-openbitfun-component="session-usage-report-card" data-openbitfun-part="loading" data-openbitfun-state="loading" className={`session-usage-report-card session-usage-report-card--loading${compactClassName}`} aria-live="polite">
         <div className="session-usage-report-card__loading-main">
           <ToolProcessingDots className="session-usage-report-card__loading-dots" size={12} />
           <div>
@@ -146,17 +153,15 @@ export const SessionUsageReportCard: React.FC<SessionUsageReportCardProps> = ({
 
   if (!report) {
     return (
-      <div data-bf-component="session-usage-report-card" data-bf-part="fallback" data-bf-state="fallback" className="session-usage-report-card session-usage-report-card--fallback">
-        <div className="session-usage-report-card__fallback-actions" data-bf-component="session-usage-report-card" data-bf-part="actions">
+      <div data-openbitfun-component="session-usage-report-card" data-openbitfun-part="fallback" data-openbitfun-state="fallback" className={`session-usage-report-card session-usage-report-card--fallback${compactClassName}`}>
+        <div className="session-usage-report-card__fallback-actions" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="actions">
           <Tooltip content={copied ? t('usage.actions.copied') : t('usage.actions.copyMarkdown')}>
             <IconButton
-              variant="ghost"
-              size="xs"
+              size="sm"
               onClick={handleCopy}
               aria-label={copied ? t('usage.actions.copied') : t('usage.actions.copyMarkdown')}
-            >
-              {copied ? <Check size={14} /> : <Copy size={14} />}
-            </IconButton>
+              icon={copied ? <Icon name="check-line" size="sm" /> : <Icon name="duplicate" size="sm" />}
+            />
           </Tooltip>
         </div>
         <MarkdownRenderer content={markdown} />
@@ -168,7 +173,7 @@ export const SessionUsageReportCard: React.FC<SessionUsageReportCardProps> = ({
   const tokenTotal = report.tokens.totalTokens;
   const cachedTokenText = report.tokens.cacheCoverage === 'unavailable'
     ? t('usage.status.cacheNotReported')
-    : `${formatUsageNumber(report.tokens.cachedTokens, t)}${formatHitRateSuffix(report.tokens.cacheHitRate, t)}`;
+    : `${formatTokenCount(report.tokens.cachedTokens, t)}${formatHitRateSuffix(report.tokens.cacheHitRate, t)}`;
   const cachedTokenHelp = report.tokens.cacheCoverage === 'unavailable'
     ? t('usage.help.cachedTokens')
     : report.tokens.cacheCoverage === 'partial'
@@ -178,13 +183,210 @@ export const SessionUsageReportCard: React.FC<SessionUsageReportCardProps> = ({
   const workspacePathLabel = getUsageDisplayPathLabel(report.workspace.pathLabel, t, {
     redactPaths: redactExportPaths,
   });
+  const coverageBadgeClassName =
+    `session-usage-report-card__coverage session-usage-report-card__coverage--${coverageTone}` +
+    (report.coverage.level !== 'complete' ? ' session-usage-report-card__coverage--hint' : '');
+
+  if (compact) {
+    const primaryModel = topModels[0];
+    const primaryModelSource = primaryModel?.modelIdSource
+      ?? (primaryModel?.modelId === 'unknown_model' ? 'legacy_missing' : undefined);
+    const primaryModelLabel = primaryModel
+      ? getModelLabel(primaryModel.modelId, t, primaryModelSource)
+      : t('usage.status.modelNotRecorded');
+    const primaryModelHelp = primaryModel
+      ? getModelHelp(primaryModelSource, t, primaryModel.modelId)
+      : undefined;
+    const compactMetrics = [
+      {
+        key: 'wall',
+        label: t('usage.metrics.wall'),
+        value: formatUsageDuration(report.time.wallTimeMs, t),
+        icon: <Icon name="clock" size="sm" />,
+        help: t('usage.help.wall'),
+      },
+      {
+        key: 'active',
+        label: t('usage.metrics.active'),
+        value: formatUsageDuration(report.time.activeTurnMs, t),
+        icon: <Icon glyph={Activity} size="sm" />,
+        help: t('usage.help.active'),
+      },
+      {
+        key: 'files',
+        label: t('usage.metrics.files'),
+        value: getFileSummaryLabel(report, t),
+        icon: <Icon name="files" size="sm" />,
+        help: fileMetricHelp,
+      },
+      {
+        key: 'errors',
+        label: t('usage.metrics.errors'),
+        value: formatUsageNumber(report.errors.totalErrors, t),
+        icon: <Icon glyph={AlertTriangle} size="sm" />,
+        tone: report.errors.totalErrors > 0 ? 'warning' : undefined,
+        help: t('usage.help.errors'),
+      },
+    ];
+    const showAllTools = buildShowAllAction({
+      totalCount: report.tools.length,
+      visibleCount: topTools.length,
+      sectionLabel: t('usage.sections.tools'),
+      t,
+      onClick: onOpenDetails ? handleOpenSectionDetails('tools') : undefined,
+    });
+
+    return (
+      <div
+        data-openbitfun-component="session-usage-report-card"
+        data-openbitfun-part="root"
+        className="session-usage-report-card session-usage-report-card--compact"
+        data-report-id={report.reportId}
+      >
+        <div className="session-usage-report-card__header" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="header">
+          <div className="session-usage-report-card__title-block" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="title">
+            <div className="session-usage-report-card__meta">
+              <OverflowText>{formatUsageTimestamp(generatedAt ?? report.generatedAt, t)}</OverflowText>
+              <OverflowText>{t('usage.card.turns', { count: report.scope.turnCount })}</OverflowText>
+            </div>
+            <div className="session-usage-report-card__compact-workspace">
+              <Icon name="folder" size="sm" />
+              <OverflowText title={workspacePathLabel}>{workspacePathLabel}</OverflowText>
+            </div>
+          </div>
+          <div className="session-usage-report-card__actions" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="actions">
+            <Tooltip content={copied ? t('usage.actions.copied') : t('usage.actions.copyMarkdown')}>
+              <IconButton
+                size="sm"
+                onClick={handleCopy}
+                data-testid="session-usage-copy"
+                aria-label={copied ? t('usage.actions.copied') : t('usage.actions.copyMarkdown')}
+                icon={<Icon name={copied ? 'check-line' : 'duplicate'} size="sm" />}
+              />
+            </Tooltip>
+            <Tooltip content={t('usage.actions.openDetails')}>
+              <Button
+                type="button"
+                variant="text"
+                size="sm"
+                trailingIcon={<Icon name="chevron-right" size="sm" />}
+                onClick={handleOpenDetails}
+                disabled={!onOpenDetails}
+                data-testid="session-usage-details"
+                aria-label={t('usage.actions.openDetails')}
+              >
+                {t('usage.actions.viewDetails')}
+              </Button>
+            </Tooltip>
+          </div>
+        </div>
+
+        <div className="session-usage-report-card__compact-overview">
+          <Card appearance="subtle" padding="md">
+            <section className="session-usage-report-card__compact-token" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="metric">
+              <div className="session-usage-report-card__compact-token-label">
+                <Icon glyph={Database} size="sm" />
+                <span>{t('usage.card.tokenUsage')}</span>
+              </div>
+              <div className="session-usage-report-card__compact-token-value">
+                {formatTokenCount(tokenTotal, t)}
+              </div>
+              <div className="session-usage-report-card__compact-model">
+                {primaryModelHelp ? (
+                  <Tooltip content={primaryModelHelp}>
+                    <span className="session-usage-report-card__compact-model-name session-usage-report-card__compact-model-name--help">
+                      {primaryModelLabel}
+                    </span>
+                  </Tooltip>
+                ) : (
+                  <span className="session-usage-report-card__compact-model-name">{primaryModelLabel}</span>
+                )}
+                <span className="session-usage-report-card__compact-model-calls">{t('usage.card.calls', { count: primaryModel?.callCount ?? 0 })}</span>
+              </div>
+              <div className="session-usage-report-card__compact-cache">
+                <span className="session-usage-report-card__compact-cache-label">{t('usage.metrics.cached')}</span>
+                <UsageMetricValue value={cachedTokenText} help={cachedTokenHelp} />
+              </div>
+            </section>
+          </Card>
+
+          <div className="session-usage-report-card__compact-metrics" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="metrics">
+            {compactMetrics.map(metric => (
+              <Card appearance="subtle" padding="sm" radius="sm" key={metric.key}>
+                <div
+                  data-openbitfun-component="session-usage-report-card"
+                  data-openbitfun-part="metric"
+                  className={`session-usage-report-card__compact-metric${metric.tone ? ` session-usage-report-card__compact-metric--${metric.tone}` : ''}`}
+                >
+                  <div className="session-usage-report-card__compact-metric-label">
+                    {metric.icon}
+                    <span>{metric.label}</span>
+                  </div>
+                  <UsageMetricValue value={metric.value} help={metric.help} />
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+
+        <section className="session-usage-report-card__compact-tools" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="lists">
+          <div className="session-usage-report-card__compact-tools-header">
+            <h3>{t('usage.sections.tools')}</h3>
+            {showAllTools && (
+              <Tooltip content={showAllTools.ariaLabel}>
+                <Button
+                  type="button"
+                  variant="text"
+                  size="sm"
+                  trailingIcon={<Icon name="chevron-right" size="sm" aria-hidden />}
+                  onClick={showAllTools.onClick}
+                  data-testid="session-usage-tools-details"
+                  aria-label={showAllTools.ariaLabel}
+                >
+                  {showAllTools.label}
+                </Button>
+              </Tooltip>
+            )}
+          </div>
+          <div className="session-usage-report-card__compact-tool-list" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="list">
+            {topTools.length === 0 ? (
+              <div className="session-usage-report-card__compact-tool-empty">
+                {t('usage.empty.tools')}
+              </div>
+            ) : topTools.map(tool => (
+              <div
+                className="session-usage-report-card__compact-tool-row"
+                data-openbitfun-component="session-usage-report-card"
+                data-openbitfun-part="listRow"
+                key={tool.toolName}
+              >
+                <span className="session-usage-report-card__compact-tool-icon" aria-hidden>
+                  {renderCompactToolIcon(tool.toolName, tool.category)}
+                </span>
+                <OverflowText className="session-usage-report-card__compact-tool-name" title={tool.redacted ? getRedactedLabel(t) : tool.toolName}>
+                  {tool.redacted ? getRedactedLabel(t) : tool.toolName}
+                </OverflowText>
+                <span className="session-usage-report-card__compact-tool-calls">
+                  {t('usage.card.calls', { count: tool.callCount })}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <p className="session-usage-report-card__compact-disclaimer">
+          {t('usage.card.dataDelayDisclaimer')}
+        </p>
+      </div>
+    );
+  }
 
   const metrics = [
     {
       key: 'wall',
       label: t('usage.metrics.wall'),
       value: formatUsageDuration(report.time.wallTimeMs, t),
-      icon: Clock3,
+      icon: UsageClockIcon,
       help: t('usage.help.wall'),
     },
     {
@@ -197,7 +399,7 @@ export const SessionUsageReportCard: React.FC<SessionUsageReportCardProps> = ({
     {
       key: 'tokens',
       label: t('usage.metrics.tokens'),
-      value: formatUsageNumber(tokenTotal, t),
+      value: formatTokenCount(tokenTotal, t),
       icon: Database,
     },
     {
@@ -224,22 +426,18 @@ export const SessionUsageReportCard: React.FC<SessionUsageReportCardProps> = ({
     },
   ];
 
-  const coverageBadgeClassName =
-    `session-usage-report-card__coverage session-usage-report-card__coverage--${coverageTone}` +
-    (report.coverage.level !== 'complete' ? ' session-usage-report-card__coverage--hint' : '');
-
   return (
-    <div data-bf-component="session-usage-report-card" data-bf-part="root" className="session-usage-report-card" data-report-id={report.reportId}>
-      <div className="session-usage-report-card__header" data-bf-component="session-usage-report-card" data-bf-part="header">
-        <div className="session-usage-report-card__title-block" data-bf-component="session-usage-report-card" data-bf-part="title">
+    <div data-openbitfun-component="session-usage-report-card" data-openbitfun-part="root" className={`session-usage-report-card${compactClassName}`} data-report-id={report.reportId}>
+      <div className="session-usage-report-card__header" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="header">
+        <div className="session-usage-report-card__title-block" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="title">
           <h3 className="session-usage-report-card__title">{t('usage.card.heading')}</h3>
           <div className="session-usage-report-card__meta">
-            <span>{formatUsageTimestamp(generatedAt ?? report.generatedAt, t)}</span>
-            <span>{t('usage.card.turns', { count: report.scope.turnCount })}</span>
-            <span>{workspacePathLabel}</span>
+            <OverflowText>{formatUsageTimestamp(generatedAt ?? report.generatedAt, t)}</OverflowText>
+            <OverflowText>{t('usage.card.turns', { count: report.scope.turnCount })}</OverflowText>
+            <OverflowText>{workspacePathLabel}</OverflowText>
           </div>
         </div>
-        <div className="session-usage-report-card__actions" data-bf-component="session-usage-report-card" data-bf-part="actions">
+        <div className="session-usage-report-card__actions" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="actions">
           {report.coverage.level !== 'complete' ? (
             <Tooltip content={t('usage.coverage.partialNotice')} placement="top">
               <span className={coverageBadgeClassName}>
@@ -260,53 +458,52 @@ export const SessionUsageReportCard: React.FC<SessionUsageReportCardProps> = ({
                   onChange={handleRedactExportPathsChange}
                   aria-label={t('usage.export.redactPaths')}
                 />
-                <span>{t('usage.export.redactPaths')}</span>
+                <OverflowText>{t('usage.export.redactPaths')}</OverflowText>
               </label>
             </Tooltip>
             <Tooltip content={copied ? t('usage.actions.copied') : t('usage.actions.copyMarkdown')}>
               <IconButton
                 className="session-usage-report-card__copy-action"
-                variant="ghost"
-                size="xs"
+                size="sm"
                 onClick={handleCopy}
                 aria-label={copied ? t('usage.actions.copied') : t('usage.actions.copyMarkdown')}
-              >
-                {copied ? <Check size={14} /> : <Copy size={14} />}
-              </IconButton>
+                icon={copied ? <Icon name="check-line" size="sm" /> : <Icon name="duplicate" size="sm" />}
+              />
             </Tooltip>
             <Tooltip content={t('usage.actions.openDetails')}>
-              <button
+              <Button
                 type="button"
-                className="session-usage-report-card__details-button"
+                variant="outline"
+                size="sm"
+                trailingIcon={<Icon name="chevron-right" size="lg" style={{ width: 13, height: 13 }} aria-hidden />}
                 onClick={handleOpenDetails}
                 disabled={!onOpenDetails}
                 aria-label={t('usage.actions.openDetails')}
               >
-                <span>{t('usage.actions.viewDetails')}</span>
-                <ChevronRight size={13} aria-hidden />
-              </button>
+                {t('usage.actions.viewDetails')}
+              </Button>
             </Tooltip>
           </div>
         </div>
       </div>
 
-      <div className="session-usage-report-card__metrics" data-bf-component="session-usage-report-card" data-bf-part="metrics">
+      <div className="session-usage-report-card__metrics" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="metrics">
         {metrics.map(metric => {
           const Icon = metric.icon;
           return (
-            <div data-bf-component="session-usage-report-card" data-bf-part="metric"
+            <div data-openbitfun-component="session-usage-report-card" data-openbitfun-part="metric"
               className={`session-usage-report-card__metric${metric.tone ? ` session-usage-report-card__metric--${metric.tone}` : ''}`}
               key={metric.key}
             >
               <Icon size={14} aria-hidden />
-              <span className="session-usage-report-card__metric-label">{metric.label}</span>
+              <OverflowText className="session-usage-report-card__metric-label">{metric.label}</OverflowText>
               <UsageMetricValue value={metric.value} help={metric.help} />
             </div>
           );
         })}
       </div>
 
-      <div className="session-usage-report-card__lists" data-bf-component="session-usage-report-card" data-bf-part="lists">
+      <div className="session-usage-report-card__lists" data-openbitfun-component="session-usage-report-card" data-openbitfun-part="lists">
         <UsageMiniList
           title={t('usage.sections.models')}
           showAll={buildShowAllAction({
@@ -321,8 +518,8 @@ export const SessionUsageReportCard: React.FC<SessionUsageReportCardProps> = ({
             const help = getModelHelp(source, t, model.modelId);
             const label = getModelLabel(model.modelId, t, source);
             const tokenValue = typeof model.totalTokens === 'number' && Number.isFinite(model.totalTokens)
-              ? t('usage.card.tokens', { value: formatUsageNumber(model.totalTokens, t) })
-              : formatUsageNumber(model.totalTokens, t);
+              ? t('usage.card.tokens', { value: formatTokenCount(model.totalTokens, t) })
+              : formatTokenCount(model.totalTokens, t);
             return {
               label: help ? { value: label, help } : label,
               value: tokenValue,
@@ -388,6 +585,51 @@ export const SessionUsageReportCard: React.FC<SessionUsageReportCardProps> = ({
     </div>
   );
 };
+
+function renderCompactToolIcon(toolName: string, category?: string) {
+  const normalizedName = toolName.toLowerCase();
+  const catalogIcon = (name: 'browser' | 'edit' | 'git' | 'search' | 'terminal') => (
+    <Icon name={name} size="sm" />
+  );
+
+  if (
+    normalizedName.includes('exec')
+    || normalizedName.includes('bash')
+    || normalizedName.includes('command')
+    || normalizedName.includes('terminal')
+    || category === 'shell'
+  ) {
+    return catalogIcon('terminal');
+  }
+  if (
+    normalizedName.includes('grep')
+    || normalizedName.includes('glob')
+    || normalizedName.includes('search')
+  ) {
+    return catalogIcon('search');
+  }
+  if (
+    normalizedName.includes('edit')
+    || normalizedName.includes('write')
+    || normalizedName.includes('patch')
+  ) {
+    return catalogIcon('edit');
+  }
+  if (normalizedName.includes('web')) {
+    return catalogIcon('browser');
+  }
+  if (normalizedName.includes('git') || category === 'git') {
+    return catalogIcon('git');
+  }
+  if (
+    normalizedName.includes('read')
+    || normalizedName.includes('file')
+    || category === 'file'
+  ) {
+    return <Icon name="files" size="sm" />;
+  }
+  return <Icon glyph={Wrench} size="sm" />;
+}
 
 function UsageMetricValue({ value, help }: { value: string; help?: string }) {
   const node = (
@@ -465,9 +707,9 @@ function UsageMiniListLabelView({ label }: { label: UsageMiniListLabel }) {
 
   const labelText = getMiniListLabelText(label);
   const node = (
-    <span className={`session-usage-report-card__mini-list-label${typeof label !== 'string' && label.help ? ' session-usage-report-card__mini-list-label--help' : ''}`}>
+    <OverflowText className={`session-usage-report-card__mini-list-label${typeof label !== 'string' && label.help ? ' session-usage-report-card__mini-list-label--help' : ''}`}>
       {labelText}
-    </span>
+    </OverflowText>
   );
 
   return typeof label !== 'string' && label.help
@@ -485,7 +727,7 @@ function UsageFileChangeDetail({
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
   return (
-    <span data-bf-component="session-usage-report-card" data-bf-part="fileStat"
+    <span data-openbitfun-component="session-usage-report-card" data-openbitfun-part="fileStat"
       className="session-usage-report-card__file-stat"
       aria-label={`${t('usage.table.added')}: ${formatUsageNumber(addedLines, t)}, ${t('usage.table.deleted')}: ${formatUsageNumber(deletedLines, t)}`}
     >
@@ -511,20 +753,21 @@ function formatSignedFileLineCount(
 
 function UsageMiniList({ title, showAll, items, emptyLabel, emptyDescription }: UsageMiniListProps) {
   return (
-    <div data-bf-component="session-usage-report-card" data-bf-part="list" className="session-usage-report-card__mini-list">
+    <div data-openbitfun-component="session-usage-report-card" data-openbitfun-part="list" className="session-usage-report-card__mini-list">
       <div className="session-usage-report-card__mini-list-header">
         <div className="session-usage-report-card__mini-list-title">{title}</div>
         {showAll && (
           <Tooltip content={showAll.ariaLabel}>
-            <button
+            <Button
               type="button"
-              className="session-usage-report-card__mini-list-more"
+              variant="outline"
+              size="sm"
+              trailingIcon={<Icon name="chevron-right" size="xs" aria-hidden />}
               onClick={showAll.onClick}
               aria-label={showAll.ariaLabel}
             >
-              <span>{showAll.label}</span>
-              <ChevronRight size={12} aria-hidden />
-            </button>
+              {showAll.label}
+            </Button>
           </Tooltip>
         )}
       </div>
@@ -535,10 +778,10 @@ function UsageMiniList({ title, showAll, items, emptyLabel, emptyDescription }: 
         </div>
       ) : (
         items.map(item => (
-          <div className="session-usage-report-card__mini-list-row" key={`${getMiniListLabelText(item.label)}-${item.value}`} data-bf-component="session-usage-report-card" data-bf-part="listRow">
+          <div className="session-usage-report-card__mini-list-row" key={`${getMiniListLabelText(item.label)}-${item.value}`} data-openbitfun-component="session-usage-report-card" data-openbitfun-part="listRow">
             <UsageMiniListLabelView label={item.label} />
             <span className="session-usage-report-card__mini-list-value">{item.value}</span>
-            <span className="session-usage-report-card__mini-list-detail">{item.detail}</span>
+            <OverflowText className="session-usage-report-card__mini-list-detail">{item.detail}</OverflowText>
           </div>
         ))
       )}

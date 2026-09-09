@@ -29,7 +29,7 @@ const DESKTOP_PREVIEW_REBUILD_INPUTS = [
   path.join(ROOT_DIR, 'src', 'crates'),
 ];
 const DESKTOP_PREVIEW_REBUILD_IGNORED_DIRS = new Set([
-  '.bitfun',
+  '.openbitfun',
   '.git',
   'coverage',
   'dist',
@@ -61,10 +61,10 @@ function isDesktopMode(mode) {
 
 function getDesktopBinaryPath() {
   const suffix = process.platform === 'win32' ? '.exe' : '';
-  const binaryName = `bitfun-desktop${suffix}`;
+  const binaryName = `openbitfun-desktop${suffix}`;
 
   if (process.platform === 'darwin') {
-    return path.join(ROOT_DIR, 'target', 'debug', 'BitFun.app', 'Contents', 'MacOS', 'BitFun');
+    return path.join(ROOT_DIR, 'target', 'debug', 'OpenBitFun.app', 'Contents', 'MacOS', 'OpenBitFun');
   }
 
   return path.join(ROOT_DIR, 'target', 'debug', binaryName);
@@ -124,6 +124,7 @@ function spawnCommand(cmd, args, cwd = ROOT_DIR, envOverrides = {}, shell = fals
     const child = spawn(cmd, args, {
       cwd,
       stdio: 'inherit',
+      windowsHide: true,
       shell,
       env: {
         ...process.env,
@@ -153,6 +154,7 @@ function runCommandPrefixed(prefix, cmd, args, cwd = ROOT_DIR, envOverrides = {}
     const child = spawn(cmd, args, {
       cwd,
       shell: process.platform === 'win32',
+      windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
@@ -191,6 +193,7 @@ function spawnBackgroundCommand(cmd, args, cwd = ROOT_DIR, env = process.env) {
   return spawn(cmd, args, {
     cwd,
     stdio: 'inherit',
+    windowsHide: true,
     env,
   });
 }
@@ -207,6 +210,7 @@ function spawnWindowsCommandArgs(command, args, cwd = ROOT_DIR, env = process.en
   return spawn(process.env.ComSpec || 'C:\\Windows\\System32\\cmd.exe', ['/d', '/s', '/c', command, ...args], {
     cwd,
     stdio: 'inherit',
+    windowsHide: true,
     env,
   });
 }
@@ -332,7 +336,7 @@ async function rebuildDesktopDebugBinary() {
     CARGO_PROFILE_DEV_CODEGEN_UNITS: process.env.CARGO_PROFILE_DEV_CODEGEN_UNITS || '256',
   };
 
-  printInfo('Building bitfun-desktop in dev mode with reduced debug info for faster local relink');
+  printInfo('Building openbitfun-desktop in dev mode with reduced debug info for faster local relink');
   printInfo(
     `Fast local build env: CARGO_PROFILE_DEV_DEBUG=${buildEnv.CARGO_PROFILE_DEV_DEBUG}, ` +
     `CARGO_PROFILE_DEV_CODEGEN_UNITS=${buildEnv.CARGO_PROFILE_DEV_CODEGEN_UNITS}`
@@ -340,7 +344,7 @@ async function rebuildDesktopDebugBinary() {
 
   await spawnCommand(
     process.platform === 'win32' ? 'cargo.exe' : 'cargo',
-    ['build', '-p', 'bitfun-desktop'],
+    ['build', '-p', 'openbitfun-desktop'],
     ROOT_DIR,
     buildEnv,
   );
@@ -367,7 +371,11 @@ function getNewestTrackedInput(entryPath) {
       return null;
     }
 
-    if (ext === '.md' && !entryPath.includes(`${path.sep}prompts${path.sep}`)) {
+    const isEmbeddedMarkdown = entryPath.includes(`${path.sep}prompts${path.sep}`)
+      || entryPath.includes(
+        `${path.sep}service${path.sep}announcement${path.sep}content${path.sep}`,
+      );
+    if (ext === '.md' && !isEmbeddedMarkdown) {
       return null;
     }
 
@@ -457,7 +465,7 @@ async function startDesktopPreview() {
 
   if (!fs.existsSync(desktopBinary)) {
     printError(`Debug desktop binary not found: ${desktopBinary}`);
-    printInfo('Retry with `pnpm run desktop:preview:debug -- --force-rebuild` or build it with `cargo build -p bitfun-desktop`');
+    printInfo('Retry with `pnpm run desktop:preview:debug -- --force-rebuild` or build it with `cargo build -p openbitfun-desktop`');
     process.exit(1);
   }
 
@@ -497,7 +505,17 @@ async function startDesktopPreview() {
     printInfo(`Reusing web UI dev server on http://localhost:${DEV_SERVER_PORT}`);
   } else {
     printInfo(`Starting web UI dev server on http://localhost:${DEV_SERVER_PORT}`);
-    const viteArgs = ['--dir', 'src/web-ui', 'exec', 'vite', '--host', 'localhost', '--port', String(DEV_SERVER_PORT)];
+    const viteArgs = [
+      '--dir',
+      'src/web-ui',
+      'run',
+      'dev',
+      '--',
+      '--host',
+      'localhost',
+      '--port',
+      String(DEV_SERVER_PORT),
+    ];
     const viteEnv = {
       ...process.env,
       TAURI_DEV_HOST: 'localhost',
@@ -541,6 +559,10 @@ async function startDesktopPreview() {
 
   appProcess = spawnBackgroundCommand(desktopBinary, [], ROOT_DIR, {
     ...process.env,
+    // Debug previews must upload the current workspace build. The adjacent
+    // target/debug resource tree is only a build-time copy and can lag behind
+    // mobile-web edits made while the desktop binary is being reused.
+    OPENBITFUN_MOBILE_WEB_DIR: path.join(ROOT_DIR, 'src/mobile-web/dist'),
   });
 
   appProcess.on('error', (error) => {
@@ -559,63 +581,6 @@ async function startDesktopPreview() {
   printInfo('Front-end edits continue to use Vite HMR; rebuild Rust only when desktop-side code changes');
 
   await new Promise(() => {});
-}
-
-function flashgrepBinaryNames() {
-  if (process.platform === 'win32' && process.arch === 'x64') {
-    return ['flashgrep-x86_64-pc-windows-msvc.exe'];
-  }
-  if (process.platform === 'win32' && process.arch === 'arm64') {
-    return ['flashgrep-aarch64-pc-windows-msvc.exe'];
-  }
-  if (process.platform === 'darwin' && process.arch === 'x64') {
-    return ['flashgrep-x86_64-apple-darwin'];
-  }
-  if (process.platform === 'darwin' && process.arch === 'arm64') {
-    return ['flashgrep-aarch64-apple-darwin'];
-  }
-  if (process.platform === 'linux' && process.arch === 'x64') {
-    return [
-      'flashgrep-x86_64-unknown-linux-musl',
-      'flashgrep-x86_64-unknown-linux-gnu',
-    ];
-  }
-  if (process.platform === 'linux' && process.arch === 'arm64') {
-    return [
-      'flashgrep-aarch64-unknown-linux-musl',
-      'flashgrep-aarch64-unknown-linux-gnu',
-    ];
-  }
-  return [process.platform === 'win32' ? 'flashgrep.exe' : 'flashgrep'];
-}
-
-function flashgrepBinaryName() {
-  return flashgrepBinaryNames()[0];
-}
-
-function ensureFlashgrepBinary() {
-  for (const binaryName of flashgrepBinaryNames()) {
-    const binaryPath = path.join(ROOT_DIR, 'resources', 'flashgrep', binaryName);
-    if (!fs.existsSync(binaryPath)) {
-      continue;
-    }
-    return { ok: true, binaryPath };
-  }
-
-  return {
-    ok: false,
-    error: new Error(
-      `flashgrep binary not found for ${process.platform}/${process.arch}. Expected one of: ${flashgrepBinaryNames()
-        .map((name) => `resources/flashgrep/${name}`)
-        .join(', ')}`
-    ),
-  };
-}
-
-async function ensureFlashgrepBundleResource() {
-  const helperUrl = pathToFileURL(path.join(__dirname, 'prepare-flashgrep-resource.mjs')).href;
-  const helper = await import(helperUrl);
-  return helper.ensureFlashgrepBinary();
 }
 
 /**
@@ -640,14 +605,14 @@ async function main() {
   };
   const modeLabel = modeLabelMap[mode] || 'Web';
   
-  printHeader(`BitFun ${modeLabel} Development`);
+  printHeader(`OpenBitFun ${modeLabel} Development`);
   printBlank();
 
   const totalSteps = 2;
   let currentStep = 1;
 
   // Step 1: Run all independent preparation tasks in parallel.
-  // copy-monaco / generate-version / mobile-web / flashgrep have no
+  // copy-monaco / generate-version / mobile-web / plugin-host have no
   // dependencies on each other; each task's output is line-prefixed so the
   // interleaved logs stay attributable. The DeepSeek bridge is not prepared
   // here: it is not a compile-time Tauri resource. Official desktop:build
@@ -656,7 +621,7 @@ async function main() {
     currentStep++,
     totalSteps,
     desktopMode
-      ? 'Prepare resources (parallel: monaco, version, mobile-web, flashgrep)'
+      ? 'Prepare resources (parallel: monaco, version, mobile-web, plugin-host)'
       : 'Prepare resources (parallel: monaco, version)'
   );
 
@@ -678,29 +643,13 @@ async function main() {
 
   if (desktopMode) {
     prepTasks.push({
-      name: 'Build mobile-web',
-      promise: runCommandPrefixed('mobile-web', 'node', ['scripts/mobile-web-build.cjs', '--install']),
+      name: 'Prepare OpenCode extension Host',
+      hint: 'Hint: install Bun, then run `pnpm run plugin-host:prepare`',
+      promise: runCommandPrefixed('plugin-host', 'pnpm', ['run', 'plugin-host:prepare']),
     });
     prepTasks.push({
-      name: 'Prepare workspace search daemon',
-      promise: (async () => {
-        const flashgrepResult = ensureFlashgrepBinary();
-        if (!flashgrepResult.ok) {
-          return {
-            ok: false,
-            code: null,
-            error: flashgrepResult.error || new Error('Workspace search daemon is missing'),
-          };
-        }
-        process.env.FLASHGREP_DAEMON_BIN = flashgrepResult.binaryPath;
-
-        try {
-          await ensureFlashgrepBundleResource();
-        } catch (error) {
-          return { ok: false, code: null, error };
-        }
-        return { ok: true, code: 0, error: null };
-      })(),
+      name: 'Build mobile-web',
+      promise: runCommandPrefixed('mobile-web', 'node', ['scripts/mobile-web-build.cjs', '--install']),
     });
   }
 
@@ -725,6 +674,34 @@ async function main() {
   });
   if (prepFailed) {
     process.exit(1);
+  }
+
+  if (desktopMode) {
+    const baselineHelperUrl = pathToFileURL(
+      path.join(__dirname, 'frontend-workbench-dev-baseline.mjs')
+    ).href;
+    const { getFrontendWorkbenchDevBaselinePlan } = await import(baselineHelperUrl);
+    const baselinePlan = getFrontendWorkbenchDevBaselinePlan(ROOT_DIR);
+    if (baselinePlan.shouldBuild) {
+      printInfo(`${baselinePlan.reason}; building the editable desktop frontend baseline`);
+      const baselineResult = await runCommandPrefixed(
+        'frontend-workbench',
+        'pnpm',
+        ['--dir', 'src/web-ui', 'run', 'build:desktop'],
+      );
+      if (!baselineResult.ok) {
+        printError('FrontendWorkbench baseline build failed');
+        if (baselineResult.error?.message) {
+          printError(baselineResult.error.message);
+        }
+        if (baselineResult.code !== null && baselineResult.code !== undefined) {
+          printError(`Exit code: ${baselineResult.code}`);
+        }
+        process.exit(1);
+      }
+    } else {
+      printInfo(baselinePlan.reason);
+    }
   }
   printSuccess('Preparation tasks complete');
 
@@ -751,6 +728,10 @@ async function main() {
       const tauriDevEnv = {
         ...process.env,
         CARGO_PROFILE_DEV_CODEGEN_UNITS: process.env.CARGO_PROFILE_DEV_CODEGEN_UNITS || '256',
+        // Tauri copies bundle resources into target/debug at process startup.
+        // Point Remote Connect at the live workspace dist so a newly generated
+        // QR code never uploads a stale mobile-web bundle.
+        OPENBITFUN_MOBILE_WEB_DIR: path.join(ROOT_DIR, 'src/mobile-web/dist'),
       };
       try {
         if (process.platform === 'win32') {
@@ -763,6 +744,7 @@ async function main() {
           const tauriBin = path.join(ROOT_DIR, 'node_modules', '.bin', 'tauri');
           await spawnCommand(tauriBin, ['dev', '--config', tauriConfig], desktopDir, {
             CARGO_PROFILE_DEV_CODEGEN_UNITS: tauriDevEnv.CARGO_PROFILE_DEV_CODEGEN_UNITS,
+            OPENBITFUN_MOBILE_WEB_DIR: tauriDevEnv.OPENBITFUN_MOBILE_WEB_DIR,
           });
         }
       } finally {
@@ -773,7 +755,7 @@ async function main() {
       await ensureDesktopDebugBinaryForPreview(forceDesktopPreviewRebuild);
       await startDesktopPreview();
     } else {
-      await runCommand('pnpm exec vite', path.join(ROOT_DIR, 'src/web-ui'));
+      await runCommand('pnpm run dev', path.join(ROOT_DIR, 'src/web-ui'));
     }
   } catch (error) {
     printError('Dev server failed to start');

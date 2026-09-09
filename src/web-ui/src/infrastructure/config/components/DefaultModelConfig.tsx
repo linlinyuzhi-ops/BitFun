@@ -1,18 +1,21 @@
- 
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Layers } from 'lucide-react';
-import { Select, CubeLoading } from '@/component-library';
+import { Combobox } from '@openbitfun/ui';
+import { Spinner } from '@openbitfun/ui';
 import { notificationService } from '@/shared/notification-system';
 import { configManager } from '../services/ConfigManager';
 import type {
   AIModelConfig,
   DefaultModels,
 } from '../types';
-import { ConfigPageRow } from './common';
+import { ConfigEmptyState, ConfigPageRow } from './common';
 import { createLogger } from '@/shared/utils/logger';
 import { useModelSelectPresentation } from './ModelSelectPresentation';
+import {
+  filterSelectableTextChatModels,
+  isSelectableModelForCapability,
+} from '../services/modelCategory';
 import './DefaultModelConfig.scss';
 
 const log = createLogger('DefaultModelConfig');
@@ -24,7 +27,7 @@ type DefaultModelSlot = 'primary' | 'fast' | 'image_understanding' | 'speech_rec
 
 export const DefaultModelConfig: React.FC = () => {
   const { t } = useTranslation('settings/default-model');
-  const { buildModelOption, renderModelOption, renderModelValue } = useModelSelectPresentation();
+  const { buildModelOption } = useModelSelectPresentation();
   const renderOptionalLabel = (text: string) => (
     <>
       {text}
@@ -147,20 +150,20 @@ export const DefaultModelConfig: React.FC = () => {
   };
 
   
-  const enabledModels = models.filter(m => m.enabled);
-  const imageUnderstandingModels = enabledModels.filter(model => {
-    const capabilities = Array.isArray(model.capabilities) ? model.capabilities : [];
-    return model.category === 'multimodal' || capabilities.includes('image_understanding');
-  });
-  const speechRecognitionModels = enabledModels.filter(model => {
-    const capabilities = Array.isArray(model.capabilities) ? model.capabilities : [];
-    return model.category === 'speech_recognition' || capabilities.includes('speech_recognition');
-  });
+  // Keep the primary/fast slots aligned with the ChatInput selector: enabled
+  // non-chat models must never become a text-generation default by accident.
+  const enabledModels = filterSelectableTextChatModels(models);
+  const imageUnderstandingModels = models.filter(model => (
+    isSelectableModelForCapability(model, 'image_understanding')
+  ));
+  const speechRecognitionModels = models.filter(model => (
+    isSelectableModelForCapability(model, 'speech_recognition')
+  ));
 
   if (loading) {
     return (
-      <div className="default-model-config__loading" data-bf-component="default-model-config" data-bf-part="loading" data-bf-state="loading">
-        <CubeLoading size="small" />
+      <div className="default-model-config__loading" data-openbitfun-component="default-model-config" data-openbitfun-part="loading" data-openbitfun-state="loading">
+        <Spinner size="sm" />
         <p>{t('loading')}</p>
       </div>
     );
@@ -168,33 +171,34 @@ export const DefaultModelConfig: React.FC = () => {
 
   if (models.length === 0) {
     return (
-      <div className="default-model-config__empty" data-bf-component="default-model-config" data-bf-part="empty" data-bf-state="empty">
-        <Layers size={48} />
-        <p>{t('empty.noModels')}</p>
-      </div>
+      <ConfigEmptyState
+        data-openbitfun-component="default-model-config"
+        data-openbitfun-part="empty"
+        data-openbitfun-state="empty"
+        icon={<Layers size={36} aria-hidden="true" />}
+        description={t('empty.noModels')}
+      />
     );
   }
 
   return (
-    <div className="default-model-config" data-bf-component="default-model-config" data-bf-part="root">
+    <div className="default-model-config" data-openbitfun-component="default-model-config" data-openbitfun-part="root">
       <ConfigPageRow
         label={t('core.primary.label')}
         description={t('core.primary.description')}
+        required
         align="center"
       >
-        <Select
-          data-bf-component="default-model-config"
-          data-bf-part="primaryModel"
+        <Combobox
+          aria-required="true"
+          data-openbitfun-component="default-model-config"
+          data-openbitfun-part="primaryModel"
           value={defaultModels.primary || ''}
-          onChange={(value) => handleDefaultModelChange('primary', normalizeSelectValue(value))}
+          onValueChange={(value) => handleDefaultModelChange('primary', normalizeSelectValue(value))}
           placeholder={t('core.primary.placeholder')}
           options={enabledModels.map(buildModelOption)}
-          renderOption={renderModelOption}
-          renderValue={renderModelValue}
-          className="model-select-presentation__select"
-          dropdownClassName="model-select-presentation__dropdown"
           disabled={enabledModels.length === 0}
-          size="small"
+          size="sm"
         />
       </ConfigPageRow>
 
@@ -203,21 +207,17 @@ export const DefaultModelConfig: React.FC = () => {
         description={t('core.fast.description')}
         align="center"
       >
-        <Select
-          data-bf-component="default-model-config"
-          data-bf-part="lightweightModel"
+        <Combobox
+          data-openbitfun-component="default-model-config"
+          data-openbitfun-part="lightweightModel"
           value={defaultModels.fast || ''}
-          onChange={(value) => handleDefaultModelChange('fast', normalizeSelectValue(value))}
+          onValueChange={(value) => handleDefaultModelChange('fast', normalizeSelectValue(value))}
           placeholder={t('core.fast.placeholder')}
           options={[
             { label: t('core.fast.notSet'), value: '' },
             ...enabledModels.map(buildModelOption),
           ]}
-          renderOption={renderModelOption}
-          renderValue={renderModelValue}
-          className="model-select-presentation__select"
-          dropdownClassName="model-select-presentation__dropdown"
-          size="small"
+          size="sm"
         />
       </ConfigPageRow>
 
@@ -226,21 +226,17 @@ export const DefaultModelConfig: React.FC = () => {
         description={t('optional.capabilities.image_understanding.description')}
         align="center"
       >
-        <Select
-          data-bf-component="default-model-config"
-          data-bf-part="embeddingModel"
+        <Combobox
+          data-openbitfun-component="default-model-config"
+          data-openbitfun-part="embeddingModel"
           value={defaultModels.image_understanding || ''}
-          onChange={(value) => handleDefaultModelChange('image_understanding', normalizeSelectValue(value))}
+          onValueChange={(value) => handleDefaultModelChange('image_understanding', normalizeSelectValue(value))}
           placeholder={t('optional.selectModel')}
           options={[
             { label: t('optional.notSet'), value: '' },
             ...imageUnderstandingModels.map(buildModelOption),
           ]}
-          renderOption={renderModelOption}
-          renderValue={renderModelValue}
-          className="model-select-presentation__select"
-          dropdownClassName="model-select-presentation__dropdown"
-          size="small"
+          size="sm"
         />
       </ConfigPageRow>
 
@@ -249,19 +245,17 @@ export const DefaultModelConfig: React.FC = () => {
         description={t('optional.capabilities.speech_recognition.description')}
         align="center"
       >
-        <Select
+        <Combobox
           value={defaultModels.speech_recognition || ''}
-          onChange={(value) => handleDefaultModelChange('speech_recognition', normalizeSelectValue(value))}
+          onValueChange={(value) => handleDefaultModelChange('speech_recognition', normalizeSelectValue(value))}
           placeholder={t('optional.notSet')}
           options={[
             { label: t('optional.notSet'), value: '' },
             ...speechRecognitionModels.map(buildModelOption),
           ]}
-          renderOption={renderModelOption}
-          renderValue={renderModelValue}
           className="default-model-config__model-select"
           disabled={speechRecognitionModels.length === 0}
-          size="small"
+          size="sm"
         />
       </ConfigPageRow>
     </div>

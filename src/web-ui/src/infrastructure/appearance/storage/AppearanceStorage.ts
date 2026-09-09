@@ -4,7 +4,7 @@ import type {
   StoredAppearancePackage,
 } from '../types';
 
-const DATABASE_NAME = 'bitfun-appearance';
+const DATABASE_NAME = 'openbitfun-appearance';
 const DATABASE_VERSION = 1;
 const PACKAGE_STORE = 'packages';
 const CATALOG_STORE = 'catalog';
@@ -20,6 +20,8 @@ function catalogEntry(value: StoredAppearancePackage): StoredAppearanceCatalogEn
     importedAt: value.importedAt,
     marketOrigin: value.marketOrigin,
     localOverride: value.localOverride,
+    schemaVersion: value.manifest.schemaVersion,
+    archiveSchemaVersion: value.archiveSchemaVersion,
   };
 }
 

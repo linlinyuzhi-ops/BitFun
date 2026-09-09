@@ -1,12 +1,7 @@
+import { Button, Icon } from '@openbitfun/ui';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  Clock,
-  Pause,
-  Play,
-  SkipForward,
-} from 'lucide-react';
-import { Button } from '@/component-library';
+import { Pause, Play, SkipForward } from 'lucide-react';
 import type {
   DeepReviewCapacityQueueReason,
   DeepReviewCapacityQueueState,
@@ -38,15 +33,15 @@ const CAPACITY_QUEUE_REASON_DETAIL_KEYS: Record<DeepReviewCapacityQueueReason, {
 }> = {
   provider_rate_limit: {
     key: 'deepReviewActionBar.capacityQueue.reasonDetails.providerRateLimit',
-    defaultValue: 'The model provider is rate-limiting requests. BitFun will wait briefly and continue when capacity returns.',
+    defaultValue: 'The model provider is rate-limiting requests. OpenBitFun will wait briefly and continue when capacity returns.',
   },
   provider_concurrency_limit: {
     key: 'deepReviewActionBar.capacityQueue.reasonDetails.providerConcurrencyLimit',
-    defaultValue: 'The model provider rejected another concurrent review request. BitFun will retry after capacity opens.',
+    defaultValue: 'The model provider rejected another concurrent review request. OpenBitFun will retry after capacity opens.',
   },
   retry_after: {
     key: 'deepReviewActionBar.capacityQueue.reasonDetails.retryAfter',
-    defaultValue: 'The model provider asked BitFun to retry later. Waiting here avoids spending Review work while the provider cools down.',
+    defaultValue: 'The model provider asked OpenBitFun to retry later. Waiting here avoids spending Review work while the provider cools down.',
   },
   local_concurrency_cap: {
     key: 'deepReviewActionBar.capacityQueue.reasonDetails.localConcurrencyCap',
@@ -58,7 +53,7 @@ const CAPACITY_QUEUE_REASON_DETAIL_KEYS: Record<DeepReviewCapacityQueueReason, {
   },
   temporary_overload: {
     key: 'deepReviewActionBar.capacityQueue.reasonDetails.temporaryOverload',
-    defaultValue: 'The model provider reported temporary overload. BitFun will wait briefly and then continue or reduce coverage.',
+    defaultValue: 'The model provider reported temporary overload. OpenBitFun will wait briefly and then continue or reduce coverage.',
   },
 };
 
@@ -140,7 +135,7 @@ export const CapacityQueueNotice: React.FC<CapacityQueueNoticeProps> = ({
   return (
     <div className="deep-review-action-bar__capacity-queue" aria-live="polite">
       <div className="deep-review-action-bar__capacity-queue-main">
-        <Clock size={14} className="deep-review-action-bar__capacity-queue-icon" />
+        <Icon name="clock" size="sm" className="deep-review-action-bar__capacity-queue-icon" />
         <div className="deep-review-action-bar__capacity-queue-copy">
           <span className="deep-review-action-bar__capacity-queue-title">
             {capacityQueueTitle}
@@ -198,36 +193,39 @@ export const CapacityQueueNotice: React.FC<CapacityQueueNoticeProps> = ({
           <>
             {capacityQueueState.status === 'paused_by_user' ? (
               <Button
-                variant="secondary"
-                size="small"
+                variant="outline"
+                size="sm"
                 onClick={() => void onContinueQueue()}
+                leadingIcon={<Play size={13} />}
               >
-                <Play size={13} />
+
                 {t('deepReviewActionBar.capacityQueue.continueQueue')}
               </Button>
             ) : (
               <Button
-                variant="secondary"
-                size="small"
+                variant="outline"
+                size="sm"
                 onClick={() => void onPauseQueue()}
+                leadingIcon={<Pause size={13} />}
               >
-                <Pause size={13} />
+
                 {t('deepReviewActionBar.capacityQueue.pauseQueue')}
               </Button>
             )}
             {(capacityQueueState.optionalReviewerCount ?? 0) > 0 && (
               <Button
-                variant="ghost"
-                size="small"
+                variant="outline"
+                size="sm"
                 onClick={() => void onSkipOptionalQueuedReviewers()}
+                leadingIcon={<SkipForward size={13} />}
               >
-                <SkipForward size={13} />
+
                 {t('deepReviewActionBar.capacityQueue.skipOptionalQueued')}
               </Button>
             )}
             <Button
-              variant="ghost"
-              size="small"
+              variant="outline"
+              size="sm"
               onClick={() => void onCancelQueuedReviewers()}
             >
               {t('deepReviewActionBar.capacityQueue.cancelQueued')}
@@ -235,8 +233,8 @@ export const CapacityQueueNotice: React.FC<CapacityQueueNoticeProps> = ({
           </>
         )}
         <Button
-          variant="ghost"
-          size="small"
+          variant="outline"
+          size="sm"
           onClick={() => void onOpenReviewSettings()}
         >
           {t('deepReviewActionBar.capacityQueue.openReviewSettings')}

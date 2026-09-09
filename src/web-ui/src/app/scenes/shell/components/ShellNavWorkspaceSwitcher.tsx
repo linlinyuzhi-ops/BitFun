@@ -1,8 +1,8 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
-import { Check, ChevronDown } from 'lucide-react';
-import { Tooltip } from '@/component-library/components/Tooltip';
+;
+import { OverflowText, Icon, Menu, MenuItem, Tooltip } from '@openbitfun/ui';
 import { WorkspaceKind, type WorkspaceInfo } from '@/shared/types';
 
 interface ShellNavWorkspaceSwitcherProps {
@@ -43,33 +43,32 @@ const ShellNavWorkspaceSwitcher: React.FC<ShellNavWorkspaceSwitcherProps> = ({
   }
 
   return (
-    <div className="bitfun-shell-nav__workspace-switcher">
+    <div className="openbitfun-shell-nav__workspace-switcher">
       <Tooltip
         content={hasMultipleWorkspaces ? switchWorkspaceLabel : workspaceName}
         placement="bottom"
       >
-        <button
+        <button data-overflow-trigger
           ref={workspaceTriggerRef}
           type="button"
-          className={`bitfun-shell-nav__workspace-trigger${workspaceMenuOpen ? ' is-active' : ''}${hasMultipleWorkspaces ? ' is-switchable' : ''}`}
+          className={`openbitfun-shell-nav__workspace-trigger${workspaceMenuOpen ? ' is-active' : ''}${hasMultipleWorkspaces ? ' is-switchable' : ''}`}
           onClick={onToggle}
           aria-haspopup={hasMultipleWorkspaces ? 'menu' : undefined}
           aria-expanded={hasMultipleWorkspaces ? workspaceMenuOpen : undefined}
         >
-          <span className="bitfun-shell-nav__workspace-separator">/</span>
-          <span className="bitfun-shell-nav__workspace-name">{workspaceName}</span>
+          <span className="openbitfun-shell-nav__workspace-separator">/</span>
+          <OverflowText className="openbitfun-shell-nav__workspace-name">{workspaceName}</OverflowText>
           {hasMultipleWorkspaces ? (
-            <ChevronDown size={12} className="bitfun-shell-nav__workspace-trigger-icon" />
+            <Icon name="chevron-down" size="xs" className="openbitfun-shell-nav__workspace-trigger-icon" />
           ) : null}
         </button>
       </Tooltip>
 
       {workspaceMenuOpen && hasMultipleWorkspaces && workspaceMenuPosition
         ? createPortal(
-            <div
+            <Menu
               ref={workspaceMenuRef}
-              className="bitfun-shell-nav__workspace-menu"
-              role="menu"
+              className="openbitfun-shell-nav__workspace-menu"
               aria-label={switchWorkspaceLabel}
               style={{
                 top: `${workspaceMenuPosition.top}px`,
@@ -87,22 +86,23 @@ const ShellNavWorkspaceSwitcher: React.FC<ShellNavWorkspaceSwitcherProps> = ({
                     placement="right"
                     disabled={!workspace.rootPath}
                   >
-                    <button
-                      type="button"
+                    <MenuItem data-overflow-trigger
                       role="menuitemradio"
-                      aria-checked={isActive}
-                      className={`bitfun-shell-nav__workspace-menu-item${isActive ? ' is-active' : ''}`}
+                      checked={isActive}
+                      reserveLeadingSpace
+                      leading={isActive ? (
+                        <span className="openbitfun-shell-nav__workspace-menu-check" aria-hidden="true">
+                          <Icon name="check-line" size="xs" />
+                        </span>
+                      ) : undefined}
                       onClick={() => { void onSelectWorkspace(workspace.id); }}
                     >
-                      <span className="bitfun-shell-nav__workspace-menu-check" aria-hidden="true">
-                        {isActive ? <Check size={12} /> : null}
-                      </span>
-                      <span className="bitfun-shell-nav__workspace-menu-text">{label}</span>
-                    </button>
+                      <OverflowText className="openbitfun-shell-nav__workspace-menu-text">{label}</OverflowText>
+                    </MenuItem>
                   </Tooltip>
                 );
               })}
-            </div>,
+            </Menu>,
             getAppearanceOverlayHost(),
           )
         : null}

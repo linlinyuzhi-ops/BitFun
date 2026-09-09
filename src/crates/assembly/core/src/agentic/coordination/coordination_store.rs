@@ -1,4 +1,7 @@
-use crate::util::errors::{BitFunError, BitFunResult};
+use crate::service::coordination_persistence::{
+    initialize_coordination_schema, validate_coordination_agent_id,
+};
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -7,7 +10,8 @@ use tokio::sync::OnceCell;
 use tokio::task;
 use uuid::Uuid;
 
-const SCHEMA_VERSION: i64 = 1;
+const SWARM_MAX_NODES: i64 = 128;
+const SWARM_MAX_DEPTH: i64 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BackgroundTaskStatus {
@@ -35,7 +39,7 @@ impl BackgroundTaskStatus {
         self != Self::Running
     }
 
-    fn parse(value: &str) -> BitFunResult<Self> {
+    fn parse(value: &str) -> OpenBitFunResult<Self> {
         match value {
             "running" => Ok(Self::Running),
             "completed" => Ok(Self::Completed),
@@ -43,7 +47,7 @@ impl BackgroundTaskStatus {
             "failed" => Ok(Self::Failed),
             "cancelled" => Ok(Self::Cancelled),
             "interrupted" => Ok(Self::Interrupted),
-            _ => Err(BitFunError::service(format!(
+            _ => Err(OpenBitFunError::service(format!(
                 "Invalid background task status in coordination database: {value}"
             ))),
         }
@@ -84,6 +88,13 @@ pub(crate) struct BackgroundTaskRecord {
     pub delivered_at_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DirectChildAgentRecord {
+    pub agent_id: String,
+    pub child_session_id: String,
+    pub status: BackgroundTaskStatus,
+}
+
 pub(crate) struct CoordinationStore {
     db_path: PathBuf,
     connection: OnceCell<Arc<Mutex<Connection>>>,
@@ -99,14 +110,14 @@ impl CoordinationStore {
         }
     }
 
-    async fn connection(&self) -> BitFunResult<Arc<Mutex<Connection>>> {
+    async fn connection(&self) -> OpenBitFunResult<Arc<Mutex<Connection>>> {
         let db_path = self.db_path.clone();
         self.connection
             .get_or_try_init(|| async move {
                 task::spawn_blocking(move || open_connection(db_path))
                     .await
                     .map_err(|error| {
-                        BitFunError::service(format!(
+                        OpenBitFunError::service(format!(
                             "Agent coordination database initialization task failed: {error}"
                         ))
                     })?
@@ -115,39 +126,67 @@ impl CoordinationStore {
             .cloned()
     }
 
-    async fn with_connection<T, F>(&self, operation: F) -> BitFunResult<T>
+    async fn with_connection<T, F>(&self, operation: F) -> OpenBitFunResult<T>
     where
         T: Send + 'static,
-        F: FnOnce(&mut Connection) -> BitFunResult<T> + Send + 'static,
+        F: FnOnce(&mut Connection) -> OpenBitFunResult<T> + Send + 'static,
     {
         let connection = self.connection().await?;
         task::spawn_blocking(move || {
             let mut connection = connection.lock().map_err(|_| {
-                BitFunError::service("Agent coordination database lock was poisoned".to_string())
+                OpenBitFunError::service(
+                    "Agent coordination database lock was poisoned".to_string(),
+                )
             })?;
             operation(&mut connection)
         })
         .await
         .map_err(|error| {
-            BitFunError::service(format!("Agent coordination database task failed: {error}"))
+            OpenBitFunError::service(format!("Agent coordination database task failed: {error}"))
         })?
     }
 
-    pub(crate) async fn agent_id_for_session(
+    pub(crate) async fn agent_id_for_session_with_requested_id(
         &self,
         parent_session_id: &str,
         child_session_id: &str,
-    ) -> BitFunResult<String> {
+        requested_agent_id: Option<&str>,
+    ) -> OpenBitFunResult<String> {
         let parent_session_id = parent_session_id.to_string();
         let child_session_id = child_session_id.to_string();
+        let requested_agent_id = requested_agent_id.map(str::to_string);
         self.with_connection(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(db_error)?;
-            let (_, agent_id) =
-                get_or_create_agent(&transaction, &parent_session_id, &child_session_id, None)?;
+            let (_, agent_id) = get_or_create_agent(
+                &transaction,
+                &parent_session_id,
+                &child_session_id,
+                requested_agent_id.as_deref(),
+            )?;
             transaction.commit().map_err(db_error)?;
             Ok(agent_id)
+        })
+        .await
+    }
+
+    pub(crate) async fn existing_agent_id_for_session(
+        &self,
+        parent_session_id: &str,
+        child_session_id: &str,
+    ) -> OpenBitFunResult<Option<String>> {
+        let parent_session_id = parent_session_id.to_string();
+        let child_session_id = child_session_id.to_string();
+        self.with_connection(move |connection| {
+            connection
+                .query_row(
+                    "SELECT agent_id FROM agents WHERE parent_session_id = ?1 AND child_session_id = ?2",
+                    params![parent_session_id, child_session_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(db_error)
         })
         .await
     }
@@ -156,7 +195,7 @@ impl CoordinationStore {
         &self,
         parent_session_id: &str,
         agent_id: &str,
-    ) -> BitFunResult<String> {
+    ) -> OpenBitFunResult<String> {
         let parent_session_id = parent_session_id.to_string();
         let agent_id = agent_id.to_string();
         self.with_connection(move |connection| {
@@ -169,7 +208,287 @@ impl CoordinationStore {
                 .optional()
                 .map_err(db_error)?
                 .flatten()
-                .ok_or_else(|| BitFunError::tool(format!("Agent was not found: {agent_id}")))
+                .ok_or_else(|| OpenBitFunError::tool(format!("Agent was not found: {agent_id}")))
+        })
+        .await
+    }
+
+    pub(crate) async fn direct_child_agents(
+        &self,
+        parent_session_id: &str,
+    ) -> OpenBitFunResult<Vec<DirectChildAgentRecord>> {
+        let parent_session_id = parent_session_id.to_string();
+        self.with_connection(move |connection| {
+            let mut statement = connection
+                .prepare(
+                    r#"
+WITH latest_tasks AS (
+    SELECT agent_pk, status,
+           ROW_NUMBER() OVER (PARTITION BY agent_pk ORDER BY task_pk DESC) AS row_number
+    FROM background_tasks
+)
+SELECT agents.agent_id, agents.child_session_id,
+       COALESCE(latest_tasks.status, 'running')
+FROM agents
+JOIN swarm_nodes
+  ON swarm_nodes.session_id = agents.child_session_id
+ AND swarm_nodes.parent_session_id = agents.parent_session_id
+LEFT JOIN latest_tasks
+  ON latest_tasks.agent_pk = agents.agent_pk
+ AND latest_tasks.row_number = 1
+WHERE agents.parent_session_id = ?1
+  AND agents.state = 'active'
+ORDER BY swarm_nodes.created_at_ms ASC, agents.agent_pk ASC
+                    "#,
+                )
+                .map_err(db_error)?;
+            let rows = statement
+                .query_map(params![parent_session_id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(db_error)?;
+            rows.map(|row| {
+                let (agent_id, child_session_id, status) = row.map_err(db_error)?;
+                Ok(DirectChildAgentRecord {
+                    agent_id,
+                    child_session_id,
+                    status: BackgroundTaskStatus::parse(&status)?,
+                })
+            })
+            .collect()
+        })
+        .await
+    }
+
+    pub(crate) async fn resolve_direct_child_agent_id(
+        &self,
+        parent_session_id: &str,
+        agent_id: &str,
+    ) -> OpenBitFunResult<String> {
+        let parent_session_id = parent_session_id.to_string();
+        let agent_id = agent_id.to_string();
+        self.with_connection(move |connection| {
+            connection
+                .query_row(
+                    "SELECT agents.child_session_id FROM agents JOIN swarm_nodes ON swarm_nodes.session_id = agents.child_session_id AND swarm_nodes.parent_session_id = agents.parent_session_id WHERE agents.parent_session_id = ?1 AND agents.agent_id = ?2 AND agents.state = 'active'",
+                    params![parent_session_id, agent_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(db_error)?
+                .ok_or_else(|| OpenBitFunError::tool(format!("Direct child agent was not found: {agent_id}")))
+        })
+        .await
+    }
+
+    pub(crate) async fn reserve_swarm_child(
+        &self,
+        parent_session_id: &str,
+        child_session_id: &str,
+        parent_agent_type: &str,
+        child_agent_type: &str,
+        child_depth: u8,
+    ) -> OpenBitFunResult<()> {
+        let parent_session_id = parent_session_id.to_string();
+        let child_session_id = child_session_id.to_string();
+        let parent_agent_type = parent_agent_type.to_string();
+        let child_agent_type = child_agent_type.to_string();
+        self.with_connection(move |connection| {
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(db_error)?;
+            if !matches!(
+                child_agent_type.as_str(),
+                "SwarmPlanner" | "SwarmWorker" | "SwarmReviewer"
+            ) {
+                return Err(OpenBitFunError::tool(format!(
+                    "Swarm cannot launch agent_type={child_agent_type}"
+                )));
+            }
+            let child_depth = i64::from(child_depth);
+            if child_depth == 0 || child_depth > SWARM_MAX_DEPTH {
+                return Err(OpenBitFunError::tool(format!(
+                    "Swarm tree height limit exceeded: child depth {child_depth}, maximum {SWARM_MAX_DEPTH}"
+                )));
+            }
+            if child_depth == SWARM_MAX_DEPTH && child_agent_type == "SwarmPlanner" {
+                return Err(OpenBitFunError::tool(
+                    "SwarmPlanner cannot be launched at the final tree level".to_string(),
+                ));
+            }
+
+            let root_session_id = transaction
+                .query_row(
+                    "SELECT root_session_id FROM swarm_nodes WHERE session_id = ?1",
+                    params![parent_session_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(db_error)?;
+            let root_session_id = match root_session_id {
+                Some(root_session_id) => root_session_id,
+                None if parent_agent_type == "Ultra" => parent_session_id.clone(),
+                None => {
+                    return Err(OpenBitFunError::tool(
+                        "Swarm parent is not part of the current tree".to_string(),
+                    ));
+                }
+            };
+            transaction
+                .execute(
+                    "INSERT OR IGNORE INTO swarm_trees (root_session_id, created_at_ms) VALUES (?1, ?2)",
+                    params![root_session_id, unix_time_ms() as i64],
+                )
+                .map_err(db_error)?;
+            transaction
+                .execute(
+                    "INSERT OR IGNORE INTO swarm_nodes (session_id, root_session_id, parent_session_id, agent_type, depth, created_at_ms) VALUES (?1, ?1, NULL, 'Ultra', 0, ?2)",
+                    params![root_session_id, unix_time_ms() as i64],
+                )
+                .map_err(db_error)?;
+
+            let parent = transaction
+                .query_row(
+                    "SELECT root_session_id, depth, agent_type FROM swarm_nodes WHERE session_id = ?1",
+                    params![parent_session_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
+                )
+                .optional()
+                .map_err(db_error)?
+                .ok_or_else(|| OpenBitFunError::tool("Swarm parent is not part of the current tree".to_string()))?;
+            if parent.2 != parent_agent_type {
+                return Err(OpenBitFunError::tool(
+                    "Swarm parent agent type does not match its persisted tree node".to_string(),
+                ));
+            }
+            if parent.0 != root_session_id || parent.1.saturating_add(1) != child_depth {
+                return Err(OpenBitFunError::tool(
+                    "Swarm child depth does not match its parent lineage".to_string(),
+                ));
+            }
+            if !matches!(parent.2.as_str(), "Ultra" | "SwarmPlanner") {
+                return Err(OpenBitFunError::tool(
+                    "Only a Swarm planner can launch child agents".to_string(),
+                ));
+            }
+            let node_count = transaction
+                .query_row(
+                    "SELECT COUNT(*) FROM swarm_nodes WHERE root_session_id = ?1",
+                    params![root_session_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(db_error)?;
+            if node_count >= SWARM_MAX_NODES {
+                return Err(OpenBitFunError::tool(format!(
+                    "Swarm tree size limit reached: maximum {SWARM_MAX_NODES} agents including the root"
+                )));
+            }
+            transaction
+                .execute(
+                    "INSERT INTO swarm_nodes (session_id, root_session_id, parent_session_id, agent_type, depth, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![child_session_id, root_session_id, parent_session_id, child_agent_type, child_depth, unix_time_ms() as i64],
+                )
+                .map_err(|error| OpenBitFunError::tool(format!("Failed to reserve Swarm node: {error}")))?;
+            transaction.commit().map_err(db_error)?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub(crate) async fn rollback_swarm_child(
+        &self,
+        child_session_id: &str,
+    ) -> OpenBitFunResult<()> {
+        let child_session_id = child_session_id.to_string();
+        self.with_connection(move |connection| {
+            connection
+                .execute(
+                    "DELETE FROM swarm_nodes WHERE session_id = ?1 AND parent_session_id IS NOT NULL",
+                    params![child_session_id],
+                )
+                .map_err(db_error)?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub(crate) async fn swarm_depth_for_session(
+        &self,
+        session_id: &str,
+    ) -> OpenBitFunResult<Option<u8>> {
+        let session_id = session_id.to_string();
+        self.with_connection(move |connection| {
+            connection
+                .query_row(
+                    "SELECT depth FROM swarm_nodes WHERE session_id = ?1",
+                    params![session_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(db_error)
+                .map(|depth| depth.and_then(|value| u8::try_from(value).ok()))
+        })
+        .await
+    }
+
+    pub(crate) async fn swarm_descendant_session_ids(
+        &self,
+        session_id: &str,
+    ) -> OpenBitFunResult<Vec<String>> {
+        let session_id = session_id.to_string();
+        self.with_connection(move |connection| {
+            let mut statement = connection
+                .prepare(
+                    r#"
+WITH RECURSIVE descendants(session_id) AS (
+    SELECT session_id
+    FROM swarm_nodes
+    WHERE parent_session_id = ?1
+    UNION ALL
+    SELECT child.session_id
+    FROM swarm_nodes child
+    JOIN descendants parent ON child.parent_session_id = parent.session_id
+)
+SELECT session_id FROM descendants
+                    "#,
+                )
+                .map_err(db_error)?;
+            let rows = statement
+                .query_map(params![session_id], |row| row.get::<_, String>(0))
+                .map_err(db_error)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db_error)
+        })
+        .await
+    }
+
+    pub(crate) async fn swarm_subtree_session_ids_postorder(
+        &self,
+        session_id: &str,
+    ) -> OpenBitFunResult<Vec<String>> {
+        let session_id = session_id.to_string();
+        self.with_connection(move |connection| {
+            let mut statement = connection
+                .prepare(
+                    r#"
+WITH RECURSIVE subtree(session_id, depth) AS (
+    SELECT session_id, depth FROM swarm_nodes WHERE session_id = ?1
+    UNION ALL
+    SELECT child.session_id, child.depth
+    FROM swarm_nodes child
+    JOIN subtree parent ON child.parent_session_id = parent.session_id
+)
+SELECT session_id FROM subtree ORDER BY depth DESC, session_id ASC
+                    "#,
+                )
+                .map_err(db_error)?;
+            let rows = statement
+                .query_map(params![session_id], |row| row.get::<_, String>(0))
+                .map_err(db_error)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db_error)
         })
         .await
     }
@@ -177,7 +496,7 @@ impl CoordinationStore {
     pub(crate) async fn register_background_task(
         &self,
         registration: BackgroundTaskRegistration,
-    ) -> BitFunResult<RegisteredBackgroundTask> {
+    ) -> OpenBitFunResult<RegisteredBackgroundTask> {
         let execution_owner_token = self.execution_owner_token.clone();
         self.with_connection(move |connection| {
             let transaction = connection
@@ -242,7 +561,7 @@ INSERT INTO background_tasks (
         status: BackgroundTaskStatus,
         error_code: Option<String>,
         error_message: Option<String>,
-    ) -> BitFunResult<bool> {
+    ) -> OpenBitFunResult<bool> {
         self.with_connection(move |connection| {
             let changed = connection
                 .execute(
@@ -265,15 +584,43 @@ WHERE task_pk = ?5 AND status = 'running'
         .await
     }
 
-    pub(crate) async fn delete_background_task(&self, task_pk: i64) -> BitFunResult<()> {
+    pub(crate) async fn discard_unsubmitted_background_task(
+        &self,
+        task_pk: i64,
+        release_agent_reservation: bool,
+    ) -> OpenBitFunResult<bool> {
         self.with_connection(move |connection| {
-            connection
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(db_error)?;
+            let agent_pk = transaction
+                .query_row(
+                    "SELECT agent_pk FROM background_tasks WHERE task_pk = ?1",
+                    params![task_pk],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(db_error)?;
+            transaction
                 .execute(
                     "DELETE FROM background_tasks WHERE task_pk = ?1",
                     params![task_pk],
                 )
                 .map_err(db_error)?;
-            Ok(())
+            let released_agent_reservation =
+                if let (true, Some(agent_pk)) = (release_agent_reservation, agent_pk) {
+                    transaction
+                    .execute(
+                        "DELETE FROM agents WHERE agent_pk = ?1 AND NOT EXISTS (SELECT 1 FROM background_tasks WHERE agent_pk = ?1)",
+                        params![agent_pk],
+                    )
+                    .map_err(db_error)?
+                        > 0
+                } else {
+                    false
+                };
+            transaction.commit().map_err(db_error)?;
+            Ok(released_agent_reservation)
         })
         .await
     }
@@ -282,7 +629,7 @@ WHERE task_pk = ?5 AND status = 'running'
         &self,
         parent_session_id: &str,
         requested_bg_task_ids: &[String],
-    ) -> BitFunResult<Vec<BackgroundTaskRecord>> {
+    ) -> OpenBitFunResult<Vec<BackgroundTaskRecord>> {
         let parent_session_id = parent_session_id.to_string();
         let requested_bg_task_ids = requested_bg_task_ids.to_vec();
         self.with_connection(move |connection| {
@@ -313,7 +660,7 @@ WHERE task_pk = ?5 AND status = 'running'
                     .optional()
                     .map_err(db_error)?
                     .ok_or_else(|| {
-                        BitFunError::tool(format!("Background task was not found: {bg_task_id}"))
+                        OpenBitFunError::tool(format!("Background task was not found: {bg_task_id}"))
                     })?;
                 if record.delivered_at_ms.is_none() {
                     records.push(record);
@@ -327,7 +674,7 @@ WHERE task_pk = ?5 AND status = 'running'
     pub(crate) async fn records_by_task_pks(
         &self,
         task_pks: &[i64],
-    ) -> BitFunResult<Vec<BackgroundTaskRecord>> {
+    ) -> OpenBitFunResult<Vec<BackgroundTaskRecord>> {
         let task_pks = task_pks.to_vec();
         self.with_connection(move |connection| {
             let mut records = Vec::with_capacity(task_pks.len());
@@ -354,7 +701,7 @@ WHERE task_pk = ?5 AND status = 'running'
         parent_session_id: &str,
         task_pks: &[i64],
         delivered_parent_dialog_turn_id: &str,
-    ) -> BitFunResult<Vec<BackgroundTaskRecord>> {
+    ) -> OpenBitFunResult<Vec<BackgroundTaskRecord>> {
         let parent_session_id = parent_session_id.to_string();
         let task_pks = task_pks.to_vec();
         let delivered_parent_dialog_turn_id = delivered_parent_dialog_turn_id.to_string();
@@ -404,7 +751,7 @@ WHERE task_pk = ?3
     pub(crate) async fn stale_running_tasks(
         &self,
         parent_session_id: &str,
-    ) -> BitFunResult<Vec<BackgroundTaskRecord>> {
+    ) -> OpenBitFunResult<Vec<BackgroundTaskRecord>> {
         let parent_session_id = parent_session_id.to_string();
         let execution_owner_token = self.execution_owner_token.clone();
         self.with_connection(move |connection| {
@@ -428,7 +775,7 @@ WHERE task_pk = ?3
     pub(crate) async fn delete_session_references(
         &self,
         session_id: &str,
-    ) -> BitFunResult<Vec<i64>> {
+    ) -> OpenBitFunResult<Vec<i64>> {
         let session_id = session_id.to_string();
         self.with_connection(move |connection| {
             let transaction = connection
@@ -455,13 +802,31 @@ WHERE task_pk = ?3
                 .map_err(db_error)?;
             transaction
                 .execute(
-                    "DELETE FROM agents WHERE parent_session_id = ?1 OR child_session_id = ?1",
+                    "DELETE FROM agents WHERE parent_session_id = ?1",
+                    params![session_id],
+                )
+                .map_err(db_error)?;
+            transaction
+                .execute(
+                    "UPDATE agents SET child_session_id = NULL, state = 'historical' WHERE child_session_id = ?1",
                     params![session_id],
                 )
                 .map_err(db_error)?;
             transaction
                 .execute(
                     "DELETE FROM coordination_sessions WHERE parent_session_id = ?1",
+                    params![session_id],
+                )
+                .map_err(db_error)?;
+            transaction
+                .execute(
+                    "DELETE FROM swarm_nodes WHERE session_id = ?1",
+                    params![session_id],
+                )
+                .map_err(db_error)?;
+            transaction
+                .execute(
+                    "DELETE FROM swarm_trees WHERE root_session_id = ?1",
                     params![session_id],
                 )
                 .map_err(db_error)?;
@@ -475,7 +840,7 @@ WHERE task_pk = ?3
         &self,
         parent_session_id: &str,
         parent_dialog_turn_ids: &[String],
-    ) -> BitFunResult<Vec<i64>> {
+    ) -> OpenBitFunResult<Vec<i64>> {
         let parent_session_id = parent_session_id.to_string();
         let parent_dialog_turn_ids = parent_dialog_turn_ids.to_vec();
         self.with_connection(move |connection| {
@@ -523,7 +888,7 @@ WHERE task_pk = ?3
         &self,
         source_parent_session_id: &str,
         target_parent_session_id: &str,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         let source_parent_session_id = source_parent_session_id.to_string();
         let target_parent_session_id = target_parent_session_id.to_string();
         self.with_connection(move |connection| {
@@ -631,7 +996,7 @@ fn collect_rows(
         '_,
         impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<BackgroundTaskRecord>,
     >,
-) -> BitFunResult<Vec<BackgroundTaskRecord>> {
+) -> OpenBitFunResult<Vec<BackgroundTaskRecord>> {
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db_error)
 }
 
@@ -640,7 +1005,7 @@ fn get_or_create_agent(
     parent_session_id: &str,
     child_session_id: &str,
     requested_agent_id: Option<&str>,
-) -> BitFunResult<(i64, String)> {
+) -> OpenBitFunResult<(i64, String)> {
     if let Some(existing) = transaction
         .query_row(
             "SELECT agent_pk, agent_id FROM agents WHERE parent_session_id = ?1 AND child_session_id = ?2",
@@ -651,7 +1016,7 @@ fn get_or_create_agent(
         .map_err(db_error)?
     {
         if requested_agent_id.is_some_and(|requested_agent_id| existing.1 != requested_agent_id) {
-            return Err(BitFunError::tool(format!(
+            return Err(OpenBitFunError::tool(format!(
                 "Subagent session is already registered as agent_id={}",
                 existing.1
             )));
@@ -669,6 +1034,20 @@ fn get_or_create_agent(
     let agent_id = match requested_agent_id {
         Some(agent_id) => {
             validate_agent_id(agent_id)?;
+            let exists = transaction
+                .query_row(
+                    "SELECT 1 FROM agents WHERE parent_session_id = ?1 AND agent_id = ?2",
+                    params![parent_session_id, agent_id],
+                    |_row| Ok(()),
+                )
+                .optional()
+                .map_err(db_error)?
+                .is_some();
+            if exists {
+                return Err(OpenBitFunError::tool(format!(
+                    "agent_id is already reserved in this parent session: {agent_id}"
+                )));
+            }
             agent_id.to_string()
         }
         None => loop {
@@ -707,44 +1086,28 @@ fn get_or_create_agent(
             params![parent_session_id, agent_id, child_session_id, unix_time_ms() as i64],
         )
         .map_err(|error| {
-            BitFunError::tool(format!(
+            OpenBitFunError::tool(format!(
                 "Failed to register agent_id={agent_id} for the parent session: {error}"
             ))
         })?;
     Ok((transaction.last_insert_rowid(), agent_id))
 }
 
-fn validate_agent_id(agent_id: &str) -> BitFunResult<()> {
-    let valid = !agent_id.is_empty()
-        && agent_id.len() <= 32
-        && agent_id
-            .bytes()
-            .enumerate()
-            .all(|(index, byte)| match byte {
-                b'a'..=b'z' => true,
-                b'0'..=b'9' | b'_' | b'-' => index > 0,
-                _ => false,
-            });
-    if valid {
-        Ok(())
-    } else {
-        Err(BitFunError::tool(
-            "agent_id must match [a-z][a-z0-9_-]{0,31}".to_string(),
-        ))
-    }
+pub(crate) fn validate_agent_id(agent_id: &str) -> OpenBitFunResult<()> {
+    validate_coordination_agent_id(agent_id)
 }
 
-fn open_connection(db_path: PathBuf) -> BitFunResult<Arc<Mutex<Connection>>> {
+fn open_connection(db_path: PathBuf) -> OpenBitFunResult<Arc<Mutex<Connection>>> {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| {
-            BitFunError::io(format!(
+            OpenBitFunError::io(format!(
                 "Failed to create agent coordination database directory {}: {error}",
                 parent.display()
             ))
         })?;
     }
     let connection = Connection::open(&db_path).map_err(|error| {
-        BitFunError::io(format!(
+        OpenBitFunError::io(format!(
             "Failed to open agent coordination database {}: {error}",
             db_path.display()
         ))
@@ -761,81 +1124,12 @@ PRAGMA synchronous = NORMAL;
             "#,
         )
         .map_err(db_error)?;
-    initialize_schema(&connection)?;
+    initialize_coordination_schema(&connection)?;
     Ok(Arc::new(Mutex::new(connection)))
 }
 
-fn initialize_schema(connection: &Connection) -> BitFunResult<()> {
-    let version = connection
-        .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
-        .map_err(db_error)?;
-    if version > SCHEMA_VERSION {
-        return Err(BitFunError::service(format!(
-            "Agent coordination database schema {version} is newer than supported schema {SCHEMA_VERSION}"
-        )));
-    }
-    if version == SCHEMA_VERSION {
-        return Ok(());
-    }
-    connection
-        .execute_batch(
-            r#"
-CREATE TABLE coordination_sessions (
-    parent_session_id TEXT PRIMARY KEY,
-    next_auto_agent_seq INTEGER NOT NULL DEFAULT 1,
-    updated_at_ms INTEGER NOT NULL
-);
-
-CREATE TABLE agents (
-    agent_pk INTEGER PRIMARY KEY AUTOINCREMENT,
-    parent_session_id TEXT NOT NULL,
-    agent_id TEXT NOT NULL,
-    child_session_id TEXT,
-    next_bg_seq INTEGER NOT NULL DEFAULT 1,
-    state TEXT NOT NULL CHECK (state IN ('active', 'historical')),
-    created_at_ms INTEGER NOT NULL,
-    UNIQUE(parent_session_id, agent_id),
-    UNIQUE(parent_session_id, child_session_id)
-);
-
-CREATE TABLE background_tasks (
-    task_pk INTEGER PRIMARY KEY AUTOINCREMENT,
-    parent_session_id TEXT NOT NULL,
-    agent_pk INTEGER NOT NULL,
-    bg_task_id TEXT NOT NULL,
-    bg_ordinal INTEGER NOT NULL,
-    parent_dialog_turn_id TEXT NOT NULL,
-    parent_tool_call_id TEXT NOT NULL,
-    child_dialog_turn_id TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (
-        status IN ('running', 'completed', 'partial_timeout', 'failed', 'cancelled', 'interrupted')
-    ),
-    error_code TEXT,
-    error_message TEXT,
-    execution_owner_token TEXT NOT NULL,
-    created_at_ms INTEGER NOT NULL,
-    terminal_at_ms INTEGER,
-    delivered_at_ms INTEGER,
-    delivered_parent_dialog_turn_id TEXT,
-    UNIQUE(parent_session_id, bg_task_id),
-    UNIQUE(agent_pk, bg_ordinal),
-    FOREIGN KEY(agent_pk) REFERENCES agents(agent_pk) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_background_tasks_wait
-    ON background_tasks(parent_session_id, delivered_at_ms, status, task_pk);
-CREATE INDEX idx_background_tasks_parent_turn
-    ON background_tasks(parent_session_id, parent_dialog_turn_id);
-
-PRAGMA user_version = 1;
-            "#,
-        )
-        .map_err(db_error)?;
-    Ok(())
-}
-
-fn db_error(error: rusqlite::Error) -> BitFunError {
-    BitFunError::io(format!("Agent coordination database error: {error}"))
+fn db_error(error: rusqlite::Error) -> OpenBitFunError {
+    OpenBitFunError::io(format!("Agent coordination database error: {error}"))
 }
 
 fn unix_time_ms() -> u64 {
@@ -848,9 +1142,24 @@ fn unix_time_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::coordination_persistence::{
+        coordination_table_has_column, initialize_coordination_schema,
+    };
+
+    fn test_tempdir() -> tempfile::TempDir {
+        if let Some(root) = std::env::var_os("OPENBITFUN_TEST_TMPDIR") {
+            let root = PathBuf::from(root);
+            std::fs::create_dir_all(&root).expect("create coordination test temp root");
+            return tempfile::Builder::new()
+                .prefix("coordination-store-")
+                .tempdir_in(root)
+                .expect("coordination store temp directory");
+        }
+        tempfile::tempdir().expect("coordination store temp directory")
+    }
 
     fn test_store() -> (tempfile::TempDir, CoordinationStore) {
-        let root = tempfile::tempdir().expect("coordination store temp directory");
+        let root = test_tempdir();
         let store = CoordinationStore::new(root.path().join("coordination.sqlite"));
         (root, store)
     }
@@ -869,6 +1178,92 @@ mod tests {
             parent_tool_call_id: format!("tool-{parent_dialog_turn_id}"),
             child_dialog_turn_id: format!("turn-{child_session_id}-{parent_dialog_turn_id}"),
         }
+    }
+
+    #[tokio::test]
+    async fn schema_v2_repairs_missing_delivery_columns_idempotently() {
+        let root = test_tempdir();
+        let db_path = root.path().join("coordination.sqlite");
+        let connection = Connection::open(&db_path).expect("open historical database");
+        connection
+            .execute_batch(
+                r#"
+CREATE TABLE coordination_sessions (
+    parent_session_id TEXT PRIMARY KEY,
+    next_auto_agent_seq INTEGER NOT NULL DEFAULT 1,
+    updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE agents (
+    agent_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_session_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    child_session_id TEXT,
+    next_bg_seq INTEGER NOT NULL DEFAULT 1,
+    state TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL
+);
+CREATE TABLE background_tasks (
+    task_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_session_id TEXT NOT NULL,
+    agent_pk INTEGER NOT NULL,
+    bg_task_id TEXT NOT NULL,
+    bg_ordinal INTEGER NOT NULL,
+    parent_dialog_turn_id TEXT NOT NULL,
+    parent_tool_call_id TEXT NOT NULL,
+    child_dialog_turn_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error_code TEXT,
+    error_message TEXT,
+    execution_owner_token TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    terminal_at_ms INTEGER
+);
+CREATE TABLE swarm_trees (
+    root_session_id TEXT PRIMARY KEY,
+    created_at_ms INTEGER NOT NULL
+);
+CREATE TABLE swarm_nodes (
+    session_id TEXT PRIMARY KEY,
+    root_session_id TEXT NOT NULL,
+    parent_session_id TEXT,
+    agent_type TEXT NOT NULL,
+    depth INTEGER NOT NULL,
+    created_at_ms INTEGER NOT NULL
+);
+INSERT INTO coordination_sessions VALUES ('parent', 2, 1);
+INSERT INTO agents VALUES (1, 'parent', 'helper', 'child', 2, 'historical', 1);
+INSERT INTO background_tasks VALUES (
+    1, 'parent', 1, 'helper_bg1', 1, 'parent-turn', 'tool-call',
+    'child-turn', 'completed', NULL, NULL, 'historical-owner', 1, 2
+);
+PRAGMA user_version = 2;
+                "#,
+            )
+            .expect("seed historical schema v2");
+        drop(connection);
+
+        let store = CoordinationStore::new(db_path.clone());
+        let candidates = store
+            .wait_candidates("parent", &[])
+            .await
+            .expect("repaired database should support current reads");
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].bg_task_id, "helper_bg1");
+        assert!(candidates[0].delivered_at_ms.is_none());
+        drop(store);
+
+        let connection = Connection::open(&db_path).expect("reopen repaired database");
+        initialize_coordination_schema(&connection).expect("repeated repair should be idempotent");
+        assert!(
+            coordination_table_has_column(&connection, "background_tasks", "delivered_at_ms")
+                .expect("inspect delivered_at_ms")
+        );
+        assert!(coordination_table_has_column(
+            &connection,
+            "background_tasks",
+            "delivered_parent_dialog_turn_id"
+        )
+        .expect("inspect delivered_parent_dialog_turn_id"));
     }
 
     #[tokio::test]
@@ -892,6 +1287,19 @@ mod tests {
             ))
             .await
             .expect("register named agent task");
+        assert_eq!(
+            store
+                .existing_agent_id_for_session("parent-1", "child-reviewer")
+                .await
+                .expect("read existing named agent")
+                .as_deref(),
+            Some("reviewer")
+        );
+        assert!(store
+            .existing_agent_id_for_session("parent-1", "missing-session")
+            .await
+            .expect("missing sessions should not allocate an agent id")
+            .is_none());
         let other_parent = store
             .register_background_task(registration("parent-2", "child-2", "parent-turn-1", None))
             .await
@@ -923,6 +1331,238 @@ mod tests {
                 .expect("resolve named agent"),
             "child-reviewer"
         );
+    }
+
+    #[tokio::test]
+    async fn caller_selected_foreground_agent_id_is_registered_and_resolvable() {
+        let (_root, store) = test_store();
+
+        let agent_id = store
+            .agent_id_for_session_with_requested_id(
+                "parent",
+                "foreground-child",
+                Some("parser-review"),
+            )
+            .await
+            .expect("register caller-selected foreground agent id");
+
+        assert_eq!(agent_id, "parser-review");
+        assert_eq!(
+            store
+                .resolve_agent_id("parent", "parser-review")
+                .await
+                .expect("resolve caller-selected foreground agent id"),
+            "foreground-child"
+        );
+    }
+
+    #[tokio::test]
+    async fn discarding_unsubmitted_spawn_releases_its_agent_id() {
+        let (_root, store) = test_store();
+        let registered = store
+            .register_background_task(registration(
+                "parent",
+                "unsubmitted-child",
+                "spawn-turn",
+                Some("parser-review"),
+            ))
+            .await
+            .expect("register unsubmitted spawn");
+
+        let released = store
+            .discard_unsubmitted_background_task(registered.task_pk, true)
+            .await
+            .expect("discard unsubmitted spawn");
+        assert!(released);
+
+        assert!(store
+            .resolve_agent_id("parent", "parser-review")
+            .await
+            .is_err());
+        let retried = store
+            .register_background_task(registration(
+                "parent",
+                "retry-child",
+                "retry-turn",
+                Some("parser-review"),
+            ))
+            .await
+            .expect("retry should reuse the caller-selected agent id");
+        assert_eq!(retried.agent_id, "parser-review");
+    }
+
+    #[tokio::test]
+    async fn discarding_unsubmitted_follow_up_preserves_its_agent() {
+        let (_root, store) = test_store();
+        store
+            .register_background_task(registration(
+                "parent",
+                "existing-child",
+                "spawn-turn",
+                Some("parser-review"),
+            ))
+            .await
+            .expect("register existing agent");
+        let follow_up = store
+            .register_background_task(registration(
+                "parent",
+                "existing-child",
+                "follow-up-turn",
+                None,
+            ))
+            .await
+            .expect("register unsubmitted follow-up");
+
+        let released = store
+            .discard_unsubmitted_background_task(follow_up.task_pk, false)
+            .await
+            .expect("discard unsubmitted follow-up");
+        assert!(!released);
+
+        assert_eq!(
+            store
+                .resolve_agent_id("parent", "parser-review")
+                .await
+                .expect("existing agent should remain addressable"),
+            "existing-child"
+        );
+    }
+
+    #[tokio::test]
+    async fn swarm_admission_enforces_depth_and_tree_size_budgets() {
+        let (_root, store) = test_store();
+        store
+            .reserve_swarm_child("root", "planner", "Ultra", "SwarmPlanner", 1)
+            .await
+            .expect("reserve planner");
+        store
+            .reserve_swarm_child(
+                "unregistered-planner",
+                "orphan-worker",
+                "SwarmPlanner",
+                "SwarmWorker",
+                1,
+            )
+            .await
+            .expect_err("a non-Ultra session cannot create a new Swarm tree");
+        store
+            .reserve_swarm_child("planner", "spoofed-worker", "Ultra", "SwarmWorker", 2)
+            .await
+            .expect_err("the runtime parent type must match the persisted tree node");
+        store
+            .reserve_swarm_child("planner", "worker", "SwarmPlanner", "SwarmWorker", 2)
+            .await
+            .expect("reserve worker");
+        store
+            .reserve_swarm_child("worker", "invalid-child", "SwarmWorker", "SwarmWorker", 3)
+            .await
+            .expect_err("worker cannot launch children");
+        store
+            .reserve_swarm_child("worker", "leaf-reviewer", "SwarmWorker", "SwarmReviewer", 3)
+            .await
+            .expect_err("a worker cannot launch a reviewer either");
+        store
+            .reserve_swarm_child(
+                "planner",
+                "nested-planner",
+                "SwarmPlanner",
+                "SwarmPlanner",
+                2,
+            )
+            .await
+            .expect("reserve nested planner");
+        store
+            .reserve_swarm_child(
+                "nested-planner",
+                "deep-planner",
+                "SwarmPlanner",
+                "SwarmPlanner",
+                3,
+            )
+            .await
+            .expect("reserve planner on the penultimate level");
+        store
+            .reserve_swarm_child(
+                "deep-planner",
+                "final-worker",
+                "SwarmPlanner",
+                "SwarmWorker",
+                4,
+            )
+            .await
+            .expect("reserve worker on the final level");
+        store
+            .reserve_swarm_child(
+                "deep-planner",
+                "final-planner",
+                "SwarmPlanner",
+                "SwarmPlanner",
+                4,
+            )
+            .await
+            .expect_err("final tree level cannot contain a planner");
+        store
+            .reserve_swarm_child(
+                "final-worker",
+                "beyond-final-level",
+                "SwarmWorker",
+                "SwarmWorker",
+                5,
+            )
+            .await
+            .expect_err("a sixth tree level must be rejected");
+        store
+            .reserve_swarm_child(
+                "nested-planner",
+                "nested-worker",
+                "SwarmPlanner",
+                "SwarmWorker",
+                3,
+            )
+            .await
+            .expect("reserve nested worker");
+        assert_eq!(
+            store
+                .swarm_descendant_session_ids("planner")
+                .await
+                .expect("load persisted descendants")
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>(),
+            [
+                "worker".to_string(),
+                "nested-planner".to_string(),
+                "deep-planner".to_string(),
+                "final-worker".to_string(),
+                "nested-worker".to_string(),
+            ]
+            .into_iter()
+            .collect()
+        );
+
+        // A planner may use the rest of the tree budget for direct children.
+        // The seven existing nodes plus these 121 fill the 128-node tree.
+        for index in 0..121 {
+            store
+                .reserve_swarm_child(
+                    "planner",
+                    &format!("reviewer-{index}"),
+                    "SwarmPlanner",
+                    "SwarmReviewer",
+                    2,
+                )
+                .await
+                .expect("reserve direct planner child");
+        }
+        store
+            .reserve_swarm_child(
+                "planner",
+                "over-tree-budget",
+                "SwarmPlanner",
+                "SwarmReviewer",
+                2,
+            )
+            .await
+            .expect_err("whole-tree node budget should be enforced");
     }
 
     #[tokio::test]
@@ -958,6 +1598,123 @@ mod tests {
         assert_eq!(first_claim.len(), 1);
         assert_eq!(first_claim[0].status, BackgroundTaskStatus::Completed);
         assert!(second_claim.is_empty());
+    }
+
+    #[tokio::test]
+    async fn direct_child_agents_use_latest_status_and_ignore_delivery() {
+        let (_root, store) = test_store();
+        store
+            .reserve_swarm_child("root", "planner", "Ultra", "SwarmPlanner", 1)
+            .await
+            .expect("reserve planner");
+        store
+            .reserve_swarm_child("planner", "worker", "SwarmPlanner", "SwarmWorker", 2)
+            .await
+            .expect("reserve nested worker");
+        let first = store
+            .register_background_task(registration("root", "planner", "spawn-turn", None))
+            .await
+            .expect("register first task");
+        let latest = store
+            .register_background_task(registration("root", "planner", "follow-up-turn", None))
+            .await
+            .expect("register latest task");
+        store
+            .register_background_task(registration("planner", "worker", "nested-turn", None))
+            .await
+            .expect("register nested task");
+        store
+            .update_task_status(first.task_pk, BackgroundTaskStatus::Failed, None, None)
+            .await
+            .expect("fail first task");
+        store
+            .update_task_status(latest.task_pk, BackgroundTaskStatus::Completed, None, None)
+            .await
+            .expect("complete latest task");
+        store
+            .claim_terminal_tasks("root", &[latest.task_pk], "wait-turn")
+            .await
+            .expect("consume latest result");
+
+        let agents = store
+            .direct_child_agents("root")
+            .await
+            .expect("list direct children");
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].agent_id, first.agent_id);
+        assert_eq!(agents[0].child_session_id, "planner");
+        assert_eq!(agents[0].status, BackgroundTaskStatus::Completed);
+
+        store
+            .delete_session_references("planner")
+            .await
+            .expect("delete planner references");
+        assert!(store
+            .direct_child_agents("root")
+            .await
+            .expect("list children after deletion")
+            .is_empty());
+        store
+            .resolve_direct_child_agent_id("root", &first.agent_id)
+            .await
+            .expect_err("deleted agent id must no longer resolve");
+        let duplicate = store
+            .register_background_task(registration(
+                "root",
+                "replacement-planner",
+                "spawn-turn-3",
+                Some(&first.agent_id),
+            ))
+            .await
+            .expect_err("deleted agent ids remain reserved by their parent session");
+        assert!(duplicate
+            .to_string()
+            .contains("agent_id is already reserved in this parent session"));
+    }
+
+    #[tokio::test]
+    async fn direct_child_resolution_and_subtree_postorder_are_lineage_scoped() {
+        let (_root, store) = test_store();
+        store
+            .reserve_swarm_child("root", "planner", "Ultra", "SwarmPlanner", 1)
+            .await
+            .expect("reserve planner");
+        store
+            .reserve_swarm_child("planner", "worker", "SwarmPlanner", "SwarmWorker", 2)
+            .await
+            .expect("reserve worker");
+        let planner = store
+            .register_background_task(registration("root", "planner", "planner-turn", None))
+            .await
+            .expect("register planner");
+        let worker = store
+            .register_background_task(registration(
+                "planner",
+                "worker",
+                "worker-turn",
+                Some("nested-worker"),
+            ))
+            .await
+            .expect("register worker");
+
+        assert_eq!(
+            store
+                .resolve_direct_child_agent_id("root", &planner.agent_id)
+                .await
+                .expect("resolve direct planner"),
+            "planner"
+        );
+        store
+            .resolve_direct_child_agent_id("root", &worker.agent_id)
+            .await
+            .expect_err("a grandchild is not a direct child of root");
+        assert_eq!(
+            store
+                .swarm_subtree_session_ids_postorder("planner")
+                .await
+                .expect("load subtree"),
+            ["worker", "planner"]
+        );
     }
 
     #[tokio::test]
@@ -1042,7 +1799,7 @@ mod tests {
             .await
             .expect("register first source agent");
         store
-            .agent_id_for_session("source", "child-2")
+            .agent_id_for_session_with_requested_id("source", "child-2", None)
             .await
             .expect("reserve second source agent");
         store

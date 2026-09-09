@@ -1,5 +1,6 @@
-.bitfun-agent-companion-window-root,
-.bitfun-agent-companion-window-body {
+
+.openbitfun-agent-companion-window-root,
+.openbitfun-agent-companion-window-body {
   width: 100%;
   height: 100%;
   margin: 0;
@@ -7,24 +8,16 @@
   background: transparent !important;
 }
 
-.bitfun-agent-companion-window-body #root {
+.openbitfun-agent-companion-window-body #root {
   width: 100vw;
   height: 100vh;
   background: transparent;
 }
 
-.bitfun-agent-companion-window {
-  --bitfun-agent-companion-gap: 8px;
-  --bitfun-agent-companion-pet-width: 96px;
-  --bitfun-agent-companion-pet-height: 96px;
-  --bitfun-agent-companion-bubble-copy-rgb: 31, 41, 55;
-  --bitfun-agent-companion-warning-rgb: 217, 119, 6;
-  --bitfun-agent-companion-warning-bg-rgb: 255, 251, 235;
-  --bitfun-agent-companion-success-rgb: 22, 163, 74;
-  --bitfun-agent-companion-success-bg-rgb: 240, 253, 244;
-  --bitfun-agent-companion-error-rgb: 220, 38, 38;
-  --bitfun-agent-companion-error-bg-rgb: 254, 242, 242;
-  --bitfun-agent-companion-bubble-fg: rgb(var(--bitfun-agent-companion-bubble-copy-rgb));
+.openbitfun-agent-companion-window {
+  --openbitfun-agent-companion-gap: 8px;
+  --openbitfun-agent-companion-pet-width: 96px;
+  --openbitfun-agent-companion-pet-height: 96px;
 
   width: 100vw;
   height: 100vh;
@@ -63,7 +56,7 @@
     flex-direction: row;
     align-items: center;
     justify-content: flex-end;
-    gap: var(--bitfun-agent-companion-gap);
+    gap: var(--openbitfun-agent-companion-gap);
     width: max-content;
     max-height: 100vh;
     pointer-events: none;
@@ -81,60 +74,12 @@
   }
 
   &__overlay {
-    box-sizing: border-box;
-    width: max-content;
-    max-width: min(240px, 100vw);
-    padding: 5px;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    border: 1px solid var(--bf-appearance-token-color-overlay-slate-12);
-    border-radius: 10px;
-    /* Intentionally no backdrop-filter: adding a blurred layer on right-click
-       re-composites the other blurred surfaces and flashes the whole window. */
-    background: var(--bf-appearance-token-color-overlay-white-95);
-    color: var(--bitfun-agent-companion-bubble-fg);
-    box-shadow: 0 6px 18px rgba(var(--bf-appearance-token-color-overlay-slate-rgb), 0.18);
     pointer-events: auto;
 
     /* Context menus are placed at the cursor. */
     &--anchored {
       position: absolute;
       z-index: 3;
-    }
-  }
-
-  &__menu {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  &__menu-item {
-    appearance: none;
-    width: 100%;
-    box-sizing: border-box;
-    padding: 5px 8px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    font-size: 11px;
-    line-height: 1.3;
-    text-align: left;
-    /* Wrap rather than spill: the window can be as narrow as the pet sprite. */
-    white-space: normal;
-    overflow-wrap: anywhere;
-    cursor: pointer;
-
-    &:hover {
-      background: var(--bf-appearance-token-color-overlay-slate-08);
-    }
-
-    &:focus-visible {
-      outline: 2px solid color-mix(in srgb, var(--bf-appearance-token-color-accent-600) 70%, transparent);
-      outline-offset: -2px;
     }
   }
 
@@ -158,15 +103,19 @@
     height: 21px;
     box-sizing: border-box;
     padding: 2px 5px;
-    border: 1px solid var(--bf-appearance-token-color-overlay-slate-12);
+    border: 1px solid var(--openbitfun-color-field-border);
     border-radius: 5px;
-    background: var(--bf-appearance-token-color-overlay-white-95);
-    color: inherit;
+    background: var(--openbitfun-color-field-background);
+    color: var(--openbitfun-color-content-primary);
     font: inherit;
-    font-size: 10px;
-    line-height: 1.3;
+    font-size: var(--openbitfun-type-micro-font-size);
+    line-height: var(--openbitfun-type-modifier-leading-snug-line-height);
     user-select: text;
     -webkit-user-select: text;
+
+    &::placeholder {
+      color: var(--openbitfun-color-content-muted);
+    }
 
     &:focus,
     &:focus-visible {
@@ -185,14 +134,14 @@
     padding: 0;
     display: grid;
     place-items: center;
-    border: 1px solid var(--bf-appearance-token-color-overlay-slate-12);
+    border: 1px solid var(--openbitfun-color-action-neutral-border);
     border-radius: 5px;
-    background: var(--bf-appearance-token-color-overlay-slate-04);
-    color: inherit;
+    background: var(--openbitfun-color-action-neutral-surface);
+    color: var(--openbitfun-color-action-neutral-content);
     cursor: pointer;
 
     &:hover:not(:disabled) {
-      background: var(--bf-appearance-token-color-overlay-slate-08);
+      background: var(--openbitfun-color-action-neutral-surface-hover);
     }
 
     &:disabled {
@@ -201,24 +150,24 @@
     }
 
     &:focus-visible {
-      outline: 2px solid color-mix(in srgb, var(--bf-appearance-token-color-accent-600) 70%, transparent);
+      outline: 2px solid color-mix(in srgb, var(--openbitfun-color-accent-hover) 70%, transparent);
       outline-offset: 1px;
     }
   }
 
   &__pet {
-    width: min(var(--bitfun-agent-companion-pet-width), 100vw);
-    height: min(var(--bitfun-agent-companion-pet-height), 100vh);
-    max-width: var(--bitfun-agent-companion-pet-width);
-    max-height: var(--bitfun-agent-companion-pet-height);
+    width: min(var(--openbitfun-agent-companion-pet-width), 100vw);
+    height: min(var(--openbitfun-agent-companion-pet-height), 100vh);
+    max-width: var(--openbitfun-agent-companion-pet-width);
+    max-height: var(--openbitfun-agent-companion-pet-height);
     transform-origin: center bottom;
   }
 
   &__pet-hitbox {
     position: relative;
     flex-shrink: 0;
-    width: min(var(--bitfun-agent-companion-pet-width), 100vw);
-    height: min(var(--bitfun-agent-companion-pet-height), 100vh);
+    width: min(var(--openbitfun-agent-companion-pet-width), 100vw);
+    height: min(var(--openbitfun-agent-companion-pet-height), 100vh);
     display: grid;
     place-items: center;
     cursor: grab;
@@ -235,11 +184,11 @@
       border-radius: 50%;
       background: radial-gradient(
         circle,
-        rgba(var(--bitfun-agent-companion-warning-rgb), 0.28) 0%,
-        rgba(var(--bitfun-agent-companion-warning-rgb), 0.08) 50%,
+        color-mix(in srgb, var(--openbitfun-color-status-warning-content) 28%, transparent) 0%,
+        color-mix(in srgb, var(--openbitfun-color-status-warning-content) 8%, transparent) 50%,
         transparent 75%
       );
-      animation: bitfun-agent-companion-pet-attention-glow 1.6s ease-in-out infinite !important;
+      animation: openbitfun-agent-companion-pet-attention-glow 1.6s ease-in-out infinite !important;
       pointer-events: none;
       z-index: 0;
     }
@@ -262,13 +211,12 @@
     align-items: flex-end;
     gap: 6px;
     overflow-x: hidden;
-    overflow-y: auto;
     overscroll-behavior: contain;
     pointer-events: auto;
     scrollbar-width: thin;
 
     &--single {
-      height: min(var(--bitfun-agent-companion-pet-height), 100vh);
+      height: min(var(--openbitfun-agent-companion-pet-height), 100vh);
       overflow-y: hidden;
     }
 
@@ -278,7 +226,7 @@
 
     &::-webkit-scrollbar-thumb {
       border-radius: 999px;
-      background: color-mix(in srgb, rgb(var(--bf-appearance-token-color-overlay-slate-rgb)) 18%, transparent);
+      background: color-mix(in srgb, var(--openbitfun-color-content-muted) 18%, transparent);
     }
   }
 
@@ -292,7 +240,7 @@
     max-width: 100%;
 
     &--single {
-      height: min(var(--bitfun-agent-companion-pet-height), 100vh);
+      height: min(var(--openbitfun-agent-companion-pet-height), 100vh);
     }
   }
 
@@ -307,10 +255,10 @@
     padding: 0;
     display: grid;
     place-items: center;
-    border: 1px solid var(--bf-appearance-token-color-overlay-slate-12);
+    border: 1px solid var(--openbitfun-color-border-default);
     border-radius: 50%;
-    background: var(--bf-appearance-token-color-overlay-white-95);
-    color: var(--bitfun-agent-companion-bubble-fg);
+    background: var(--openbitfun-color-surface-raised);
+    color: var(--openbitfun-color-content-primary);
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
@@ -320,11 +268,11 @@
     cursor: pointer;
 
     &:hover {
-      background: var(--bf-appearance-token-color-overlay-slate-08);
+      background: var(--openbitfun-color-surface-tertiary);
     }
 
     &:focus-visible {
-      outline: 2px solid color-mix(in srgb, var(--bf-appearance-token-color-accent-600) 70%, transparent);
+      outline: 2px solid color-mix(in srgb, var(--openbitfun-color-accent-hover) 70%, transparent);
       outline-offset: 1px;
     }
   }
@@ -345,10 +293,10 @@
     max-width: 100%;
     box-sizing: border-box;
     padding: 7px 10px;
-    border: 1px solid var(--bf-appearance-token-color-overlay-slate-12);
+    border: 1px solid var(--openbitfun-color-border-default);
     border-radius: 10px 10px 2px 10px;
-    background: var(--bf-appearance-token-color-overlay-white-95);
-    color: var(--bitfun-agent-companion-bubble-fg);
+    background-color: var(--openbitfun-color-surface-raised);
+    color: var(--openbitfun-color-content-primary);
     backdrop-filter: blur(10px);
     cursor: pointer;
     position: relative;
@@ -359,12 +307,12 @@
     }
 
     &:focus-visible {
-      outline: 2px solid color-mix(in srgb, var(--bf-appearance-token-color-accent-600) 70%, transparent);
+      outline: 2px solid color-mix(in srgb, var(--openbitfun-color-accent-hover) 70%, transparent);
       outline-offset: 2px;
     }
 
     &--single {
-      height: min(var(--bitfun-agent-companion-pet-height), 100vh);
+      height: min(var(--openbitfun-agent-companion-pet-height), 100vh);
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -384,14 +332,14 @@
 
       /* Only the output yields space to the input row; letting the title and
          status shrink too would clip their glyphs. */
-      .bitfun-agent-companion-window__bubble-title,
-      .bitfun-agent-companion-window__bubble-status {
+      .openbitfun-agent-companion-window__bubble-title,
+      .openbitfun-agent-companion-window__bubble-status {
         flex: 0 0 auto;
       }
 
       /* Two whole lines: a flexible height would leave a half-clipped line
          under the input row. */
-      .bitfun-agent-companion-window__bubble-output {
+      .openbitfun-agent-companion-window__bubble-output {
         flex: 0 0 calc(12px * 2);
         height: calc(12px * 2);
       }
@@ -402,7 +350,6 @@
   &__bubble-status {
     display: block;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
@@ -410,17 +357,17 @@
     box-sizing: border-box;
     max-width: 100%;
     padding-right: 8px;
-    font-size: 11px;
-    line-height: 1.25;
-    font-weight: 650;
+    font-size: var(--openbitfun-type-meta-font-size);
+    line-height: var(--openbitfun-type-modifier-leading-dense-line-height);
+    font-weight: var(--openbitfun-type-label-selected-font-weight);
     min-width: 0;
   }
 
   &__bubble-status {
     margin-top: 2px;
-    font-size: 10px;
-    line-height: 1.25;
-    color: rgba(var(--bitfun-agent-companion-bubble-copy-rgb), 0.7);
+    font-size: var(--openbitfun-type-micro-font-size);
+    line-height: var(--openbitfun-type-modifier-leading-dense-line-height);
+    color: var(--openbitfun-color-content-secondary);
   }
 
   &__bubble-output {
@@ -429,9 +376,9 @@
     min-height: 0;
     flex: 0 0 calc(12px * 4);
     height: calc(12px * 4);
-    font-size: 10px;
-    line-height: 12px;
-    color: rgba(var(--bitfun-agent-companion-bubble-copy-rgb), 0.82);
+    font-size: var(--openbitfun-type-micro-font-size);
+    line-height: var(--openbitfun-type-label-md-line-height);
+    color: var(--openbitfun-color-content-secondary);
     white-space: pre-wrap;
     word-break: break-word;
     overflow-wrap: anywhere;
@@ -450,16 +397,19 @@
       height: 1em;
       margin-left: 2px;
       vertical-align: -0.12em;
-      background: rgba(var(--bitfun-agent-companion-bubble-copy-rgb), 0.55);
-      animation: bitfun-agent-companion-caret 920ms steps(2, start) infinite;
+      background: var(--openbitfun-color-content-muted);
+      animation: openbitfun-agent-companion-caret 920ms steps(2, start) infinite;
     }
   }
 
   &__bubble--attention {
-    border-color: rgba(var(--bitfun-agent-companion-warning-rgb), 0.75);
-    background: rgba(var(--bitfun-agent-companion-warning-bg-rgb), 0.98);
-    box-shadow: 0 0 0 0 rgba(var(--bitfun-agent-companion-warning-rgb), 0.5);
-    animation: bitfun-agent-companion-attention-pulse 1.5s ease-in-out infinite !important;
+    border-color: var(--openbitfun-color-status-warning-border);
+    background-image: linear-gradient(
+      var(--openbitfun-color-status-warning-surface),
+      var(--openbitfun-color-status-warning-surface)
+    );
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--openbitfun-color-status-warning-content) 50%, transparent);
+    animation: openbitfun-agent-companion-attention-pulse 1.5s ease-in-out infinite !important;
 
     &::after {
       content: "";
@@ -469,37 +419,46 @@
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: rgb(var(--bitfun-agent-companion-warning-rgb));
-      animation: bitfun-agent-companion-attention-dot 1.5s ease-in-out infinite;
+      background: var(--openbitfun-color-status-warning-content);
+      animation: openbitfun-agent-companion-attention-dot 1.5s ease-in-out infinite;
     }
   }
 
   &__bubble--waiting {
-    border-color: rgba(var(--bitfun-agent-companion-warning-rgb), 0.22);
-    background: rgba(var(--bitfun-agent-companion-warning-bg-rgb), 0.94);
+    border-color: var(--openbitfun-color-status-warning-border);
+    background-image: linear-gradient(
+      var(--openbitfun-color-status-warning-surface),
+      var(--openbitfun-color-status-warning-surface)
+    );
   }
 
   &__bubble--completed {
-    border-color: rgba(var(--bitfun-agent-companion-success-rgb), 0.18);
-    background: rgba(var(--bitfun-agent-companion-success-bg-rgb), 0.94);
+    border-color: var(--openbitfun-color-status-success-border);
+    background-image: linear-gradient(
+      var(--openbitfun-color-status-success-surface),
+      var(--openbitfun-color-status-success-surface)
+    );
   }
 
   &__bubble--error,
   &__bubble--interrupted {
-    border-color: rgba(var(--bitfun-agent-companion-error-rgb), 0.18);
-    background: rgba(var(--bitfun-agent-companion-error-bg-rgb), 0.94);
+    border-color: var(--openbitfun-color-status-danger-border);
+    background-image: linear-gradient(
+      var(--openbitfun-color-status-danger-surface),
+      var(--openbitfun-color-status-danger-surface)
+    );
   }
 
-  .bitfun-chat-input-pixel-pet {
-    --bitfun-petdex-width: min(var(--bitfun-agent-companion-pet-width), 100vw);
-    --bitfun-petdex-height: min(var(--bitfun-agent-companion-pet-height), 100vh);
-    --bitfun-petdex-margin-top: 0;
+  .openbitfun-agent-companion-pet {
+    --openbitfun-petdex-width: min(var(--openbitfun-agent-companion-pet-width), 100vw);
+    --openbitfun-petdex-height: min(var(--openbitfun-agent-companion-pet-height), 100vh);
+    --openbitfun-petdex-margin-top: 0;
 
     pointer-events: none;
   }
 }
 
-@keyframes bitfun-agent-companion-caret {
+@keyframes openbitfun-agent-companion-caret {
   0%,
   45% {
     opacity: 1;
@@ -511,20 +470,20 @@
   }
 }
 
-@keyframes bitfun-agent-companion-attention-pulse {
+@keyframes openbitfun-agent-companion-attention-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(var(--bitfun-agent-companion-warning-rgb), 0.5);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--openbitfun-color-status-warning-content) 50%, transparent);
     transform: translateY(0);
   }
 
   50% {
-    box-shadow: 0 0 0 8px rgba(var(--bitfun-agent-companion-warning-rgb), 0);
+    box-shadow: 0 0 0 8px transparent;
     transform: translateY(-2px);
   }
 }
 
-@keyframes bitfun-agent-companion-attention-dot {
+@keyframes openbitfun-agent-companion-attention-dot {
   0%,
   100% {
     transform: scale(1);
@@ -537,7 +496,7 @@
   }
 }
 
-@keyframes bitfun-agent-companion-pet-attention-glow {
+@keyframes openbitfun-agent-companion-pet-attention-glow {
   0%,
   100% {
     opacity: 0.5;
@@ -551,10 +510,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bitfun-agent-companion__pet--needs-attention::before,
-  .bitfun-agent-companion__bubble--typing::after,
-  .bitfun-agent-companion__bubble--attention,
-  .bitfun-agent-companion__bubble--attention::after {
+  .openbitfun-agent-companion__pet--needs-attention::before,
+  .openbitfun-agent-companion__bubble--typing::after,
+  .openbitfun-agent-companion__bubble--attention,
+  .openbitfun-agent-companion__bubble--attention::after {
     animation: none !important;
     transform: none;
   }

@@ -1,4 +1,4 @@
-.bitfun-generative-widget-panel {
+.openbitfun-generative-widget-panel {
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -8,134 +8,100 @@
   padding: 12px;
 }
 
-.bitfun-generative-widget-panel--empty {
+.openbitfun-generative-widget-panel--empty {
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.bitfun-generative-widget-panel__empty-copy {
-  color: var(--bf-appearance-token-color-text-secondary);
-  font-size: 13px;
+.openbitfun-generative-widget-panel__empty-copy {
+  color: var(--openbitfun-color-content-secondary);
+  font-size: var(--openbitfun-type-label-md-font-size);
 }
 
-.bitfun-generative-widget-panel__toolbar {
+.openbitfun-generative-widget-panel__toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  border: 1px solid var(--bf-appearance-token-color-overlay-white-12);
+  border: 1px solid color-mix(in srgb, var(--openbitfun-color-content-on-dark) 12%, transparent);
   border-radius: 10px;
-  background: var(--bf-appearance-token-color-bg-secondary);
+  background: var(--openbitfun-color-surface-panel);
 }
 
-.bitfun-generative-widget-panel__toolbar-meta,
-.bitfun-generative-widget-panel__toolbar-actions {
+.openbitfun-generative-widget-panel__toolbar-meta,
+.openbitfun-generative-widget-panel__toolbar-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.bitfun-generative-widget-panel__save-state {
-  font-size: 12px;
-  color: var(--bf-appearance-token-color-text-secondary);
+.openbitfun-generative-widget-panel__save-state {
+  font-size: var(--openbitfun-type-label-sm-font-size);
+  color: var(--openbitfun-color-content-secondary);
 }
 
-.bitfun-generative-widget-panel__save-state--saved {
-  color: var(--bf-appearance-token-color-success);
+.openbitfun-generative-widget-panel__save-state--saved {
+  color: var(--openbitfun-color-status-success-content);
 }
 
-.bitfun-generative-widget-panel__save-state--saving,
-.bitfun-generative-widget-panel__save-state--unsaved {
-  color: var(--bf-appearance-token-color-warning);
+.openbitfun-generative-widget-panel__save-state--saving,
+.openbitfun-generative-widget-panel__save-state--unsaved {
+  color: var(--openbitfun-color-status-warning-content);
 }
 
-.bitfun-generative-widget-panel__save-state--error {
-  color: var(--bf-appearance-token-color-error);
+.openbitfun-generative-widget-panel__save-state--error {
+  color: var(--openbitfun-color-status-danger-content);
 }
 
-.bitfun-generative-widget-panel__button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--bf-appearance-token-color-overlay-white-12);
-  border-radius: 8px;
-  background: var(--bf-appearance-token-color-bg-secondary);
-  color: var(--bf-appearance-token-color-text-primary);
-  cursor: pointer;
-}
-
-.bitfun-generative-widget-panel__button:hover:not(:disabled) {
-  background: var(--bf-appearance-token-color-bg-tertiary);
-}
-
-.bitfun-generative-widget-panel__button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.bitfun-generative-widget-panel__button--primary {
-  border-color: var(--bf-appearance-token-color-accent-500);
-  background: color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 18%, transparent);
-}
-
-.bitfun-generative-widget-panel__workspace {
+.openbitfun-generative-widget-panel__workspace {
   flex: 1;
   min-height: 0;
   display: flex;
 }
 
-.bitfun-generative-widget-panel__pane {
+.openbitfun-generative-widget-panel__pane {
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--bf-appearance-token-color-overlay-white-12);
+  border: 1px solid color-mix(in srgb, var(--openbitfun-color-content-on-dark) 12%, transparent);
   border-radius: 12px;
   overflow: hidden;
-  background: var(--bf-appearance-token-color-bg-secondary);
+  background: var(--openbitfun-color-surface-panel);
 }
 
-.bitfun-generative-widget-panel__pane-header {
+.openbitfun-generative-widget-panel__pane-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--bf-appearance-token-color-overlay-white-08);
+  border-bottom: 1px solid color-mix(in srgb, var(--openbitfun-color-content-on-dark) 8%, transparent);
 }
 
-.bitfun-generative-widget-panel__pane-title {
+.openbitfun-generative-widget-panel__pane-title {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--bf-appearance-token-color-text-primary);
+  font-size: var(--openbitfun-type-label-sm-font-size);
+  font-weight: var(--openbitfun-type-label-selected-font-weight);
+  color: var(--openbitfun-color-content-primary);
 }
 
-.bitfun-generative-widget-panel__editor {
+.openbitfun-generative-widget-panel__editor-field {
   flex: 1;
   width: 100%;
   min-height: 0;
-  resize: none;
-  border: 0;
-  outline: none;
-  padding: 14px 16px;
-  background: transparent;
-  color: var(--bf-appearance-token-color-text-primary);
-  font: 13px/1.6 var(--bf-appearance-token-font-family-mono);
 }
 
-.bitfun-generative-widget-panel__error {
+.openbitfun-generative-widget-panel__error {
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--bf-appearance-token-color-error) 50%, transparent);
-  background: color-mix(in srgb, var(--bf-appearance-token-color-error) 10%, transparent);
-  color: var(--bf-appearance-token-color-error);
-  font-size: 12px;
+  border: 1px solid color-mix(in srgb, var(--openbitfun-color-status-danger-content) 50%, transparent);
+  background: color-mix(in srgb, var(--openbitfun-color-status-danger-content) 10%, transparent);
+  color: var(--openbitfun-color-status-danger-content);
+  font-size: var(--openbitfun-type-label-sm-font-size);
 }

@@ -1,11 +1,34 @@
 use super::*;
-use bitfun_services_integrations::mcp::server::{
+use openbitfun_services_integrations::mcp::server::{
     mcp_server_is_running, mcp_should_start_after_config_update, MCPProcessStartContext,
     MCPProcessStartOutcome,
 };
+use std::collections::BTreeMap;
 
 impl MCPServerManager {
-    async fn runtime_server_config(&self, server_id: &str) -> BitFunResult<MCPServerConfig> {
+    pub(super) fn try_begin_persisted_server_operation(
+        &self,
+        server_id: &str,
+    ) -> OpenBitFunResult<PersistedServerOperationGuard> {
+        let mut in_flight = self
+            .persisted_server_operations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !in_flight.insert(server_id.to_string()) {
+            return Err(OpenBitFunError::Configuration(format!(
+                "MCP server lifecycle operation already in progress: {}",
+                server_id
+            )));
+        }
+        drop(in_flight);
+
+        Ok(PersistedServerOperationGuard {
+            server_id: server_id.to_string(),
+            in_flight: Arc::clone(&self.persisted_server_operations),
+        })
+    }
+
+    async fn runtime_server_config(&self, server_id: &str) -> OpenBitFunResult<MCPServerConfig> {
         if let Some(config) = self.config_service.get_server_config(server_id).await? {
             return Ok(config);
         }
@@ -14,105 +37,24 @@ impl MCPServerManager {
             .get_runtime_config(server_id)
             .await
             .ok_or_else(|| {
-                BitFunError::NotFound(format!("MCP server config not found: {}", server_id))
+                OpenBitFunError::NotFound(format!("MCP server config not found: {}", server_id))
             })
     }
 
     /// Initializes all servers.
-    pub async fn initialize_all(&self) -> BitFunResult<()> {
-        info!("Initializing all MCP servers");
-        let _lifecycle_guard = self.ephemeral_lifecycle.lock().await;
-
-        let existing_server_ids = self.runtime.get_all_server_ids().await;
-        if !existing_server_ids.is_empty() {
-            let external_ids = self.ephemeral_workspace_scopes.read().await;
-            let refresh_ids = existing_server_ids
-                .iter()
-                .filter(|server_id| !external_ids.contains_key(*server_id))
-                .cloned()
-                .collect::<Vec<_>>();
-            drop(external_ids);
-            info!(
-                "Refreshing persisted MCP servers while preserving external workspace runtimes: count={}",
-                refresh_ids.len()
-            );
-            for server_id in refresh_ids {
-                let _ = self.stop_server(&server_id).await;
-                let _ = self.runtime.unregister(&server_id).await;
-                self.runtime.remove_catalog(&server_id).await;
-                self.clear_reconnect_state(&server_id).await;
-            }
-        }
-
-        let configs = self.config_service.load_all_configs().await?;
-        info!("Loaded {} MCP server configs", configs.len());
-
-        if configs.is_empty() {
-            debug!("No MCP server configurations found, skipping initialization");
-            return Ok(());
-        }
-
-        self.start_reconnect_monitor_if_needed();
-
-        let mut registered_count = 0;
-        for config in &configs {
-            if config.enabled {
-                match self.runtime.register(config).await {
-                    Ok(_) => {
-                        registered_count += 1;
-                        debug!(
-                            "Registered MCP server: name={} id={}",
-                            config.name, config.id
-                        );
-                    }
-                    Err(e) => {
-                        error!(
-                            "Failed to register MCP server: name={} id={} error={}",
-                            config.name, config.id, e
-                        );
-                        return Err(e.into());
-                    }
-                }
-            }
-        }
-        info!("Registered {} MCP servers", registered_count);
-
-        let mut started_count = 0;
-        let mut failed_count = 0;
-        for config in configs {
-            if config.enabled && config.auto_start {
-                info!(
-                    "Auto-starting MCP server: name={} id={}",
-                    config.name, config.id
-                );
-                match self.start_server(&config.id).await {
-                    Ok(_) => {
-                        started_count += 1;
-                        info!("MCP server started successfully: name={}", config.name);
-                    }
-                    Err(e) => {
-                        failed_count += 1;
-                        error!(
-                            "Failed to auto-start MCP server: name={} id={} error={}",
-                            config.name, config.id, e
-                        );
-                    }
-                }
-            }
-        }
-
-        info!(
-            "MCP server initialization completed: started={} failed={}",
-            started_count, failed_count
-        );
-        Ok(())
+    pub async fn initialize_all(&self) -> OpenBitFunResult<()> {
+        // Initialization can be requested by more than one product surface.
+        // It must never tear down a healthy runtime merely because another
+        // caller is ensuring that configured servers exist.
+        self.initialize_non_destructive().await
     }
 
     /// Initializes servers without shutting down existing ones.
     ///
     /// This is safe to call multiple times (e.g., from multiple frontend windows).
-    pub async fn initialize_non_destructive(&self) -> BitFunResult<()> {
+    pub async fn initialize_non_destructive(&self) -> OpenBitFunResult<()> {
         info!("Initializing MCP servers (non-destructive)");
+        let _lifecycle_guard = self.persisted_lifecycle.write().await;
 
         let configs = self.config_service.load_all_configs().await?;
         if configs.is_empty() {
@@ -147,7 +89,9 @@ impl MCPServerManager {
                 }
             }
 
-            let _ = self.start_server(&config.id).await;
+            let _ = self
+                .start_server_with_external_token(&config.id, None)
+                .await;
         }
 
         Ok(())
@@ -157,7 +101,7 @@ impl MCPServerManager {
     ///
     /// This is useful after config changes (e.g. importing MCP servers) where the registry
     /// hasn't been re-initialized yet.
-    pub async fn ensure_registered(&self, server_id: &str) -> BitFunResult<()> {
+    pub async fn ensure_registered(&self, server_id: &str) -> OpenBitFunResult<()> {
         if self.runtime.contains(server_id).await {
             return Ok(());
         }
@@ -173,7 +117,9 @@ impl MCPServerManager {
     }
 
     /// Starts a server.
-    pub async fn start_server(&self, server_id: &str) -> BitFunResult<()> {
+    pub async fn start_server(&self, server_id: &str) -> OpenBitFunResult<()> {
+        let _operation_guard = self.try_begin_persisted_server_operation(server_id)?;
+        let _lifecycle_guard = self.persisted_lifecycle.read().await;
         self.start_server_with_external_token(server_id, None).await
     }
 
@@ -181,7 +127,7 @@ impl MCPServerManager {
         &self,
         server_id: &str,
         expected_external_start_token: Option<Arc<()>>,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         self.start_reconnect_monitor_if_needed();
         info!("Starting MCP server: id={}", server_id);
 
@@ -194,7 +140,7 @@ impl MCPServerManager {
 
         if !config.enabled {
             warn!("MCP server is disabled: id={}", server_id);
-            return Err(BitFunError::Configuration(format!(
+            return Err(OpenBitFunError::Configuration(format!(
                 "MCP server is disabled: {}",
                 server_id
             )));
@@ -249,7 +195,7 @@ impl MCPServerManager {
                 .await
                 .contains_key(server_id),
         ) {
-            return Err(BitFunError::Configuration(format!(
+            return Err(OpenBitFunError::Configuration(format!(
                 "External MCP server was retired during startup: {}",
                 server_id
             )));
@@ -257,7 +203,7 @@ impl MCPServerManager {
         if let Some(expected_token) = expected_external_start_token.as_ref() {
             let start_tokens = self.ephemeral_start_tokens.read().await;
             if !external_start_token_is_current(start_tokens.get(server_id), expected_token) {
-                return Err(BitFunError::Configuration(format!(
+                return Err(OpenBitFunError::Configuration(format!(
                     "External MCP server startup was superseded: {}",
                     server_id
                 )));
@@ -311,7 +257,13 @@ impl MCPServerManager {
     }
 
     /// Stops a server.
-    pub async fn stop_server(&self, server_id: &str) -> BitFunResult<()> {
+    pub async fn stop_server(&self, server_id: &str) -> OpenBitFunResult<()> {
+        let _operation_guard = self.try_begin_persisted_server_operation(server_id)?;
+        let _lifecycle_guard = self.persisted_lifecycle.read().await;
+        self.stop_server_unlocked(server_id).await
+    }
+
+    async fn stop_server_unlocked(&self, server_id: &str) -> OpenBitFunResult<()> {
         info!("Stopping MCP server: id={}", server_id);
 
         self.stop_connection_event_listener(server_id).await;
@@ -339,7 +291,7 @@ impl MCPServerManager {
                 )
                 .await;
                 match result {
-                    Ok(Ok(())) | Ok(Err(BitFunError::NotFound(_))) => return,
+                    Ok(Ok(())) | Ok(Err(OpenBitFunError::NotFound(_))) => return,
                     Ok(Err(error)) => debug!(
                         "Best-effort MCP stop failed: id={} attempt={} error={}",
                         server_id, attempt, error
@@ -356,16 +308,102 @@ impl MCPServerManager {
     }
 
     /// Restarts a server.
-    pub async fn restart_server(&self, server_id: &str) -> BitFunResult<()> {
+    pub async fn restart_server(&self, server_id: &str) -> OpenBitFunResult<()> {
+        let _operation_guard = self.try_begin_persisted_server_operation(server_id)?;
+        let _lifecycle_guard = self.persisted_lifecycle.read().await;
         info!("Restarting MCP server: id={}", server_id);
         self.runtime_server_config(server_id).await?;
         self.ensure_registered(server_id).await?;
-        self.stop_server(server_id).await?;
-        self.start_server(server_id).await
+        self.stop_server_unlocked(server_id).await?;
+        self.start_server_with_external_token(server_id, None).await
+    }
+
+    /// Reconciles a persisted configuration replacement without disturbing
+    /// unchanged MCP runtimes. Existing manual-running state is preserved for
+    /// changed servers, while newly added servers follow their auto-start policy.
+    pub async fn reconcile_persisted_configs(
+        &self,
+        previous: Vec<MCPServerConfig>,
+        current: Vec<MCPServerConfig>,
+    ) -> OpenBitFunResult<()> {
+        let _lifecycle_guard = self.persisted_lifecycle.write().await;
+        let previous = previous
+            .into_iter()
+            .map(|config| (config.id.clone(), config))
+            .collect::<BTreeMap<_, _>>();
+        let current = current
+            .into_iter()
+            .map(|config| (config.id.clone(), config))
+            .collect::<BTreeMap<_, _>>();
+
+        for server_id in previous
+            .keys()
+            .filter(|server_id| !current.contains_key(*server_id))
+        {
+            self.remove_persisted_runtime_unlocked(server_id).await?;
+        }
+
+        for (server_id, config) in &current {
+            let previous_config = previous.get(server_id);
+            let unchanged = match previous_config {
+                Some(previous) => serde_json::to_value(previous)? == serde_json::to_value(config)?,
+                None => false,
+            };
+
+            if unchanged {
+                if config.enabled {
+                    self.runtime.ensure_registered(config).await?;
+                } else {
+                    self.remove_persisted_runtime_unlocked(server_id).await?;
+                }
+                continue;
+            }
+
+            let previous_status = if self.runtime.contains(server_id).await {
+                self.runtime.process_status(server_id).await.ok()
+            } else {
+                None
+            };
+            let was_active = previous_status.is_some_and(|status| {
+                matches!(
+                    status,
+                    MCPServerStatus::Starting
+                        | MCPServerStatus::Connected
+                        | MCPServerStatus::Healthy
+                        | MCPServerStatus::NeedsAuth
+                        | MCPServerStatus::Reconnecting
+                )
+            });
+
+            self.remove_persisted_runtime_unlocked(server_id).await?;
+            if !config.enabled {
+                continue;
+            }
+
+            self.runtime.register(config).await?;
+            if was_active || config.auto_start {
+                self.start_server_with_external_token(server_id, None)
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn remove_persisted_runtime_unlocked(&self, server_id: &str) -> OpenBitFunResult<()> {
+        if !self.runtime.contains(server_id).await {
+            return Ok(());
+        }
+
+        self.stop_server_unlocked(server_id).await?;
+        self.runtime.unregister(server_id).await?;
+        self.runtime.remove_catalog(server_id).await;
+        self.clear_reconnect_state(server_id).await;
+        Ok(())
     }
 
     /// Returns server status.
-    pub async fn get_server_status(&self, server_id: &str) -> BitFunResult<MCPServerStatus> {
+    pub async fn get_server_status(&self, server_id: &str) -> OpenBitFunResult<MCPServerStatus> {
         if !self.runtime.contains(server_id).await {
             let _ = self.ensure_registered(server_id).await;
         }
@@ -377,7 +415,10 @@ impl MCPServerManager {
     }
 
     /// Returns the current status detail/message for one server.
-    pub async fn get_server_status_message(&self, server_id: &str) -> BitFunResult<Option<String>> {
+    pub async fn get_server_status_message(
+        &self,
+        server_id: &str,
+    ) -> OpenBitFunResult<Option<String>> {
         if !self.runtime.contains(server_id).await {
             let _ = self.ensure_registered(server_id).await;
         }
@@ -404,7 +445,7 @@ impl MCPServerManager {
     }
 
     /// Adds a server.
-    pub async fn add_server(&self, config: MCPServerConfig) -> BitFunResult<()> {
+    pub async fn add_server(&self, config: MCPServerConfig) -> OpenBitFunResult<()> {
         config.validate()?;
 
         if self
@@ -413,7 +454,7 @@ impl MCPServerManager {
             .await?
             .is_some()
         {
-            return Err(BitFunError::Configuration(format!(
+            return Err(OpenBitFunError::Configuration(format!(
                 "MCP server already exists: {}",
                 config.id
             )));
@@ -433,7 +474,7 @@ impl MCPServerManager {
     }
 
     /// Removes a server.
-    pub async fn remove_server(&self, server_id: &str) -> BitFunResult<()> {
+    pub async fn remove_server(&self, server_id: &str) -> OpenBitFunResult<()> {
         info!("Removing MCP server: id={}", server_id);
 
         let _ = self.clear_remote_oauth_credentials(server_id).await;
@@ -460,7 +501,7 @@ impl MCPServerManager {
     }
 
     /// Updates server configuration.
-    pub async fn update_server_config(&self, config: MCPServerConfig) -> BitFunResult<()> {
+    pub async fn update_server_config(&self, config: MCPServerConfig) -> OpenBitFunResult<()> {
         config.validate()?;
 
         self.config_service.save_server_config(&config).await?;
@@ -488,7 +529,7 @@ impl MCPServerManager {
         &self,
         server_id: &str,
         authorization_value: &str,
-    ) -> BitFunResult<()> {
+    ) -> OpenBitFunResult<()> {
         self.clear_remote_oauth_credentials(server_id).await?;
         let config = self
             .config_service
@@ -506,7 +547,7 @@ impl MCPServerManager {
     }
 
     /// Clears remote MCP authorization and stops the current connection so stale credentials are dropped.
-    pub async fn clear_remote_server_auth(&self, server_id: &str) -> BitFunResult<()> {
+    pub async fn clear_remote_server_auth(&self, server_id: &str) -> OpenBitFunResult<()> {
         self.clear_remote_oauth_credentials(server_id).await?;
         self.config_service
             .clear_remote_authorization(server_id)
@@ -517,7 +558,7 @@ impl MCPServerManager {
     }
 
     /// Shuts down all servers.
-    pub async fn shutdown(&self) -> BitFunResult<()> {
+    pub async fn shutdown(&self) -> OpenBitFunResult<()> {
         info!("Shutting down all MCP servers");
 
         for (_, cancelled) in self.ephemeral_retirements.write().await.drain() {

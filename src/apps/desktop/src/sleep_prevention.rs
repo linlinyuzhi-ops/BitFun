@@ -6,7 +6,9 @@
 
 use std::sync::{mpsc, Arc};
 
-use bitfun_core::service::config::{subscribe_config_updates, ConfigService, ConfigUpdateEvent};
+use openbitfun_core::service::config::{
+    subscribe_config_updates, ConfigService, ConfigUpdateEvent,
+};
 use serde::Deserialize;
 use tauri::{AppHandle, Manager, State};
 
@@ -91,7 +93,7 @@ impl Default for SleepPreventionState {
 fn start_worker() -> Result<mpsc::Sender<SleepPreventionRequest>, String> {
     let (sender, receiver) = mpsc::channel();
     std::thread::Builder::new()
-        .name("bitfun-sleep-prevention".to_string())
+        .name("openbitfun-sleep-prevention".to_string())
         .spawn(move || run_worker(receiver))
         .map_err(|error| format!("Failed to start sleep-prevention worker: {}", error))?;
     Ok(sender)
@@ -117,9 +119,9 @@ fn set_inhibitor_enabled(
         if inhibitor.is_none() {
             let guard = keepawake::Builder::default()
                 .idle(true)
-                .reason("Prevent sleep is enabled in BitFun")
-                .app_name("BitFun")
-                .app_reverse_domain("com.bitfun.desktop")
+                .reason("Prevent sleep is enabled in OpenBitFun")
+                .app_name("OpenBitFun")
+                .app_reverse_domain("com.openbitfun.desktop")
                 .create()
                 .map_err(|error| {
                     let message = format!("Failed to prevent system sleep: {}", error);
@@ -282,19 +284,42 @@ pub struct SetPreventSleepEnabledRequest {
 
 #[tauri::command]
 pub async fn set_prevent_sleep_enabled(
-    app_state: State<'_, AppState>,
-    sleep_prevention: State<'_, SleepPreventionState>,
+    app: AppHandle,
     request: SetPreventSleepEnabledRequest,
 ) -> Result<(), String> {
-    let previous = configured_enabled(&app_state.config_service).await?;
+    crate::openbitfun_control_host::configure_option_from_gui(
+        &app,
+        "setting.application.general",
+        "prevent-sleep",
+        serde_json::Value::Bool(request.enabled),
+    )
+    .await
+    .map(|_| ())
+}
+
+pub(crate) async fn set_prevent_sleep_enabled_from_host(
+    app: &AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let app_state = app.state::<AppState>();
+    let sleep_prevention = app.state::<SleepPreventionState>();
+    set_prevent_sleep_enabled_impl(&app_state.config_service, sleep_prevention.inner(), enabled)
+        .await
+}
+
+async fn set_prevent_sleep_enabled_impl(
+    config_service: &ConfigService,
+    sleep_prevention: &SleepPreventionState,
+    enabled: bool,
+) -> Result<(), String> {
+    let previous = configured_enabled(config_service).await?;
     apply_then_persist(
         previous,
-        request.enabled,
+        enabled,
         |enabled| sleep_prevention.set_enabled(enabled),
         || async {
-            app_state
-                .config_service
-                .set_config(PREVENT_SLEEP_CONFIG_PATH, request.enabled)
+            config_service
+                .set_config(PREVENT_SLEEP_CONFIG_PATH, enabled)
                 .await
                 .map_err(|error| error.to_string())
         },
@@ -310,7 +335,7 @@ mod tests {
     use super::{
         apply_then_persist, config_event_requires_sync, start_worker, SleepPreventionState,
     };
-    use bitfun_core::service::config::ConfigUpdateEvent;
+    use openbitfun_core::service::config::ConfigUpdateEvent;
     use std::sync::{Arc, Mutex};
 
     #[tokio::test]

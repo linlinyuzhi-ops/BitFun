@@ -1,0 +1,97 @@
+@layer openbitfun.components {
+  .root,
+  .leading,
+  .label {
+    box-sizing: border-box;
+  }
+
+  .root {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--openbitfun-control-status-pill-gap);
+    padding-block: var(--openbitfun-control-status-pill-padding-block);
+    padding-inline: var(--openbitfun-control-status-pill-padding-inline);
+    border-radius: var(--openbitfun-control-status-pill-radius);
+    color: var(--openbitfun-color-status-success-content);
+    background: var(--openbitfun-color-status-success-surface);
+    font-family: var(--openbitfun-type-meta-font-family);
+    font-size: var(--openbitfun-type-meta-font-size);
+    font-weight: var(--openbitfun-type-meta-font-weight);
+    line-height: var(--openbitfun-type-meta-line-height);
+    letter-spacing: var(--openbitfun-type-meta-letter-spacing);
+    white-space: nowrap;
+  }
+
+  .leading {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    inline-size: var(--openbitfun-control-status-pill-icon-size);
+    block-size: var(--openbitfun-control-status-pill-icon-size);
+  }
+
+  .leading > :where(svg, img),
+  .leading > [data-openbitfun-component="icon"] {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+  }
+
+  .label {
+    min-inline-size: 0;
+    overflow: hidden;
+  }
+
+  .root[data-tone="neutral"] {
+    color: var(--openbitfun-color-content-secondary);
+    background: var(--openbitfun-color-action-neutral-surface);
+  }
+
+  .root[data-tone="accent"] {
+    color: var(--openbitfun-color-accent-default);
+    background: color-mix(in srgb, var(--openbitfun-color-accent-default) 12%, transparent);
+  }
+
+  .root[data-tone="info"] {
+    color: var(--openbitfun-color-status-info-content);
+    background: var(--openbitfun-color-status-info-surface);
+  }
+
+  .root[data-tone="warning"] {
+    color: var(--openbitfun-color-status-warning-content);
+    background: var(--openbitfun-color-status-warning-surface);
+  }
+
+  .root[data-tone="danger"] {
+    color: var(--openbitfun-color-status-danger-content);
+    background: var(--openbitfun-color-status-danger-surface);
+  }
+
+  .root[data-tone="info"] .leading {
+    color: var(--openbitfun-color-status-info-emphasis);
+  }
+
+  .root[data-tone="success"] .leading {
+    color: var(--openbitfun-color-status-success-emphasis);
+  }
+
+  .root[data-tone="warning"] .leading {
+    color: var(--openbitfun-color-status-warning-emphasis);
+  }
+
+  .root[data-tone="danger"] .leading {
+    color: var(--openbitfun-color-status-danger-emphasis);
+  }
+
+  @media (forced-colors: active) {
+    .root[data-tone] .leading { color: CanvasText; }
+
+    .root {
+      border: var(--openbitfun-border-width-default) solid CanvasText;
+      color: CanvasText;
+      background: Canvas;
+    }
+  }
+}

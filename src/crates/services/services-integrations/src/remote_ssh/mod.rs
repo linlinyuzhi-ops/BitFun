@@ -1,11 +1,14 @@
 //! Remote SSH service contracts.
 //!
-//! `bitfun-core::service::remote_ssh` remains as the compatibility facade for
+//! `openbitfun-core::service::remote_ssh` remains as the compatibility facade for
 //! the legacy public path.
 
 mod file_name_search;
 pub mod paths;
+mod product_paths;
 pub mod remote_git;
+#[cfg(feature = "remote-ssh-concrete")]
+mod sftp_file;
 mod shell;
 #[cfg(feature = "remote-ssh-concrete")]
 mod transport;
@@ -14,6 +17,8 @@ pub mod workspace_registry;
 #[cfg(feature = "workspace-search")]
 pub mod workspace_search;
 mod workspace_services;
+#[cfg(feature = "remote-ssh-concrete")]
+pub mod wsl;
 
 #[cfg(not(feature = "remote-ssh-concrete"))]
 mod disabled;
@@ -23,6 +28,8 @@ pub mod dispatch_ssh;
 pub mod manager;
 #[cfg(feature = "remote-ssh-concrete")]
 mod password_vault;
+#[cfg(feature = "remote-ssh-concrete")]
+mod port_forward;
 #[cfg(feature = "remote-ssh-concrete")]
 pub mod relay_deploy;
 #[cfg(feature = "remote-ssh-concrete")]
@@ -50,9 +57,10 @@ pub use workspace_services::{remote_workspace_services, RemoteWorkspaceFs, Remot
 
 #[cfg(not(feature = "remote-ssh-concrete"))]
 pub use disabled::{
-    dispatch_ssh, get_global_remote_exec_process_manager, KnownHostEntry, PTYSession, PortForward,
-    PortForwardDirection, PortForwardManager, RemoteExecCommandRequest, RemoteExecCommandResponse,
-    RemoteExecControlAction, RemoteExecControlOrigin, RemoteExecControlRequest, RemoteExecError,
+    dispatch_ssh, get_global_remote_exec_process_manager, global_port_forward_manager,
+    list_remote_listening_ports, KnownHostEntry, PTYSession, PortForwardManager,
+    RemoteExecCommandRequest, RemoteExecCommandResponse, RemoteExecControlAction,
+    RemoteExecControlOrigin, RemoteExecControlRequest, RemoteExecError,
     RemoteExecProcessLifecycleEvent, RemoteExecProcessLifecycleStatus, RemoteExecProcessManager,
     RemoteExecResult, RemoteExecSessionCompletion, RemoteExecSessionCompletionSource,
     RemoteExecSessionCompletionStatus, RemoteFileService, RemoteSendStdinRequest,
@@ -60,9 +68,10 @@ pub use disabled::{
     SessionStatus,
 };
 #[cfg(feature = "remote-ssh-concrete")]
-pub use manager::{
-    KnownHostEntry, PTYSession, PortForward, PortForwardDirection, PortForwardManager,
-    SSHConnectionManager,
+pub use manager::{KnownHostEntry, PTYSession, SSHConnectionManager};
+#[cfg(feature = "remote-ssh-concrete")]
+pub use port_forward::{
+    global_port_forward_manager, list_remote_listening_ports, PortForwardManager,
 };
 #[cfg(feature = "remote-ssh-concrete")]
 pub use remote_exec::{

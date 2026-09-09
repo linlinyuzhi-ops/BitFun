@@ -6,8 +6,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::State;
 
-use bitfun_agent_runtime::sdk::AgentUserAnswersRequest;
-use bitfun_core::agentic::{
+use openbitfun_agent_runtime::sdk::AgentUserAnswersRequest;
+use openbitfun_core::agentic::tools::product_runtime::{build_tool_info, ToolInfoDto};
+use openbitfun_core::agentic::{
     tools::framework::ToolUseContext,
     tools::{get_all_tools, get_readonly_tools},
     workspace::{local_workspace_services, remote_workspace_services},
@@ -18,7 +19,7 @@ use bitfun_core::product_runtime::CoreRuntimeServicesProvider;
 use bitfun_core::service::remote_ssh::workspace_state::{
     get_remote_workspace_manager, lookup_remote_connection, workspace_session_identity,
 };
-use bitfun_core::util::elapsed_ms_u64;
+use openbitfun_core::util::elapsed_ms_u64;
 
 use crate::runtime::DesktopRuntimeContext;
 
@@ -77,7 +78,10 @@ pub struct ToolValidationResponse {
     pub meta: Option<serde_json::Value>,
 }
 
-async fn build_tool_context(workspace_path: Option<&str>) -> ToolUseContext {
+/// Builds the tool context for a direct tool call. A remote workspace whose
+/// SSH provider cannot be built is an error: a context without workspace
+/// services would otherwise resolve remote paths against this machine.
+async fn build_tool_context(workspace_path: Option<&str>) -> Result<ToolUseContext, String> {
     let normalized_workspace_path = workspace_path
         .map(str::trim)
         .filter(|path| !path.is_empty());
@@ -91,7 +95,7 @@ async fn build_tool_context(workspace_path: Option<&str>) -> ToolUseContext {
                     Some(&entry.ssh_host),
                 )
                 .unwrap_or_else(|| {
-                    bitfun_core::service::remote_ssh::workspace_state::WorkspaceSessionIdentity {
+                    openbitfun_core::service::remote_ssh::workspace_state::WorkspaceSessionIdentity {
                         hostname: entry.ssh_host.clone(),
                         logical_workspace_path: entry.remote_root.clone(),
                         remote_connection_id: Some(entry.connection_id.clone()),
@@ -113,24 +117,32 @@ async fn build_tool_context(workspace_path: Option<&str>) -> ToolUseContext {
 
     let workspace_services = match workspace.as_ref() {
         Some(binding) if binding.is_remote() => {
-            let connection_id = binding.connection_id().map(str::to_string);
-            match (connection_id, get_remote_workspace_manager()) {
-                (Some(connection_id), Some(manager)) => {
-                    match (
-                        manager.get_file_service().await,
-                        manager.get_ssh_manager().await,
-                    ) {
-                        (Some(file_service), Some(ssh_manager)) => Some(remote_workspace_services(
-                            connection_id,
-                            file_service,
-                            ssh_manager,
-                            binding.root_path_string(),
-                        )),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            }
+            let root = binding.root_path_string();
+            let unavailable = |reason: &str| {
+                format!(
+                    "Remote workspace services are unavailable for {root}: {reason}; no controller-local fallback was attempted"
+                )
+            };
+            let connection_id = binding
+                .connection_id()
+                .map(str::to_string)
+                .ok_or_else(|| unavailable("the workspace binding has no connection id"))?;
+            let manager = get_remote_workspace_manager()
+                .ok_or_else(|| unavailable("remote workspace state is not initialized"))?;
+            let file_service = manager
+                .get_file_service()
+                .await
+                .ok_or_else(|| unavailable("the remote file service is not available"))?;
+            let ssh_manager = manager
+                .get_ssh_manager()
+                .await
+                .ok_or_else(|| unavailable("the SSH connection manager is not available"))?;
+            Some(remote_workspace_services(
+                connection_id,
+                file_service,
+                ssh_manager,
+                root,
+            ))
         }
         Some(binding) => Some(local_workspace_services(binding.root_path_string())),
         None => None,
@@ -141,7 +153,7 @@ async fn build_tool_context(workspace_path: Option<&str>) -> ToolUseContext {
         .is_some_and(WorkspaceBinding::is_remote)
         .then(CoreRuntimeServicesProvider::remote_exec_port);
 
-    ToolUseContext::for_tool_listing_with_remote_exec_port(
+    Ok(ToolUseContext::for_tool_listing_with_remote_exec_port(
         workspace,
         workspace_services,
         remote_exec_port,
@@ -170,7 +182,7 @@ fn write_file_path(input: &serde_json::Value) -> Option<&str> {
 
 fn tool_requires_workspace_path(tool_name: &str, input: &serde_json::Value) -> bool {
     match tool_name {
-        "Bash" => true,
+        "ExecCommand" => true,
         "Glob" | "Grep" => input.get("path").is_none() || is_relative_path(input.get("path")),
         "Write" => write_file_path(input).map_or_else(
             || input.get("payload").is_some(),
@@ -253,7 +265,7 @@ pub async fn validate_tool_input(
                 request.workspace_path.as_deref(),
             )?;
 
-            let context = build_tool_context(request.workspace_path.as_deref()).await;
+            let context = build_tool_context(request.workspace_path.as_deref()).await?;
 
             let validation_result = tool.validate_input(&request.input, Some(&context)).await;
 
@@ -284,7 +296,7 @@ pub async fn execute_tool(request: ToolExecutionRequest) -> Result<ToolExecution
                 request.workspace_path.as_deref(),
             )?;
 
-            let context = build_tool_context(request.workspace_path.as_deref()).await;
+            let context = build_tool_context(request.workspace_path.as_deref()).await?;
 
             let validation_result = tool.validate_input(&request.input, Some(&context)).await;
             if !validation_result.result {
@@ -302,15 +314,15 @@ pub async fn execute_tool(request: ToolExecutionRequest) -> Result<ToolExecution
                 Ok(results) => {
                     let combined_result = if results.len() == 1 {
                         match &results[0] {
-                            bitfun_core::agentic::tools::framework::ToolResult::Result {
+                            openbitfun_core::agentic::tools::framework::ToolResult::Result {
                                 data,
                                 ..
                             } => Some(data.clone()),
-                            bitfun_core::agentic::tools::framework::ToolResult::Progress {
+                            openbitfun_core::agentic::tools::framework::ToolResult::Progress {
                                 content,
                                 ..
                             } => Some(content.clone()),
-                            bitfun_core::agentic::tools::framework::ToolResult::StreamChunk {
+                            openbitfun_core::agentic::tools::framework::ToolResult::StreamChunk {
                                 data,
                                 ..
                             } => Some(data.clone()),
@@ -318,11 +330,11 @@ pub async fn execute_tool(request: ToolExecutionRequest) -> Result<ToolExecution
                     } else {
                         Some(serde_json::json!({
                                         "results": results.iter().map(|r| match r {
-                        bitfun_core::agentic::tools::framework::ToolResult::Result { data, .. } => {
+                        openbitfun_core::agentic::tools::framework::ToolResult::Result { data, .. } => {
                             data.clone()
                         }
-                        bitfun_core::agentic::tools::framework::ToolResult::Progress { content, .. } => content.clone(),
-                        bitfun_core::agentic::tools::framework::ToolResult::StreamChunk { data, .. } => data.clone(),
+                        openbitfun_core::agentic::tools::framework::ToolResult::Progress { content, .. } => content.clone(),
+                        openbitfun_core::agentic::tools::framework::ToolResult::StreamChunk { data, .. } => data.clone(),
                                         }).collect::<Vec<_>>()
                                     }))
                     };

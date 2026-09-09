@@ -10,8 +10,9 @@ use tauri::{Emitter, State};
 use crate::api::app_state::SSHServiceError;
 use crate::startup_trace::DesktopStartupTrace;
 use crate::AppState;
-use bitfun_core::service::remote_ssh::{
-    ConnectionTestReport, DockerContainerInfo, RemoteTreeNode, SSHAuthMethod, SSHConfigEntry,
+use openbitfun_core::service::remote_ssh::{
+    list_remote_listening_ports, ConnectionTestReport, DockerContainerInfo, PortForward,
+    PortForwardRequest, RemoteListeningPort, RemoteTreeNode, SSHAuthMethod, SSHConfigEntry,
     SSHConfigLookupResult, SSHConnectionConfig, SSHConnectionManager, SSHConnectionResult,
     SavedConnection, ServerInfo,
 };
@@ -31,7 +32,7 @@ async fn hydrate_stored_password(
     // Local Docker Exec/Auto profiles do not require SSH credentials. Older
     // saved profiles may therefore legitimately contain an empty Password
     // auth placeholder with no vault entry.
-    if config.uses_local_docker() {
+    if config.uses_local_process() {
         return Ok(());
     }
     if let SSHAuthMethod::Password { ref password } = config.auth {
@@ -51,6 +52,14 @@ async fn hydrate_stored_password(
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn ssh_list_wsl_distributions(
+) -> Result<openbitfun_core::service::remote_ssh::WslDistributions, String> {
+    openbitfun_services_integrations::remote_ssh::wsl::list_distributions()
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -188,6 +197,13 @@ pub async fn ssh_disconnect(
     connection_id: String,
 ) -> Result<(), String> {
     let manager = state.get_ssh_manager_async().await?;
+    // Tear the forwards down first. They are listeners whose only meaning is
+    // this session, and leaving one running would let a later connection on it
+    // reconnect the host the user just closed.
+    state
+        .port_forward_manager
+        .stop_for_connection(&connection_id)
+        .await;
     manager
         .disconnect(&connection_id)
         .await
@@ -197,6 +213,7 @@ pub async fn ssh_disconnect(
 #[tauri::command]
 pub async fn ssh_disconnect_all(state: State<'_, AppState>) -> Result<(), String> {
     let manager = state.get_ssh_manager_async().await?;
+    state.port_forward_manager.stop_all().await;
     manager.disconnect_all().await;
     Ok(())
 }
@@ -290,7 +307,7 @@ pub async fn remote_read_dir(
     state: State<'_, AppState>,
     connection_id: String,
     path: String,
-) -> Result<Vec<bitfun_core::service::remote_ssh::RemoteDirEntry>, String> {
+) -> Result<Vec<openbitfun_core::service::remote_ssh::RemoteDirEntry>, String> {
     let remote_fs = state.get_remote_file_service_async().await?;
     remote_fs
         .read_dir(&connection_id, &path)
@@ -1035,7 +1052,7 @@ pub async fn remote_open_workspace(
     remote_path: String,
 ) -> Result<(), String> {
     let remote_path =
-        bitfun_core::service::remote_ssh::normalize_remote_workspace_path(&remote_path);
+        openbitfun_core::service::remote_ssh::normalize_remote_workspace_path(&remote_path);
     let manager = state.get_ssh_manager_async().await?;
 
     // Verify connection exists
@@ -1120,6 +1137,76 @@ pub async fn remote_get_workspace_info(
     Ok(workspace)
 }
 
+// === Port Forwarding ===
+
+/// Start a local (`-L`) forward and return the mapping that was established.
+///
+/// The returned `localPort` is not always the requested one: an unavailable
+/// port is replaced rather than refused, and `requestedLocalPort` carries what
+/// was asked for so the UI can say so.
+#[tauri::command]
+pub async fn ssh_start_port_forward(
+    state: State<'_, AppState>,
+    request: PortForwardRequest,
+) -> Result<PortForward, String> {
+    log::info!(
+        "ssh_start_port_forward: connection={}, remote={}:{}, requested local port={:?}",
+        request.connection_id,
+        request.effective_remote_host(),
+        request.remote_port,
+        request.preferred_local_port()
+    );
+    state
+        .port_forward_manager
+        .start_local_forward(&request)
+        .await
+        .map_err(|error| format!("{error:#}"))
+}
+
+#[tauri::command]
+pub async fn ssh_stop_port_forward(
+    state: State<'_, AppState>,
+    forward_id: String,
+) -> Result<(), String> {
+    state
+        .port_forward_manager
+        .stop_forward(&forward_id)
+        .await
+        .map_err(|error| format!("{error:#}"))
+}
+
+/// List forwards, optionally narrowed to one connection.
+#[tauri::command]
+pub async fn ssh_list_port_forwards(
+    state: State<'_, AppState>,
+    connection_id: Option<String>,
+) -> Result<Vec<PortForward>, String> {
+    Ok(match connection_id {
+        Some(connection_id) => {
+            state
+                .port_forward_manager
+                .list_forwards_for_connection(&connection_id)
+                .await
+        }
+        None => state.port_forward_manager.list_forwards().await,
+    })
+}
+
+/// List the TCP ports currently accepting connections on the remote host.
+///
+/// Discovery only. Nothing is forwarded as a result of calling this; it exists
+/// so users can pick a real port instead of guessing one.
+#[tauri::command]
+pub async fn ssh_list_remote_listening_ports(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<Vec<RemoteListeningPort>, String> {
+    let manager = state.get_ssh_manager_async().await?;
+    list_remote_listening_ports(&manager, &connection_id)
+        .await
+        .map_err(|error| format!("{error:#}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1136,7 +1223,7 @@ mod tests {
 
     #[tokio::test]
     async fn local_docker_profiles_do_not_require_a_legacy_password_vault_entry() {
-        use bitfun_core::service::remote_ssh::{
+        use openbitfun_core::service::remote_ssh::{
             ContainerAccess, ContainerWorkspaceConfig, SSHAuthMethod, SSHConnectionConfig,
             SSHConnectionManager,
         };
@@ -1163,6 +1250,7 @@ mod tests {
                 user: None,
                 interactive: true,
             }),
+            wsl: None,
             options: Default::default(),
         };
 

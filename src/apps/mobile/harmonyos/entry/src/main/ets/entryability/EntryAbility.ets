@@ -1,16 +1,34 @@
 import { AbilityConstant, Configuration, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
+import { MobileDesignColors } from '../generated/MobileDesignTokens';
 
 const DOMAIN = 0x0000;
-const TAG = 'BitFunRemote';
+const TAG = 'OpenBitFunRemote';
 
 export default class EntryAbility extends UIAbility {
   private mainWindow?: window.Window;
+  private initialPage: string = 'pages/AppRoot';
+  private previewStorage?: LocalStorage;
 
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    const scenarioId = want.parameters?.['openbitfunDesignPreview'];
+    if (scenarioId === 'connected-conversation' ||
+      scenarioId === 'streaming-dark' ||
+      scenarioId === 'reconnecting-wide' || scenarioId === 'narrow-multiline' ||
+      scenarioId === 'fold-context' || scenarioId === 'long-reading') {
+      this.initialPage = 'pages/preview/MobileDesignGallery';
+      this.previewStorage = new LocalStorage();
+      this.previewStorage.setOrCreate('scenarioId', scenarioId);
+      AppStorage.setOrCreate('scenarioId', scenarioId);
+    }
     try {
-      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
+      const colorMode = scenarioId === 'streaming-dark'
+        ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK
+        : scenarioId === 'connected-conversation' || scenarioId === 'reconnecting-wide'
+          ? ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT
+          : ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET;
+      this.context.getApplicationContext().setColorMode(colorMode);
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'Failed to set colorMode. Cause: %{public}s', JSON.stringify(err));
     }
@@ -33,13 +51,18 @@ export default class EntryAbility extends UIAbility {
       hilog.error(DOMAIN, TAG, 'Failed to configure window bars. Cause: %{public}s', JSON.stringify(err));
     }
 
-    windowStage.loadContent('pages/AppRoot', (err) => {
+    const onContentLoaded = (err: BusinessError): void => {
       if (err.code) {
         hilog.error(DOMAIN, TAG, 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
         return;
       }
       hilog.info(DOMAIN, TAG, 'Succeeded in loading the content.');
-    });
+    };
+    if (this.previewStorage) {
+      windowStage.loadContent(this.initialPage, this.previewStorage, onContentLoaded);
+    } else {
+      windowStage.loadContent(this.initialPage, onContentLoaded);
+    }
   }
 
   onWindowStageDestroy(): void {

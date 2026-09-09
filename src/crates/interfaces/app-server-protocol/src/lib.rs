@@ -1,4 +1,4 @@
-//! Behavior-light wire contracts for BitFun App Server clients and hosts.
+//! Behavior-light wire contracts for OpenBitFun App Server clients and hosts.
 //!
 //! This crate intentionally has no dependency on Core, Runtime implementations,
 //! services, product assembly, or a UI framework. Server adapters translate
@@ -23,7 +23,7 @@ pub use role::{AppClient, AppServer};
 // single physical directory.
 pub use schemas::{
     account, agent, app, error, event, external_source, git, hook, i18n, mcp, method, model,
-    permission, session, skill, subagent, workspace, worktree,
+    permission, search, session, skill, subagent, workspace, worktree,
 };
 
 /// Current App Server protocol version.

@@ -2,6 +2,7 @@
 //!
 //! This module manages SSH connections using the pure-Russ SSH implementation
 
+use super::sftp_file::ManagedSftpSession;
 use crate::remote_ssh::password_vault::SSHPasswordVault;
 use crate::remote_ssh::types::{
     ConnectionTestReport, ConnectionTestStage, ContainerAccess, ContainerWorkspaceConfig,
@@ -10,13 +11,12 @@ use crate::remote_ssh::types::{
 };
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
-use bitfun_services_core::process_manager;
+use openbitfun_services_core::{process_manager, product_identity::hidden_data_directory};
 use russh::client::{DisconnectReason, Handle, Handler, Msg};
 use russh::Sig;
 use russh_keys::key::{KeyPair, PublicKey};
 use russh_keys::PublicKeyBase64;
 use russh_sftp::client::error::Error as SftpError;
-use russh_sftp::client::fs::ReadDir;
 use russh_sftp::client::{RawSftpSession, SftpSession};
 use russh_sftp::protocol::{File as SftpFile, StatusCode as SftpStatusCode};
 #[cfg(feature = "ssh_config")]
@@ -32,6 +32,309 @@ use tokio::time::{Duration, Instant};
 
 const SSH_COMMAND_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const SSH_COMMAND_INTERRUPT_DRAIN_GRACE: Duration = Duration::from_millis(500);
+const SSH_COMMAND_OWNER_DRAIN_GRACE: Duration = Duration::from_secs(2);
+
+/// The caller owns cancellation, while the spawned transport task owns the
+/// channel until interruption and draining have finished. The caller may stop
+/// waiting before a late channel-open confirmation arrives, but must not drop
+/// the owner or leave an uncancelled command detached.
+struct CancelSshCommandOnDrop(tokio_util::sync::CancellationToken);
+
+impl Drop for CancelSshCommandOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
+enum SshOwnerOutcome<T> {
+    Finished(T),
+    Stopped(SshCommandStop, Option<T>),
+}
+
+/// Keep transport facts private rather than inferring them from status numbers:
+/// a server may legitimately exit with 124 or 130.
+struct SshCommandOutput {
+    result: SSHCommandResult,
+    exit_status_received: bool,
+}
+
+/// A completed owner task may be dropped before its caller receives the raw
+/// channel. Unlike WorkspaceStdio, russh::Channel has no close-on-drop lease.
+struct SshExecChannelHandoff {
+    channel: Option<russh::Channel<Msg>>,
+    runtime: tokio::runtime::Handle,
+}
+
+impl SshExecChannelHandoff {
+    fn new(channel: russh::Channel<Msg>) -> Self {
+        Self {
+            channel: Some(channel),
+            runtime: tokio::runtime::Handle::current(),
+        }
+    }
+
+    fn into_channel(mut self) -> russh::Channel<Msg> {
+        self.channel
+            .take()
+            .expect("SSH channel handoff is consumed once")
+    }
+}
+
+impl Drop for SshExecChannelHandoff {
+    fn drop(&mut self) {
+        if let Some(channel) = self.channel.take() {
+            // Handoffs are created and consumed by Tokio owner tasks. Retain
+            // the channel while asynchronously closing an abandoned result.
+            self.runtime.spawn(async move {
+                SSHConnectionManager::close_exec_channel(&channel, true).await;
+            });
+        }
+    }
+}
+
+async fn supervise_ssh_owner<T, F, Fut>(
+    mut options: SSHCommandOptions,
+    execute: F,
+) -> anyhow::Result<SshOwnerOutcome<T>>
+where
+    T: Send + 'static,
+    F: FnOnce(SSHCommandOptions) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = T> + Send + 'static,
+{
+    let deadline = options
+        .timeout_ms
+        .map(|ms| Instant::now() + Duration::from_millis(ms));
+    let cancellation = options
+        .cancellation_token
+        .as_ref()
+        .map(tokio_util::sync::CancellationToken::child_token)
+        .unwrap_or_default();
+    options.cancellation_token = Some(cancellation.clone());
+    let _cancel_on_drop = CancelSshCommandOnDrop(cancellation.clone());
+    let mut owner = tokio::spawn(async move { execute(options).await });
+    match await_ssh_command_phase(&mut owner, Some(&cancellation), deadline).await {
+        Ok(result) => Ok(SshOwnerOutcome::Finished(
+            result.context("SSH owner task failed")?,
+        )),
+        Err(stop) => {
+            cancellation.cancel();
+            // Most owners finish INT/drain/close promptly; preserve their
+            // partial output and actual status when they do. A channel-open
+            // reply can arrive arbitrarily later, so only the caller's wait
+            // is bounded. Dropping this handle detaches the cancelled owner,
+            // which retains the pending request and closes its eventual channel.
+            match tokio::time::timeout(SSH_COMMAND_OWNER_DRAIN_GRACE, &mut owner).await {
+                Ok(result) => Ok(SshOwnerOutcome::Stopped(
+                    stop,
+                    Some(result.context("SSH owner task failed")?),
+                )),
+                Err(_) => Ok(SshOwnerOutcome::Stopped(stop, None)),
+            }
+        }
+    }
+}
+
+async fn supervise_ssh_command<F, Fut>(
+    options: SSHCommandOptions,
+    execute: F,
+) -> anyhow::Result<SSHCommandResult>
+where
+    F: FnOnce(SSHCommandOptions) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = anyhow::Result<SshCommandOutput>> + Send + 'static,
+{
+    match supervise_ssh_owner(options, execute).await? {
+        SshOwnerOutcome::Finished(result) => result.map(|output| output.result),
+        SshOwnerOutcome::Stopped(stop, Some(Ok(output))) => {
+            let mut result = output.result;
+            // The supervisor owns the stop reason. Its timeout deliberately
+            // cancels the owner's child token to interrupt setup immediately.
+            result.interrupted = stop == SshCommandStop::Cancelled;
+            result.timed_out = stop == SshCommandStop::TimedOut;
+            if !output.exit_status_received {
+                result.exit_code = stop.result().exit_code;
+            }
+            Ok(result)
+        }
+        SshOwnerOutcome::Stopped(stop, _) => Ok(stop.result()),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SshCommandStop {
+    Cancelled,
+    TimedOut,
+}
+
+impl SshCommandStop {
+    fn error(self) -> anyhow::Error {
+        anyhow!(match self {
+            Self::Cancelled => "SSH operation was cancelled",
+            Self::TimedOut => "SSH operation timed out",
+        })
+    }
+
+    fn result(self) -> SSHCommandResult {
+        SSHCommandResult {
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: if self == Self::Cancelled { 130 } else { 124 },
+            interrupted: self == Self::Cancelled,
+            timed_out: self == Self::TimedOut,
+        }
+    }
+
+    fn output(self) -> SshCommandOutput {
+        SshCommandOutput {
+            result: self.result(),
+            exit_status_received: false,
+        }
+    }
+}
+
+/// Include channel-open and exec-request waits in the same command deadline.
+/// The owner retains any in-progress open future so a late channel can be
+/// closed without ever starting the cancelled command.
+async fn await_ssh_command_phase<F: std::future::Future>(
+    phase: F,
+    cancellation: Option<&tokio_util::sync::CancellationToken>,
+    deadline: Option<Instant>,
+) -> Result<F::Output, SshCommandStop> {
+    tokio::select! {
+        biased;
+        _ = async {
+            match cancellation {
+                Some(token) => token.cancelled().await,
+                None => std::future::pending::<()>().await,
+            }
+        } => Err(SshCommandStop::Cancelled),
+        _ = async {
+            match deadline {
+                Some(deadline) => tokio::time::sleep_until(deadline).await,
+                None => std::future::pending::<()>().await,
+            }
+        } => Err(SshCommandStop::TimedOut),
+        result = phase => Ok(result),
+    }
+}
+
+/// Forward-only container file stream with bounded buffering and checked exit status.
+struct ContainerFileReader {
+    reader: tokio::io::DuplexStream,
+    transfer: Option<tokio::task::JoinHandle<std::io::Result<()>>>,
+    #[cfg(test)]
+    completion: crate::remote_ssh::WorkspaceProcessCompletion,
+}
+
+impl ContainerFileReader {
+    fn from_transport(transport: crate::remote_ssh::WorkspaceStdio) -> Self {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (reader, mut writer) = tokio::io::duplex(256 * 1024);
+        let (mut stdin, mut stdout, mut stderr, _control, completion) = transport.into_parts();
+        #[cfg(test)]
+        let observed_completion = completion.clone();
+        let transfer = tokio::spawn(async move {
+            stdin.shutdown().await?;
+            drop(stdin);
+            let drain_stderr = async move {
+                let mut retained = Vec::new();
+                let mut chunk = [0u8; 8192];
+                loop {
+                    let count = stderr.read(&mut chunk).await?;
+                    if count == 0 {
+                        break;
+                    }
+                    let keep = count.min(16_384usize.saturating_sub(retained.len()));
+                    retained.extend_from_slice(&chunk[..keep]);
+                }
+                Ok::<_, std::io::Error>(retained)
+            };
+            let (_, stderr) =
+                tokio::try_join!(tokio::io::copy(&mut stdout, &mut writer), drain_stderr)?;
+            let exit = completion.wait().await;
+            if exit.exit_code != Some(0) {
+                return Err(std::io::Error::other(format!(
+                    "Container file stream failed: exit_status={:?} {}",
+                    exit.exit_code,
+                    String::from_utf8_lossy(&stderr).trim()
+                )));
+            }
+            Ok(())
+        });
+        Self {
+            reader,
+            transfer: Some(transfer),
+            #[cfg(test)]
+            completion: observed_completion,
+        }
+    }
+}
+
+impl AsyncRead for ContainerFileReader {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use std::future::Future;
+        use std::pin::Pin;
+        use std::task::Poll;
+        let this = self.get_mut();
+        if buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+        let before = buf.filled().len();
+        match Pin::new(&mut this.reader).poll_read(cx, buf) {
+            Poll::Ready(Ok(())) if buf.filled().len() == before => {
+                let Some(transfer) = this.transfer.as_mut() else {
+                    return Poll::Ready(Ok(()));
+                };
+                match Pin::new(transfer).poll(cx) {
+                    Poll::Pending => Poll::Pending,
+                    Poll::Ready(result) => {
+                        this.transfer = None;
+                        Poll::Ready(
+                            result
+                                .map_err(std::io::Error::other)
+                                .and_then(|result| result),
+                        )
+                    }
+                }
+            }
+            result => result,
+        }
+    }
+}
+
+impl tokio::io::AsyncSeek for ContainerFileReader {
+    fn start_seek(
+        self: std::pin::Pin<&mut Self>,
+        _position: std::io::SeekFrom,
+    ) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Container file streams support sequential reads only",
+        ))
+    }
+
+    fn poll_complete(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<u64>> {
+        std::task::Poll::Ready(Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Container file streams support sequential reads only",
+        )))
+    }
+}
+
+impl Drop for ContainerFileReader {
+    fn drop(&mut self) {
+        if let Some(transfer) = &self.transfer {
+            transfer.abort();
+        }
+    }
+}
+
 const CONTAINER_ENTRY_METADATA_SCRIPT: &str = "\
 name=${item##*/}; \
 if [ -L \"$item\" ]; then kind=l; \
@@ -242,7 +545,7 @@ pub struct KnownHostEntry {
 
 /// Active SSH connection
 struct ActiveConnection {
-    /// Absent only for a local Docker container workspace.
+    /// Absent for local process transports (Docker and WSL).
     handle: Option<Arc<Handle<SSHHandler>>>,
     /// Keep every preceding hop alive while the final transport is using its
     /// direct-tcpip channel as the underlying stream.
@@ -263,7 +566,7 @@ struct ActiveConnection {
 }
 
 struct SftpCache {
-    session: tokio::sync::RwLock<Option<Arc<SftpSession>>>,
+    session: tokio::sync::RwLock<Option<Arc<ManagedSftpSession>>>,
     init_lock: tokio::sync::Mutex<()>,
 }
 
@@ -276,13 +579,8 @@ impl SftpCache {
     }
 }
 
-#[derive(Clone)]
-struct SftpSessionLease {
-    session: Arc<SftpSession>,
-    cache: Arc<SftpCache>,
-}
-
 struct BoundedSftpChannel {
+    retired: AtomicBool,
     session: Arc<RawSftpSession>,
     read_lock: tokio::sync::Mutex<()>,
 }
@@ -308,14 +606,14 @@ struct BoundedSftpSession {
 }
 
 struct BoundedSftpReadGuard {
-    session: Arc<RawSftpSession>,
+    channel: Arc<BoundedSftpChannel>,
     armed: bool,
 }
 
 impl BoundedSftpReadGuard {
-    fn new(session: Arc<RawSftpSession>) -> Self {
+    fn new(channel: Arc<BoundedSftpChannel>) -> Self {
         Self {
-            session,
+            channel,
             armed: true,
         }
     }
@@ -328,17 +626,60 @@ impl BoundedSftpReadGuard {
 impl Drop for BoundedSftpReadGuard {
     fn drop(&mut self) {
         if self.armed {
-            let _ = self.session.close_session();
+            self.channel.retired.store(true, Ordering::Release);
+            let _ = self.channel.session.close_session();
         }
     }
 }
 
 struct EstablishedSession {
-    handle: Option<Handle<SSHHandler>>,
-    jump_handles: Vec<Handle<SSHHandler>>,
+    handle: Option<Arc<Handle<SSHHandler>>>,
+    jump_handles: Vec<Arc<Handle<SSHHandler>>>,
     alive: Arc<AtomicBool>,
     server_info: Option<ServerInfo>,
     effective_config: SSHConnectionConfig,
+    unpublished: UnpublishedSshSession,
+}
+
+/// Owns authenticated transports until the complete chain is published. A
+/// timed-out probe may still hold an Arc while awaiting channel confirmation,
+/// so dropping the caller's handles alone cannot end a failed connection.
+#[derive(Default)]
+struct UnpublishedSshSession {
+    // Creation order is first jump through final target. One guard owns the
+    // whole chain so cancellation cannot race independent hop cleanups.
+    handles: Vec<Arc<Handle<SSHHandler>>>,
+}
+
+impl UnpublishedSshSession {
+    fn track(&mut self, handle: &Arc<Handle<SSHHandler>>) {
+        self.handles.push(handle.clone());
+    }
+
+    fn disarm(&mut self) {
+        self.handles.clear();
+    }
+}
+
+impl Drop for UnpublishedSshSession {
+    fn drop(&mut self) {
+        if self.handles.is_empty() {
+            return;
+        }
+        let handles = std::mem::take(&mut self.handles);
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => {
+                runtime.spawn(async move {
+                    let chain = handles.iter().rev().map(Arc::as_ref).collect();
+                    SSHConnectionManager::shutdown_handle_chain(chain).await;
+                });
+            }
+            Err(error) => log::warn!(
+                "Unpublished SSH session cleanup has no active runtime: {}",
+                error
+            ),
+        }
+    }
 }
 
 /// Which stage of the connection chain an error came from.
@@ -1179,12 +1520,60 @@ fn workspace_command(config: &SSHConnectionConfig, command: &str, tty: bool) -> 
 /// live upload is age, and the cost of guessing wrong is a corrupted transfer
 /// in another session. No real upload runs for 24 hours; plenty run for one.
 fn stale_upload_sweep(quoted_dir: &str) -> String {
+    let quoted_pattern =
+        crate::remote_ssh::shell::quote_arg(&format!("{}-upload-*.tmp", hidden_data_directory()));
     format!(
         "if command -v find >/dev/null 2>&1; then \
-           find {quoted_dir} -maxdepth 1 -name '.bitfun-upload-*.tmp' -mmin +1440 \
+           find {quoted_dir} -maxdepth 1 -name {quoted_pattern} -mmin +1440 \
              -exec rm -f -- {{}} \\; 2>/dev/null || true; \
          fi; "
     )
+}
+
+fn container_workspace_write_command(path: &str, temporary: &str, expected_size: usize) -> String {
+    let quoted_path = crate::remote_ssh::shell::quote_arg(path);
+    let quoted_temporary = crate::remote_ssh::shell::quote_arg(temporary);
+    let parent = path
+        .rsplit_once('/')
+        .map(|(parent, _)| if parent.is_empty() { "/" } else { parent })
+        .unwrap_or(".");
+    let sweep = stale_upload_sweep(&crate::remote_ssh::shell::quote_arg(parent));
+    format!(
+        "{sweep}tmp={quoted_temporary}; target={quoted_path}; expected={expected_size}; \
+         saved_umask=$(umask) || exit 1; \
+         cleanup() {{ rm -f -- \"$tmp\"; }}; trap cleanup EXIT; \
+         trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM; \
+         umask 077; status=0; cat > \"$tmp\" || status=$?; \
+         if [ \"$status\" -eq 0 ]; then \
+           actual=$(wc -c < \"$tmp\") || status=$?; \
+           if [ \"$status\" -eq 0 ]; then \
+             if [ \"$actual\" -ne \"$expected\" ]; then \
+               echo 'Workspace file transfer was incomplete; target was not changed' >&2; status=65; \
+             elif [ -e \"$target\" ] && [ ! -f \"$target\" ]; then \
+               echo 'Workspace target is not a regular file' >&2; status=1; \
+             else \
+               umask \"$saved_umask\" || status=$?; \
+               if [ \"$status\" -eq 0 ]; then cat -- \"$tmp\" >| \"$target\" || status=$?; fi; \
+             fi; \
+           fi; \
+         fi; cleanup; trap - EXIT; exit \"$status\""
+    )
+}
+
+async fn drain_workspace_diagnostics<R: AsyncRead + Unpin>(
+    mut reader: R,
+) -> std::io::Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let mut retained = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        let count = reader.read(&mut chunk).await?;
+        if count == 0 {
+            return Ok(retained);
+        }
+        let keep = count.min(16_384usize.saturating_sub(retained.len()));
+        retained.extend_from_slice(&chunk[..keep]);
+    }
 }
 
 /// Shell prelude that removes pid files whose process is gone.
@@ -1199,11 +1588,12 @@ fn stale_upload_sweep(quoted_dir: &str) -> String {
 /// to a command that is starting right now; those are only removed once they
 /// are far too old for that to be true.
 fn stale_pid_file_sweep() -> String {
-    "for stale_pid_file in /tmp/.bitfun-exec-*.pid; do \
+    format!(
+        "for stale_pid_file in /tmp/{}-exec-*.pid; do \
        [ -e \"$stale_pid_file\" ] || continue; \
        if [ ! -s \"$stale_pid_file\" ]; then \
          if command -v find >/dev/null 2>&1; then \
-           find \"$stale_pid_file\" -mmin +60 -exec rm -f -- {} \\; 2>/dev/null || true; \
+           find \"$stale_pid_file\" -mmin +60 -exec rm -f -- {{}} \\; 2>/dev/null || true; \
          fi; \
          continue; \
        fi; \
@@ -1213,16 +1603,25 @@ fn stale_pid_file_sweep() -> String {
        esac; \
        kill -0 \"$stale_pid\" 2>/dev/null || rm -f -- \"$stale_pid_file\" 2>/dev/null || true; \
      done; \
-     unset stale_pid_file stale_pid 2>/dev/null || true; "
-        .to_string()
+     unset stale_pid_file stale_pid 2>/dev/null || true; ",
+        hidden_data_directory()
+    )
 }
 
 fn supervised_container_command(
     container: &ContainerWorkspaceConfig,
     command: &str,
 ) -> (String, String) {
-    let pid_file = format!("/tmp/.bitfun-exec-{}.pid", uuid::Uuid::new_v4());
-    let wrapped = supervised_container_command_with_pid_file(container, command, &pid_file);
+    supervised_workspace_command(&container.shell, command)
+}
+
+fn supervised_workspace_command(shell: &str, command: &str) -> (String, String) {
+    let pid_file = format!(
+        "/tmp/{}-exec-{}.pid",
+        hidden_data_directory(),
+        uuid::Uuid::new_v4()
+    );
+    let wrapped = supervised_workspace_command_with_pid_file(shell, command, &pid_file);
     (wrapped, pid_file)
 }
 
@@ -1238,14 +1637,23 @@ fn supervised_container_command(
 /// The supervisor must also duplicate stdin before starting the asynchronous
 /// child. POSIX non-interactive shells attach `/dev/null` to an asynchronous
 /// list's fd 0, so `<&0` inside that list cannot preserve streamed input.
+#[cfg(test)]
 fn supervised_container_command_with_pid_file(
     container: &ContainerWorkspaceConfig,
     command: &str,
     pid_file: &str,
 ) -> String {
+    supervised_workspace_command_with_pid_file(&container.shell, command, pid_file)
+}
+
+fn supervised_workspace_command_with_pid_file(
+    shell: &str,
+    command: &str,
+    pid_file: &str,
+) -> String {
     let quoted_pid_file = crate::remote_ssh::shell::quote_arg(pid_file);
     let quoted_command = crate::remote_ssh::shell::quote_arg(command);
-    let quoted_shell = crate::remote_ssh::shell::quote_arg(&container.shell);
+    let quoted_shell = crate::remote_ssh::shell::quote_arg(shell);
     let sweep = stale_pid_file_sweep();
     format!(
         "{sweep}\
@@ -1379,7 +1787,7 @@ fn remote_container_signal_hook(
 async fn collect_workspace_command_result(
     transport: crate::remote_ssh::WorkspaceStdio,
     options: SSHCommandOptions,
-) -> anyhow::Result<SSHCommandResult> {
+) -> anyhow::Result<SshCommandOutput> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let (mut stdin, mut stdout, mut stderr, control, completion) = transport.into_parts();
@@ -1464,14 +1872,16 @@ async fn collect_workspace_command_result(
         interrupted || timed_out,
     )
     .await?;
-    Ok(SSHCommandResult {
-        stdout: String::from_utf8_lossy(&stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&stderr).into_owned(),
-        exit_code: exit
-            .and_then(|exit| exit.exit_code)
-            .unwrap_or(fallback_exit_code),
-        interrupted,
-        timed_out,
+    let exit_status = exit.and_then(|exit| exit.exit_code);
+    Ok(SshCommandOutput {
+        result: SSHCommandResult {
+            stdout: String::from_utf8_lossy(&stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
+            exit_code: exit_status.unwrap_or(fallback_exit_code),
+            interrupted,
+            timed_out,
+        },
+        exit_status_received: exit_status.is_some(),
     })
 }
 
@@ -1527,6 +1937,23 @@ fn split_container_entry_fields<'a>(
     Ok((name, path, kind, size, modified, permissions))
 }
 
+fn parse_container_exists_output(path: &str, stderr: &str, status: i32) -> anyhow::Result<bool> {
+    match status {
+        0 => Ok(true),
+        1 if stderr.trim().is_empty() => Ok(false),
+        _ => anyhow::bail!(
+            "Failed to check whether container path '{}' exists: command exited with status {}{}",
+            path,
+            status,
+            if stderr.trim().is_empty() {
+                String::new()
+            } else {
+                format!(": {}", stderr.trim())
+            }
+        ),
+    }
+}
+
 fn parse_container_dir_output(
     output: &str,
 ) -> anyhow::Result<Vec<crate::remote_ssh::types::RemoteDirEntry>> {
@@ -1579,6 +2006,39 @@ fn parse_container_file_output(
         modified: fields.4,
         permissions: fields.5,
     }))
+}
+
+fn parse_workspace_stat_output(
+    output: &str,
+) -> anyhow::Result<openbitfun_runtime_ports::WorkspaceMetadata> {
+    use openbitfun_runtime_ports::{WorkspaceMetadata, WorkspacePathKind};
+    let fields = output.split_whitespace().collect::<Vec<_>>();
+    if fields.len() != 5 || !matches!(fields[0], "hex" | "oct") {
+        anyhow::bail!("Container stat returned malformed workspace metadata");
+    }
+    let mode = u32::from_str_radix(fields[1], if fields[0] == "hex" { 16 } else { 8 })?;
+    let size = fields[2].parse::<u64>()?;
+    let seconds = fields[3].parse::<i64>()?;
+    let permissions = u32::from_str_radix(fields[4], 8)?;
+    let elapsed = std::time::Duration::from_secs(seconds.unsigned_abs());
+    let modified = if seconds < 0 {
+        std::time::UNIX_EPOCH.checked_sub(elapsed)
+    } else {
+        std::time::UNIX_EPOCH.checked_add(elapsed)
+    }
+    .ok_or_else(|| anyhow!("Container modification time is out of range"))?;
+    let kind = match mode & 0o170000 {
+        0o100000 => WorkspacePathKind::File,
+        0o040000 => WorkspacePathKind::Directory,
+        0o120000 => WorkspacePathKind::Symlink,
+        _ => WorkspacePathKind::Other,
+    };
+    Ok(WorkspaceMetadata {
+        kind,
+        size: Some(size),
+        modified: Some(modified),
+        permissions: Some(permissions),
+    })
 }
 
 /// SSH Connection Manager
@@ -1723,42 +2183,8 @@ impl SSHConnectionManager {
         }
 
         let content = tokio::fs::read_to_string(&self.remote_workspace_path).await?;
-        // Try array format first, fall back to single-object for backward compat
         let mut workspaces: Vec<crate::remote_ssh::types::RemoteWorkspace> =
-            serde_json::from_str(&content)
-                .or_else(|_| {
-                    // Legacy: single workspace object
-                    serde_json::from_str::<crate::remote_ssh::types::RemoteWorkspace>(&content)
-                        .map(|ws| vec![ws])
-                })
-                .context("Failed to parse remote workspace(s)")?;
-
-        // Saved connection IDs used to include the SSH port. The saved-profile
-        // loader migrates those IDs before workspace records are loaded, so
-        // migrate the corresponding workspace references here as well. Without
-        // this, startup pruning would treat a valid legacy workspace as orphaned.
-        let saved_ids: Vec<String> = self
-            .saved_connections
-            .read()
-            .await
-            .iter()
-            .map(|connection| connection.id.clone())
-            .collect();
-        let mut migrated_connection_ids = 0;
-        for workspace in &mut workspaces {
-            let Some(stable_id) = Self::migrate_connection_id(&workspace.connection_id) else {
-                continue;
-            };
-            if saved_ids.iter().any(|saved_id| saved_id == &stable_id) {
-                log::info!(
-                    "Migrating remote workspace connection ID: {} -> {}",
-                    workspace.connection_id,
-                    stable_id
-                );
-                workspace.connection_id = stable_id;
-                migrated_connection_ids += 1;
-            }
-        }
+            serde_json::from_str(&content).context("Failed to parse remote workspaces")?;
 
         let before = workspaces.len();
         workspaces.retain(|w| !w.connection_id.is_empty() && !w.remote_path.is_empty());
@@ -1771,11 +2197,6 @@ impl SSHConnectionManager {
 
         let mut guard = self.remote_workspaces.write().await;
         *guard = workspaces;
-        drop(guard);
-
-        if migrated_connection_ids > 0 {
-            self.save_remote_workspaces().await?;
-        }
 
         Ok(())
     }
@@ -2142,7 +2563,14 @@ impl SSHConnectionManager {
     /// suitable for the connection dialog.
     pub async fn test_connection(&self, config: &SSHConnectionConfig) -> ConnectionTestReport {
         let mut stages = Vec::new();
-        if config.uses_local_docker() {
+        if let Some(wsl) = &config.wsl {
+            stages.push(ConnectionTestStage {
+                id: "wsl".into(),
+                label: wsl.distribution.clone(),
+                success: false,
+                error: None,
+            });
+        } else if config.uses_local_docker() {
             stages.push(ConnectionTestStage {
                 id: "docker-host".to_string(),
                 label: "local".to_string(),
@@ -2277,39 +2705,7 @@ impl SSHConnectionManager {
 
         let mut guard = self.saved_connections.write().await;
         *guard = saved;
-
-        // Migrate old-format connection IDs that include the port
-        // (e.g. "ssh-root@host:22") to the new stable format ("ssh-root@host").
-        // This ensures historical sessions can still find the connection after
-        // the user changes the port.
-        let mut migrated_ids = Vec::new();
-        for conn in guard.iter_mut() {
-            if let Some(new_id) = Self::migrate_connection_id(&conn.id) {
-                let old_id = conn.id.clone();
-                log::info!("Migrating saved connection ID: {} -> {}", old_id, new_id);
-                conn.id = new_id.clone();
-                migrated_ids.push((old_id, new_id));
-            }
-        }
-        if !migrated_ids.is_empty() {
-            drop(guard);
-            for (old_id, new_id) in &migrated_ids {
-                if let Err(e) = self.password_vault.migrate_entry(old_id, new_id).await {
-                    log::warn!(
-                        "Failed to migrate SSH password vault entry from {} to {}: {}",
-                        old_id,
-                        new_id,
-                        e
-                    );
-                }
-            }
-            // Persist the migrated IDs to disk.
-            if let Err(e) = self.save_connections().await {
-                log::warn!("Failed to persist migrated connection IDs: {}", e);
-            }
-        } else {
-            drop(guard);
-        }
+        drop(guard);
 
         let unavailable = self.saved_connections_without_credentials().await;
         if !unavailable.is_empty() {
@@ -2322,30 +2718,6 @@ impl SSHConnectionManager {
         let guard = self.saved_connections.read().await;
         log::info!("load_saved_connections: loaded {} connections", guard.len());
         Ok(())
-    }
-
-    /// If `id` follows the old format `ssh-{user}@{host}:{port}`, return the
-    /// new stable format `ssh-{user}@{host}`.  Otherwise return `None`.
-    fn migrate_connection_id(id: &str) -> Option<String> {
-        if !id.starts_with("ssh-") {
-            return None;
-        }
-        let rest = &id[4..]; // "{user}@{host}:{port}"
-        let at_pos = rest.find('@')?;
-        let colon_pos = rest.rfind(':')?;
-        if colon_pos <= at_pos {
-            return None;
-        }
-        // Verify the suffix after the last colon is a valid port number.
-        let port_str = &rest[colon_pos + 1..];
-        if port_str.parse::<u16>().is_ok() {
-            let stable = format!("ssh-{}", &rest[..colon_pos]);
-            // Only return if the ID actually changes (i.e. the port was present).
-            if stable != id {
-                return Some(stable);
-            }
-        }
-        None
     }
 
     /// Save connections to disk
@@ -2386,10 +2758,11 @@ impl SSHConnectionManager {
             if !matches!(
                 conn.auth_type,
                 crate::remote_ssh::types::SavedAuthType::Password
-            ) || conn
-                .container
-                .as_ref()
-                .is_some_and(|container| container.local)
+            ) || conn.wsl.is_some()
+                || conn
+                    .container
+                    .as_ref()
+                    .is_some_and(|container| container.local)
             {
                 continue;
             }
@@ -2426,7 +2799,7 @@ impl SSHConnectionManager {
 
     /// Save a connection configuration
     pub async fn save_connection(&self, config: &SSHConnectionConfig) -> anyhow::Result<()> {
-        match (&config.auth, config.uses_local_docker()) {
+        match (&config.auth, config.uses_local_process()) {
             (_, true) => {
                 self.password_vault.remove(&config.id).await?;
             }
@@ -2460,7 +2833,8 @@ impl SSHConnectionManager {
             c.id != config.id
                 && !(c.host == config.host
                     && c.username == config.username
-                    && c.container == config.container)
+                    && c.container == config.container
+                    && c.wsl == config.wsl)
         });
 
         // Add new entry
@@ -2495,6 +2869,7 @@ impl SSHConnectionManager {
             last_connected: Some(chrono::Utc::now().timestamp() as u64),
             proxy_jump: config.proxy_jump.clone(),
             container: config.container.clone(),
+            wsl: config.wsl.clone(),
             options: config.options.clone(),
         });
 
@@ -2601,7 +2976,7 @@ impl SSHConnectionManager {
             return Ok(existing_result);
         }
 
-        let established = self
+        let mut established = self
             .establish_session_with_retries(&config, timeout_secs)
             .await?;
 
@@ -2610,11 +2985,13 @@ impl SSHConnectionManager {
 
         let replaced = {
             let mut guard = self.connections.write().await;
+            // No await separates disarming from publishing the shared owner.
+            established.unpublished.disarm();
             guard.insert(
                 connection_id.clone(),
                 ActiveConnection {
-                    handle: established.handle.map(Arc::new),
-                    jump_handles: established.jump_handles.into_iter().map(Arc::new).collect(),
+                    handle: established.handle,
+                    jump_handles: established.jump_handles,
                     config,
                     effective_config: established.effective_config,
                     server_info: server_info.clone(),
@@ -2646,6 +3023,25 @@ impl SSHConnectionManager {
         config: &SSHConnectionConfig,
         timeout_secs: u64,
     ) -> anyhow::Result<EstablishedSession> {
+        if let Some(wsl) = &config.wsl {
+            if config.container.is_some()
+                || config
+                    .proxy_jump
+                    .as_deref()
+                    .is_some_and(|jump| !jump.trim().is_empty())
+            {
+                anyhow::bail!("WSL cannot be combined with Docker or SSH jump hosts");
+            }
+            let server_info = super::wsl::probe(wsl, Duration::from_secs(timeout_secs)).await?;
+            return Ok(EstablishedSession {
+                handle: None,
+                jump_handles: Vec::new(),
+                alive: Arc::new(AtomicBool::new(true)),
+                server_info: Some(server_info),
+                effective_config: config.clone(),
+                unpublished: UnpublishedSshSession::default(),
+            });
+        }
         if config.uses_local_docker() {
             if config
                 .container
@@ -2670,16 +3066,18 @@ impl SSHConnectionManager {
                 alive: Arc::new(AtomicBool::new(true)),
                 server_info: Some(server_info),
                 effective_config: resolved_container_config(config, ContainerAccess::DockerExec),
+                unpublished: UnpublishedSshSession::default(),
             });
         }
 
+        let mut unpublished = UnpublishedSshSession::default();
         let jumps = self
             .resolve_proxy_jump_chain(config)
             .await
             .map_err(|error| tag_failed_stage("configuration", error))?;
         if jumps.is_empty() {
             let (handle, alive, mut server_info) = self
-                .establish_direct_session(config, timeout_secs)
+                .establish_direct_session(config, timeout_secs, &mut unpublished)
                 .await
                 .map_err(|error| tag_failed_stage("target", error))?;
             if config
@@ -2688,8 +3086,13 @@ impl SSHConnectionManager {
                 .is_some_and(|container| matches!(container.access, ContainerAccess::Auto))
             {
                 if let Some((container_handle, container_alive, container_info, effective_config)) =
-                    self.try_establish_remote_container_sshd(&handle, config, timeout_secs)
-                        .await
+                    self.try_establish_remote_container_sshd(
+                        &handle,
+                        config,
+                        timeout_secs,
+                        &mut unpublished,
+                    )
+                    .await
                 {
                     return Ok(EstablishedSession {
                         handle: Some(container_handle),
@@ -2697,6 +3100,7 @@ impl SSHConnectionManager {
                         alive: container_alive,
                         server_info: container_info,
                         effective_config,
+                        unpublished,
                     });
                 }
             }
@@ -2721,6 +3125,7 @@ impl SSHConnectionManager {
                 } else {
                     config.clone()
                 },
+                unpublished,
             });
         }
 
@@ -2728,7 +3133,7 @@ impl SSHConnectionManager {
             .first()
             .expect("non-empty jump chain must have a first hop");
         let (first_handle, _, _) = self
-            .establish_direct_session(first, timeout_secs)
+            .establish_direct_session(first, timeout_secs, &mut unpublished)
             .await
             .with_context(|| {
                 format!(
@@ -2761,6 +3166,7 @@ impl SSHConnectionManager {
                     channel.into_stream(),
                     timeout_secs,
                     &format!("jump {} ({})", index + 1, connection_label(hop)),
+                    &mut unpublished,
                 )
                 .await
                 .with_context(|| {
@@ -2794,6 +3200,7 @@ impl SSHConnectionManager {
                 channel.into_stream(),
                 timeout_secs,
                 &format!("final target {}", connection_label(config)),
+                &mut unpublished,
             )
             .await
             .with_context(|| {
@@ -2809,8 +3216,13 @@ impl SSHConnectionManager {
             .is_some_and(|container| matches!(container.access, ContainerAccess::Auto))
         {
             if let Some((container_handle, container_alive, container_info, effective_config)) =
-                self.try_establish_remote_container_sshd(&handle, config, timeout_secs)
-                    .await
+                self.try_establish_remote_container_sshd(
+                    &handle,
+                    config,
+                    timeout_secs,
+                    &mut unpublished,
+                )
+                .await
             {
                 jump_handles.push(handle);
                 return Ok(EstablishedSession {
@@ -2819,6 +3231,7 @@ impl SSHConnectionManager {
                     alive: container_alive,
                     server_info: container_info,
                     effective_config,
+                    unpublished,
                 });
             }
         }
@@ -2843,6 +3256,7 @@ impl SSHConnectionManager {
             } else {
                 config.clone()
             },
+            unpublished,
         })
     }
 
@@ -2899,8 +3313,9 @@ impl SSHConnectionManager {
         let mut effective_config = resolved_container_config(config, ContainerAccess::Sshd);
         effective_config.host = host.clone();
         effective_config.port = port;
+        let mut unpublished = UnpublishedSshSession::default();
         match self
-            .establish_direct_session(&effective_config, timeout_secs)
+            .establish_direct_session(&effective_config, timeout_secs, &mut unpublished)
             .await
         {
             Ok((handle, alive, server_info)) => {
@@ -2916,6 +3331,7 @@ impl SSHConnectionManager {
                     alive,
                     server_info,
                     effective_config,
+                    unpublished,
                 })
             }
             Err(error) => {
@@ -2931,11 +3347,12 @@ impl SSHConnectionManager {
 
     async fn try_establish_remote_container_sshd(
         &self,
-        docker_host: &Handle<SSHHandler>,
+        docker_host: &Arc<Handle<SSHHandler>>,
         config: &SSHConnectionConfig,
         timeout_secs: u64,
+        unpublished: &mut UnpublishedSshSession,
     ) -> Option<(
-        Handle<SSHHandler>,
+        Arc<Handle<SSHHandler>>,
         Arc<AtomicBool>,
         Option<ServerInfo>,
         SSHConnectionConfig,
@@ -2973,6 +3390,7 @@ impl SSHConnectionManager {
                 channel.into_stream(),
                 timeout_secs,
                 &format!("container sshd {}:{}", container.name, port),
+                unpublished,
             )
             .await
         {
@@ -3081,6 +3499,7 @@ impl SSHConnectionManager {
                 default_workspace: None,
                 proxy_jump: None,
                 container: None,
+                wsl: None,
                 options: config.options.clone(),
             });
         }
@@ -3093,7 +3512,8 @@ impl SSHConnectionManager {
         stream: R,
         timeout_secs: u64,
         stage: &str,
-    ) -> anyhow::Result<(Handle<SSHHandler>, Arc<AtomicBool>, Option<ServerInfo>)>
+        unpublished: &mut UnpublishedSshSession,
+    ) -> anyhow::Result<(Arc<Handle<SSHHandler>>, Arc<AtomicBool>, Option<ServerInfo>)>
     where
         R: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
@@ -3126,13 +3546,15 @@ impl SSHConnectionManager {
             }
         })?;
         authenticate_handle(&mut handle, config, stage).await?;
-        let mut server_info = Self::get_server_info_internal(&handle).await;
+        let handle = Arc::new(handle);
+        unpublished.track(&handle);
+        let mut server_info = Self::get_server_info_internal(&handle, timeout_secs).await;
         if server_info
             .as_ref()
             .map(|info| info.home_dir.trim().is_empty())
             .unwrap_or(true)
         {
-            if let Some(home_dir) = Self::probe_remote_home_dir(&handle).await {
+            if let Some(home_dir) = Self::probe_remote_home_dir(&handle, timeout_secs).await {
                 match server_info.as_mut() {
                     Some(info) => info.home_dir = home_dir,
                     None => {
@@ -3154,7 +3576,8 @@ impl SSHConnectionManager {
         &self,
         config: &SSHConnectionConfig,
         timeout_secs: u64,
-    ) -> anyhow::Result<(Handle<SSHHandler>, Arc<AtomicBool>, Option<ServerInfo>)> {
+        unpublished: &mut UnpublishedSshSession,
+    ) -> anyhow::Result<(Arc<Handle<SSHHandler>>, Arc<AtomicBool>, Option<ServerInfo>)> {
         let addr = format!("{}:{}", config.host, config.port);
         let stream =
             tokio::time::timeout(Duration::from_secs(timeout_secs), TcpStream::connect(&addr))
@@ -3166,13 +3589,14 @@ impl SSHConnectionManager {
             stream,
             timeout_secs,
             &format!("target {}", connection_label(config)),
+            unpublished,
         )
         .await
     }
 
     async fn probe_remote_container(
         &self,
-        handle: &Handle<SSHHandler>,
+        handle: &Arc<Handle<SSHHandler>>,
         config: &SSHConnectionConfig,
         timeout_secs: u64,
     ) -> anyhow::Result<ServerInfo> {
@@ -3253,11 +3677,17 @@ impl SSHConnectionManager {
     }
 
     /// Get server information (partial lines allowed so we can still fill `home_dir` via [`Self::probe_remote_home_dir`]).
-    async fn get_server_info_internal(handle: &Handle<SSHHandler>) -> Option<ServerInfo> {
+    async fn get_server_info_internal(
+        handle: &Arc<Handle<SSHHandler>>,
+        timeout_secs: u64,
+    ) -> Option<ServerInfo> {
         let result = Self::execute_command_internal(
             handle,
             "uname -s && hostname && echo $HOME",
-            SSHCommandOptions::default(),
+            SSHCommandOptions {
+                timeout_ms: Some(timeout_secs.saturating_mul(1000)),
+                cancellation_token: None,
+            },
         )
         .await
         .ok()?;
@@ -3279,7 +3709,10 @@ impl SSHConnectionManager {
     }
 
     /// Resolve remote home directory via SSH `exec` (tilde and `$HOME` are expanded by the remote shell).
-    async fn probe_remote_home_dir(handle: &Handle<SSHHandler>) -> Option<String> {
+    async fn probe_remote_home_dir(
+        handle: &Arc<Handle<SSHHandler>>,
+        timeout_secs: u64,
+    ) -> Option<String> {
         const PROBES: &[&str] = &[
             "sh -c 'echo ~'",
             "echo $HOME",
@@ -3288,8 +3721,15 @@ impl SSHConnectionManager {
             "sh -c 'getent passwd \"$(id -un)\" 2>/dev/null | cut -d: -f6'",
         ];
         for cmd in PROBES {
-            let Ok(result) =
-                Self::execute_command_internal(handle, cmd, SSHCommandOptions::default()).await
+            let Ok(result) = Self::execute_command_internal(
+                handle,
+                cmd,
+                SSHCommandOptions {
+                    timeout_ms: Some(timeout_secs.saturating_mul(1000)),
+                    cancellation_token: None,
+                },
+            )
+            .await
             else {
                 continue;
             };
@@ -3310,17 +3750,127 @@ impl SSHConnectionManager {
         session: &russh::Channel<Msg>,
         signal: Sig,
     ) -> anyhow::Result<()> {
-        session.signal(signal).await?;
-        let _ = session.eof().await;
-        Ok(())
+        tokio::time::timeout(SSH_COMMAND_INTERRUPT_DRAIN_GRACE, async {
+            session.signal(signal).await?;
+            let _ = session.eof().await;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("Timed out sending an SSH command interrupt")?
+    }
+
+    async fn close_exec_channel(session: &russh::Channel<Msg>, kill: bool) {
+        if kill {
+            let _ =
+                tokio::time::timeout(SSH_COMMAND_INTERRUPT_DRAIN_GRACE, session.signal(Sig::KILL))
+                    .await;
+        }
+        if !matches!(
+            tokio::time::timeout(SSH_COMMAND_INTERRUPT_DRAIN_GRACE, session.close()).await,
+            Ok(Ok(()))
+        ) {
+            log::warn!("Failed to close SSH command channel within the cleanup deadline");
+        }
     }
 
     async fn execute_command_internal(
+        handle: &Arc<Handle<SSHHandler>>,
+        command: &str,
+        options: SSHCommandOptions,
+    ) -> anyhow::Result<SSHCommandResult> {
+        let handle = handle.clone();
+        let command = command.to_string();
+        supervise_ssh_command(options, move |options| async move {
+            Self::execute_command_owned(&handle, &command, options).await
+        })
+        .await
+    }
+
+    /// Called only by an owned, supervised operation. A pending open request
+    /// must stay alive after its caller returns, until it can be closed safely.
+    async fn open_ssh_session_owned(
+        handle: &Handle<SSHHandler>,
+        options: &SSHCommandOptions,
+        deadline: Option<Instant>,
+    ) -> anyhow::Result<Result<russh::Channel<Msg>, SshCommandStop>> {
+        let open = handle.channel_open_session();
+        tokio::pin!(open);
+        let mut open_requested = false;
+        match await_ssh_command_phase(
+            std::future::poll_fn(|cx| {
+                open_requested = true;
+                std::future::Future::poll(open.as_mut(), cx)
+            }),
+            options.cancellation_token.as_ref(),
+            deadline,
+        )
+        .await
+        {
+            Ok(result) => Ok(Ok(result?)),
+            Err(stop) => {
+                if open_requested {
+                    // russh does not close an open request when its receiver
+                    // is dropped. The supervisor bounds the caller's wait.
+                    if let Ok(session) = open.await {
+                        Self::close_exec_channel(&session, false).await;
+                    }
+                }
+                Ok(Err(stop))
+            }
+        }
+    }
+
+    async fn open_ssh_exec_channel_owned(
         handle: &Handle<SSHHandler>,
         command: &str,
         options: SSHCommandOptions,
-    ) -> std::result::Result<SSHCommandResult, anyhow::Error> {
+        signal_hook: Option<crate::remote_ssh::transport::WorkspaceSignalHook>,
+    ) -> anyhow::Result<russh::Channel<Msg>> {
+        let deadline = options
+            .timeout_ms
+            .map(|ms| Instant::now() + Duration::from_millis(ms));
+        let channel = Self::open_ssh_session_owned(handle, &options, deadline)
+            .await?
+            .map_err(SshCommandStop::error)?;
+        match await_ssh_command_phase(
+            channel.exec(true, command),
+            options.cancellation_token.as_ref(),
+            deadline,
+        )
+        .await
+        {
+            Ok(Ok(())) => Ok(channel),
+            Ok(Err(error)) => {
+                Self::close_exec_channel(&channel, false).await;
+                Err(error.into())
+            }
+            Err(stop) => {
+                // Exec may already have been enqueued. Docker needs its target
+                // process-group hook as well as closing the outer SSH channel.
+                if signal_hook.is_some() {
+                    drop(
+                        crate::remote_ssh::WorkspaceStdio::from_ssh_channel_with_signal_hook(
+                            channel,
+                            signal_hook,
+                        ),
+                    );
+                } else {
+                    Self::close_exec_channel(&channel, true).await;
+                }
+                Err(stop.error())
+            }
+        }
+    }
+
+    async fn execute_command_owned(
+        handle: &Handle<SSHHandler>,
+        command: &str,
+        options: SSHCommandOptions,
+    ) -> std::result::Result<SshCommandOutput, anyhow::Error> {
         let execution_started_at = Instant::now();
+        let timeout_deadline = options
+            .timeout_ms
+            .map(|ms| execution_started_at + Duration::from_millis(ms));
         let command_preview = if command.len() > 160 {
             format!("{}...", truncate_at_char_boundary(command, 160))
         } else {
@@ -3332,8 +3882,28 @@ impl SSHConnectionManager {
             options.cancellation_token.is_some(),
             command_preview
         );
-        let mut session = handle.channel_open_session().await?;
-        session.exec(true, command).await?;
+        let mut session =
+            match Self::open_ssh_session_owned(handle, &options, timeout_deadline).await? {
+                Ok(session) => session,
+                Err(stop) => return Ok(stop.output()),
+            };
+        match await_ssh_command_phase(
+            session.exec(true, command),
+            options.cancellation_token.as_ref(),
+            timeout_deadline,
+        )
+        .await
+        {
+            Ok(Ok(())) | Err(_) => {
+                // If exec was interrupted while enqueuing its request, the
+                // command may already have started. Let the owner loop below
+                // send INT and drain before closing the channel.
+            }
+            Ok(Err(error)) => {
+                Self::close_exec_channel(&session, false).await;
+                return Err(error.into());
+            }
+        }
 
         // Keep bytes intact until the channel closes. SSH packets may split a
         // valid UTF-8 code point at any byte boundary; decoding each packet
@@ -3346,10 +3916,6 @@ impl SSHConnectionManager {
         let stdout_first_chunk_once = Once::new();
         let stderr_first_chunk_once = Once::new();
         let mut eof_logged = false;
-        let mut close_logged = false;
-        let timeout_deadline = options
-            .timeout_ms
-            .map(|ms| Instant::now() + Duration::from_millis(ms));
         let mut interrupt_drain_deadline: Option<Instant> = None;
 
         loop {
@@ -3362,7 +3928,7 @@ impl SSHConnectionManager {
                     .is_some_and(|token| token.is_cancelled())
             {
                 interrupted = true;
-                interrupt_drain_deadline = Some(now + SSH_COMMAND_INTERRUPT_DRAIN_GRACE);
+                interrupt_drain_deadline.get_or_insert(now + SSH_COMMAND_INTERRUPT_DRAIN_GRACE);
                 log::warn!(
                     "Remote exec cancellation requested: timeout_ms={:?}, stdout_len={}, stderr_len={}, duration_ms={}, command_preview={}",
                     options.timeout_ms,
@@ -3378,7 +3944,7 @@ impl SSHConnectionManager {
 
             if !timed_out && timeout_deadline.is_some_and(|deadline| now >= deadline) {
                 timed_out = true;
-                interrupt_drain_deadline = Some(now + SSH_COMMAND_INTERRUPT_DRAIN_GRACE);
+                interrupt_drain_deadline.get_or_insert(now + SSH_COMMAND_INTERRUPT_DRAIN_GRACE);
                 log::warn!(
                     "Remote exec timeout reached: timeout_ms={:?}, stdout_len={}, stderr_len={}, duration_ms={}, command_preview={}",
                     options.timeout_ms,
@@ -3394,7 +3960,7 @@ impl SSHConnectionManager {
 
             let wait_budget = if let Some(deadline) = interrupt_drain_deadline {
                 if now >= deadline {
-                    let _ = session.close().await;
+                    Self::close_exec_channel(&session, true).await;
                     break;
                 }
                 (deadline - now).min(SSH_COMMAND_WAIT_POLL_INTERVAL)
@@ -3481,16 +4047,14 @@ impl SSHConnectionManager {
                     }
                 }
                 Some(russh::ChannelMsg::Close) => {
-                    if !close_logged {
-                        close_logged = true;
-                        log::debug!(
-                            "Remote exec channel close received: stdout_len={}, stderr_len={}, duration_ms={}, command_preview={}",
-                            stdout.len(),
-                            stderr.len(),
-                            execution_started_at.elapsed().as_millis(),
-                            command_preview
-                        );
-                    }
+                    log::debug!(
+                        "Remote exec channel close received: stdout_len={}, stderr_len={}, duration_ms={}, command_preview={}",
+                        stdout.len(),
+                        stderr.len(),
+                        execution_started_at.elapsed().as_millis(),
+                        command_preview
+                    );
+                    break;
                 }
                 None => {
                     log::debug!(
@@ -3529,7 +4093,10 @@ impl SSHConnectionManager {
             command_preview
         );
 
-        Ok(result)
+        Ok(SshCommandOutput {
+            result,
+            exit_status_received: exit_status.is_some(),
+        })
     }
 
     /// Per-connection reconnect mutex, created on first use.
@@ -3601,8 +4168,8 @@ impl SSHConnectionManager {
     fn established_handle_chain(session: &EstablishedSession) -> Vec<&Handle<SSHHandler>> {
         let mut chain: Vec<&Handle<SSHHandler>> =
             Vec::with_capacity(session.jump_handles.len() + usize::from(session.handle.is_some()));
-        chain.extend(session.handle.as_ref());
-        chain.extend(session.jump_handles.iter().rev());
+        chain.extend(session.handle.as_deref());
+        chain.extend(session.jump_handles.iter().rev().map(Arc::as_ref));
         chain
     }
 
@@ -3610,8 +4177,11 @@ impl SSHConnectionManager {
         Self::shutdown_handle_chain(Self::active_handle_chain(&connection)).await;
     }
 
-    async fn shutdown_established_session(session: EstablishedSession) {
+    async fn shutdown_established_session(mut session: EstablishedSession) {
         Self::shutdown_handle_chain(Self::established_handle_chain(&session)).await;
+        // Keep the guard armed across the await so cancelling this explicit
+        // shutdown still leaves an owner to finish the temporary chain.
+        session.unpublished.disarm();
     }
 
     /// Disconnect from a server
@@ -3663,6 +4233,9 @@ impl SSHConnectionManager {
         if !alive {
             return false;
         }
+        if let Some(wsl) = &config.wsl {
+            return super::wsl::is_running(wsl).await;
+        }
         if !config.uses_local_docker() {
             return true;
         }
@@ -3695,13 +4268,14 @@ impl SSHConnectionManager {
             return Ok(None);
         };
 
-        let local_docker = saved
-            .container
-            .as_ref()
-            .is_some_and(|container| container.local);
+        let local_process = saved.wsl.is_some()
+            || saved
+                .container
+                .as_ref()
+                .is_some_and(|container| container.local);
         let auth = match saved.auth_type {
             crate::remote_ssh::types::SavedAuthType::Password => {
-                let password = if local_docker {
+                let password = if local_process {
                     String::new()
                 } else {
                     self.password_vault.load(connection_id).await?.ok_or_else(|| {
@@ -3745,6 +4319,7 @@ impl SSHConnectionManager {
             default_workspace: saved.default_workspace,
             proxy_jump: saved.proxy_jump,
             container: saved.container,
+            wsl: saved.wsl,
             options: saved.options,
         }))
     }
@@ -3857,7 +4432,7 @@ impl SSHConnectionManager {
         // Refresh the password from the encrypted vault if password auth was
         // configured but the in-memory copy is empty (defensive — covers cases
         // where callers cleared it intentionally).
-        if !config.uses_local_docker() {
+        if !config.uses_local_process() {
             if let SSHAuthMethod::Password { ref password } = config.auth {
                 if password.is_empty() {
                     match self.password_vault.load(connection_id).await {
@@ -3878,7 +4453,7 @@ impl SSHConnectionManager {
             }
         }
 
-        let established = self
+        let mut established = self
             .establish_session_with_retries(&config, config.options.connect_timeout_secs.max(1))
             .await?;
         let server_info = established.server_info.clone();
@@ -3892,11 +4467,12 @@ impl SSHConnectionManager {
         // server still counts against its session limit.
         let (stale_handle, stale_jump_handles) = {
             let mut guard = self.connections.write().await;
+            established.unpublished.disarm();
             if let Some(conn) = guard.get_mut(connection_id) {
                 let stale_handle = conn.handle.take();
                 let stale_jump_handles = std::mem::take(&mut conn.jump_handles);
-                conn.handle = established.handle.map(Arc::new);
-                conn.jump_handles = established.jump_handles.into_iter().map(Arc::new).collect();
+                conn.handle = established.handle;
+                conn.jump_handles = established.jump_handles;
                 conn.config = config;
                 conn.effective_config = established.effective_config;
                 conn.alive = established.alive;
@@ -3910,8 +4486,8 @@ impl SSHConnectionManager {
                 let replaced = guard.insert(
                     connection_id.to_string(),
                     ActiveConnection {
-                        handle: established.handle.map(Arc::new),
-                        jump_handles: established.jump_handles.into_iter().map(Arc::new).collect(),
+                        handle: established.handle,
+                        jump_handles: established.jump_handles,
                         config,
                         effective_config: established.effective_config,
                         server_info,
@@ -3976,7 +4552,31 @@ impl SSHConnectionManager {
         command: &str,
         options: SSHCommandOptions,
     ) -> anyhow::Result<SSHCommandResult> {
+        let manager = self.clone();
+        let connection_id = connection_id.to_string();
+        let command = command.to_string();
+        supervise_ssh_command(options, move |options| async move {
+            manager
+                .execute_workspace_command_owned(&connection_id, &command, options)
+                .await
+        })
+        .await
+    }
+
+    async fn execute_workspace_command_owned(
+        &self,
+        connection_id: &str,
+        command: &str,
+        options: SSHCommandOptions,
+    ) -> anyhow::Result<SshCommandOutput> {
         self.ensure_alive_or_reconnect(connection_id).await?;
+        if options
+            .cancellation_token
+            .as_ref()
+            .is_some_and(|token| token.is_cancelled())
+        {
+            return Ok(SshCommandStop::Cancelled.output());
+        }
         let (handle, config) = {
             let guard = self.connections.read().await;
             let connection = guard
@@ -3988,14 +4588,22 @@ impl SSHConnectionManager {
             )
         };
 
-        if config.uses_docker_exec() {
-            let transport = self.open_workspace_stdio(connection_id, command).await?;
+        if config.uses_shell_filesystem() {
+            let mut setup_options = self.workspace_setup_options(connection_id).await;
+            setup_options.timeout_ms = match (setup_options.timeout_ms, options.timeout_ms) {
+                (Some(setup), Some(command)) => Some(setup.min(command)),
+                (setup, command) => setup.or(command),
+            };
+            setup_options.cancellation_token = options.cancellation_token.clone();
+            let transport = self
+                .open_workspace_stdio_with_options(connection_id, command, setup_options)
+                .await?;
             return collect_workspace_command_result(transport, options).await;
         }
         let handle =
             handle.ok_or_else(|| anyhow!("SSH handle is unavailable for {}", connection_id))?;
         let command = workspace_command(&config, command, false);
-        Self::execute_command_internal(&handle, &command, options)
+        Self::execute_command_owned(&handle, &command, options)
             .await
             .map_err(|error| anyhow!("Command execution failed: {}", error))
     }
@@ -4005,6 +4613,71 @@ impl SSHConnectionManager {
         &self,
         connection_id: &str,
         command: &str,
+    ) -> anyhow::Result<russh::Channel<Msg>> {
+        let options = self.workspace_setup_options(connection_id).await;
+        let manager = self.clone();
+        let connection_id = connection_id.to_string();
+        let command = command.to_string();
+        match supervise_ssh_owner(options, move |options| async move {
+            manager.ensure_alive_or_reconnect(&connection_id).await?;
+            let (handle, config) = {
+                let guard = manager.connections.read().await;
+                let connection = guard
+                    .get(&connection_id)
+                    .ok_or_else(|| anyhow!("Connection {} not found", connection_id))?;
+                (
+                    connection.handle.clone(),
+                    connection.effective_config.clone(),
+                )
+            };
+            if config.uses_local_process() {
+                anyhow::bail!("Local Docker and WSL execution do not use an SSH channel");
+            }
+            let handle =
+                handle.ok_or_else(|| anyhow!("SSH handle is unavailable for {}", connection_id))?;
+            Self::open_ssh_exec_channel_owned(
+                &handle,
+                &workspace_command(&config, &command, false),
+                options,
+                None,
+            )
+            .await
+            .map(SshExecChannelHandoff::new)
+        })
+        .await?
+        {
+            SshOwnerOutcome::Finished(result) => result.map(SshExecChannelHandoff::into_channel),
+            SshOwnerOutcome::Stopped(stop, result) => {
+                drop(result);
+                Err(stop.error())
+            }
+        }
+    }
+
+    /// Connect a saved connection if it is not already live, and return once
+    /// the session is usable.
+    ///
+    /// This is the entry point for callers that hold a connection id but do not
+    /// know whether the user ever opened it in this run. It reuses the same
+    /// saved-profile load, reconnect serialization, and config-drift handling
+    /// as every other operation.
+    pub async fn ensure_connected(&self, connection_id: &str) -> anyhow::Result<()> {
+        self.ensure_alive_or_reconnect(connection_id).await
+    }
+
+    /// Open a `direct-tcpip` channel to `host:port` as reached from the remote
+    /// end, which is the transport local port forwarding runs on.
+    ///
+    /// The handle is re-read from the connection map on every call rather than
+    /// cached by the caller: reconnect installs a *new* handle, and a forward
+    /// holding the old one would keep splicing traffic into a dead session.
+    pub async fn open_direct_tcpip(
+        &self,
+        connection_id: &str,
+        host: &str,
+        port: u16,
+        originator_host: &str,
+        originator_port: u16,
     ) -> anyhow::Result<russh::Channel<Msg>> {
         self.ensure_alive_or_reconnect(connection_id).await?;
         let (handle, config) = {
@@ -4017,22 +4690,23 @@ impl SSHConnectionManager {
                 connection.effective_config.clone(),
             )
         };
-        if config.uses_local_docker() {
-            anyhow::bail!("Local Docker execution does not use an SSH channel");
+        if config.uses_local_process() {
+            anyhow::bail!("Local Docker and WSL workspaces have no SSH transport to forward over");
         }
         let handle =
             handle.ok_or_else(|| anyhow!("SSH handle is unavailable for {}", connection_id))?;
-        let command = workspace_command(&config, command, false);
 
-        let channel = handle
-            .channel_open_session()
+        handle
+            .channel_open_direct_tcpip(host, port as u32, originator_host, originator_port as u32)
             .await
-            .map_err(|e| anyhow!("Failed to open SSH exec channel: {}", e))?;
-        channel
-            .exec(true, command.as_str())
-            .await
-            .map_err(|e| anyhow!("Failed to start remote command: {}", e))?;
-        Ok(channel)
+            .map_err(|e| {
+                anyhow!(
+                    "Failed to reach {}:{} from the remote host: {}",
+                    host,
+                    port,
+                    e
+                )
+            })
     }
 
     /// Open a transport-neutral, long-lived stdio process in the effective
@@ -4047,7 +4721,65 @@ impl SSHConnectionManager {
         connection_id: &str,
         command: &str,
     ) -> anyhow::Result<crate::remote_ssh::WorkspaceStdio> {
+        let options = self.workspace_setup_options(connection_id).await;
+        self.open_workspace_stdio_with_options(connection_id, command, options)
+            .await
+    }
+
+    async fn workspace_setup_options(&self, connection_id: &str) -> SSHCommandOptions {
+        let timeout_secs = self
+            .get_effective_connection_config(connection_id)
+            .await
+            .map(|config| config.options.connect_timeout_secs)
+            .unwrap_or_else(|| {
+                crate::remote_ssh::types::SSHConnectionOptions::default().connect_timeout_secs
+            });
+        SSHCommandOptions {
+            timeout_ms: Some(timeout_secs.max(1).saturating_mul(1000)),
+            cancellation_token: None,
+        }
+    }
+
+    async fn open_workspace_stdio_with_options(
+        &self,
+        connection_id: &str,
+        command: &str,
+        options: SSHCommandOptions,
+    ) -> anyhow::Result<crate::remote_ssh::WorkspaceStdio> {
+        let manager = self.clone();
+        let connection_id = connection_id.to_string();
+        let command = command.to_string();
+        match supervise_ssh_owner(options, move |options| async move {
+            manager
+                .open_workspace_stdio_owned(&connection_id, &command, options)
+                .await
+        })
+        .await?
+        {
+            SshOwnerOutcome::Finished(result) => result,
+            SshOwnerOutcome::Stopped(stop, result) => {
+                // A completed stdio value owns its target-aware cleanup hook.
+                // Dropping it here also handles cancellation just after exec.
+                drop(result);
+                Err(stop.error())
+            }
+        }
+    }
+
+    async fn open_workspace_stdio_owned(
+        &self,
+        connection_id: &str,
+        command: &str,
+        options: SSHCommandOptions,
+    ) -> anyhow::Result<crate::remote_ssh::WorkspaceStdio> {
         self.ensure_alive_or_reconnect(connection_id).await?;
+        if options
+            .cancellation_token
+            .as_ref()
+            .is_some_and(|token| token.is_cancelled())
+        {
+            return Err(SshCommandStop::Cancelled.error());
+        }
         let (handle, config) = {
             let guard = self.connections.read().await;
             let connection = guard
@@ -4058,6 +4790,23 @@ impl SSHConnectionManager {
                 connection.effective_config.clone(),
             )
         };
+        if let Some(wsl) = config.wsl {
+            super::wsl::ensure_supported()?;
+            super::wsl::validate(&wsl)?;
+            let (supervised_command, pid_file) = supervised_workspace_command("/bin/sh", command);
+            let signal_config = wsl.clone();
+            let signal_hook: crate::remote_ssh::transport::WorkspaceSignalHook =
+                Arc::new(move |signal| {
+                    let config = signal_config.clone();
+                    let command = container_signal_command(&pid_file, signal);
+                    Box::pin(async move { super::wsl::signal(&config, &command).await })
+                });
+            return crate::remote_ssh::WorkspaceStdio::spawn_local_process_with_signal_hook(
+                super::wsl::EXECUTABLE,
+                &super::wsl::exec_args(&wsl, &supervised_command),
+                Some(signal_hook),
+            );
+        }
         if config.uses_docker_exec() {
             let container = config
                 .container
@@ -4077,15 +4826,15 @@ impl SSHConnectionManager {
             let handle =
                 handle.ok_or_else(|| anyhow!("SSH handle is unavailable for {}", connection_id))?;
             let host_command = docker_exec_host_command(container, &supervised_command, false);
-            let channel = handle
-                .channel_open_session()
-                .await
-                .map_err(|error| anyhow!("Failed to open SSH exec channel: {}", error))?;
-            channel
-                .exec(true, host_command.as_str())
-                .await
-                .map_err(|error| anyhow!("Failed to start remote Docker command: {}", error))?;
-            let signal_hook = remote_container_signal_hook(handle, container.clone(), pid_file);
+            let signal_hook =
+                remote_container_signal_hook(handle.clone(), container.clone(), pid_file);
+            let channel = Self::open_ssh_exec_channel_owned(
+                &handle,
+                &host_command,
+                options,
+                Some(signal_hook.clone()),
+            )
+            .await?;
             return Ok(
                 crate::remote_ssh::WorkspaceStdio::from_ssh_channel_with_signal_hook(
                     channel,
@@ -4094,7 +4843,9 @@ impl SSHConnectionManager {
             );
         }
 
-        let channel = self.open_exec_channel(connection_id, command).await?;
+        let handle =
+            handle.ok_or_else(|| anyhow!("SSH handle is unavailable for {}", connection_id))?;
+        let channel = Self::open_ssh_exec_channel_owned(&handle, command, options, None).await?;
         Ok(crate::remote_ssh::WorkspaceStdio::from_ssh_channel(channel))
     }
 
@@ -4121,8 +4872,8 @@ impl SSHConnectionManager {
                 connection.effective_config.clone(),
             )
         };
-        if config.uses_local_docker() {
-            anyhow::bail!("Local Docker execution does not use an SSH channel");
+        if config.uses_local_process() {
+            anyhow::bail!("Local Docker and WSL execution do not use an SSH channel");
         }
         let handle =
             handle.ok_or_else(|| anyhow!("SSH handle is unavailable for {}", connection_id))?;
@@ -4209,27 +4960,36 @@ impl SSHConnectionManager {
             .map(|connection| connection.effective_config.clone())
     }
 
-    pub async fn is_local_container_connection(&self, connection_id: &str) -> bool {
+    pub async fn is_local_process_connection(&self, connection_id: &str) -> bool {
         self.get_effective_connection_config(connection_id)
             .await
-            .is_some_and(|config| config.uses_local_docker())
+            .is_some_and(|config| config.uses_local_process())
     }
 
-    pub async fn is_container_workspace(&self, connection_id: &str) -> bool {
+    pub async fn is_shell_workspace(&self, connection_id: &str) -> bool {
         self.get_effective_connection_config(connection_id)
             .await
-            .is_some_and(|config| config.uses_docker_exec())
+            .is_some_and(|config| config.uses_shell_filesystem())
     }
 
-    pub async fn local_container_exec_spec(
+    pub async fn local_process_exec_spec(
         &self,
         connection_id: &str,
         command: &str,
         tty: bool,
     ) -> anyhow::Result<Option<(String, Vec<String>)>> {
+        self.ensure_alive_or_reconnect(connection_id).await?;
         let Some(config) = self.get_effective_connection_config(connection_id).await else {
             anyhow::bail!("Connection {} not found", connection_id);
         };
+        if let Some(wsl) = &config.wsl {
+            super::wsl::ensure_supported()?;
+            super::wsl::validate(wsl)?;
+            return Ok(Some((
+                super::wsl::EXECUTABLE.into(),
+                super::wsl::exec_args(wsl, command),
+            )));
+        }
         if !config.uses_local_docker() {
             return Ok(None);
         }
@@ -4244,14 +5004,24 @@ impl SSHConnectionManager {
         )))
     }
 
-    pub async fn local_container_shell_spec(
+    pub async fn local_process_shell_spec(
         &self,
         connection_id: &str,
         cwd: Option<&str>,
     ) -> anyhow::Result<Option<(String, Vec<String>)>> {
+        self.ensure_alive_or_reconnect(connection_id).await?;
         let Some(config) = self.get_effective_connection_config(connection_id).await else {
             anyhow::bail!("Connection {} not found", connection_id);
         };
+        if let Some(wsl) = &config.wsl {
+            super::wsl::ensure_supported()?;
+            super::wsl::validate(wsl)?;
+            super::wsl::validate_cwd(cwd)?;
+            return Ok(Some((
+                super::wsl::EXECUTABLE.into(),
+                super::wsl::shell_args(wsl, cwd),
+            )));
+        }
         if !config.uses_local_docker() {
             return Ok(None);
         }
@@ -4314,6 +5084,99 @@ impl SSHConnectionManager {
     ) -> anyhow::Result<Vec<u8>> {
         self.container_read_file_with_progress(connection_id, path, &mut |_, _| true)
             .await
+    }
+
+    pub async fn open_workspace_file_read(
+        &self,
+        connection_id: &str,
+        path: &str,
+    ) -> anyhow::Result<openbitfun_runtime_ports::WorkspaceReader> {
+        let path = self.resolve_sftp_path(connection_id, path).await?;
+        if self.is_shell_workspace(connection_id).await {
+            let command = format!(
+                "[ -f {0} ] || {{ echo 'Workspace path is not a readable regular file' >&2; exit 1; }}; cat -- {0}",
+                crate::remote_ssh::shell::quote_arg(&path)
+            );
+            let transport = self.open_workspace_stdio(connection_id, &command).await?;
+            return Ok(Box::new(ContainerFileReader::from_transport(transport)));
+        }
+        let sftp = self.get_sftp(connection_id).await?;
+        let file = sftp
+            .open(&path)
+            .await
+            .map_err(anyhow::Error::new)
+            .with_context(|| format!("Failed to open remote file '{path}'"))?;
+        if !file.metadata().await?.file_type().is_file() {
+            anyhow::bail!("Workspace path is not a regular file: {path}");
+        }
+        Ok(Box::new(file))
+    }
+
+    pub async fn set_workspace_file_permissions(
+        &self,
+        connection_id: &str,
+        path: &str,
+        permissions: u32,
+    ) -> anyhow::Result<()> {
+        let path = self.resolve_sftp_path(connection_id, path).await?;
+        if self.is_shell_workspace(connection_id).await {
+            let command = format!(
+                "chmod {:o} -- {}",
+                permissions & 0o7777,
+                crate::remote_ssh::shell::quote_arg(&path)
+            );
+            return self
+                .run_container_fs_command(connection_id, &command, "set permissions", &path)
+                .await;
+        }
+        let sftp = self.get_sftp(connection_id).await?;
+        let attrs = russh_sftp::protocol::FileAttributes {
+            permissions: Some(permissions),
+            ..Default::default()
+        };
+        sftp.set_metadata(&path, attrs)
+            .await
+            .map_err(anyhow::Error::new)
+            .with_context(|| format!("Failed to set remote file permissions: {path}"))
+    }
+
+    pub async fn set_workspace_file_modified(
+        &self,
+        connection_id: &str,
+        path: &str,
+        modified: std::time::SystemTime,
+    ) -> anyhow::Result<()> {
+        let seconds = modified
+            .duration_since(std::time::UNIX_EPOCH)
+            .context("Remote file modification time is before the Unix epoch")?
+            .as_secs();
+        let path = self.resolve_sftp_path(connection_id, path).await?;
+        if self.is_shell_workspace(connection_id).await {
+            let command = format!(
+                "touch -m -d @{} -- {}",
+                seconds,
+                crate::remote_ssh::shell::quote_arg(&path)
+            );
+            return self
+                .run_container_fs_command(connection_id, &command, "set modification time", &path)
+                .await;
+        }
+        let seconds = u32::try_from(seconds)
+            .context("Remote file modification time is outside the SFTP timestamp range")?;
+        let sftp = self.get_sftp(connection_id).await?;
+        let atime = sftp.metadata(&path).await?.atime
+            .context("The SFTP server omitted access time; modification time cannot be changed without overwriting it")?;
+        // SFTP v3 sends access and modification time together. Preserve access
+        // time while avoiding unrelated size, owner or permission updates.
+        let attrs = russh_sftp::protocol::FileAttributes {
+            atime: Some(atime),
+            mtime: Some(seconds),
+            ..Default::default()
+        };
+        sftp.set_metadata(&path, attrs)
+            .await
+            .map_err(anyhow::Error::new)
+            .with_context(|| format!("Failed to set remote file modification time: {path}"))
     }
 
     pub async fn container_read_file_with_progress(
@@ -4383,6 +5246,60 @@ impl SSHConnectionManager {
             .await
     }
 
+    /// Workspace writes preserve the destination inode, mode and link target,
+    /// like local fs::write and SFTP CREATE|TRUNCATE. Generic uploads keep their
+    /// existing atomic replacement contract below.
+    pub async fn write_workspace_file(
+        &self,
+        connection_id: &str,
+        path: &str,
+        content: &[u8],
+    ) -> anyhow::Result<()> {
+        use tokio::io::AsyncWriteExt;
+        if !self.is_shell_workspace(connection_id).await {
+            return self.sftp_write(connection_id, path, content).await;
+        }
+        let path = self.resolve_sftp_path(connection_id, path).await?;
+        let parent = path
+            .rsplit_once('/')
+            .map(|(parent, _)| if parent.is_empty() { "/" } else { parent })
+            .unwrap_or(".");
+        let temporary = format!(
+            "{}/{}-upload-{}.tmp",
+            parent.trim_end_matches('/'),
+            hidden_data_directory(),
+            uuid::Uuid::new_v4()
+        );
+        let command = container_workspace_write_command(&path, &temporary, content.len());
+        let transport = self.open_workspace_stdio(connection_id, &command).await?;
+        let (mut stdin, mut stdout, stderr, _control, completion) = transport.into_parts();
+        // Keep all streams in this future: cancellation drops every lease and
+        // triggers target-aware cleanup instead of detaching reader tasks.
+        let (_, _, stderr) = tokio::try_join!(
+            async {
+                stdin.write_all(content).await?;
+                stdin.shutdown().await
+            },
+            async { tokio::io::copy(&mut stdout, &mut tokio::io::sink()).await },
+            drain_workspace_diagnostics(stderr),
+        )
+        .with_context(|| {
+            format!(
+                "Failed to stream container workspace file '{path}'; write outcome may be partial"
+            )
+        })?;
+        let exit = completion.wait().await;
+        if exit.exit_code != Some(0) {
+            anyhow::bail!(
+                "Failed to write container workspace file '{}': exit_status={:?} {}",
+                path,
+                exit.exit_code,
+                String::from_utf8_lossy(&stderr).trim()
+            );
+        }
+        Ok(())
+    }
+
     pub async fn container_write_file_with_progress(
         &self,
         connection_id: &str,
@@ -4398,8 +5315,9 @@ impl SSHConnectionManager {
             .map(|(parent, _)| if parent.is_empty() { "/" } else { parent })
             .unwrap_or(".");
         let temporary = format!(
-            "{}/.bitfun-upload-{}.tmp",
+            "{}/{}-upload-{}.tmp",
             parent.trim_end_matches('/'),
+            hidden_data_directory(),
             uuid::Uuid::new_v4()
         );
         let quoted_temporary = crate::remote_ssh::shell::quote_arg(&temporary);
@@ -4525,8 +5443,8 @@ impl SSHConnectionManager {
             "test -e {0} || test -L {0}",
             crate::remote_ssh::shell::quote_arg(&path)
         );
-        let (_, _, status) = self.execute_command(connection_id, &command).await?;
-        Ok(status == 0)
+        let (_, stderr, status) = self.execute_command(connection_id, &command).await?;
+        parse_container_exists_output(&path, &stderr, status)
     }
 
     pub async fn container_mkdir(
@@ -4611,6 +5529,83 @@ impl SSHConnectionManager {
         parse_container_file_output(&stdout)
     }
 
+    pub async fn container_workspace_metadata(
+        &self,
+        connection_id: &str,
+        path: &str,
+        follow_symlinks: bool,
+    ) -> anyhow::Result<Option<openbitfun_runtime_ports::WorkspaceMetadata>> {
+        let mut path = self.resolve_sftp_path(connection_id, path).await?;
+        let follow = if follow_symlinks { "-L " } else { "" };
+        // Query stat itself: `test -e` also returns false for inaccessible
+        // parents. Keep those failures distinct from an actual missing path.
+        for followed in 0..=40 {
+            let quoted = crate::remote_ssh::shell::quote_arg(&path);
+            let script = format!(
+            "export LC_ALL=C; if first=$(stat {follow}-c '%f %s %Y %a' -- {quoted} 2>&1); then printf 'hex %s\\n' \"$first\"; \
+             elif second=$(stat {follow}-f '%p %z %m %Lp' {quoted} 2>&1); then printf 'oct %s\\n' \"$second\"; \
+             else case \"$first\" in *': No such file or directory') exit 44;; esac; \
+             case \"$second\" in *': No such file or directory') exit 44;; esac; \
+             printf '%s\\n%s\\n' \"$first\" \"$second\" >&2; exit 1; fi"
+        );
+            let (stdout, stderr, status) =
+                self.execute_workspace_bytes(connection_id, &script).await?;
+            if status == 44 {
+                return Ok(None);
+            }
+            if status != 0 {
+                anyhow::bail!(
+                    "Failed to inspect container path '{}': exit_status={} {}",
+                    path,
+                    status,
+                    String::from_utf8_lossy(&stderr).trim()
+                );
+            }
+            let metadata = parse_workspace_stat_output(std::str::from_utf8(&stdout)?)?;
+            if !follow_symlinks
+                || metadata.kind != openbitfun_runtime_ports::WorkspacePathKind::Symlink
+            {
+                return Ok(Some(metadata));
+            }
+            // BSD stat -L silently falls back to lstat when the referent
+            // cannot be inspected. Inspect the link's target explicitly so
+            // ENOENT stays distinct from permissions, ENOTDIR and link loops.
+            if followed == 40 {
+                anyhow::bail!(
+                    "Too many symbolic links while inspecting container path '{}'",
+                    path
+                );
+            }
+            let (target, stderr, status) = self
+                .execute_workspace_bytes(connection_id, &format!("readlink -- {quoted}"))
+                .await?;
+            if status != 0 {
+                anyhow::bail!(
+                    "Failed to read container symbolic link '{}': exit_status={} {}",
+                    path,
+                    status,
+                    String::from_utf8_lossy(&stderr).trim()
+                );
+            }
+            let target = std::str::from_utf8(&target)?
+                .strip_suffix('\n')
+                .ok_or_else(|| anyhow!("Invalid readlink output for container path '{}'", path))?;
+            if target.is_empty() {
+                anyhow::bail!("Empty symbolic link target for container path '{}'", path);
+            }
+            path = if target.starts_with('/') {
+                target.to_string()
+            } else {
+                let parent = path
+                    .rsplit_once('/')
+                    .map(|(parent, _)| parent)
+                    .unwrap_or(".");
+                format!("{parent}/{target}")
+            };
+        }
+        unreachable!("symbolic link traversal returns at its bound")
+    }
+
     async fn run_container_fs_command(
         &self,
         connection_id: &str,
@@ -4678,11 +5673,7 @@ impl SSHConnectionManager {
     /// so a transient SSH disconnect (e.g. NAT timeout while the user is idly
     /// browsing the remote folder picker) is recovered transparently instead
     /// of cascading into a stale cached SFTP handle that fails forever.
-    pub async fn get_sftp(&self, connection_id: &str) -> anyhow::Result<Arc<SftpSession>> {
-        Ok(self.get_sftp_lease(connection_id).await?.session)
-    }
-
-    async fn get_sftp_lease(&self, connection_id: &str) -> anyhow::Result<SftpSessionLease> {
+    async fn get_sftp(&self, connection_id: &str) -> anyhow::Result<Arc<ManagedSftpSession>> {
         self.ensure_alive_or_reconnect(connection_id).await?;
 
         // Capture the transport and cache from the same connection generation.
@@ -4706,21 +5697,29 @@ impl SSHConnectionManager {
             (handle, connection.sftp_session.clone())
         };
 
-        if let Some(session) = cache.session.read().await.as_ref().cloned() {
-            return Ok(SftpSessionLease {
-                session,
-                cache: cache.clone(),
-            });
+        if let Some(session) = cache
+            .session
+            .read()
+            .await
+            .as_ref()
+            .filter(|session| !session.is_retired())
+            .cloned()
+        {
+            return Ok(session);
         }
 
         // Serialize initialization within one generation so concurrent callers
         // cannot exhaust the server's channel/session limit.
         let _init_guard = cache.init_lock.lock().await;
-        if let Some(session) = cache.session.read().await.as_ref().cloned() {
-            return Ok(SftpSessionLease {
-                session,
-                cache: cache.clone(),
-            });
+        if let Some(session) = cache
+            .session
+            .read()
+            .await
+            .as_ref()
+            .filter(|session| !session.is_retired())
+            .cloned()
+        {
+            return Ok(session);
         }
 
         // Open a channel and request SFTP subsystem
@@ -4737,20 +5736,15 @@ impl SSHConnectionManager {
             .await
             .map_err(|e| anyhow!("Failed to create SFTP session: {}", e))?;
 
-        let sftp = Arc::new(sftp);
+        let sftp = Arc::new(ManagedSftpSession::new(sftp));
         *cache.session.write().await = Some(sftp.clone());
 
-        Ok(SftpSessionLease {
-            session: sftp,
-            cache: cache.clone(),
-        })
+        Ok(sftp)
     }
 
-    /// Get or create the raw SFTP session used by bounded directory reads.
-    ///
-    /// The high-level russh-sftp `read_dir` API buffers until EOF. Keeping a
-    /// separate raw session lets callers stop issuing `readdir` requests as
-    /// soon as their entry budget is satisfied.
+    /// Reuse a dedicated SFTP channel for serialized directory enumeration.
+    /// The high-level API leaks directory handles on errors/cancellation. The
+    /// raw path closes on all exits and can also stop at an entry budget.
     async fn get_bounded_sftp(&self, connection_id: &str) -> anyhow::Result<BoundedSftpSession> {
         self.ensure_alive_or_reconnect(connection_id).await?;
 
@@ -4771,7 +5765,13 @@ impl SSHConnectionManager {
             (handle, connection.bounded_sftp_session.clone())
         };
 
-        let cached_channel = cache.channel.read().await.as_ref().cloned();
+        let cached_channel = cache
+            .channel
+            .read()
+            .await
+            .as_ref()
+            .filter(|channel| !channel.retired.load(Ordering::Acquire))
+            .cloned();
         if let Some(channel) = cached_channel {
             return Ok(BoundedSftpSession {
                 channel,
@@ -4780,7 +5780,13 @@ impl SSHConnectionManager {
         }
 
         let _init_guard = cache.init_lock.lock().await;
-        let cached_channel = cache.channel.read().await.as_ref().cloned();
+        let cached_channel = cache
+            .channel
+            .read()
+            .await
+            .as_ref()
+            .filter(|channel| !channel.retired.load(Ordering::Acquire))
+            .cloned();
         if let Some(channel) = cached_channel {
             return Ok(BoundedSftpSession {
                 channel,
@@ -4802,6 +5808,7 @@ impl SSHConnectionManager {
             .await
             .map_err(|error| anyhow!("Failed to create bounded SFTP session: {}", error))?;
         let channel = Arc::new(BoundedSftpChannel {
+            retired: AtomicBool::new(false),
             session: Arc::new(session),
             read_lock: tokio::sync::Mutex::new(()),
         });
@@ -4830,6 +5837,9 @@ impl SSHConnectionManager {
             .await
             .map_err(|e| anyhow!("Failed to read remote file '{}': {}", path, e))?;
 
+        file.close()
+            .await
+            .context("Failed to close remote file after reading")?;
         Ok(buffer)
     }
 
@@ -4884,6 +5894,9 @@ impl SSHConnectionManager {
         // Ensure final 100% progress is reported even if metadata returned 0.
         on_progress(bytes_read, total);
 
+        file.close()
+            .await
+            .context("Failed to close remote file after reading")?;
         Ok(buffer)
     }
 
@@ -4910,6 +5923,9 @@ impl SSHConnectionManager {
             .await
             .map_err(|e| anyhow!("Failed to flush remote file '{}': {}", path, e))?;
 
+        file.close()
+            .await
+            .context("Failed to close remote file after writing")?;
         Ok(())
     }
 
@@ -4987,6 +6003,10 @@ impl SSHConnectionManager {
             .flush()
             .await
             .map_err(|error| anyhow!("Failed to flush remote file '{}': {}", path, error))?;
+        remote
+            .close()
+            .await
+            .context("Failed to close remote upload file")?;
         Ok(written)
     }
 
@@ -5028,49 +6048,20 @@ impl SSHConnectionManager {
             .await
             .map_err(|e| anyhow!("Failed to flush remote file '{}': {}", path, e))?;
 
+        file.close()
+            .await
+            .context("Failed to close remote file after writing")?;
         Ok(())
     }
 
-    /// Read directory via SFTP.
-    ///
-    /// Retries once after dropping the cached SFTP session and forcing a
-    /// reconnect attempt, so a stale SFTP channel left over from a prior
-    /// network blip does not permanently break the remote folder picker.
-    pub async fn sftp_read_dir(&self, connection_id: &str, path: &str) -> anyhow::Result<ReadDir> {
-        let resolved = self.resolve_sftp_path(connection_id, path).await?;
-        let lease = self.get_sftp_lease(connection_id).await?;
-        match lease.session.read_dir(&resolved).await {
-            Ok(entries) => Ok(entries),
-            Err(first_err) => {
-                let generation_is_current =
-                    self.sftp_generation_is_current(connection_id, &lease).await;
-                if generation_is_current && !sftp_error_may_be_stale_transport(&first_err) {
-                    return Err(anyhow!(
-                        "Failed to read directory '{}': {}",
-                        resolved,
-                        first_err
-                    ));
-                }
-                if generation_is_current {
-                    log::warn!(
-                        "SFTP read_dir '{}' failed (will retry once after refreshing session): {}",
-                        resolved,
-                        first_err
-                    );
-                    self.invalidate_sftp_generation(connection_id, &lease).await;
-                    // Force the alive flag to false so ensure_alive_or_reconnect rebuilds
-                    // the underlying SSH transport too — the previous failure may indicate
-                    // the channel was torn down even though the keepalive callback has not
-                    // fired yet.
-                }
-                let lease = self.get_sftp_lease(connection_id).await?;
-                lease
-                    .session
-                    .read_dir(&resolved)
-                    .await
-                    .map_err(|e| anyhow!("Failed to read directory '{}': {}", resolved, e))
-            }
-        }
+    /// Read a directory with the same handle cleanup as bounded enumeration.
+    pub async fn sftp_read_dir(
+        &self,
+        connection_id: &str,
+        path: &str,
+    ) -> anyhow::Result<Vec<SftpFile>> {
+        self.sftp_read_dir_bounded(connection_id, path, usize::MAX)
+            .await
     }
 
     /// Read at most `max_entries` directory entries without asking the SFTP
@@ -5099,7 +6090,10 @@ impl SSHConnectionManager {
                         first_error
                     ));
                 }
-                if generation_is_current {
+                // A cancelled enumeration may have retired this channel while
+                // another caller waited on its read lock. Replace that SFTP
+                // subsystem without marking the shared SSH transport dead.
+                if generation_is_current && !session.channel.retired.load(Ordering::Acquire) {
                     log::warn!(
                         "Bounded SFTP read_dir '{}' failed (will retry once after refreshing session): {}",
                         resolved,
@@ -5122,12 +6116,17 @@ impl SSHConnectionManager {
         max_entries: usize,
     ) -> Result<Vec<SftpFile>, SftpError> {
         let _read_lock = bounded.channel.read_lock.lock().await;
+        if bounded.channel.retired.load(Ordering::Acquire) {
+            return Err(SftpError::IO("SFTP directory channel was retired".into()));
+        }
         let session = bounded.channel.session.as_ref();
-        let mut read_guard = BoundedSftpReadGuard::new(bounded.channel.session.clone());
+        let mut read_guard = BoundedSftpReadGuard::new(bounded.channel.clone());
         let handle = match session.opendir(path.to_string()).await {
             Ok(handle) => handle.handle,
             Err(error) => {
-                read_guard.disarm();
+                if !sftp_error_may_be_stale_transport(&error) {
+                    read_guard.disarm();
+                }
                 return Err(error);
             }
         };
@@ -5202,38 +6201,6 @@ impl SSHConnectionManager {
         if !cached
             .as_ref()
             .is_some_and(|channel| Arc::ptr_eq(channel, &failed.channel))
-        {
-            return;
-        }
-        *cached = None;
-        connection.alive.store(false, Ordering::SeqCst);
-    }
-
-    async fn sftp_generation_is_current(
-        &self,
-        connection_id: &str,
-        lease: &SftpSessionLease,
-    ) -> bool {
-        self.connections
-            .read()
-            .await
-            .get(connection_id)
-            .is_some_and(|connection| Arc::ptr_eq(&connection.sftp_session, &lease.cache))
-    }
-
-    async fn invalidate_sftp_generation(&self, connection_id: &str, failed: &SftpSessionLease) {
-        let guard = self.connections.read().await;
-        let Some(connection) = guard.get(connection_id) else {
-            return;
-        };
-        if !Arc::ptr_eq(&connection.sftp_session, &failed.cache) {
-            return;
-        }
-
-        let mut cached = failed.cache.session.write().await;
-        if !cached
-            .as_ref()
-            .is_some_and(|session| Arc::ptr_eq(session, &failed.session))
         {
             return;
         }
@@ -5335,10 +6302,10 @@ impl SSHConnectionManager {
     ) -> anyhow::Result<russh_sftp::client::fs::Metadata> {
         let path = self.resolve_sftp_path(connection_id, path).await?;
         let sftp = self.get_sftp(connection_id).await?;
-        sftp.as_ref()
-            .metadata(&path)
-            .await
-            .map_err(|e| anyhow!("Failed to stat '{}': {}", path, e))
+        sftp.as_ref().metadata(&path).await.map_err(|error| {
+            let message = format!("Failed to stat '{}': {}", path, error);
+            anyhow::Error::new(error).context(message)
+        })
     }
 
     /// Get metadata for the exact SFTP path without following its final symlink.
@@ -5543,183 +6510,6 @@ impl PTYSession {
     }
 }
 
-// ============================================================================
-// Port Forwarding
-// ============================================================================
-
-/// Port forwarding entry
-#[derive(Debug, Clone)]
-pub struct PortForward {
-    pub id: String,
-    pub local_port: u16,
-    pub remote_host: String,
-    pub remote_port: u16,
-    pub direction: PortForwardDirection,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PortForwardDirection {
-    Local,   // -L: forward local port to remote
-    Remote,  // -R: forward remote port to local
-    Dynamic, // -D: dynamic SOCKS proxy
-}
-
-/// Port forwarding manager
-pub struct PortForwardManager {
-    forwards: Arc<tokio::sync::RwLock<HashMap<String, PortForward>>>,
-    ssh_manager: Arc<tokio::sync::RwLock<Option<SSHConnectionManager>>>,
-}
-
-impl PortForwardManager {
-    pub fn new() -> Self {
-        Self {
-            forwards: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
-            ssh_manager: Arc::new(tokio::sync::RwLock::new(None)),
-        }
-    }
-
-    pub fn with_ssh_manager(ssh_manager: SSHConnectionManager) -> Self {
-        Self {
-            forwards: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
-            ssh_manager: Arc::new(tokio::sync::RwLock::new(Some(ssh_manager))),
-        }
-    }
-
-    pub async fn set_ssh_manager(&self, manager: SSHConnectionManager) {
-        let mut guard = self.ssh_manager.write().await;
-        *guard = Some(manager);
-    }
-
-    /// Start local port forwarding (-L)
-    ///
-    /// TODO: Full implementation requires:
-    /// - TCP listener to accept local connections
-    /// - SSH channel for each forwarded connection
-    /// - Proper cleanup when stopping the forward
-    ///
-    /// Currently this is a placeholder that only tracks the forward configuration.
-    pub async fn start_local_forward(
-        &self,
-        _connection_id: &str,
-        local_port: u16,
-        remote_host: String,
-        remote_port: u16,
-    ) -> anyhow::Result<String> {
-        let id = uuid::Uuid::new_v4().to_string();
-
-        let forward = PortForward {
-            id: id.clone(),
-            local_port,
-            remote_host: remote_host.clone(),
-            remote_port,
-            direction: PortForwardDirection::Local,
-        };
-
-        // Store forward entry
-        let mut guard = self.forwards.write().await;
-        guard.insert(id.clone(), forward);
-
-        log::info!(
-            "[TODO] Local port forward registered: localhost:{} -> {}:{}",
-            local_port,
-            remote_host,
-            remote_port
-        );
-        log::warn!("Port forwarding is not fully implemented - connections will not be forwarded");
-
-        Ok(id)
-    }
-
-    /// Start remote port forwarding (-R)
-    ///
-    /// TODO: Full implementation requires SSH reverse port forwarding channel.
-    /// This is more complex as it needs to bind to a remote port.
-    pub async fn start_remote_forward(
-        &self,
-        _connection_id: &str,
-        remote_port: u16,
-        local_host: String,
-        local_port: u16,
-    ) -> anyhow::Result<String> {
-        let id = uuid::Uuid::new_v4().to_string();
-
-        let forward = PortForward {
-            id: id.clone(),
-            local_port: remote_port,
-            remote_host: local_host.clone(),
-            remote_port: local_port,
-            direction: PortForwardDirection::Remote,
-        };
-
-        // Remote port forwarding requires SSH channel forwarding
-        // This is a placeholder - full implementation would need:
-        // 1. Open a "reverse" channel on SSH connection
-        // 2. Bind to remote port
-        // 3. Forward connections back through the channel
-
-        let mut guard = self.forwards.write().await;
-        guard.insert(id.clone(), forward);
-
-        log::info!(
-            "Started remote port forward (placeholder): *:{} -> {}:{}",
-            remote_port,
-            local_host,
-            local_port
-        );
-
-        // TODO: Implement actual SSH reverse port forwarding
-        log::warn!("Remote port forwarding is not fully implemented - data will not be forwarded");
-
-        Ok(id)
-    }
-
-    /// Stop a port forward
-    pub async fn stop_forward(&self, forward_id: &str) -> anyhow::Result<()> {
-        let mut guard = self.forwards.write().await;
-        if let Some(forward) = guard.remove(forward_id) {
-            log::info!(
-                "Stopped port forward: {} ({}:{} -> {}:{})",
-                forward.id,
-                match forward.direction {
-                    PortForwardDirection::Local => "local",
-                    PortForwardDirection::Remote => "remote",
-                    PortForwardDirection::Dynamic => "dynamic",
-                },
-                forward.local_port,
-                forward.remote_host,
-                forward.remote_port
-            );
-        }
-        Ok(())
-    }
-
-    /// Stop all port forwards
-    pub async fn stop_all(&self) {
-        let mut guard = self.forwards.write().await;
-        let count = guard.len();
-        guard.drain();
-        log::info!("All {} port forwards stopped", count);
-    }
-
-    /// List all active forwards
-    pub async fn list_forwards(&self) -> Vec<PortForward> {
-        let guard = self.forwards.read().await;
-        guard.values().cloned().collect()
-    }
-
-    /// Check if a port is already forwarded
-    pub async fn is_port_forwarded(&self, port: u16) -> bool {
-        let guard = self.forwards.read().await;
-        guard.values().any(|f| f.local_port == port)
-    }
-}
-
-impl Default for PortForwardManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 fn sftp_mkdir_all_prefixes(path: &str) -> Vec<String> {
     let is_absolute = path.starts_with('/');
     let mut current = String::new();
@@ -5744,6 +6534,1248 @@ fn sftp_mkdir_all_prefixes(path: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod workspace_sftp;
+
+    struct UnpublishedSessionTestServer {
+        opens: usize,
+        delayed_open: Option<usize>,
+        requested: Option<tokio::sync::oneshot::Sender<()>>,
+        release: Option<tokio::sync::oneshot::Receiver<()>>,
+    }
+
+    #[async_trait]
+    impl russh::server::Handler for UnpublishedSessionTestServer {
+        type Error = russh::Error;
+
+        async fn auth_password(
+            &mut self,
+            _user: &str,
+            _password: &str,
+        ) -> Result<russh::server::Auth, Self::Error> {
+            Ok(russh::server::Auth::Accept)
+        }
+
+        async fn channel_open_session(
+            &mut self,
+            _channel: russh::Channel<russh::server::Msg>,
+            _session: &mut russh::server::Session,
+        ) -> Result<bool, Self::Error> {
+            self.opens += 1;
+            if self.delayed_open == Some(self.opens) {
+                let _ = self.requested.take().unwrap().send(());
+                let _ = self.release.take().unwrap().await;
+            }
+            Ok(true)
+        }
+
+        async fn channel_open_direct_tcpip(
+            &mut self,
+            channel: russh::Channel<russh::server::Msg>,
+            host: &str,
+            port: u32,
+            _originator_host: &str,
+            _originator_port: u32,
+            _session: &mut russh::server::Session,
+        ) -> Result<bool, Self::Error> {
+            let mut socket = tokio::net::TcpStream::connect((host, port as u16)).await?;
+            tokio::spawn(async move {
+                let mut stream = channel.into_stream();
+                let _ = tokio::io::copy_bidirectional(&mut stream, &mut socket).await;
+            });
+            Ok(true)
+        }
+
+        async fn exec_request(
+            &mut self,
+            channel: russh::ChannelId,
+            _command: &[u8],
+            session: &mut russh::server::Session,
+        ) -> Result<(), Self::Error> {
+            session.channel_success(channel);
+            session.data(
+                channel,
+                russh::CryptoVec::from_slice(b"Linux\nfixture\n/workspace\n"),
+            );
+            session.exit_status_request(channel, 0);
+            session.eof(channel);
+            session.close(channel);
+            Ok(())
+        }
+    }
+
+    struct UnpublishedSessionFixture {
+        config: SSHConnectionConfig,
+        requested: tokio::sync::oneshot::Receiver<()>,
+        release: tokio::sync::oneshot::Sender<()>,
+        closed: tokio::sync::oneshot::Receiver<()>,
+        server: tokio::task::JoinHandle<()>,
+        proxy: tokio::task::JoinHandle<()>,
+    }
+
+    async fn unpublished_session_fixture(
+        manager: &SSHConnectionManager,
+        delayed_open: Option<usize>,
+    ) -> UnpublishedSessionFixture {
+        use tokio::io::AsyncWriteExt;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let key = KeyPair::generate_ed25519().unwrap();
+        manager
+            .add_known_host(
+                "127.0.0.1".into(),
+                address.port(),
+                &key.clone_public_key().unwrap(),
+            )
+            .await
+            .unwrap();
+        let (requested_tx, requested) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = tokio::sync::oneshot::channel();
+        let (closed_tx, closed) = tokio::sync::oneshot::channel();
+        let (server_stream, proxy_stream) = tokio::io::duplex(65_536);
+        let server = tokio::spawn(async move {
+            let handler = UnpublishedSessionTestServer {
+                opens: 0,
+                delayed_open,
+                requested: Some(requested_tx),
+                release: Some(release_rx),
+            };
+            let config = Arc::new(russh::server::Config {
+                keys: vec![key],
+                ..Default::default()
+            });
+            let session = russh::server::run_stream(config, server_stream, handler)
+                .await
+                .unwrap();
+            let _ = session.await;
+        });
+        // Observe transport EOF independently of the server's deliberately
+        // blocked channel-open handler. Merely releasing that handler would
+        // let an orphaned owner finish and hide the lifetime regression.
+        let proxy = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let (mut socket_read, mut socket_write) = socket.into_split();
+            let (mut server_read, mut server_write) = tokio::io::split(proxy_stream);
+            let inbound = async move {
+                let _ = tokio::io::copy(&mut socket_read, &mut server_write).await;
+                let _ = closed_tx.send(());
+                let _ = server_write.shutdown().await;
+            };
+            let outbound = async move {
+                let _ = tokio::io::copy(&mut server_read, &mut socket_write).await;
+                let _ = socket_write.shutdown().await;
+            };
+            tokio::join!(inbound, outbound);
+        });
+        UnpublishedSessionFixture {
+            config: SSHConnectionConfig {
+                id: format!("unpublished-{}", address.port()),
+                name: "Unpublished SSH fixture".into(),
+                host: "127.0.0.1".into(),
+                port: address.port(),
+                username: "workspace-test".into(),
+                auth: SSHAuthMethod::Password {
+                    password: "test-fixture".into(),
+                },
+                default_workspace: None,
+                proxy_jump: None,
+                container: None,
+                wsl: None,
+                options: Default::default(),
+            },
+            requested,
+            release,
+            closed,
+            server,
+            proxy,
+        }
+    }
+
+    async fn finish_unpublished_fixture(fixture: UnpublishedSessionFixture) {
+        let _ = fixture.release.send(());
+        tokio::time::timeout(Duration::from_secs(5), fixture.server)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), fixture.proxy)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn workspace_unpublished_probe_error_closes_transport_before_late_confirmation() {
+        let temp = tempfile::tempdir().unwrap();
+        let manager = SSHConnectionManager::new(temp.path().into());
+        // Metadata succeeds; the container probe's channel-open never replies.
+        let mut fixture = unpublished_session_fixture(&manager, Some(2)).await;
+        let mut config = fixture.config.clone();
+        config.container = Some(ContainerWorkspaceConfig {
+            name: "fixture".into(),
+            access: ContainerAccess::DockerExec,
+            local: false,
+            docker_path: "docker".into(),
+            shell: "/bin/sh".into(),
+            user: None,
+            interactive: true,
+        });
+        let caller = tokio::spawn(async move { manager.establish_session(&config, 1).await });
+        tokio::time::timeout(Duration::from_secs(5), &mut fixture.requested)
+            .await
+            .unwrap()
+            .unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(6), caller)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            result.is_err(),
+            "the failed container probe must not publish a connection"
+        );
+        tokio::time::timeout(Duration::from_secs(3), &mut fixture.closed)
+            .await
+            .expect("failed temporary transport must close before the late open is released")
+            .unwrap();
+        finish_unpublished_fixture(fixture).await;
+    }
+
+    #[tokio::test]
+    async fn workspace_unpublished_caller_drop_closes_target_and_jump_chain() {
+        let temp = tempfile::tempdir().unwrap();
+        let manager = SSHConnectionManager::new(temp.path().into());
+        let mut first = unpublished_session_fixture(&manager, None).await;
+        let mut second = unpublished_session_fixture(&manager, None).await;
+        let mut target = unpublished_session_fixture(&manager, Some(1)).await;
+        let mut config = target.config.clone();
+        config.proxy_jump = Some(format!(
+            "workspace-test@127.0.0.1:{},workspace-test@127.0.0.1:{}",
+            first.config.port, second.config.port,
+        ));
+        let caller = tokio::spawn(async move { manager.establish_session(&config, 30).await });
+        tokio::time::timeout(Duration::from_secs(10), &mut target.requested)
+            .await
+            .unwrap()
+            .unwrap();
+        caller.abort();
+        assert!(matches!(caller.await, Err(error) if error.is_cancelled()));
+        for closed in [&mut target.closed, &mut second.closed, &mut first.closed] {
+            tokio::time::timeout(Duration::from_secs(5), closed)
+                .await
+                .expect("cancelling an unpublished chain must close target and every jump")
+                .unwrap();
+        }
+        finish_unpublished_fixture(target).await;
+        finish_unpublished_fixture(second).await;
+        finish_unpublished_fixture(first).await;
+    }
+
+    #[tokio::test]
+    async fn workspace_unpublished_guard_is_disarmed_after_publication() {
+        let temp = tempfile::tempdir().unwrap();
+        let manager = SSHConnectionManager::new(temp.path().into());
+        let mut fixture = unpublished_session_fixture(&manager, None).await;
+        let id = fixture.config.id.clone();
+        assert!(
+            manager
+                .connect_with_timeout(fixture.config.clone(), 2)
+                .await
+                .unwrap()
+                .success
+        );
+        let result = manager
+            .execute_command_with_options(
+                &id,
+                "published command",
+                SSHCommandOptions {
+                    timeout_ms: Some(2_000),
+                    cancellation_token: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.exit_code, 0);
+        assert!(result.stdout.contains("/workspace"));
+        assert!(matches!(
+            fixture.closed.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        manager.disconnect(&id).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(3), &mut fixture.closed)
+            .await
+            .unwrap()
+            .unwrap();
+        finish_unpublished_fixture(fixture).await;
+    }
+
+    #[tokio::test]
+    async fn workspace_command_owner_survives_caller_drop_until_cleanup_finishes() {
+        let parent = tokio_util::sync::CancellationToken::new();
+        let executions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let resource_dropped = Arc::new(AtomicBool::new(false));
+        struct CommandResource(Arc<AtomicBool>);
+        impl Drop for CommandResource {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (cancelled_tx, cancelled_rx) = tokio::sync::oneshot::channel();
+        let (finish_cleanup_tx, finish_cleanup_rx) = tokio::sync::oneshot::channel();
+        let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
+        let observed_executions = executions.clone();
+        let observed_resource = resource_dropped.clone();
+        let options = SSHCommandOptions {
+            timeout_ms: None,
+            cancellation_token: Some(parent.clone()),
+        };
+        let caller = tokio::spawn(supervise_ssh_command(options, move |options| async move {
+            let resource = CommandResource(observed_resource);
+            observed_executions.fetch_add(1, Ordering::SeqCst);
+            started_tx.send(()).unwrap();
+            options.cancellation_token.unwrap().cancelled().await;
+            cancelled_tx.send(()).unwrap();
+            // Model asynchronous INT/drain/close work that must remain owned
+            // after the caller's timeout drops its future.
+            finish_cleanup_rx.await.unwrap();
+            drop(resource);
+            finished_tx.send(()).unwrap();
+            Ok(SshCommandStop::Cancelled.output())
+        }));
+        tokio::time::timeout(Duration::from_secs(2), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        caller.abort();
+        assert!(caller.await.unwrap_err().is_cancelled());
+        tokio::time::timeout(Duration::from_secs(2), cancelled_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!resource_dropped.load(Ordering::SeqCst));
+        assert!(
+            !parent.is_cancelled(),
+            "a cancelled command must not cancel sibling commands or its turn"
+        );
+        finish_cleanup_tx.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), finished_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(resource_dropped.load(Ordering::SeqCst));
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn workspace_command_owner_observes_parent_cancellation_and_preserves_results() {
+        let parent = tokio_util::sync::CancellationToken::new();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let options = SSHCommandOptions {
+            timeout_ms: Some(1234),
+            cancellation_token: Some(parent.clone()),
+        };
+        let caller = tokio::spawn(supervise_ssh_command(options, move |options| async move {
+            assert_eq!(options.timeout_ms, Some(1234));
+            started_tx.send(()).unwrap();
+            options.cancellation_token.unwrap().cancelled().await;
+            let mut result = SshCommandStop::Cancelled.result();
+            result.stdout = "partial output".into();
+            result.stderr = "interrupted by caller".into();
+            Ok(SshCommandOutput {
+                result,
+                exit_status_received: false,
+            })
+        }));
+        tokio::time::timeout(Duration::from_secs(2), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        parent.cancel();
+        let result = tokio::time::timeout(Duration::from_secs(2), caller)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(result.interrupted);
+        assert!(!result.timed_out);
+        assert_eq!(result.exit_code, 130);
+        assert_eq!(result.stdout, "partial output");
+        assert_eq!(result.stderr, "interrupted by caller");
+    }
+
+    #[tokio::test]
+    async fn workspace_command_owner_keeps_normal_and_unlimited_call_behavior() {
+        let result = supervise_ssh_command(SSHCommandOptions::default(), |options| async move {
+            assert!(options.timeout_ms.is_none());
+            assert!(!options.cancellation_token.unwrap().is_cancelled());
+            Ok(SshCommandOutput {
+                result: SSHCommandResult {
+                    stdout: "done".into(),
+                    stderr: "diagnostic".into(),
+                    exit_code: 7,
+                    interrupted: false,
+                    timed_out: false,
+                },
+                exit_status_received: true,
+            })
+        })
+        .await
+        .unwrap();
+        assert_eq!(result.exit_code, 7);
+        assert_eq!(result.stdout, "done");
+        assert_eq!(result.stderr, "diagnostic");
+        assert!(!result.interrupted && !result.timed_out);
+        let error = supervise_ssh_command(SSHCommandOptions::default(), |_| async {
+            Err(anyhow!("transport disconnected"))
+        })
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("transport disconnected"));
+    }
+
+    #[tokio::test]
+    async fn workspace_command_deadline_cancels_owner_immediately_and_keeps_timeout_reason() {
+        let started_at = Instant::now();
+        let result = supervise_ssh_command(
+            SSHCommandOptions {
+                timeout_ms: Some(30),
+                cancellation_token: None,
+            },
+            |options| async move {
+                tokio::time::timeout(
+                    Duration::from_millis(500),
+                    options.cancellation_token.unwrap().cancelled(),
+                )
+                .await
+                .expect("deadline must cancel before the owner-drain grace expires");
+                let mut result = SshCommandStop::Cancelled.result();
+                result.stdout = "partial output".into();
+                Ok(SshCommandOutput {
+                    result,
+                    exit_status_received: false,
+                })
+            },
+        )
+        .await
+        .unwrap();
+        assert!(started_at.elapsed() < SSH_COMMAND_OWNER_DRAIN_GRACE);
+        assert_eq!(result.stdout, "partial output");
+        assert_eq!(result.exit_code, 124);
+        assert!(result.timed_out);
+        assert!(!result.interrupted);
+    }
+
+    #[tokio::test]
+    async fn workspace_command_supervisor_preserves_real_exit_codes_when_stopped() {
+        for stop in [SshCommandStop::Cancelled, SshCommandStop::TimedOut] {
+            for exit_code in [-1, 124, 130] {
+                let cancellation = tokio_util::sync::CancellationToken::new();
+                let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+                let caller = tokio::spawn(supervise_ssh_command(
+                    SSHCommandOptions {
+                        timeout_ms: (stop == SshCommandStop::TimedOut).then_some(30),
+                        cancellation_token: Some(cancellation.clone()),
+                    },
+                    move |options| async move {
+                        let _ = started_tx.send(());
+                        options.cancellation_token.unwrap().cancelled().await;
+                        Ok(SshCommandOutput {
+                            result: SSHCommandResult {
+                                stdout: "partial output".into(),
+                                stderr: String::new(),
+                                exit_code,
+                                interrupted: true,
+                                timed_out: false,
+                            },
+                            exit_status_received: true,
+                        })
+                    },
+                ));
+                started_rx.await.unwrap();
+                if stop == SshCommandStop::Cancelled {
+                    cancellation.cancel();
+                }
+                let result = tokio::time::timeout(Duration::from_secs(2), caller)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(result.exit_code, exit_code);
+                assert_eq!(result.stdout, "partial output");
+                assert_eq!(result.interrupted, stop == SshCommandStop::Cancelled);
+                assert_eq!(result.timed_out, stop == SshCommandStop::TimedOut);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_command_phase_honors_stop_before_polling_or_while_pending() {
+        let cancelled = tokio_util::sync::CancellationToken::new();
+        cancelled.cancel();
+        let mut polled = false;
+        let outcome = await_ssh_command_phase(
+            std::future::poll_fn(|_| {
+                polled = true;
+                std::task::Poll::Ready(())
+            }),
+            Some(&cancelled),
+            None,
+        )
+        .await;
+        assert_eq!(outcome, Err(SshCommandStop::Cancelled));
+        assert!(
+            !polled,
+            "a pre-cancelled command must not open a channel or submit exec"
+        );
+        let outcome = await_ssh_command_phase(
+            std::future::pending::<()>(),
+            None,
+            Some(Instant::now() + Duration::from_millis(1)),
+        )
+        .await;
+        assert_eq!(outcome, Err(SshCommandStop::TimedOut));
+        let outcome = await_ssh_command_phase(std::future::ready(17), None, None).await;
+        assert_eq!(outcome, Ok(17));
+
+        let token = tokio_util::sync::CancellationToken::new();
+        let worker_token = token.clone();
+        let (pending_tx, pending_rx) = tokio::sync::oneshot::channel();
+        let worker = tokio::spawn(async move {
+            await_ssh_command_phase(
+                async {
+                    pending_tx.send(()).unwrap();
+                    std::future::pending::<()>().await
+                },
+                Some(&worker_token),
+                None,
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), pending_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        token.cancel();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), worker)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(SshCommandStop::Cancelled)
+        );
+    }
+
+    struct DelayedWorkspaceOpenServer {
+        first_open: Option<(
+            tokio::sync::oneshot::Sender<russh::ChannelId>,
+            tokio::sync::oneshot::Receiver<()>,
+        )>,
+        closed: tokio::sync::mpsc::UnboundedSender<russh::ChannelId>,
+        executions: Arc<std::sync::atomic::AtomicUsize>,
+        keep_exec_open: bool,
+    }
+
+    #[async_trait]
+    impl russh::server::Handler for DelayedWorkspaceOpenServer {
+        type Error = russh::Error;
+
+        async fn auth_none(&mut self, _user: &str) -> Result<russh::server::Auth, Self::Error> {
+            Ok(russh::server::Auth::Accept)
+        }
+
+        async fn channel_open_session(
+            &mut self,
+            channel: russh::Channel<russh::server::Msg>,
+            _session: &mut russh::server::Session,
+        ) -> Result<bool, Self::Error> {
+            if let Some((requested, release)) = self.first_open.take() {
+                requested.send(channel.id()).unwrap();
+                release.await.unwrap();
+            }
+            Ok(true)
+        }
+
+        async fn channel_close(
+            &mut self,
+            channel: russh::ChannelId,
+            _session: &mut russh::server::Session,
+        ) -> Result<(), Self::Error> {
+            let _ = self.closed.send(channel);
+            Ok(())
+        }
+
+        async fn exec_request(
+            &mut self,
+            channel: russh::ChannelId,
+            _data: &[u8],
+            session: &mut russh::server::Session,
+        ) -> Result<(), Self::Error> {
+            self.executions.fetch_add(1, Ordering::SeqCst);
+            session.channel_success(channel);
+            if self.keep_exec_open {
+                return Ok(());
+            }
+            session.data(
+                channel,
+                russh::CryptoVec::from_slice(b"sibling command output"),
+            );
+            session.exit_status_request(channel, 0);
+            session.eof(channel);
+            session.close(channel);
+            Ok(())
+        }
+    }
+
+    async fn assert_workspace_late_open_is_closed(stop: SshCommandStop, docker_setup: bool) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (requested_tx, requested_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let (closed_tx, mut closed_rx) = tokio::sync::mpsc::unbounded_channel();
+        let executions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let server = DelayedWorkspaceOpenServer {
+            first_open: Some((requested_tx, release_rx)),
+            closed: closed_tx,
+            executions: executions.clone(),
+            keep_exec_open: false,
+        };
+        let server_config = Arc::new(russh::server::Config {
+            keys: vec![KeyPair::generate_ed25519().unwrap()],
+            ..Default::default()
+        });
+        let server_task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            russh::server::run_stream(server_config, socket, server)
+                .await
+                .unwrap()
+                .await
+        });
+        let mut handle = russh::client::connect(
+            Arc::new(russh::client::Config::default()),
+            address,
+            SSHHandler::with_verify_callback(|_, _, _| true),
+        )
+        .await
+        .unwrap();
+        assert!(handle.authenticate_none("workspace-test").await.unwrap());
+        let handle = Arc::new(handle);
+        let cancellation = tokio_util::sync::CancellationToken::new();
+        let options = SSHCommandOptions {
+            timeout_ms: (stop == SshCommandStop::TimedOut).then_some(1_000),
+            cancellation_token: Some(cancellation.clone()),
+        };
+        let owner_handle = handle.clone();
+        let fixture = tempfile::tempdir().unwrap();
+        let caller = if docker_setup {
+            let manager = SSHConnectionManager::new(fixture.path().into());
+            let config = SSHConnectionConfig {
+                id: "workspace-late-open".into(),
+                name: "loopback SSH fixture".into(),
+                host: "127.0.0.1".into(),
+                port: address.port(),
+                username: "workspace-test".into(),
+                auth: SSHAuthMethod::Agent {
+                    key_fingerprint: None,
+                    fallback_key_path: None,
+                },
+                default_workspace: None,
+                proxy_jump: None,
+                container: Some(ContainerWorkspaceConfig {
+                    name: "fixture".into(),
+                    access: ContainerAccess::DockerExec,
+                    local: false,
+                    docker_path: "docker".into(),
+                    shell: "/bin/sh".into(),
+                    user: None,
+                    interactive: true,
+                }),
+                wsl: None,
+                options: Default::default(),
+            };
+            manager.connections.write().await.insert(
+                config.id.clone(),
+                ActiveConnection {
+                    handle: Some(owner_handle),
+                    jump_handles: Vec::new(),
+                    config: config.clone(),
+                    effective_config: config,
+                    server_info: None,
+                    sftp_session: Arc::new(SftpCache::new()),
+                    bounded_sftp_session: Arc::new(BoundedSftpCache::new()),
+                    server_key: None,
+                    alive: Arc::new(AtomicBool::new(true)),
+                },
+            );
+            tokio::spawn(async move {
+                manager
+                    .execute_command_with_options(
+                        "workspace-late-open",
+                        "must never execute",
+                        options,
+                    )
+                    .await
+            })
+        } else {
+            // Exercise the formerly unsupervised internal entry directly.
+            tokio::spawn(async move {
+                SSHConnectionManager::execute_command_internal(
+                    &owner_handle,
+                    "must never execute",
+                    options,
+                )
+                .await
+            })
+        };
+        let late_channel = tokio::time::timeout(Duration::from_secs(5), requested_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        let confirmation_delayed_at = Instant::now();
+        if stop == SshCommandStop::Cancelled {
+            cancellation.cancel();
+        }
+        let result = tokio::time::timeout(Duration::from_secs(8), caller)
+            .await
+            .expect("caller must finish without waiting for channel-open confirmation")
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.exit_code, stop.result().exit_code);
+        assert_eq!(result.interrupted, stop == SshCommandStop::Cancelled);
+        assert_eq!(result.timed_out, stop == SshCommandStop::TimedOut);
+        assert!(confirmation_delayed_at.elapsed() >= SSH_COMMAND_INTERRUPT_DRAIN_GRACE);
+        assert_eq!(executions.load(Ordering::SeqCst), 0);
+
+        // Confirmation arrives only after the caller has returned, beyond the
+        // old 500ms cleanup window. The detached owner must still send CLOSE.
+        release_tx.send(()).unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), closed_rx.recv())
+                .await
+                .expect("late confirmation must be closed rather than orphaned"),
+            Some(late_channel)
+        );
+        assert_eq!(executions.load(Ordering::SeqCst), 0);
+        assert!(
+            !handle.is_closed(),
+            "cleanup must preserve the shared connection"
+        );
+
+        let sibling_handle = handle.clone();
+        let sibling = SSHConnectionManager::execute_command_internal(
+            &sibling_handle,
+            "sibling command",
+            SSHCommandOptions {
+                timeout_ms: Some(2_000),
+                cancellation_token: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(sibling.exit_code, 0);
+        assert_eq!(sibling.stdout, "sibling command output");
+        assert!(!sibling.interrupted && !sibling.timed_out);
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+        handle
+            .disconnect(russh::Disconnect::ByApplication, "test finished", "")
+            .await
+            .unwrap();
+        let server_result = tokio::time::timeout(Duration::from_secs(5), server_task)
+            .await
+            .expect("test transport must close")
+            .unwrap();
+        assert_fixture_server_disconnected(server_result);
+    }
+
+    #[tokio::test]
+    async fn workspace_command_cancel_closes_late_confirmation_without_executing() {
+        assert_workspace_late_open_is_closed(SshCommandStop::Cancelled, false).await;
+    }
+
+    #[tokio::test]
+    async fn workspace_command_timeout_closes_late_confirmation_without_executing() {
+        assert_workspace_late_open_is_closed(SshCommandStop::TimedOut, false).await;
+    }
+
+    #[tokio::test]
+    async fn workspace_docker_setup_cancel_closes_late_confirmation_without_executing() {
+        assert_workspace_late_open_is_closed(SshCommandStop::Cancelled, true).await;
+    }
+
+    #[tokio::test]
+    async fn workspace_docker_setup_timeout_closes_late_confirmation_without_executing() {
+        assert_workspace_late_open_is_closed(SshCommandStop::TimedOut, true).await;
+    }
+
+    #[tokio::test]
+    async fn workspace_exec_channel_closes_when_completed_handoff_is_not_consumed() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (closed_tx, mut closed_rx) = tokio::sync::mpsc::unbounded_channel();
+        let server = DelayedWorkspaceOpenServer {
+            first_open: None,
+            closed: closed_tx,
+            executions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            keep_exec_open: true,
+        };
+        let server_config = Arc::new(russh::server::Config {
+            keys: vec![KeyPair::generate_ed25519().unwrap()],
+            ..Default::default()
+        });
+        let server_task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            russh::server::run_stream(server_config, socket, server)
+                .await
+                .unwrap()
+                .await
+        });
+        let mut handle = russh::client::connect(
+            Arc::new(russh::client::Config::default()),
+            address,
+            SSHHandler::with_verify_callback(|_, _, _| true),
+        )
+        .await
+        .unwrap();
+        assert!(handle.authenticate_none("workspace-test").await.unwrap());
+        let handle = Arc::new(handle);
+        let owner_handle = handle.clone();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let mut caller = Box::pin(supervise_ssh_owner(
+            SSHCommandOptions::default(),
+            move |options| async move {
+                let channel = SSHConnectionManager::open_ssh_exec_channel_owned(
+                    &owner_handle,
+                    "hold open",
+                    options,
+                    None,
+                )
+                .await
+                .unwrap();
+                let handoff = SshExecChannelHandoff::new(channel);
+                ready_tx
+                    .send(handoff.channel.as_ref().unwrap().id())
+                    .unwrap();
+                handoff
+            },
+        ));
+        // Start the owner, but never poll the supervisor again to consume its
+        // result. On this current-thread runtime, the owner completes in the
+        // same poll that sends ready_tx, before this test resumes.
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(caller.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        let channel_id = tokio::time::timeout(Duration::from_secs(5), ready_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        drop(caller);
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), closed_rx.recv())
+                .await
+                .unwrap(),
+            Some(channel_id)
+        );
+        assert!(
+            !handle.is_closed(),
+            "abandoning one handoff must not disconnect siblings"
+        );
+        handle
+            .disconnect(russh::Disconnect::ByApplication, "fixture complete", "en")
+            .await
+            .unwrap();
+        let server_result = tokio::time::timeout(Duration::from_secs(5), server_task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_fixture_server_disconnected(server_result);
+    }
+
+    fn assert_fixture_server_disconnected(result: Result<(), russh::Error>) {
+        // Only used after the assertions and an explicit client disconnect.
+        // russh may observe the closing transport before the disconnect frame;
+        // Darwin reports that race as ConnectionReset instead of UnexpectedEof.
+        match result {
+            Ok(()) => {}
+            Err(russh::Error::IO(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::ConnectionReset
+                ) => {}
+            Err(error) => panic!("SSH fixture failed during disconnect: {error:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    async fn shell_workspace_provider_fixture(
+        root: &std::path::Path,
+    ) -> (SSHConnectionManager, crate::remote_ssh::RemoteWorkspaceFs) {
+        use std::os::unix::fs::PermissionsExt;
+        // Execute the actual Docker command adapter against a local POSIX shell.
+        // This covers the shell/stream protocol, not an installed Docker daemon.
+        let executable = root.join("docker shell fixture");
+        std::fs::write(&executable, "#!/bin/sh\ncase \"$1\" in\ninspect) printf true;;\nexec) shift; [ \"$1\" != -i ] || shift; [ \"$1\" = fixture ] || exit 90; shift; exec \"$@\";;\n*) exit 91;;\nesac\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let config = SSHConnectionConfig {
+            id: "workspace-shell-fixture".into(),
+            name: "Workspace shell fixture".into(),
+            host: String::new(),
+            port: 22,
+            username: String::new(),
+            auth: SSHAuthMethod::Agent {
+                key_fingerprint: None,
+                fallback_key_path: None,
+            },
+            default_workspace: None,
+            proxy_jump: None,
+            container: Some(ContainerWorkspaceConfig {
+                name: "fixture".into(),
+                access: ContainerAccess::DockerExec,
+                local: true,
+                docker_path: executable.to_string_lossy().into_owned(),
+                shell: "/bin/sh".into(),
+                user: None,
+                interactive: true,
+            }),
+            wsl: None,
+            options: Default::default(),
+        };
+        let manager = SSHConnectionManager::new(root.join("manager-data"));
+        manager.connections.write().await.insert(
+            config.id.clone(),
+            ActiveConnection {
+                handle: None,
+                jump_handles: Vec::new(),
+                config: config.clone(),
+                effective_config: config,
+                server_info: None,
+                sftp_session: Arc::new(SftpCache::new()),
+                bounded_sftp_session: Arc::new(BoundedSftpCache::new()),
+                server_key: None,
+                alive: Arc::new(AtomicBool::new(true)),
+            },
+        );
+        let file_service = crate::remote_ssh::RemoteFileService::new(Arc::new(
+            tokio::sync::RwLock::new(Some(manager.clone())),
+        ));
+        let provider = crate::remote_ssh::RemoteWorkspaceFs::new(
+            "workspace-shell-fixture".into(),
+            file_service,
+        );
+        (manager, provider)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_container_metadata_preserves_errors_and_follows_links() {
+        use openbitfun_runtime_ports::{WorkspaceFileSystem, WorkspacePathKind};
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let temp = tempfile::tempdir().unwrap();
+        let (_manager, provider) = shell_workspace_provider_fixture(temp.path()).await;
+        let target = temp.path().join("target");
+        let file_link = temp.path().join("file-link");
+        let directory = temp.path().join("directory");
+        let directory_link = temp.path().join("directory-link");
+        let dangling = temp.path().join("dangling");
+        std::fs::write(&target, b"target").unwrap();
+        std::fs::create_dir(&directory).unwrap();
+        symlink(&target, &file_link).unwrap();
+        symlink(&directory, &directory_link).unwrap();
+        symlink(temp.path().join("missing"), &dangling).unwrap();
+        assert!(provider.is_file(file_link.to_str().unwrap()).await.unwrap());
+        assert!(provider
+            .is_dir(directory_link.to_str().unwrap())
+            .await
+            .unwrap());
+        assert_eq!(
+            provider
+                .path_kind_no_follow(file_link.to_str().unwrap())
+                .await
+                .unwrap(),
+            Some(WorkspacePathKind::Symlink)
+        );
+        assert_eq!(
+            provider
+                .path_kind_no_follow(dangling.to_str().unwrap())
+                .await
+                .unwrap(),
+            Some(WorkspacePathKind::Symlink)
+        );
+        assert!(!provider.exists(dangling.to_str().unwrap()).await.unwrap());
+        // readlink emits its own final newline. Removing it must preserve all
+        // whitespace that belongs to the link target, including trailing LF.
+        let unusual_name = "missing ' target\\name \n\n";
+        std::fs::write(temp.path().join(unusual_name.trim_end()), b"wrong target").unwrap();
+        std::fs::write(
+            temp.path().join(unusual_name.trim_end_matches('\n')),
+            b"wrong newline target",
+        )
+        .unwrap();
+        let unusual_link = temp.path().join("unusual-target-link");
+        symlink(unusual_name, &unusual_link).unwrap();
+        let chained_link = temp.path().join("chained-link");
+        symlink("unusual-target-link", &chained_link).unwrap();
+        assert!(!provider
+            .exists(unusual_link.to_str().unwrap())
+            .await
+            .unwrap());
+        assert!(!provider
+            .exists(chained_link.to_str().unwrap())
+            .await
+            .unwrap());
+        let loop_link = temp.path().join("loop-link");
+        symlink(&loop_link, &loop_link).unwrap();
+        assert!(provider.exists(loop_link.to_str().unwrap()).await.is_err());
+        assert_eq!(
+            provider
+                .path_kind_no_follow(loop_link.to_str().unwrap())
+                .await
+                .unwrap(),
+            Some(WorkspacePathKind::Symlink)
+        );
+        assert!(!provider
+            .exists(temp.path().join("missing").to_str().unwrap())
+            .await
+            .unwrap());
+        let invalid_parent = target.join("child").to_string_lossy().into_owned();
+        assert!(provider.exists(&invalid_parent).await.is_err());
+        assert!(provider.is_file(&invalid_parent).await.is_err());
+        assert!(provider.is_dir(&invalid_parent).await.is_err());
+        assert!(provider.path_kind_no_follow(&invalid_parent).await.is_err());
+
+        let denied = directory.join("hidden");
+        let denied_link = temp.path().join("denied-link");
+        std::fs::write(&denied, b"hidden").unwrap();
+        symlink(&denied, &denied_link).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // Root CI runners can bypass POSIX mode checks; the invalid-parent
+        // assertions above still require error preservation on every runner.
+        let access_denied = std::fs::metadata(&denied).is_err();
+        let exists = provider.exists(denied.to_str().unwrap()).await;
+        let kind = provider.path_kind_no_follow(denied.to_str().unwrap()).await;
+        let linked_exists = provider.exists(denied_link.to_str().unwrap()).await;
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        if access_denied {
+            assert!(
+                exists.is_err(),
+                "permission failures must not become absent files"
+            );
+            assert!(
+                kind.is_err(),
+                "no-follow metadata must preserve permission failures"
+            );
+            assert!(
+                linked_exists.is_err(),
+                "a link to an inaccessible target must not look absent"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_container_write_preserves_inode_links_and_modes_without_changing_uploads() {
+        use openbitfun_runtime_ports::WorkspaceFileSystem;
+        use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
+        let temp = tempfile::tempdir().unwrap();
+        let (manager, provider) = shell_workspace_provider_fixture(temp.path()).await;
+        let target = temp.path().join("target");
+        let link = temp.path().join("link ' with\\name\nline");
+        let hardlink = temp.path().join("hardlink");
+        std::fs::write(&target, b"original").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o751)).unwrap();
+        symlink(&target, &link).unwrap();
+        std::fs::hard_link(&target, &hardlink).unwrap();
+        let before = std::fs::metadata(&target).unwrap();
+        provider
+            .write_file(link.to_str().unwrap(), b"replacement\0bytes")
+            .await
+            .unwrap();
+        let after = std::fs::metadata(&target).unwrap();
+        assert_eq!(before.ino(), after.ino());
+        assert_eq!(after.permissions().mode() & 0o7777, 0o751);
+        assert!(std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read(&target).unwrap(), b"replacement\0bytes");
+        assert_eq!(std::fs::read(&hardlink).unwrap(), b"replacement\0bytes");
+        provider
+            .write_file(target.to_str().unwrap(), b"")
+            .await
+            .unwrap();
+        assert_eq!(std::fs::metadata(&target).unwrap().ino(), before.ino());
+        assert!(std::fs::read(&target).unwrap().is_empty());
+        let created = temp.path().join("nested/new file");
+        provider
+            .write_file(created.to_str().unwrap(), b"new file")
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&created).unwrap(), b"new file");
+
+        // The independent upload contract continues replacing its destination.
+        manager
+            .container_write_file(
+                "workspace-shell-fixture",
+                link.to_str().unwrap(),
+                b"uploaded",
+            )
+            .await
+            .unwrap();
+        assert!(!std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read(&link).unwrap(), b"uploaded");
+        assert!(std::fs::read(&target).unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_container_write_rejects_incomplete_transfer_before_touching_target() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("target");
+        let staged = temp.path().join(".openbitfun-upload-test.tmp");
+        std::fs::write(&target, b"preserved").unwrap();
+        let command = container_workspace_write_command(
+            target.to_str().unwrap(),
+            staged.to_str().unwrap(),
+            100,
+        );
+        let transport =
+            crate::remote_ssh::WorkspaceStdio::spawn_local_process("sh", &["-c".into(), command])
+                .unwrap();
+        let (mut stdin, mut stdout, mut stderr, _control, completion) = transport.into_parts();
+        stdin.write_all(b"incomplete").await.unwrap();
+        stdin.shutdown().await.unwrap();
+        let mut output = Vec::new();
+        let mut diagnostics = String::new();
+        stdout.read_to_end(&mut output).await.unwrap();
+        stderr.read_to_string(&mut diagnostics).await.unwrap();
+        assert_eq!(completion.wait().await.exit_code, Some(65));
+        assert!(diagnostics.contains("incomplete"));
+        assert_eq!(std::fs::read(&target).unwrap(), b"preserved");
+        assert!(!staged.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_container_write_stops_after_signal_between_staging_and_commit() {
+        use std::os::unix::fs::PermissionsExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("target");
+        let staged = temp.path().join(".openbitfun-upload-test.tmp");
+        let wc = temp.path().join("wc");
+        std::fs::write(&target, b"preserved").unwrap();
+        // wc is called only after staging is complete. Signal the writing
+        // shell while it waits for this successful size-check subprocess;
+        // the trap must exit instead of proceeding into target redirection.
+        std::fs::write(
+            &wc,
+            "#!/bin/sh\ncat >/dev/null\nkill -TERM \"$OPENBITFUN_TEST_WRITE_PID\"\nprintf '8\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&wc, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!(
+            "{}:{}",
+            temp.path().display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+        let command = format!(
+            "OPENBITFUN_TEST_WRITE_PID=$$; export OPENBITFUN_TEST_WRITE_PID; PATH={}; export PATH; {}",
+            crate::remote_ssh::shell::quote_arg(&path),
+            container_workspace_write_command(
+                target.to_str().unwrap(),
+                staged.to_str().unwrap(),
+                8
+            )
+        );
+        let transport =
+            crate::remote_ssh::WorkspaceStdio::spawn_local_process("sh", &["-c".into(), command])
+                .unwrap();
+        let (mut stdin, mut stdout, mut stderr, _control, completion) = transport.into_parts();
+        stdin.write_all(b"modified").await.unwrap();
+        stdin.shutdown().await.unwrap();
+        let mut output = Vec::new();
+        let mut diagnostics = Vec::new();
+        stdout.read_to_end(&mut output).await.unwrap();
+        stderr.read_to_end(&mut diagnostics).await.unwrap();
+        assert_eq!(completion.wait().await.exit_code, Some(143));
+        assert_eq!(std::fs::read(&target).unwrap(), b"preserved");
+        assert!(!staged.exists());
+    }
+
+    #[test]
+    fn workspace_metadata_parses_permissions_and_rejects_malformed_stat() {
+        use openbitfun_runtime_ports::WorkspacePathKind;
+        let gnu = parse_workspace_stat_output("hex 81a4 7 1700000000 644\n").unwrap();
+        let bsd = parse_workspace_stat_output("oct 100644 7 1700000000 644\n").unwrap();
+        assert_eq!(gnu, bsd);
+        assert_eq!(gnu.kind, WorkspacePathKind::File);
+        assert_eq!(gnu.size, Some(7));
+        assert_eq!(gnu.permissions, Some(0o644));
+        assert!(gnu.modified.is_some());
+        assert_eq!(
+            parse_workspace_stat_output("oct 120777 7 -1 777")
+                .unwrap()
+                .kind,
+            WorkspacePathKind::Symlink
+        );
+        assert!(parse_workspace_stat_output("hex 81a4 7 unknown 644").is_err());
+        assert!(parse_workspace_stat_output("").is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_container_reader_streams_bytes_and_checks_exit_status() {
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+        let transport = crate::remote_ssh::WorkspaceStdio::spawn_local_process(
+            "sh",
+            &["-c".to_string(), "printf 'a\\000b'".to_string()],
+        )
+        .unwrap();
+        let mut reader = ContainerFileReader::from_transport(transport);
+        let seek_error = reader.seek(std::io::SeekFrom::Start(0)).await.unwrap_err();
+        assert_eq!(seek_error.kind(), std::io::ErrorKind::Unsupported);
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).await.unwrap();
+        assert_eq!(bytes, b"a\0b");
+
+        let transport = crate::remote_ssh::WorkspaceStdio::spawn_local_process(
+            "sh",
+            &[
+                "-c".to_string(),
+                "printf partial; printf denied >&2; exit 13".to_string(),
+            ],
+        )
+        .unwrap();
+        let mut reader = ContainerFileReader::from_transport(transport);
+        let mut bytes = Vec::new();
+        let error = reader.read_to_end(&mut bytes).await.unwrap_err();
+        assert_eq!(bytes, b"partial");
+        assert!(error.to_string().contains("Some(13)"), "{error}");
+        assert!(error.to_string().contains("denied"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_container_reader_drop_cancels_backpressured_child() {
+        let transport = crate::remote_ssh::WorkspaceStdio::spawn_local_process(
+            "sh",
+            &[
+                "-c".to_string(),
+                "while :; do printf 'stream content\\n'; done".to_string(),
+            ],
+        )
+        .unwrap();
+        let reader = ContainerFileReader::from_transport(transport);
+        let completion = reader.completion.clone();
+        drop(reader);
+        tokio::time::timeout(Duration::from_secs(5), completion.wait())
+            .await
+            .expect("dropping reader must release all streams and stop the child");
+    }
     use crate::remote_ssh::types::RemoteWorkspace;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -5767,7 +7799,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "bitfun-remote-ssh-manager-{}-{}-{}",
+            "openbitfun-remote-ssh-manager-{}-{}-{}",
             name,
             std::process::id(),
             nanos
@@ -5791,6 +7823,7 @@ mod tests {
             default_workspace: Some("/srv/project".to_string()),
             proxy_jump: None,
             container: None,
+            wsl: None,
             options: Default::default(),
         };
         let alive = Arc::new(AtomicBool::new(true));
@@ -5897,8 +7930,8 @@ mod tests {
         // The whole point of the pid file is cancellation, so removing one that
         // is still in use silently breaks interrupt/kill for a command that may
         // legitimately run for hours. Liveness, never age.
-        let live = format!("/tmp/.bitfun-exec-live-{}.pid", uuid::Uuid::new_v4());
-        let dead = format!("/tmp/.bitfun-exec-dead-{}.pid", uuid::Uuid::new_v4());
+        let live = format!("/tmp/.openbitfun-exec-live-{}.pid", uuid::Uuid::new_v4());
+        let dead = format!("/tmp/.openbitfun-exec-dead-{}.pid", uuid::Uuid::new_v4());
         std::fs::write(&live, std::process::id().to_string()).expect("write live pid file");
         // Reaped immediately, so its pid is guaranteed not to be running.
         let mut corpse = std::process::Command::new("true")
@@ -5959,7 +7992,7 @@ mod tests {
         let signal =
             container_signal_command(&pid_file, crate::remote_ssh::WorkspaceProcessSignal::Kill);
 
-        assert!(pid_file.starts_with("/tmp/.bitfun-exec-"));
+        assert!(pid_file.starts_with("/tmp/.openbitfun-exec-"));
         assert!(wrapped.contains("setsid '/bin/bash' -lc"));
         assert!(wrapped.contains("exec 9<&0 || exit 1"));
         assert!(wrapped.contains("<&9 &"));
@@ -5988,7 +8021,7 @@ mod tests {
         let wrapped = supervised_container_command_with_pid_file(
             &container,
             "read value; printf 'stdin:%s' \"$value\"",
-            "/tmp/.bitfun-exec-stdin-contract.pid",
+            "/tmp/.openbitfun-exec-stdin-contract.pid",
         );
         let mut child = std::process::Command::new("sh")
             .args(["-lc", &wrapped])
@@ -6030,7 +8063,7 @@ mod tests {
         let wrapped = supervised_container_command_with_pid_file(
             &container,
             "printf 'compatible'",
-            "/dev/null/bitfun-exec.pid",
+            "/dev/null/openbitfun-exec.pid",
         );
         let output = std::process::Command::new("sh")
             .args(["-lc", &wrapped])
@@ -6099,6 +8132,25 @@ mod tests {
     }
 
     #[test]
+    fn container_exists_retains_transport_and_command_errors() {
+        assert!(parse_container_exists_output("/workspace/file", "", 0).unwrap());
+        assert!(!parse_container_exists_output("/workspace/missing", "", 1).unwrap());
+        for (status, stderr) in [
+            (1, "Error response from daemon: No such container"),
+            (2, "Permission denied"),
+            (125, "Cannot connect to the Docker daemon"),
+            (126, "Shell is not executable"),
+            (127, ""),
+        ] {
+            let error = parse_container_exists_output("/workspace/file", stderr, status)
+                .expect_err("container failures must not be treated as missing files")
+                .to_string();
+            assert!(error.contains(&format!("status {status}")));
+            assert!(error.contains(stderr));
+        }
+    }
+
+    #[test]
     fn only_transport_sftp_errors_trigger_a_reconnect() {
         let status = |status_code| {
             SftpError::Status(russh_sftp::protocol::Status {
@@ -6122,9 +8174,9 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires BITFUN_TEST_DOCKER_CONTAINER to name a running container"]
+    #[ignore = "requires OPENBITFUN_TEST_DOCKER_CONTAINER to name a running container"]
     async fn local_docker_workspace_round_trip() {
-        let Ok(container_name) = std::env::var("BITFUN_TEST_DOCKER_CONTAINER") else {
+        let Ok(container_name) = std::env::var("OPENBITFUN_TEST_DOCKER_CONTAINER") else {
             return;
         };
         let dir = test_data_dir("local-docker-round-trip");
@@ -6144,7 +8196,7 @@ mod tests {
                     passphrase: None,
                     certificate_path: None,
                 },
-                default_workspace: Some("/tmp/bitfun-remote-workspace".to_string()),
+                default_workspace: Some("/tmp/openbitfun-remote-workspace".to_string()),
                 proxy_jump: None,
                 container: Some(ContainerWorkspaceConfig {
                     name: container_name,
@@ -6155,6 +8207,7 @@ mod tests {
                     user: None,
                     interactive: true,
                 }),
+                wsl: None,
                 options: Default::default(),
             })
             .await
@@ -6184,7 +8237,7 @@ mod tests {
         }
 
         manager
-            .container_mkdir(connection_id, "/tmp/bitfun-remote-workspace", true)
+            .container_mkdir(connection_id, "/tmp/openbitfun-remote-workspace", true)
             .await
             .unwrap();
         let cancellation = tokio_util::sync::CancellationToken::new();
@@ -6196,7 +8249,7 @@ mod tests {
         let cancelled_command = manager
             .execute_command_with_options(
                 connection_id,
-                "trap '' INT; sleep 30; touch /tmp/bitfun-remote-workspace/cancel-leaked",
+                "trap '' INT; sleep 30; touch /tmp/openbitfun-remote-workspace/cancel-leaked",
                 SSHCommandOptions {
                     timeout_ms: Some(5_000),
                     cancellation_token: Some(cancellation),
@@ -6208,23 +8261,26 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(
             !manager
-                .container_exists(connection_id, "/tmp/bitfun-remote-workspace/cancel-leaked")
+                .container_exists(
+                    connection_id,
+                    "/tmp/openbitfun-remote-workspace/cancel-leaked"
+                )
                 .await
                 .unwrap(),
             "cancelled Docker command must not continue inside the container"
         );
-        let original = b"BitFun container workspace\0binary";
+        let original = b"OpenBitFun container workspace\0binary";
         manager
             .container_write_file(
                 connection_id,
-                "/tmp/bitfun-remote-workspace/source.bin",
+                "/tmp/openbitfun-remote-workspace/source.bin",
                 original,
             )
             .await
             .unwrap();
         assert_eq!(
             manager
-                .container_read_file(connection_id, "/tmp/bitfun-remote-workspace/source.bin")
+                .container_read_file(connection_id, "/tmp/openbitfun-remote-workspace/source.bin")
                 .await
                 .unwrap(),
             original
@@ -6232,7 +8288,7 @@ mod tests {
         manager
             .container_write_file(
                 connection_id,
-                "/tmp/bitfun-remote-workspace/atomic.bin",
+                "/tmp/openbitfun-remote-workspace/atomic.bin",
                 original,
             )
             .await
@@ -6241,7 +8297,7 @@ mod tests {
         let cancelled = manager
             .container_write_file_with_progress(
                 connection_id,
-                "/tmp/bitfun-remote-workspace/atomic.bin",
+                "/tmp/openbitfun-remote-workspace/atomic.bin",
                 &replacement,
                 &mut |written, _| written < 262_144,
             )
@@ -6250,7 +8306,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(
             manager
-                .container_read_file(connection_id, "/tmp/bitfun-remote-workspace/atomic.bin")
+                .container_read_file(connection_id, "/tmp/openbitfun-remote-workspace/atomic.bin")
                 .await
                 .unwrap(),
             original,
@@ -6259,19 +8315,22 @@ mod tests {
         manager
             .container_rename(
                 connection_id,
-                "/tmp/bitfun-remote-workspace/source.bin",
-                "/tmp/bitfun-remote-workspace/renamed.bin",
+                "/tmp/openbitfun-remote-workspace/source.bin",
+                "/tmp/openbitfun-remote-workspace/renamed.bin",
             )
             .await
             .unwrap();
         let entries = manager
-            .container_read_dir(connection_id, "/tmp/bitfun-remote-workspace")
+            .container_read_dir(connection_id, "/tmp/openbitfun-remote-workspace")
             .await
             .unwrap();
         assert!(entries.iter().any(|entry| entry.name == "renamed.bin"));
         assert_eq!(
             manager
-                .container_stat(connection_id, "/tmp/bitfun-remote-workspace/renamed.bin")
+                .container_stat(
+                    connection_id,
+                    "/tmp/openbitfun-remote-workspace/renamed.bin"
+                )
                 .await
                 .unwrap()
                 .and_then(|entry| entry.size),
@@ -6280,13 +8339,16 @@ mod tests {
         manager
             .container_remove(
                 connection_id,
-                "/tmp/bitfun-remote-workspace/renamed.bin",
+                "/tmp/openbitfun-remote-workspace/renamed.bin",
                 false,
             )
             .await
             .unwrap();
         assert!(!manager
-            .container_exists(connection_id, "/tmp/bitfun-remote-workspace/renamed.bin")
+            .container_exists(
+                connection_id,
+                "/tmp/openbitfun-remote-workspace/renamed.bin"
+            )
             .await
             .unwrap());
 
@@ -6295,15 +8357,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retains_legacy_password_connection_and_workspace_without_vault_entry() {
-        let dir = test_data_dir("legacy-missing-vault");
+    async fn retains_password_connection_and_workspace_without_vault_entry() {
+        let dir = test_data_dir("missing-vault-entry");
         tokio::fs::create_dir_all(&dir).await.unwrap();
         let manager = SSHConnectionManager::new(dir.clone());
 
         tokio::fs::write(
             dir.join("ssh_connections.json"),
             serde_json::to_string_pretty(&serde_json::json!([{
-                "id": "ssh-root@example.com:22",
+                "id": "ssh-root@example.com",
                 "name": "root@example.com",
                 "host": "example.com",
                 "port": 22,
@@ -6319,7 +8381,7 @@ mod tests {
         tokio::fs::write(
             dir.join("remote_workspace.json"),
             serde_json::to_string_pretty(&serde_json::json!([{
-                "connectionId": "ssh-root@example.com:22",
+                "connectionId": "ssh-root@example.com",
                 "remotePath": "/root/project",
                 "connectionName": "root@example.com",
                 "sshHost": "example.com"
@@ -6340,13 +8402,38 @@ mod tests {
         assert_eq!(saved.len(), 1);
         assert_eq!(saved[0].id, "ssh-root@example.com");
         assert_eq!(saved[0].default_workspace.as_deref(), Some("/root/project"));
-        assert!(saved[0].proxy_jump.is_none());
-        assert!(saved[0].container.is_none());
         assert!(removed.is_empty());
         let workspaces = manager.get_remote_workspaces().await;
         assert_eq!(workspaces.len(), 1);
         assert_eq!(workspaces[0].connection_id, "ssh-root@example.com");
         assert_eq!(workspaces[0].remote_path, "/root/project");
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn rejects_single_remote_workspace_object() {
+        let dir = test_data_dir("single-remote-workspace-object");
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let manager = SSHConnectionManager::new(dir.clone());
+
+        tokio::fs::write(
+            dir.join("remote_workspace.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "connectionId": "ssh-root@example.com",
+                "remotePath": "/root/project",
+                "connectionName": "root@example.com",
+                "sshHost": "example.com"
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let error = manager.load_remote_workspace().await.unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Failed to parse remote workspaces"));
+        assert!(manager.get_remote_workspaces().await.is_empty());
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 
@@ -6369,6 +8456,7 @@ mod tests {
                 default_workspace: None,
                 proxy_jump: None,
                 container: None,
+                wsl: None,
                 options: Default::default(),
             })
             .await;
@@ -6397,6 +8485,7 @@ mod tests {
                 default_workspace: Some("/root/project".to_string()),
                 proxy_jump: Some("jump-a,jump-b".to_string()),
                 container: None,
+                wsl: None,
                 options: Default::default(),
             })
             .await
@@ -6486,6 +8575,7 @@ mod tests {
                 default_workspace: Some("/workspace".to_string()),
                 proxy_jump: Some("jump.example.com".to_string()),
                 container: None,
+                wsl: None,
                 options: Default::default(),
             })
             .await
@@ -6530,6 +8620,7 @@ mod tests {
                 default_workspace: None,
                 proxy_jump: None,
                 container: None,
+                wsl: None,
                 options: Default::default(),
             })
             .await
@@ -6584,14 +8675,14 @@ mod tests {
     #[test]
     fn mkdir_all_prefixes_expand_absolute_posix_path() {
         assert_eq!(
-            sftp_mkdir_all_prefixes("/home/wgq/workspace/bot_detection/.bitfun/bin"),
+            sftp_mkdir_all_prefixes("/home/wgq/workspace/bot_detection/.openbitfun/bin"),
             vec![
                 "/home".to_string(),
                 "/home/wgq".to_string(),
                 "/home/wgq/workspace".to_string(),
                 "/home/wgq/workspace/bot_detection".to_string(),
-                "/home/wgq/workspace/bot_detection/.bitfun".to_string(),
-                "/home/wgq/workspace/bot_detection/.bitfun/bin".to_string(),
+                "/home/wgq/workspace/bot_detection/.openbitfun".to_string(),
+                "/home/wgq/workspace/bot_detection/.openbitfun/bin".to_string(),
             ]
         );
     }

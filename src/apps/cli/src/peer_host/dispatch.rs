@@ -2,14 +2,16 @@
 
 use serde_json::{json, Value};
 
-use bitfun_core::service::remote_connect::remote_server::RemoteResponse;
+use openbitfun_core::service::remote_connect::remote_server::RemoteResponse;
 
 use super::commands;
 use super::control::{
     attach_controller, detach_controller, parse_controller_device_id, peer_mode_ping_value,
 };
-use super::deny::{is_cli_unsupported_command, is_local_only_command};
 use super::state::peer_host_state;
+use openbitfun_product_domains::remote_surface::{
+    peer_host_verdict, PeerHostKind, PeerHostVerdict,
+};
 
 #[derive(Debug, Clone)]
 struct HostInvokeBridgeResult {
@@ -52,49 +54,16 @@ pub(crate) async fn handle_host_invoke(command: &str, args: Value) -> RemoteResp
 }
 
 async fn handle_host_invoke_inner(command: &str, args: Value) -> HostInvokeBridgeResult {
-    if command.is_empty() {
-        return HostInvokeBridgeResult::err("HostInvoke command is empty");
-    }
-
-    // Detached dispatch is target-owned and must not acquire a Peer controller
-    // lease. Route the distinct target command family directly to the durable
-    // CLI runner before applying the generic HostInvoke deny list.
-    if let Some(verb) = dispatch_target_verb(command) {
-        return match crate::dispatch::run_dispatch_verb(verb, args).await {
-            Ok(value) => HostInvokeBridgeResult::ok_value(value),
-            Err(error) => HostInvokeBridgeResult::err(format!("{error:#}")),
-        };
-    }
-
-    // Control plane — same special-case path as desktop execute_local_remote_command.
-    if command == "peer_control_attach" {
-        let controller_id = parse_controller_device_id(&args);
-        if controller_id.trim().is_empty() {
-            return HostInvokeBridgeResult::err("controller_device_id is required");
+    // The Product Operation Registry decides what this host may run on a
+    // controller's behalf. The verdict order (empty, retired, control plane,
+    // controller-owned, unsupported here, execute, unknown) is the registry's,
+    // shared with the desktop peer host and the generated frontend tables.
+    match peer_host_verdict(command, PeerHostKind::Cli) {
+        PeerHostVerdict::Refuse(refusal) => {
+            return HostInvokeBridgeResult::err(refusal.message(command));
         }
-        if let Err(error) = attach_controller(controller_id).await {
-            return HostInvokeBridgeResult::err(error);
-        }
-        return HostInvokeBridgeResult::ok_value(json!({ "attached": true }));
-    }
-    if command == "peer_control_detach" {
-        let controller_id = parse_controller_device_id(&args);
-        detach_controller(&controller_id).await;
-        return HostInvokeBridgeResult::ok_value(json!({ "detached": true }));
-    }
-    if command == "peer_mode_ping" {
-        return HostInvokeBridgeResult::ok_value(peer_mode_ping_value());
-    }
-
-    if is_local_only_command(command) {
-        return HostInvokeBridgeResult::err(format!(
-            "command '{command}' is local-only and cannot run on peer"
-        ));
-    }
-    if is_cli_unsupported_command(command) {
-        return HostInvokeBridgeResult::err(format!(
-            "command '{command}' is not supported on CLI peer host"
-        ));
+        PeerHostVerdict::HostControlPlane => return handle_control_plane(command, args).await,
+        PeerHostVerdict::Execute => {}
     }
 
     let state = match peer_host_state() {
@@ -105,6 +74,42 @@ async fn handle_host_invoke_inner(command: &str, args: Value) -> HostInvokeBridg
     match commands::dispatch(command, &args, state).await {
         Ok(value) => HostInvokeBridgeResult::ok_value(value),
         Err(error) => HostInvokeBridgeResult::err(error),
+    }
+}
+
+/// Control-plane commands are answered before any product dispatch and never
+/// acquire a Peer controller lease for a product command.
+async fn handle_control_plane(command: &str, args: Value) -> HostInvokeBridgeResult {
+    // Detached dispatch is target-owned. Route the distinct target command
+    // family directly to the durable CLI runner.
+    if let Some(verb) = dispatch_target_verb(command) {
+        return match crate::dispatch::run_dispatch_verb(verb, args).await {
+            Ok(value) => HostInvokeBridgeResult::ok_value(value),
+            Err(error) => HostInvokeBridgeResult::err(format!("{error:#}")),
+        };
+    }
+
+    // Same special-case path as desktop execute_local_remote_command.
+    match command {
+        "peer_control_attach" => {
+            let controller_id = parse_controller_device_id(&args);
+            if controller_id.trim().is_empty() {
+                return HostInvokeBridgeResult::err("controller_device_id is required");
+            }
+            if let Err(error) = attach_controller(controller_id).await {
+                return HostInvokeBridgeResult::err(error);
+            }
+            HostInvokeBridgeResult::ok_value(json!({ "attached": true }))
+        }
+        "peer_control_detach" => {
+            let controller_id = parse_controller_device_id(&args);
+            detach_controller(&controller_id).await;
+            HostInvokeBridgeResult::ok_value(json!({ "detached": true }))
+        }
+        "peer_mode_ping" => HostInvokeBridgeResult::ok_value(peer_mode_ping_value()),
+        other => HostInvokeBridgeResult::err(format!(
+            "command '{other}' is registered as peer host control plane but this CLI build has no handler for it"
+        )),
     }
 }
 
@@ -136,6 +141,7 @@ pub(crate) fn handle_device_event_command() -> RemoteResponse {
 
 #[cfg(test)]
 mod tests {
+    use super::super::deny::{is_cli_unsupported_command, is_local_only_command};
     use super::*;
 
     #[tokio::test]
@@ -205,6 +211,24 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn retired_lsp_commands_fail_before_peer_state_or_command_dispatch() {
+        let resp = handle_host_invoke("lsp_open_workspace", json!({})).await;
+        match resp {
+            RemoteResponse::HostInvokeResult {
+                ok: false,
+                value: None,
+                error: Some(err),
+            } => {
+                assert_eq!(
+                    err,
+                    "command 'lsp_open_workspace' is unsupported because the OpenBitFun LSP runtime has been retired"
+                );
+            }
+            other => panic!("unexpected response: {other:?}"),
+        }
+    }
+
     #[test]
     fn detached_dispatch_uses_a_distinct_target_command_family() {
         assert_eq!(
@@ -240,7 +264,85 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn attach_detach_updates_subscribers() {
+    async fn cli_unsupported_commands_keep_the_legacy_prefix_and_add_a_reason() {
+        let resp = handle_host_invoke("terminal_list", json!({})).await;
+        match resp {
+            RemoteResponse::HostInvokeResult {
+                ok: false,
+                error: Some(err),
+                ..
+            } => {
+                assert!(
+                    err.starts_with("command 'terminal_list' is not supported on CLI peer host"),
+                    "{err}"
+                );
+                assert!(err.contains(": "), "reason must be appended: {err}");
+            }
+            other => panic!("unexpected response: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn browser_control_is_unsupported_not_local_only_on_cli() {
+        let resp = handle_host_invoke("browser_control_launch", json!({})).await;
+        match resp {
+            RemoteResponse::HostInvokeResult {
+                ok: false,
+                error: Some(err),
+                ..
+            } => {
+                assert!(err.contains("is not supported on CLI peer host"), "{err}");
+                assert!(!err.contains("local-only"), "{err}");
+            }
+            other => panic!("unexpected response: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_command_reports_host_version_mismatch() {
+        let resp = handle_host_invoke("not_an_openbitfun_command", json!({})).await;
+        match resp {
+            RemoteResponse::HostInvokeResult {
+                ok: false,
+                error: Some(err),
+                ..
+            } => {
+                assert!(
+                    err.contains("is unknown to this OpenBitFun CLI peer host version"),
+                    "{err}"
+                );
+                assert!(!err.contains("is not supported on CLI peer host"), "{err}");
+            }
+            other => panic!("unexpected response: {other:?}"),
+        }
+    }
+
+    /// `cancel_tool` and `get_all_tools_info` were previously unimplemented on
+    /// the CLI peer host, so a controller rendering a CLI Peer session saw an
+    /// ineffective Interrupt button and an empty tool list. They are now
+    /// implemented in `commands::dialog::cancel_tool` and
+    /// `commands::tools::get_all_tools_info`; this test pins that neither is
+    /// refused by the local-only or CLI-unsupported gate before reaching the
+    /// implemented handler. A future regression that removes the handler but
+    /// leaves the command routable would land in the unsupported fallthrough
+    /// branch, not here — that is caught by the capability advertisement +
+    /// frontend gate instead.
+    #[test]
+    fn interactive_tools_and_tool_catalog_are_not_refused_before_dispatch() {
+        for command in ["cancel_tool", "get_all_tools_info", "submit_user_answers"] {
+            assert!(
+                !is_local_only_command(command),
+                "{command} must be routable to the peer host"
+            );
+            assert!(
+                !is_cli_unsupported_command(command),
+                "{command} must reach its implemented handler, not the unsupported gate"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn attach_detach_only_updates_delivery_subscribers() {
         let _ = handle_host_invoke(
             "peer_control_attach",
             json!({ "controller_device_id": "ctrl-test-1" }),

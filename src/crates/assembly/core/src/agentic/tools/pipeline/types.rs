@@ -96,7 +96,7 @@ pub struct ToolExecutionContext {
     pub permission_delegation: Option<PermissionDelegationContext>,
     pub(crate) delegation_policy: DelegationPolicy,
     pub deferred_tools: Vec<String>,
-    pub loaded_deferred_tool_specs: Vec<bitfun_agent_tools::LoadedDeferredToolSpec>,
+    pub loaded_deferred_tool_specs: Vec<openbitfun_agent_tools::LoadedDeferredToolSpec>,
     /// Allowed tools list (whitelist)
     /// If empty, allow all registered tools
     /// If not empty, only allow tools in the list to be executed
@@ -131,6 +131,9 @@ pub struct ToolTask {
     pub created_at: SystemTime,
     pub started_at: Option<SystemTime>,
     pub completed_at: Option<SystemTime>,
+    /// Tool-owned signal for ending a yieldable call at a round-injection
+    /// boundary. This is deliberately distinct from ordinary cancellation.
+    pub round_injection_preemption_token: Option<CancellationToken>,
 }
 
 impl ToolTask {
@@ -167,6 +170,7 @@ impl ToolTask {
             created_at: SystemTime::now(),
             started_at: None,
             completed_at: None,
+            round_injection_preemption_token: None,
         }
     }
 

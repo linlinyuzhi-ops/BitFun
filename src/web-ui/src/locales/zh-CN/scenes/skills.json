@@ -1,7 +1,7 @@
 {
   "nav": {
     "title": "技能",
-    "summary": "在本地已安装技能与外部技能市场之间快速切换查看。",
+    "summary": "在本地已安装技能与外部技能市场之间快速切换查看",
     "anchors": {
       "installed": "已安装技能",
       "market": "技能市场"
@@ -23,12 +23,14 @@
   },
   "page": {
     "title": "技能",
-    "subtitle": "统一管理已安装技能，并从外部技能市场发现更多可复用能力。",
+    "subtitle": "统一管理已安装技能，并从外部技能市场发现更多可复用能力",
     "searchPlaceholder": "搜索已安装技能和市场技能..."
   },
   "installed": {
     "titleAll": "已安装技能",
+    "titleListAll": "全部技能",
     "subtitleAll": "管理所有已安装的用户级和项目级技能",
+    "titleBuiltin": "内置技能",
     "titleUser": "用户级技能",
     "subtitleUser": "全局安装的用户级技能",
     "titleProject": "项目级技能",
@@ -37,7 +39,7 @@
   "toolbar": {
     "searchPlaceholder": "搜索技能...",
     "addTooltip": "添加技能",
-    "hideDuplicates": "重复项"
+    "hideDuplicates": "隐藏重复项"
   },
   "filters": {
     "all": "全部",
@@ -102,18 +104,21 @@
   },
   "suite": {
     "title": "技能套件",
-    "subtitle": "选择一个模式后，可一键控制各组 Skill 的可见性；也可逐个调整 Skill 后按组保存。",
+    "subtitle": "选择一个模式后，可一键控制各组 Skill 的可见性；也可逐个调整 Skill 后按组保存",
     "modeLabel": "模式",
     "refreshTooltip": "刷新当前模式",
     "refreshAction": "刷新",
     "loading": "正在加载技能套件...",
-    "empty": "当前没有可用的 Skill。",
+    "empty": "当前没有可用的 Skill",
     "groups": {
       "office": "Office",
       "computerUse": "Computer Use",
       "meta": "Meta",
       "miniapp": "MiniApp",
       "canvas": "画布",
+      "debugging": "调试",
+      "coordination": "协作调度",
+      "planning": "规划",
       "gstack": "gstack",
       "other": "其他"
     },
@@ -125,14 +130,12 @@
     "manageGroups": "管理 Skill 分组",
     "modes": {
       "agentic": "agentic",
-      "cowork": "Cowork",
-      "team": "Team"
+      "cowork": "Cowork"
     },
     "modeDescriptions": {
       "agentic": "偏编码的默认模式",
       "cowork": "办公协作模式",
-      "claw": "助理模式",
-      "team": "团队模式"
+      "claw": "助理模式"
     },
     "modeActions": {
       "reset": "重置 {{mode}}",
@@ -202,8 +205,14 @@
     "errorPrefix": "加载失败: ",
     "loadFailed": "技能加载失败",
     "retry": "重试",
-    "desktopUnavailable": "请在桌面端管理技能。",
+    "desktopUnavailable": "请在桌面端管理技能",
     "remoteUnavailable": "远程连接时暂不支持管理技能。",
+    "columns": {
+      "source": "来源",
+      "level": "级别",
+      "status": "状态",
+      "actions": "操作"
+    },
     "empty": {
       "noMatch": "没有找到匹配的技能",
       "noSkills": "还没有配置任何技能"

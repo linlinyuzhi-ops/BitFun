@@ -1,7 +1,8 @@
+import { Button } from '@openbitfun/ui';
 import React, { useCallback, useMemo, useState } from 'react';
-import { Check, Copy, Download, FilePenLine, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Button, Tooltip } from '@/component-library';
+import { Tooltip, Icon } from '@openbitfun/ui';
 import { notificationService } from '@/shared/notification-system';
 import { createMarkdownEditorTab } from '@/shared/utils/tabUtils';
 import { downloadMarkdownInBrowser } from '@/shared/utils/browserDownload';
@@ -185,12 +186,11 @@ export const CodeReviewReportExportActions: React.FC<CodeReviewReportExportActio
         {visibleActions.has('open') && (
           <Button
             type="button"
-            variant="secondary"
-            size="small"
-            className="code-review-report-actions__footer-button"
+            variant="outline"
+            size="sm"
+            leadingIcon={<Icon name="edit" size="md" />}
             onClick={handleOpenInEditor}
           >
-            <FilePenLine size={14} />
             {t('toolCards.codeReview.export.openMarkdown')}
           </Button>
         )}
@@ -208,7 +208,7 @@ export const CodeReviewReportExportActions: React.FC<CodeReviewReportExportActio
             onClick={handleCopy}
             aria-label={t('toolCards.codeReview.export.copyMarkdown')}
           >
-            {copied ? <Check size={14} /> : <Copy size={14} />}
+            {copied ? <Icon name="check-line" size="sm" /> : <Icon name="duplicate" size="sm" />}
           </button>
         </Tooltip>
       )}
@@ -220,7 +220,7 @@ export const CodeReviewReportExportActions: React.FC<CodeReviewReportExportActio
             onClick={handleOpenInEditor}
             aria-label={t('toolCards.codeReview.export.openMarkdown')}
           >
-            <FilePenLine size={14} />
+            <Icon name="edit" size="sm" />
           </button>
         </Tooltip>
       )}
@@ -233,7 +233,7 @@ export const CodeReviewReportExportActions: React.FC<CodeReviewReportExportActio
             disabled={saving}
             aria-label={t('toolCards.codeReview.export.saveMarkdown')}
           >
-            {saving ? <Loader2 className="animate-spin" size={14} /> : <Download size={14} />}
+            {saving ? <Loader2 className="animate-spin" size={14} /> : <Icon name="arrow-down" size="sm" />}
           </button>
         </Tooltip>
       )}

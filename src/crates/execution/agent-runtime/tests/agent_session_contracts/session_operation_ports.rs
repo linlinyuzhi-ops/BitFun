@@ -1,13 +1,13 @@
 use std::sync::{Arc, Mutex};
 
-use bitfun_agent_runtime::sdk::{
+use openbitfun_agent_runtime::sdk::{
     AgentRuntimeBuilder, AgentSessionForkAtTurnRequest, AgentSessionForkPort,
     AgentSessionForkRequest, AgentSessionForkResult, AgentSessionUsagePort,
     AgentSessionUsageRequest, AgentSubmissionPort, AgentSubmissionRequest, AgentSubmissionResult,
-    AgentTurnSettlementPort, AgentTurnSettlementRequest, PortErrorKind, PortResult,
-    SessionUsageReport,
+    AgentTurnSettlementPort, AgentTurnSettlementRequest, AgentTurnSettlementResult,
+    AgentTurnSettlementStatus, PortErrorKind, PortResult, SessionUsageReport,
 };
-use bitfun_agent_runtime::sdk::{AgentSessionCreateRequest, AgentSessionCreateResult};
+use openbitfun_agent_runtime::sdk::{AgentSessionCreateRequest, AgentSessionCreateResult};
 
 #[derive(Default)]
 struct FakeSubmissionPort;
@@ -97,9 +97,13 @@ impl AgentTurnSettlementPort for RecordingSessionOperations {
     async fn wait_for_turn_settlement(
         &self,
         request: AgentTurnSettlementRequest,
-    ) -> PortResult<()> {
+    ) -> PortResult<AgentTurnSettlementResult> {
         self.settlement_requests.lock().unwrap().push(request);
-        Ok(())
+        Ok(AgentTurnSettlementResult {
+            status: AgentTurnSettlementStatus::Completed,
+            final_response: Some("authoritative response".to_string()),
+            finish_reason: Some("complete".to_string()),
+        })
     }
 }
 
@@ -148,7 +152,7 @@ async fn runtime_delegates_narrow_session_operations_to_registered_ports() {
         .await
         .expect("generate usage");
     assert_eq!(report.session_id, "session-1");
-    runtime
+    let settlement = runtime
         .wait_for_turn_settlement(AgentTurnSettlementRequest {
             session_id: "session-1".to_string(),
             turn_id: "turn-1".to_string(),
@@ -157,6 +161,12 @@ async fn runtime_delegates_narrow_session_operations_to_registered_ports() {
         .await
         .expect("wait for turn settlement");
 
+    assert_eq!(settlement.status, AgentTurnSettlementStatus::Completed);
+    assert_eq!(
+        settlement.final_response.as_deref(),
+        Some("authoritative response")
+    );
+    assert_eq!(settlement.finish_reason.as_deref(), Some("complete"));
     assert_eq!(operations.settlement_requests.lock().unwrap().len(), 1);
 }
 
@@ -178,7 +188,7 @@ async fn missing_new_ports_preserve_the_v1_runtime_error_shape() {
 
     assert!(matches!(
         error,
-        bitfun_agent_runtime::sdk::RuntimeError::Port(ref port_error)
+        openbitfun_agent_runtime::sdk::RuntimeError::Port(ref port_error)
             if port_error.kind == PortErrorKind::NotAvailable
     ));
 }

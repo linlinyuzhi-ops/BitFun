@@ -68,6 +68,19 @@
       "switchToSideBySide": "切换到并排视图"
     },
     "markdownEditor": {
+      "blockTypes": {
+        "math": "公式",
+        "code": "代码块",
+        "reference": "链接引用",
+        "footnote": "脚注"
+      },
+      "finishBlockEdit": "完成编辑",
+      "editImage": "编辑图片",
+      "imageAddress": "图片地址",
+      "imageAltText": "替代文本",
+      "imageTitle": "图片标题",
+      "richText": "文档",
+      "editBlockSource": "编辑此块源码",
       "loadingFile": "正在加载文件...",
       "placeholder": "开始编写 Markdown 内容...",
       "source": "源码",
@@ -75,9 +88,9 @@
       "preview": "预览",
       "copyMarkdown": "复制 Markdown",
       "copiedMarkdown": "已复制 Markdown",
-      "viewModeLabel": "Markdown 与预览模式",
+      "viewModeLabel": "文档与源码模式",
       "notice": {
-        "sourcePreviewFallback": "该文档包含无法在可视化模式中安全编辑的语法。请在源码模式中编辑，或切换到预览模式查看。"
+        "sourcePreviewFallback": "富文本加载失败，你可以继续编辑 Markdown 源码。"
       }
     },
     "planViewer": {
@@ -105,6 +118,20 @@
       "enterFullscreen": "全屏显示",
       "exitFullscreen": "退出全屏",
       "imageUrlEmpty": "图片URL为空"
+    },
+    "pdfViewer": {
+      "loading": "正在加载 PDF...",
+      "filePathEmpty": "文件路径为空",
+      "loadFailedWithMessage": "加载 PDF 失败：{{message}}",
+      "renderFailedWithMessage": "渲染 PDF 页面失败：{{message}}",
+      "pageCount": "第 {{current}} / {{total}} 页",
+      "currentPage": "当前页码",
+      "previousPage": "上一页",
+      "nextPage": "下一页",
+      "zoomOut": "缩小",
+      "zoomLevel": "缩放比例",
+      "zoomIn": "放大",
+      "rotate90": "旋转 90°"
     },
     "meditor": {
       "placeholder": "请输入 Markdown 内容...",
@@ -178,9 +205,6 @@
       "indentSettings": "缩进设置",
       "fileEncoding": "文件编码",
       "selectLanguageMode": "选择语言模式",
-      "lspConnected": "LSP 已连接",
-      "lspConnecting": "LSP 连接中...",
-      "lspDisconnected": "LSP 未连接",
       "selectionLinesChars": "{{lines}} 行, {{chars}} 字符",
       "selectionChars": "{{count}} 已选",
       "ln": "Ln",
@@ -189,7 +213,7 @@
       "indentTab": "Tab: {{n}}",
       "goToLineHint": "行 或 行:列（Enter 跳转，Esc 关闭）",
       "goToLinePlaceholder": "例如 10 或 10:5",
-      "selectIndent": "选择缩进",
+      "selectIndent": "当前文件 · 缩进",
       "selectEncoding": "选择编码",
       "selectLanguageModeHint": "选择语言模式（点击即切换）",
       "indentOptionSpaces": "空格: {{n}}",
@@ -277,23 +301,6 @@
       "viewHistory": "查看历史",
       "viewChanges": "查看更改",
       "resolveConflict": "解决冲突"
-    }
-  },
-  "lsp": {
-    "referencesPanel": {
-      "previewFallback": "(无预览)",
-      "emptyTitle": "未找到引用",
-      "emptyWithSymbol": "符号 \"{{symbol}}\" 没有引用",
-      "emptyDescription": "没有找到引用",
-      "titleWithSymbol": "\"{{symbol}}\" 的引用",
-      "title": "引用列表",
-      "emptyLine": "(空行)"
-    },
-    "errors": {
-      "loadPluginsFailed": "Failed to load plugins",
-      "installPluginFailed": "Failed to install plugin",
-      "uninstallPluginFailed": "Failed to uninstall plugin",
-      "initializeFailed": "Failed to initialize LSP"
     }
   },
   "fileTree": {

@@ -2,11 +2,13 @@
  * Pending queue panel
  *
  * Renders the per-session list of "queued" user messages above the chat input.
- * Each card supports inline edit, optional "send now" (mid-turn steering), and delete.
+ * Each row supports restoring its draft to ChatInput, optional "send now"
+ * (mid-turn steering), and delete.
  *
  * UX notes:
- * - Click anywhere on the preview text to start editing.
- * - Cmd/Ctrl+Enter saves the edit; Esc cancels.
+ * - Message content is display-only; editing starts only from the edit action.
+ * - ChatInput owns restoration and overwrite protection. The queue item is
+ *   removed only after ChatInput accepts the draft.
  * - Clicking "send now" eagerly inserts a steering message into the live round
  *   so the user sees feedback instantly; the backend confirmation event is
  *   deduped via `steeringId`.
@@ -14,16 +16,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  Pencil,
-  ArrowUp,
-  Trash2,
-  Check,
-  X as XIcon,
-  Inbox,
-  Loader2,
-} from 'lucide-react';
-import { Tooltip, IconButton } from '@/component-library';
+import { ListEnd } from 'lucide-react';
+import { OverflowText, Tooltip } from '@openbitfun/ui';
 import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
 import { stateMachineManager } from '../state-machine';
 import { FlowChatStore } from '../store/FlowChatStore';
@@ -35,16 +29,34 @@ import { notificationService } from '../../shared/notification-system';
 import { createLogger } from '@/shared/utils/logger';
 import type { QueuedMessage, SteeringImage } from '../types/flow-chat';
 import { isAcpFlowSession } from '../utils/acpSession';
+import { getQueuedMessageAttachmentCount } from '../utils/pendingQueuePresentation';
 import './PendingQueuePanel.scss';
+import { IconButton, Icon } from '@openbitfun/ui';
+import {
+  ChatComposerQueue,
+  ChatComposerQueueAttachmentBadge,
+  ChatComposerQueueHeader,
+  ChatComposerQueueItem,
+  ChatComposerQueueItemActions,
+  ChatComposerQueueItemContent,
+  ChatComposerQueueList,
+  ChatComposerQueueTitle,
+  type ChatComposerQueueItemState,
+} from '@openbitfun/ui/flow-chat';
 
 const log = createLogger('PendingQueuePanel');
 
 interface PendingQueuePanelProps {
   sessionId: string | undefined;
   className?: string;
+  onRestoreToComposer: (item: QueuedMessage) => boolean;
 }
 
-export function PendingQueuePanel({ sessionId, className }: PendingQueuePanelProps): JSX.Element | null {
+export function PendingQueuePanel({
+  sessionId,
+  className,
+  onRestoreToComposer,
+}: PendingQueuePanelProps): JSX.Element | null {
   const { t } = useTranslation('flow-chat');
   const sendNowInFlightIdsRef = useRef(new Set<string>());
   useSyncExternalStore(
@@ -60,9 +72,6 @@ export function PendingQueuePanel({ sessionId, className }: PendingQueuePanelPro
     if (!sessionId) return false;
     return isAcpFlowSession(FlowChatStore.getInstance().getState().sessions.get(sessionId));
   });
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingDraft, setEditingDraft] = useState('');
-
   useEffect(() => {
     if (!sessionId) {
       setItems([]);
@@ -91,32 +100,14 @@ export function PendingQueuePanel({ sessionId, className }: PendingQueuePanelPro
     return unsubscribe;
   }, [sessionId]);
 
-  const handleEditStart = useCallback((item: QueuedMessage) => {
-    setEditingId(item.id);
-    setEditingDraft(item.displayMessage ?? item.content);
-  }, []);
-
-  const handleEditCancel = useCallback(() => {
-    setEditingId(null);
-    setEditingDraft('');
-  }, []);
-
-  const handleEditSave = useCallback(
+  const handleRestoreToComposer = useCallback(
     (item: QueuedMessage) => {
       if (!sessionId) return;
-      const trimmed = editingDraft.trim();
-      if (!trimmed) {
-        notificationService.warning(t('pendingQueue.errors.emptyContent'), { duration: 3000 });
-        return;
+      if (onRestoreToComposer(item)) {
+        pendingQueueManager.remove(sessionId, item.id);
       }
-      pendingQueueManager.update(sessionId, item.id, {
-        content: trimmed,
-        displayMessage: trimmed,
-      });
-      setEditingId(null);
-      setEditingDraft('');
     },
-    [editingDraft, sessionId, t],
+    [onRestoreToComposer, sessionId],
   );
 
   const handleDelete = useCallback(
@@ -213,202 +204,172 @@ export function PendingQueuePanel({ sessionId, className }: PendingQueuePanelPro
   }
 
   return (
-    <div data-bf-component="pending-queue-panel" data-bf-part="root"
-      className={`bitfun-pending-queue-panel ${className ?? ''}`.trim()}
+    <ChatComposerQueue data-overflow-trigger
+      aria-label={t('pendingQueue.label', { count: visibleItems.length })}
+      className={`openbitfun-pending-queue-panel ${className ?? ''}`.trim()}
+      data-openbitfun-product-component="pending-queue-panel"
+      data-openbitfun-product-part="root"
       data-testid="pending-queue-panel"
       onClick={e => {
         e.stopPropagation();
       }}
     >
-      <div data-bf-component="pending-queue-panel" data-bf-part="header" className="bitfun-pending-queue-panel__header">
-        <Inbox size={10} className="bitfun-pending-queue-panel__header-icon" />
-        <span data-bf-component="pending-queue-panel" data-bf-part="title" className="bitfun-pending-queue-panel__title">
-          {t('pendingQueue.title', { count: visibleItems.length })}
-          <span className="bitfun-pending-queue-panel__hint">
-            {' · '}
-            {t('pendingQueue.hint')}
-          </span>
-        </span>
-      </div>
-      <ul data-bf-component="pending-queue-panel" data-bf-part="list" className="bitfun-pending-queue-panel__list">
+      <ChatComposerQueueHeader
+        data-openbitfun-product-component="pending-queue-panel"
+        data-openbitfun-product-part="header"
+      >
+        <ListEnd aria-hidden="true" />
+        <ChatComposerQueueTitle
+          count={visibleItems.length}
+          data-openbitfun-product-component="pending-queue-panel"
+          data-openbitfun-product-part="title"
+        >
+          {t('pendingQueue.title')}
+        </ChatComposerQueueTitle>
+      </ChatComposerQueueHeader>
+      <ChatComposerQueueList
+        data-openbitfun-product-component="pending-queue-panel"
+        data-openbitfun-product-part="list"
+      >
         {visibleItems.map(item => {
-          const isEditing = editingId === item.id;
           const isSendingNow = item.status === 'sending_now';
           const isSending = item.status === 'sending' || isSendingNow;
           const isFailed = item.status === 'failed' || (item.retryCount ?? 0) > 0;
           const previewText = item.displayMessage ?? item.content;
+          const attachmentCount = getQueuedMessageAttachmentCount(item);
+          const itemState: ChatComposerQueueItemState = isSending
+            ? 'sending'
+            : isFailed
+              ? 'failed'
+              : 'default';
           const itemClass = [
-            'bitfun-pending-queue-panel__item',
-            isEditing && 'bitfun-pending-queue-panel__item--editing',
-            isSending && 'bitfun-pending-queue-panel__item--sending',
-            isFailed && 'bitfun-pending-queue-panel__item--failed',
+            'openbitfun-pending-queue-panel__item',
+            isSending && 'openbitfun-pending-queue-panel__item--sending',
+            isFailed && 'openbitfun-pending-queue-panel__item--failed',
           ]
             .filter(Boolean)
             .join(' ');
+
           return (
-            <li data-bf-component="pending-queue-panel" data-bf-part="item" data-bf-state={[
-              isEditing && 'editing',
-              isSending && 'sending',
-              isFailed && 'failed',
-            ].filter(Boolean).join(' ') || undefined} key={item.id} className={itemClass}>
-              <div data-bf-component="pending-queue-panel" data-bf-part="content" className="bitfun-pending-queue-panel__content">
-                {isEditing ? (
-                  <>
-                    <textarea
-                      data-bf-component="pending-queue-panel"
-                      data-bf-part="editor"
-                      className="bitfun-pending-queue-panel__editor"
-                      value={editingDraft}
-                      autoFocus
-                      rows={Math.min(6, Math.max(2, editingDraft.split('\n').length))}
-                      onChange={e => setEditingDraft(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                          e.preventDefault();
-                          handleEditSave(item);
-                        } else if (e.key === 'Escape') {
-                          e.preventDefault();
-                          handleEditCancel();
-                        }
-                      }}
-                    />
-                    <div className="bitfun-pending-queue-panel__editor-hint">
-                      {t('pendingQueue.editorHint')}
-                    </div>
-                  </>
-                ) : isSendingNow ? (
+            <ChatComposerQueueItem
+              className={itemClass}
+              data-openbitfun-product-component="pending-queue-panel"
+              data-openbitfun-product-part="item"
+              data-openbitfun-state={itemState === 'default' ? undefined : itemState}
+              key={item.id}
+              state={itemState}
+            >
+              <ChatComposerQueueItemContent
+                className="openbitfun-pending-queue-panel__content"
+                data-openbitfun-product-component="pending-queue-panel"
+                data-openbitfun-product-part="content"
+              >
+                {isSendingNow ? (
                   <>
                     <div
-                      data-bf-component="pending-queue-panel"
-                      data-bf-part="preview"
-                      className="bitfun-pending-queue-panel__preview"
+                      className="openbitfun-pending-queue-panel__preview"
+                      data-openbitfun-product-component="pending-queue-panel"
+                      data-openbitfun-product-part="preview"
                       title={previewText}
-                    >
+                    ><OverflowText behavior="marquee">
                       {previewText || (
-                        <span className="bitfun-pending-queue-panel__preview-empty">
+                        <span className="openbitfun-pending-queue-panel__preview-empty">
                           {t('pendingQueue.emptyPlaceholder')}
                         </span>
                       )}
-                    </div>
-                    <div data-bf-component="pending-queue-panel" data-bf-part="status" className="bitfun-pending-queue-panel__sending-label">
-                      <Loader2 size={11} />
+                    </OverflowText></div>
+                    <div
+                      className="openbitfun-pending-queue-panel__sending-label"
+                      data-openbitfun-product-component="pending-queue-panel"
+                      data-openbitfun-product-part="status"
+                    >
                       {t('pendingQueue.statusSending')}
                     </div>
                   </>
                 ) : (
                   <>
                     <div
-                      data-bf-component="pending-queue-panel"
-                      data-bf-part="preview"
-                      className="bitfun-pending-queue-panel__preview"
-                      title={t('pendingQueue.actions.edit')}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => handleEditStart(item)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          handleEditStart(item);
-                        }
-                      }}
-                    >
+                      className="openbitfun-pending-queue-panel__preview"
+                      data-openbitfun-product-component="pending-queue-panel"
+                      data-openbitfun-product-part="preview"
+                      title={previewText}
+                    ><OverflowText behavior="marquee">
                       {previewText || (
-                        <span className="bitfun-pending-queue-panel__preview-empty">
+                        <span className="openbitfun-pending-queue-panel__preview-empty">
                           {t('pendingQueue.emptyPlaceholder')}
                         </span>
                       )}
-                    </div>
+                    </OverflowText></div>
                     {isFailed && (
-                      <div data-bf-component="pending-queue-panel" data-bf-part="status" className="bitfun-pending-queue-panel__failed-label">
+                      <div
+                        className="openbitfun-pending-queue-panel__failed-label"
+                        data-openbitfun-product-component="pending-queue-panel"
+                        data-openbitfun-product-part="status"
+                      >
                         {t('pendingQueue.statusFailed')}
                       </div>
                     )}
                   </>
                 )}
-              </div>
-              <div data-bf-component="pending-queue-panel" data-bf-part="actions" className="bitfun-pending-queue-panel__actions">
-                {isEditing ? (
-                  <>
-                    <Tooltip content={t('pendingQueue.actions.saveEdit')}>
-                      <IconButton
-                        data-bf-component="pending-queue-panel"
-                        data-bf-part="action"
-                        size="small"
-                        className="bitfun-pending-queue-panel__btn bitfun-pending-queue-panel__btn--primary"
-                        onClick={() => handleEditSave(item)}
-                        aria-label={t('pendingQueue.actions.saveEdit')}
-                      >
-                        <Check size={12} strokeWidth={2.25} />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip content={t('pendingQueue.actions.cancelEdit')}>
-                      <IconButton
-                        data-bf-component="pending-queue-panel"
-                        data-bf-part="action"
-                        size="small"
-                        className="bitfun-pending-queue-panel__btn"
-                        onClick={handleEditCancel}
-                        aria-label={t('pendingQueue.actions.cancelEdit')}
-                      >
-                        <XIcon size={12} strokeWidth={2.25} />
-                      </IconButton>
-                    </Tooltip>
-                  </>
-                ) : (
-                  <>
-                    <Tooltip content={t('pendingQueue.actions.edit')}>
-                      <IconButton
-                        data-bf-component="pending-queue-panel"
-                        data-bf-part="action"
-                        size="small"
-                        className="bitfun-pending-queue-panel__btn"
-                        disabled={isSending}
-                        onClick={() => handleEditStart(item)}
-                        aria-label={t('pendingQueue.actions.edit')}
-                      >
-                        <Pencil size={12} strokeWidth={2.25} />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip content={t('pendingQueue.tooltip.sendNow')}>
-                      <IconButton
-                        data-bf-component="pending-queue-panel"
-                        data-bf-part="action"
-                        size="small"
-                        className="bitfun-pending-queue-panel__btn bitfun-pending-queue-panel__btn--primary"
-                        disabled={isSending || recoveryInFlight}
-                        onClick={() => {
-                          void handleSendNow(item);
-                        }}
-                        aria-label={t('pendingQueue.actions.sendNow')}
-                      >
-                        {isSendingNow ? (
-                          <Loader2 size={12} strokeWidth={2.5} className="bitfun-pending-queue-panel__spin" />
-                        ) : (
-                          <ArrowUp size={12} strokeWidth={2.5} />
-                        )}
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip content={t('pendingQueue.actions.delete')}>
-                      <IconButton
-                        data-bf-component="pending-queue-panel"
-                        data-bf-part="action"
-                        size="small"
-                        className="bitfun-pending-queue-panel__btn bitfun-pending-queue-panel__btn--danger"
-                        disabled={isSending}
-                        onClick={() => handleDelete(item)}
-                        aria-label={t('pendingQueue.actions.delete')}
-                      >
-                        <Trash2 size={12} strokeWidth={2.25} />
-                      </IconButton>
-                    </Tooltip>
-                  </>
-                )}
-              </div>
-            </li>
+              </ChatComposerQueueItemContent>
+
+              {attachmentCount > 0 ? (
+                <ChatComposerQueueAttachmentBadge
+                  count={attachmentCount}
+                  label={t('pendingQueue.attachmentCount', { count: attachmentCount })}
+                />
+              ) : null}
+
+              <ChatComposerQueueItemActions
+                className="openbitfun-pending-queue-panel__actions"
+                data-openbitfun-product-component="pending-queue-panel"
+                data-openbitfun-product-part="actions"
+              >
+                <Tooltip content={t('pendingQueue.tooltip.sendNow')}>
+                  <IconButton
+                    aria-label={t('pendingQueue.actions.sendNow')}
+                    className="openbitfun-pending-queue-panel__btn"
+                    data-openbitfun-product-component="pending-queue-panel"
+                    data-openbitfun-product-part="action"
+                    disabled={isSending || recoveryInFlight}
+                    icon={<Icon name="arrow-up" size="lg" />}
+                    loading={isSendingNow}
+                    size="xs"
+                    onClick={() => {
+                      void handleSendNow(item);
+                    }}
+                  />
+                </Tooltip>
+                <Tooltip content={t('pendingQueue.actions.delete')}>
+                  <IconButton
+                    aria-label={t('pendingQueue.actions.delete')}
+                    className="openbitfun-pending-queue-panel__btn openbitfun-pending-queue-panel__btn--danger"
+                    data-openbitfun-product-component="pending-queue-panel"
+                    data-openbitfun-product-part="action"
+                    disabled={isSending}
+                    icon={<Icon name="delete" size="lg" />}
+                    size="xs"
+                    onClick={() => handleDelete(item)}
+                  />
+                </Tooltip>
+                <Tooltip content={t('pendingQueue.actions.edit')}>
+                  <IconButton
+                    aria-label={t('pendingQueue.actions.edit')}
+                    className="openbitfun-pending-queue-panel__btn"
+                    data-openbitfun-product-component="pending-queue-panel"
+                    data-openbitfun-product-part="action"
+                    disabled={isSending}
+                    icon={<Icon name="edit" size="lg" />}
+                    size="xs"
+                    onClick={() => handleRestoreToComposer(item)}
+                  />
+                </Tooltip>
+              </ChatComposerQueueItemActions>
+            </ChatComposerQueueItem>
           );
         })}
-      </ul>
-    </div>
+      </ChatComposerQueueList>
+    </ChatComposerQueue>
   );
 }
 

@@ -3,6 +3,33 @@
 //! Heavy external integrations live here behind feature groups so local checks
 //! can opt into only the integration family they need.
 
+#[cfg(any(
+    feature = "mcp",
+    feature = "miniapp-market",
+    feature = "miniapp-runtime",
+    feature = "models-dev",
+    feature = "remote-connect",
+    feature = "remote-ssh-concrete",
+    feature = "review-platform",
+    feature = "speech",
+    feature = "web-tools",
+))]
+pub(crate) fn reqwest_client_builder() -> reqwest::ClientBuilder {
+    openbitfun_services_core::tls_provider::ensure_ring_crypto_provider();
+    reqwest::Client::builder()
+}
+
+#[cfg(any(
+    feature = "announcement",
+    feature = "browser-control",
+    feature = "mcp",
+    feature = "remote-connect",
+))]
+pub(crate) fn reqwest_client() -> reqwest::Client {
+    openbitfun_services_core::tls_provider::ensure_ring_crypto_provider();
+    reqwest::Client::new()
+}
+
 #[cfg(feature = "announcement")]
 pub mod announcement;
 
@@ -14,9 +41,6 @@ pub mod browser_control;
 
 #[cfg(feature = "canvas-runtime")]
 pub mod canvas;
-
-#[cfg(feature = "debug-log")]
-pub mod debug_log;
 
 #[cfg(feature = "deep-research")]
 pub mod deep_research;
@@ -39,7 +63,7 @@ pub mod mcp;
 #[cfg(feature = "models-dev")]
 pub mod models_dev;
 
-#[cfg(feature = "miniapp-runtime")]
+#[cfg(any(feature = "miniapp-runtime", feature = "miniapp-storage"))]
 pub mod miniapp;
 
 #[cfg(feature = "miniapp-market")]
@@ -48,8 +72,14 @@ pub mod miniapp_market;
 #[cfg(feature = "plugin-source")]
 pub mod plugin_source;
 
+#[cfg(any(feature = "git", feature = "review-platform"))]
+mod repository_trust;
+
 #[cfg(feature = "remote-connect")]
 pub mod remote_connect;
+
+#[cfg(feature = "remote-persistence")]
+pub mod remote_persistence;
 
 #[cfg(all(test, feature = "remote-connect"))]
 mod feature_contract_tests {

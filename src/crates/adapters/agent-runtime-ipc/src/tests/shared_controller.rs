@@ -6,8 +6,8 @@ use crate::{
     RuntimeSessionRenameRequest, RuntimeSessionRestoreRequest, PROTOCOL_VERSION,
 };
 use async_trait::async_trait;
-use bitfun_events::{AgenticEvent, AgenticEventEnvelope, AgenticEventPriority};
-use bitfun_runtime_ports::{
+use openbitfun_events::{AgenticEvent, AgenticEventEnvelope, AgenticEventPriority};
+use openbitfun_runtime_ports::{
     AgentDialogTurnRequest, AgentSessionCompactionRequest, AgentSessionComposerUpdate,
     AgentSessionCreateRequest, AgentSessionCreateResult, AgentSessionLineageCancellationRequest,
     AgentSessionLineageTranscriptRequest, AgentSessionModeUpdateRequest,
@@ -266,7 +266,7 @@ impl RuntimeIpcRequestHandler for FakeHandler {
             }
             RuntimeIpcOperation::InspectLineageSession { request } => {
                 Ok(RuntimeIpcOperationResult::LineageSessionInspection {
-                    inspection: bitfun_runtime_ports::AgentSessionLineageInspection {
+                    inspection: openbitfun_runtime_ports::AgentSessionLineageInspection {
                         transcript: SessionTranscript {
                             session_id: request.session_id,
                             messages: Vec::new(),
@@ -277,7 +277,7 @@ impl RuntimeIpcRequestHandler for FakeHandler {
             }
             RuntimeIpcOperation::CancelLineageSession { request } => {
                 Ok(RuntimeIpcOperationResult::TurnCancelled {
-                    cancellation: bitfun_runtime_ports::AgentTurnCancellationResult {
+                    cancellation: openbitfun_runtime_ports::AgentTurnCancellationResult {
                         session_id: request.session_id,
                         turn_id: None,
                         requested: true,
@@ -313,7 +313,7 @@ impl RuntimeIpcRequestHandler for FakeHandler {
                     ));
                 }
                 Ok(RuntimeIpcOperationResult::TurnCancelled {
-                    cancellation: bitfun_runtime_ports::AgentTurnCancellationResult {
+                    cancellation: openbitfun_runtime_ports::AgentTurnCancellationResult {
                         session_id: request.session_id,
                         turn_id: request.turn_id,
                         requested: true,
@@ -648,7 +648,7 @@ fn workspace_binding() -> AgentSessionWorkspaceBinding {
 fn test_identity(workspace: &Path) -> RuntimeInstanceIdentity {
     RuntimeInstanceIdentity::for_workspace(
         workspace,
-        "bitfun",
+        "openbitfun",
         "stable",
         "user-a",
         PROTOCOL_VERSION,
@@ -670,6 +670,7 @@ fn create_operation(workspace: &Path, name: &str) -> RuntimeIpcOperation {
         request: AgentSessionCreateRequest {
             session_name: name.to_string(),
             agent_type: "agentic".to_string(),
+            agent_route_key: None,
             workspace_path: Some(workspace.to_string_lossy().to_string()),
             project_workspace_path: None,
             execution_target: None,
@@ -706,7 +707,7 @@ fn submit_operation(workspace: &Path, session_id: &str, turn_id: &str) -> Runtim
 
 fn steer_operation(session_id: &str, turn_id: &str) -> RuntimeIpcOperation {
     RuntimeIpcOperation::SteerTurn {
-        request: bitfun_runtime_ports::AgentDialogSteerRequest {
+        request: openbitfun_runtime_ports::AgentDialogSteerRequest {
             session_id: session_id.to_string(),
             turn_id: turn_id.to_string(),
             content: "check tests".to_string(),
@@ -752,6 +753,7 @@ fn update_mode_operation(session_id: &str, mode_id: &str) -> RuntimeIpcOperation
         request: AgentSessionModeUpdateRequest {
             session_id: session_id.to_string(),
             mode_id: mode_id.to_string(),
+            agent_route_key: None,
         },
     }
 }

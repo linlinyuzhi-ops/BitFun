@@ -157,6 +157,28 @@ impl CliTestEnvironment {
         );
     }
 
+    pub(crate) fn configure_product_control_mock_model(&self, server_base_url: &str) {
+        self.configure_mock_model(server_base_url);
+        let config_path = self.user_root.join("config/app.json");
+        let mut config: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(&config_path).expect("read product-control model config"),
+        )
+        .expect("parse product-control model config");
+        config["ai"]["max_rounds"] = json!(8);
+        std::fs::write(
+            config_path,
+            serde_json::to_vec_pretty(&config).expect("serialize product-control model config"),
+        )
+        .expect("write product-control model config");
+    }
+
+    pub(crate) fn app_config(&self) -> serde_json::Value {
+        serde_json::from_slice(
+            &std::fs::read(self.user_root.join("config/app.json")).expect("read CLI app config"),
+        )
+        .expect("parse CLI app config")
+    }
+
     pub(crate) fn configure_mock_image_model(&self, server_base_url: &str) {
         self.configure_mock_model_with_capabilities(
             server_base_url,
@@ -169,36 +191,31 @@ impl CliTestEnvironment {
         std::fs::create_dir_all(&config_dir).expect("create model config directory");
         let base_url = format!("{}/v1", server_base_url.trim_end_matches('/'));
         let request_url = format!("{base_url}/chat/completions");
-        let config = json!({
-            "app": {
-                "ai_experience": {
-                    "enable_session_title_generation": false
-                }
-            },
-            "ai": {
-                "models": [{
-                    "id": "cli-e2e-model",
-                    "name": "CLI E2E Model",
-                    "provider": "openai",
-                    "model_name": "cli-e2e-model",
-                    "base_url": base_url,
-                    "request_url": request_url,
-                    "api_key": "cli-e2e-key",
-                    "enabled": true,
-                    "category": "general_chat",
-                    "capabilities": capabilities
-                }],
-                "default_models": {
-                    "primary": "cli-e2e-model"
-                },
-                "agent_model_defaults": {
-                    "mode": "cli-e2e-model"
-                },
-                "max_rounds": 1,
-                "stream_idle_timeout_secs": 10,
-                "stream_ttft_timeout_secs": 10
-            }
+        let mut config =
+            serde_json::to_value(openbitfun_core::service::config::GlobalConfig::default())
+                .expect("serialize default CLI config");
+        config["app"]["ai_experience"]["enable_session_title_generation"] = json!(false);
+        config["ai"]["models"] = json!([{
+            "id": "cli-e2e-model",
+            "name": "CLI E2E Model",
+            "provider": "openai",
+            "model_name": "cli-e2e-model",
+            "base_url": base_url,
+            "request_url": request_url,
+            "api_key": "cli-e2e-key",
+            "enabled": true,
+            "category": "general_chat",
+            "capabilities": capabilities
+        }]);
+        config["ai"]["default_models"] = json!({
+            "primary": "cli-e2e-model"
         });
+        config["ai"]["agent_model_defaults"] = json!({
+            "mode": "cli-e2e-model"
+        });
+        config["ai"]["max_rounds"] = json!(1);
+        config["ai"]["stream_idle_timeout_secs"] = json!(10);
+        config["ai"]["stream_ttft_timeout_secs"] = json!(10);
         std::fs::write(
             config_dir.join("app.json"),
             serde_json::to_vec_pretty(&config).expect("serialize model config"),
@@ -226,11 +243,11 @@ impl CliTestEnvironment {
     pub(crate) fn apply_tokio_environment(&self, command: &mut tokio::process::Command) {
         command
             .current_dir(&self.workspace)
-            .env_remove("BITFUN_USER_ROOT")
-            .env_remove("BITFUN_HOME")
-            .env("BITFUN_E2E_STORAGE_GUARD", "1")
-            .env("BITFUN_E2E_USER_ROOT", &self.user_root)
-            .env("BITFUN_E2E_HOME", &self.home_root)
+            .env_remove("OPENBITFUN_USER_ROOT")
+            .env_remove("OPENBITFUN_HOME")
+            .env("OPENBITFUN_E2E_STORAGE_GUARD", "1")
+            .env("OPENBITFUN_E2E_USER_ROOT", &self.user_root)
+            .env("OPENBITFUN_E2E_HOME", &self.home_root)
             .env("APPDATA", &self.config_root)
             .env("XDG_CONFIG_HOME", &self.config_root)
             .env("HOME", &self.home_root)
@@ -239,21 +256,17 @@ impl CliTestEnvironment {
     }
 
     pub(crate) fn pty_command(&self) -> CommandBuilder {
-        self.pty_command_for(env!("CARGO_BIN_EXE_bitfun"))
-    }
-
-    pub(crate) fn deprecated_pty_command(&self) -> CommandBuilder {
-        self.pty_command_for(env!("CARGO_BIN_EXE_bitfun-cli"))
+        self.pty_command_for(env!("CARGO_BIN_EXE_openbitfun"))
     }
 
     fn pty_command_for(&self, binary: &str) -> CommandBuilder {
         let mut command = CommandBuilder::new(binary);
         command.cwd(&self.workspace);
-        command.env_remove("BITFUN_USER_ROOT");
-        command.env_remove("BITFUN_HOME");
-        command.env("BITFUN_E2E_STORAGE_GUARD", "1");
-        command.env("BITFUN_E2E_USER_ROOT", &self.user_root);
-        command.env("BITFUN_E2E_HOME", &self.home_root);
+        command.env_remove("OPENBITFUN_USER_ROOT");
+        command.env_remove("OPENBITFUN_HOME");
+        command.env("OPENBITFUN_E2E_STORAGE_GUARD", "1");
+        command.env("OPENBITFUN_E2E_USER_ROOT", &self.user_root);
+        command.env("OPENBITFUN_E2E_HOME", &self.home_root);
         command.env("APPDATA", &self.config_root);
         command.env("XDG_CONFIG_HOME", &self.config_root);
         command.env("HOME", &self.home_root);
@@ -264,11 +277,11 @@ impl CliTestEnvironment {
 
     fn apply_std_environment(&self, command: &mut Command) {
         command
-            .env_remove("BITFUN_USER_ROOT")
-            .env_remove("BITFUN_HOME")
-            .env("BITFUN_E2E_STORAGE_GUARD", "1")
-            .env("BITFUN_E2E_USER_ROOT", &self.user_root)
-            .env("BITFUN_E2E_HOME", &self.home_root)
+            .env_remove("OPENBITFUN_USER_ROOT")
+            .env_remove("OPENBITFUN_HOME")
+            .env("OPENBITFUN_E2E_STORAGE_GUARD", "1")
+            .env("OPENBITFUN_E2E_USER_ROOT", &self.user_root)
+            .env("OPENBITFUN_E2E_HOME", &self.home_root)
             .env("APPDATA", &self.config_root)
             .env("XDG_CONFIG_HOME", &self.config_root)
             .env("HOME", &self.home_root)
@@ -302,9 +315,11 @@ pub(crate) struct MockOpenAiServer {
 enum MockModelResponse {
     Immediate,
     Gated,
+    ProductControlLoop,
     Http403 { reason: String },
     DisconnectThenHttp403,
     MalformedSseThenImmediate,
+    ContextOverflowThenImmediate,
 }
 
 impl MockOpenAiServer {
@@ -314,6 +329,10 @@ impl MockOpenAiServer {
 
     pub(crate) fn immediate() -> Self {
         Self::spawn(MockModelResponse::Immediate)
+    }
+
+    pub(crate) fn product_control_loop() -> Self {
+        Self::spawn(MockModelResponse::ProductControlLoop)
     }
 
     pub(crate) fn http_403(reason: impl Into<String>) -> Self {
@@ -328,6 +347,10 @@ impl MockOpenAiServer {
 
     pub(crate) fn malformed_sse_then_immediate() -> Self {
         Self::spawn(MockModelResponse::MalformedSseThenImmediate)
+    }
+
+    pub(crate) fn context_overflow_then_immediate() -> Self {
+        Self::spawn(MockModelResponse::ContextOverflowThenImmediate)
     }
 
     pub(crate) fn base_url(&self) -> &str {
@@ -417,7 +440,13 @@ impl MockOpenAiServer {
                                 MockModelResponse::Http403 { .. }
                                     | MockModelResponse::DisconnectThenHttp403
                             ) || (matches!(response, MockModelResponse::MalformedSseThenImmediate)
-                                && attempt < 2);
+                                && attempt < 2)
+                                || (matches!(
+                                    response,
+                                    MockModelResponse::ContextOverflowThenImmediate
+                                ) && attempt < 3)
+                                || (matches!(response, MockModelResponse::ProductControlLoop)
+                                    && attempt < 5);
                         if accepts_more_requests {
                             continue;
                         }
@@ -467,6 +496,15 @@ fn serve_model_response(
     release_stream: &mpsc::Receiver<()>,
     stream_disconnected: &mpsc::Sender<()>,
 ) {
+    if matches!(response, MockModelResponse::ContextOverflowThenImmediate) && attempt == 0 {
+        let body = json!({
+            "error": {"code": "context_length_exceeded", "message": "Maximum context length exceeded"}
+        }).to_string();
+        write!(stream, "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
+            .expect("write context overflow response");
+        stream.flush().expect("flush context overflow response");
+        return;
+    }
     if matches!(response, MockModelResponse::DisconnectThenHttp403) && attempt > 0 {
         write_http_403(stream, "provider stream remained unavailable")
             .expect("write post-disconnect HTTP error");
@@ -481,6 +519,11 @@ fn serve_model_response(
             b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
         )
         .expect("write mock response headers");
+
+    if matches!(response, MockModelResponse::ProductControlLoop) {
+        serve_product_control_response(stream, attempt);
+        return;
+    }
 
     if matches!(response, MockModelResponse::MalformedSseThenImmediate) && attempt == 0 {
         write_chunk(stream, b"data: not-json\n\n").expect("write malformed SSE frame");
@@ -581,6 +624,102 @@ fn serve_model_response(
     }
     let _ = stream.write_all(b"0\r\n\r\n");
     let _ = stream.flush();
+}
+
+fn serve_product_control_response(stream: &mut TcpStream, attempt: usize) {
+    write_sse_chunk(
+        stream,
+        &json!({
+            "id": format!("chatcmpl_product_control_{attempt}"),
+            "object": "chat.completion.chunk",
+            "created": attempt,
+            "model": "cli-e2e-model",
+            "choices": [{
+                "index": 0,
+                "delta": {"role": "assistant", "content": null},
+                "finish_reason": null
+            }]
+        })
+        .to_string(),
+    )
+    .expect("write product-control role chunk");
+
+    if attempt < 4 {
+        let (call_id, arguments) = match attempt {
+            0 => (
+                "call_product_control_search",
+                json!({"action": "search", "query": "工具调用超时"}),
+            ),
+            1 => (
+                "call_product_control_get_before",
+                json!({"action": "get", "capability_id": "setting.tools.execution"}),
+            ),
+            2 => (
+                "call_product_control_configure",
+                json!({
+                    "action": "configure",
+                    "capability_id": "setting.tools.execution",
+                    "option_id": "tool-timeout-seconds",
+                    "value_integer": 74
+                }),
+            ),
+            3 => (
+                "call_product_control_get_after",
+                json!({"action": "get", "capability_id": "setting.tools.execution"}),
+            ),
+            _ => unreachable!(),
+        };
+        write_sse_chunk(
+            stream,
+            &json!({
+                "id": format!("chatcmpl_product_control_{attempt}"),
+                "object": "chat.completion.chunk",
+                "created": attempt,
+                "model": "cli-e2e-model",
+                "choices": [{
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [{
+                            "index": 0,
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": "OpenBitFunControl",
+                                "arguments": arguments.to_string()
+                            }
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }]
+            })
+            .to_string(),
+        )
+        .expect("write product-control tool-call chunk");
+    } else {
+        write_sse_chunk(
+            stream,
+            &json!({
+                "id": "chatcmpl_product_control_complete",
+                "object": "chat.completion.chunk",
+                "created": attempt,
+                "model": "cli-e2e-model",
+                "choices": [{
+                    "index": 0,
+                    "delta": {"content": "PRODUCT_CONTROL_SELF_TEST_OK"},
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 5, "total_tokens": 8}
+            })
+            .to_string(),
+        )
+        .expect("write product-control completion chunk");
+    }
+
+    write_chunk(stream, b"data: [DONE]\n\n").expect("finish product-control SSE");
+    stream
+        .write_all(b"0\r\n\r\n")
+        .expect("finish product-control chunked response");
+    stream.flush().expect("flush product-control response");
 }
 
 fn write_http_403(stream: &mut TcpStream, reason: &str) -> std::io::Result<()> {

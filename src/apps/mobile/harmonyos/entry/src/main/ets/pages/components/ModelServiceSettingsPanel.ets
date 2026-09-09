@@ -1,3 +1,4 @@
+import { MobileDesignGeometry, MobileDesignTypography } from '../../generated/MobileDesignTokens';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { RemoteI18n } from '../../i18n/RemoteI18n';
 import { RemoteModelCatalog, RemoteModelConfig } from '../../model/RemoteModels';
@@ -264,46 +265,43 @@ export struct ModelServiceSettingsPanel {
           'model'
         )
         Row({ space: 12 }) {
-          Button(this.isTesting ? RemoteI18n.t('common.loading') : RemoteI18n.t('settings.modelService.testConnection'))
-            .layoutWeight(1)
-            .height(50)
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(INK)
-            .backgroundColor(this.isTesting ? MUTED : SOFT)
-            .borderRadius(25)
-            .enabled(!this.isSaving && !this.isTesting && this.hasTestableApiKey())
-            .onClick(() => {
+          AppActionButton({
+            label: this.isTesting ? RemoteI18n.t('common.loading') :
+              RemoteI18n.t('settings.modelService.testConnection'),
+            style: AppActionStyle.Quiet,
+            actionHeight: 50,
+            isEnabled: !this.isSaving && !this.isTesting && this.hasTestableApiKey(),
+            onAction: (): void => {
               this.testConnection();
-            })
-          Button(this.isSaving ? RemoteI18n.t('common.loading') : RemoteI18n.t('common.save'))
+            }
+          })
             .layoutWeight(1)
-            .height(50)
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(PRIMARY_ACTION_TEXT)
-            .backgroundColor(this.isSaving ? MUTED : ACCENT)
-            .borderRadius(25)
-            .enabled(!this.isSaving && !this.isTesting)
-            .onClick(() => {
+          AppActionButton({
+            label: this.isSaving ? RemoteI18n.t('common.loading') : RemoteI18n.t('common.save'),
+            style: AppActionStyle.Primary,
+            actionHeight: 50,
+            isEnabled: !this.isSaving && !this.isTesting,
+            onAction: (): void => {
               this.save();
-            })
+            }
+          })
+            .layoutWeight(1)
         }
         .width('100%')
 
         if (!this.hasTestableApiKey()) {
           Text(RemoteI18n.t('settings.modelService.testNeedsKey'))
-            .fontSize(12)
-            .lineHeight(18)
+            .fontSize(MobileDesignTypography.labelSmall.size)
+            .lineHeight(MobileDesignTypography.labelSmall.lineHeight)
             .fontColor(SUBTLE)
             .width('100%')
         }
 
         if (this.feedbackText.length > 0) {
           Text(this.feedbackText)
-            .fontSize(13)
-            .lineHeight(19)
-            .fontColor(this.feedbackIsError ? RED : GREEN)
+            .fontSize(MobileDesignTypography.bodySmall.size)
+            .lineHeight(MobileDesignTypography.bodySmall.lineHeight)
+            .fontColor(this.feedbackIsError ? STATUS_DANGER : STATUS_SUCCESS)
             .width('100%')
         }
       }
@@ -340,14 +338,14 @@ export struct ModelServiceSettingsPanel {
         .height(28)
       Column({ space: 3 }) {
         Text(this.currentModelLabel())
-          .fontSize(16)
+          .fontSize(MobileDesignTypography.bodyLarge.size)
           .fontWeight(FontWeight.Medium)
           .fontColor(INK)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
         if (this.currentModel()) {
           Text(this.modelSourceLabel(this.currentModel()))
-            .fontSize(12)
+            .fontSize(MobileDesignTypography.labelSmall.size)
             .fontColor(MUTED)
         }
       }
@@ -371,7 +369,7 @@ export struct ModelServiceSettingsPanel {
         .height(28)
       Column({ space: 3 }) {
         Text(RemoteI18n.t('settings.modelService.accountModelSummary'))
-          .fontSize(15)
+          .fontSize(MobileDesignTypography.titleSmall.size)
           .fontWeight(FontWeight.Medium)
           .fontColor(INK)
           .maxLines(1)
@@ -379,7 +377,7 @@ export struct ModelServiceSettingsPanel {
         Text(this.accountModels().length > 0 ?
           RemoteI18n.f('settings.modelService.syncedCount', String(this.accountModels().length)) :
           RemoteI18n.t('settings.modelService.accountEmpty'))
-          .fontSize(12)
+          .fontSize(MobileDesignTypography.labelSmall.size)
           .fontColor(MUTED)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -408,14 +406,14 @@ export struct ModelServiceSettingsPanel {
         .height(28)
       Column({ space: 3 }) {
         Text(this.hasCompleteLocalModel() ? this.modelName : RemoteI18n.t('settings.modelService.notConfigured'))
-          .fontSize(15)
+          .fontSize(MobileDesignTypography.titleSmall.size)
           .fontWeight(FontWeight.Medium)
           .fontColor(INK)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
         if (this.hasCompleteLocalModel()) {
           Text(RemoteI18n.t('settings.modelService.localSource'))
-            .fontSize(12)
+            .fontSize(MobileDesignTypography.labelSmall.size)
             .fontColor(MUTED)
         }
       }
@@ -448,7 +446,7 @@ export struct ModelServiceSettingsPanel {
   ConfigField(label: string, placeholder: string, kind: string) {
     Column({ space: 8 }) {
       Text(label)
-        .fontSize(14)
+        .fontSize(MobileDesignTypography.bodyMedium.size)
         .fontWeight(FontWeight.Medium)
         .fontColor(INK)
         .width('100%')
@@ -458,11 +456,13 @@ export struct ModelServiceSettingsPanel {
       })
         .width('100%')
         .height(52)
-        .fontSize(15)
+        .fontSize(MobileDesignTypography.titleSmall.size)
         .fontColor(INK)
         .placeholderColor(SUBTLE)
-        .backgroundColor(SOFT)
-        .borderRadius(8)
+        .backgroundColor(CARD)
+        .border({ width: 0.5, color: LINE })
+        .borderRadius(12)
+        .shadow({ radius: 12, color: SHADOW_FAINT, offsetY: 4 })
         .padding({ left: 14, right: 14 })
         .onFocus(() => {
           this.scrollFocusedFieldIntoView(kind);
@@ -488,13 +488,13 @@ export struct ModelServiceSettingsPanel {
     Column({ space: 8 }) {
       Row() {
         Text(RemoteI18n.t('settings.modelService.apiKey'))
-          .fontSize(14)
+          .fontSize(MobileDesignTypography.bodyMedium.size)
           .fontWeight(FontWeight.Medium)
           .fontColor(INK)
         Blank()
         if (this.hasApiKey && !this.sheetState.draftClearApiKey) {
           Text(RemoteI18n.t('settings.modelService.keySaved'))
-            .fontSize(12)
+            .fontSize(MobileDesignTypography.labelSmall.size)
             .fontColor(MUTED)
         }
       }
@@ -507,11 +507,13 @@ export struct ModelServiceSettingsPanel {
         .showPasswordIcon(true)
         .width('100%')
         .height(52)
-        .fontSize(15)
+        .fontSize(MobileDesignTypography.titleSmall.size)
         .fontColor(INK)
         .placeholderColor(SUBTLE)
-        .backgroundColor(SOFT)
-        .borderRadius(8)
+        .backgroundColor(CARD)
+        .border({ width: 0.5, color: LINE })
+        .borderRadius(12)
+        .shadow({ radius: 12, color: SHADOW_FAINT, offsetY: 4 })
         .padding({ left: 14, right: 10 })
         .onFocus(() => {
           this.scrollFocusedFieldIntoView('key');

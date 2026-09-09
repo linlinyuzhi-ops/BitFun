@@ -12,6 +12,7 @@ export interface SSHConnectionConfig {
   defaultWorkspace?: string;
   proxyJump?: string;
   container?: ContainerWorkspaceConfig;
+  wsl?: WslWorkspaceConfig;
   options?: SSHConnectionOptions;
 }
 
@@ -57,6 +58,7 @@ export interface SavedConnection {
   lastConnected?: number;
   proxyJump?: string;
   container?: ContainerWorkspaceConfig;
+  wsl?: WslWorkspaceConfig;
   options?: SSHConnectionOptions;
 }
 
@@ -134,4 +136,56 @@ export interface ConnectionTestReport {
   stages: ConnectionTestStage[];
   serverInfo?: ServerInfo;
   resolvedContainerAccess?: ContainerAccess;
+}
+
+export type PortForwardDirection = 'local' | 'remote' | 'dynamic';
+
+/** A mapping the user asked for. Only `connectionId` and `remotePort` are required. */
+export interface PortForwardRequest {
+  connectionId: string;
+  /** Port the service listens on, as seen from the remote host. */
+  remotePort: number;
+  /** Address the remote uses to reach the service. Defaults to `127.0.0.1`. */
+  remoteHost?: string;
+  /** Local port to bind. Omitted or `0` lets the backend allocate one. */
+  localPort?: number;
+  /** Bind every local interface instead of loopback only. Republishes the remote service to the LAN. */
+  exposeOnLan?: boolean;
+  label?: string;
+}
+
+/** A live mapping. `localPort` is what was actually bound, not what was asked for. */
+export interface PortForward {
+  id: string;
+  connectionId: string;
+  direction: PortForwardDirection;
+  label?: string;
+  localHost: string;
+  localPort: number;
+  /** Set only when the requested port was taken and a different one was bound instead. */
+  requestedLocalPort?: number;
+  remoteHost: string;
+  remotePort: number;
+  activeConnections: number;
+  totalConnections: number;
+  /** Most recent per-connection failure; a forward keeps listening through one. */
+  lastError?: string;
+}
+
+/** A TCP port found listening on the remote host. */
+export interface RemoteListeningPort {
+  port: number;
+  bindAddress: string;
+  process?: string;
+  pid?: number;
+}
+
+export interface WslWorkspaceConfig {
+  distribution: string;
+  user?: string;
+}
+
+export interface WslDistributions {
+  supported: boolean;
+  distributions: string[];
 }

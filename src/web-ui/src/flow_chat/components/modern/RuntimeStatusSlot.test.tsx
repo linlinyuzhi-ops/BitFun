@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RuntimeStatusSlot } from './RuntimeStatusSlot';
 import { useRuntimeStatusStore } from '../../store/runtimeStatusStore';
 
-vi.mock('@/component-library', () => ({
-  DotMatrixLoader: () => <span data-testid="dot-matrix" />,
+vi.mock('@openbitfun/ui', () => ({
+  Spinner: () => <span data-testid="dot-matrix" />,
+  OverflowText: ({ children, behavior: _behavior, marqueeActive: _marqueeActive, ...props }: any) => <span {...props}>{children}</span>,
 }));
 
 vi.mock('react-i18next', () => ({

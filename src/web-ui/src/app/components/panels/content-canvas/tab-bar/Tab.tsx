@@ -4,9 +4,9 @@
  */
 
 import React, { useCallback } from 'react';
-import { X, Pin, Split } from 'lucide-react';
+import { Split } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Tooltip } from '@/component-library';
+
 import { commandExecutor } from '@/shared/context-menu-system/commands/CommandExecutor';
 import { useContextMenuStore } from '@/shared/context-menu-system/store/ContextMenuStore';
 import { ContextType, type TabContext } from '@/shared/context-menu-system/types/context.types';
@@ -15,8 +15,10 @@ import { workspaceManager } from '@/infrastructure/services/business/workspaceMa
 import { isRemoteWorkspace } from '@/shared/types';
 import { hasNonFileUriScheme } from '@/shared/utils/pathUtils';
 import { isHtmlFilePath } from '@/shared/utils/htmlFilePreview';
+import { openFileInBestTarget } from '@/shared/utils/tabUtils';
 import type { CanvasTab, EditorGroupId, TabState } from '../types';
 import './Tab.scss';
+import { Icon, OverflowText, Tooltip } from '@openbitfun/ui';
 export interface TabProps {
   /** Tab data */
   tab: CanvasTab;
@@ -229,8 +231,32 @@ export const Tab: React.FC<TabProps> = ({
 
       if (isHtmlFilePath(filePath)) {
         items.push({
+          id: 'tab-open-html-as-text',
+          label: t('common:file.openAsText'),
+          icon: 'files',
+          disabled: tab.content.type === 'code-editor',
+          onClick: () => openFileInBestTarget({
+            filePath,
+            fileName: tab.title,
+            workspacePath,
+            editorType: 'code-editor',
+          }),
+        });
+        items.push({
+          id: 'tab-open-html-in-integrated-browser',
+          label: t('common:file.openInIntegratedBrowser'),
+          icon: 'PanelRightOpen',
+          disabled: tab.content.type === 'html-preview',
+          onClick: () => openFileInBestTarget({
+            filePath,
+            fileName: tab.title,
+            workspacePath,
+            editorType: 'html-preview',
+          }),
+        });
+        items.push({
           id: 'tab-open-html-in-browser',
-          label: t('common:file.openInBrowser'),
+          label: t('common:file.openInSystemBrowser'),
           icon: 'ExternalLink',
           disabled: !canUseLocalFileActions,
           onClick: () => runCommand('file.open-html-in-browser', context),
@@ -295,8 +321,9 @@ export const Tab: React.FC<TabProps> = ({
 
   return (
     <Tooltip content={tooltipText} placement="bottom">
-      <div data-bf-component="canvas-tab" data-bf-part="root" data-bf-group={groupId}
-        data-bf-state={[
+      <div data-openbitfun-component="canvas-tab" data-openbitfun-part="root" data-openbitfun-group={groupId}
+        data-overflow-trigger
+        data-openbitfun-state={[
           isActive && 'active',
           isDragging && 'dragging',
           tab.isDirty && 'dirty',
@@ -323,17 +350,17 @@ export const Tab: React.FC<TabProps> = ({
       >
         {/* Task-detail type icon */}
         {isTaskDetail && (
-          <Split size={12} data-bf-component="canvas-tab" data-bf-part="typeIcon" className="canvas-tab__type-icon" aria-hidden />
+          <Split size={12} data-openbitfun-component="canvas-tab" data-openbitfun-part="typeIcon" className="canvas-tab__type-icon" aria-hidden />
         )}
 
         {/* Title */}
-        <span data-bf-component="canvas-tab" data-bf-part="title" className="canvas-tab__title">
+        <OverflowText behavior="marquee" title="" data-openbitfun-component="canvas-tab" data-openbitfun-part="title" className="canvas-tab__title">
           {titleDisplay}
-        </span>
+        </OverflowText>
 
         {/* Dirty state indicator */}
         {tab.isDirty && (
-          <span data-bf-component="canvas-tab" data-bf-part="dirtyIndicator" className="canvas-tab__dirty-indicator" title={t('tabs.unsaved')}>
+          <span data-openbitfun-component="canvas-tab" data-openbitfun-part="dirtyIndicator" className="canvas-tab__dirty-indicator" title={t('tabs.unsaved')}>
             ●
           </span>
         )}
@@ -341,13 +368,13 @@ export const Tab: React.FC<TabProps> = ({
         {/* Close / pinned action */}
         <Tooltip content={isPinned ? t('tabs.unpin') : t('tabs.close')}>
           <button
-            data-bf-component="canvas-tab"
-            data-bf-part="action"
+            data-openbitfun-component="canvas-tab"
+            data-openbitfun-part="action"
             className={`canvas-tab__action-btn canvas-tab__close-btn ${isPinned ? 'canvas-tab__close-btn--pin' : ''}`}
             onClick={isPinned ? handlePinClick : handleCloseClick}
             tabIndex={-1}
           >
-            {isPinned ? <Pin size={12} /> : <X size={12} />}
+            {isPinned ? <Icon name="pin" size="xs" /> : <Icon name="xmark" size="xs" />}
           </button>
         </Tooltip>
 

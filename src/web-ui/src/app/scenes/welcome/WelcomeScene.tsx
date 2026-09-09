@@ -1,9 +1,6 @@
 /**
- * WelcomeScene — landing page shown on app start inside SceneViewport.
- *
- * Two modes:
- *  - Has workspace: welcome header + new-session shortcuts + workspace switching.
- *  - No workspace: branding + open/create project.
+ * WelcomeScene — the lightweight, tabless landing surface shown by
+ * SceneViewport until the user opens a scene.
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -24,7 +21,13 @@ import { getRecentWorkspaceLineParts } from '@/shared/utils/recentWorkspaceDispl
 import { formatRecentWorkspaceDate } from './recentWorkspaceDate';
 import './WelcomeScene.scss';
 
-const log = createLogger('WelcomeScene');
+type GreetingPeriod = 'morning' | 'afternoon' | 'evening';
+
+function getGreetingPeriod(hour: number): GreetingPeriod {
+  if (hour < 12) return 'morning';
+  if (hour < 18) return 'afternoon';
+  return 'evening';
+}
 
 const WelcomeScene: React.FC = () => {
   const { t, formatDate: formatLocaleDate } = useI18n('common');
@@ -204,6 +207,11 @@ const WelcomeScene: React.FC = () => {
       )}
     </section>
   );
+  const greeting = greetingPeriod === 'morning'
+    ? t('welcomeScene.greeting.morning')
+    : greetingPeriod === 'afternoon'
+      ? t('welcomeScene.greeting.afternoon')
+      : t('welcomeScene.greeting.evening');
 
   return (
     <div className="welcome-scene" data-testid="welcome-scene" data-bf-scene="welcome" data-bf-part="root">
@@ -229,13 +237,8 @@ const WelcomeScene: React.FC = () => {
           <h1 className="welcome-scene__title" data-bf-scene="welcome" data-bf-part="title">{t('welcomeScene.firstTime.title')}</h1>
           <p className="welcome-scene__greeting-label" data-bf-scene="welcome" data-bf-part="subtitle">{welcomeMessage}</p>
         </div>
-
-        <div className="welcome-scene__divider" data-bf-scene="welcome" data-bf-part="divider" />
-
-        {recentWorkspaceSection}
-
       </div>
-    </div>
+    </section>
   );
 };
 

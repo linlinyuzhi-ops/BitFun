@@ -10,9 +10,9 @@ use bitfun_runtime_ports::{
     PluginRuntimeAvailability, PluginRuntimeBinding, PluginRuntimeUnavailableReason,
     RuntimeServiceCapability,
 };
-use bitfun_runtime_services::RuntimeServices;
-pub use bitfun_tool_packs::ToolProviderGroupPlanSelectionError as ProductCapabilityBuildError;
-use bitfun_tool_packs::{
+use openbitfun_runtime_services::RuntimeServices;
+pub use openbitfun_tool_packs::ToolProviderGroupPlanSelectionError as ProductCapabilityBuildError;
+use openbitfun_tool_packs::{
     try_product_tool_provider_group_plan_for_ids, ToolPackFeatureGroup, ToolProviderGroupPlan,
 };
 
@@ -22,6 +22,7 @@ pub enum ProductCapabilityId {
     DeepReview,
     DeepResearch,
     MiniApp,
+    Creation,
     Canvas,
     VoiceInput,
 }
@@ -33,6 +34,7 @@ impl ProductCapabilityId {
             Self::DeepReview => "deep-review",
             Self::DeepResearch => "deep-research",
             Self::MiniApp => "miniapp",
+            Self::Creation => "creation",
             Self::Canvas => "canvas",
             Self::VoiceInput => "voice-input",
         }
@@ -55,6 +57,7 @@ pub enum ProductFeatureGroup {
     ComputerUse,
     ImageAnalysis,
     MiniApp,
+    Creation,
     Canvas,
     AgentControl,
 }
@@ -69,6 +72,7 @@ impl ProductFeatureGroup {
             Self::ComputerUse => "computer-use",
             Self::ImageAnalysis => "image-analysis",
             Self::MiniApp => "miniapp",
+            Self::Creation => "creation",
             Self::Canvas => "canvas",
             Self::AgentControl => "agent-control",
         }
@@ -91,6 +95,7 @@ impl From<ToolPackFeatureGroup> for ProductFeatureGroup {
             ToolPackFeatureGroup::ComputerUse => Self::ComputerUse,
             ToolPackFeatureGroup::ImageAnalysis => Self::ImageAnalysis,
             ToolPackFeatureGroup::MiniApp => Self::MiniApp,
+            ToolPackFeatureGroup::Creation => Self::Creation,
             ToolPackFeatureGroup::Canvas => Self::Canvas,
             ToolPackFeatureGroup::AgentControl => Self::AgentControl,
         }
@@ -107,6 +112,7 @@ impl From<ProductFeatureGroup> for ToolPackFeatureGroup {
             ProductFeatureGroup::ComputerUse => Self::ComputerUse,
             ProductFeatureGroup::ImageAnalysis => Self::ImageAnalysis,
             ProductFeatureGroup::MiniApp => Self::MiniApp,
+            ProductFeatureGroup::Creation => Self::Creation,
             ProductFeatureGroup::Canvas => Self::Canvas,
             ProductFeatureGroup::AgentControl => Self::AgentControl,
         }
@@ -158,6 +164,7 @@ impl ProductCapabilityPack {
 pub enum DeliveryProfile {
     ProductFull,
     Desktop,
+    DataMigrator,
     Cli,
     Server,
     Remote,
@@ -172,6 +179,7 @@ impl DeliveryProfile {
         match self {
             Self::ProductFull => "product-full",
             Self::Desktop => "desktop",
+            Self::DataMigrator => "data-migrator",
             Self::Cli => "cli",
             Self::Server => "server",
             Self::Remote => "remote",
@@ -186,6 +194,7 @@ impl DeliveryProfile {
         &[
             Self::ProductFull,
             Self::Desktop,
+            Self::DataMigrator,
             Self::Cli,
             Self::Server,
             Self::Remote,
@@ -245,6 +254,10 @@ const PRODUCT_DELIVERY_PROFILE_ENTRIES: &[ProductDeliveryProfileEntry] = &[
     ProductDeliveryProfileEntry::new(
         DeliveryProfile::Desktop,
         ProductCoreDependencyMode::ProductFullCompatibility,
+    ),
+    ProductDeliveryProfileEntry::new(
+        DeliveryProfile::DataMigrator,
+        ProductCoreDependencyMode::ExplicitCoreCapabilityClosure,
     ),
     ProductDeliveryProfileEntry::new(
         DeliveryProfile::Cli,
@@ -937,6 +950,7 @@ pub fn product_extension_capabilities_for_profile(
         DeliveryProfile::Server
         | DeliveryProfile::Remote
         | DeliveryProfile::Acp
+        | DeliveryProfile::DataMigrator
         | DeliveryProfile::Web
         | DeliveryProfile::MobileWeb
         | DeliveryProfile::Sdk => PluginRuntimeUnavailableReason::UnsupportedProfile,
@@ -1071,6 +1085,7 @@ const DEFAULT_PRODUCT_CAPABILITY_PACKS: &[ProductCapabilityPack] = &[
     DEEP_REVIEW_CAPABILITY_PACK,
     DEEP_RESEARCH_CAPABILITY_PACK,
     MINIAPP_CAPABILITY_PACK,
+    CREATION_CAPABILITY_PACK,
     CANVAS_CAPABILITY_PACK,
     VOICE_INPUT_CAPABILITY_PACK,
 ];
@@ -1115,6 +1130,7 @@ fn product_capability_registry_for_profile(profile: DeliveryProfile) -> ProductC
         }
         DeliveryProfile::Server
         | DeliveryProfile::Remote
+        | DeliveryProfile::DataMigrator
         | DeliveryProfile::Web
         | DeliveryProfile::MobileWeb => {
             ProductCapabilityRegistry::new(EMPTY_PRODUCT_CAPABILITY_PACKS)

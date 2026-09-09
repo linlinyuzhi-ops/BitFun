@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use bitfun_runtime_ports as ports;
+use openbitfun_runtime_ports as ports;
 use tokio::sync::mpsc;
 
 use super::{
@@ -72,6 +72,10 @@ impl ports::RuntimeServicePort for RemoteExecRuntimePort {
 
 #[async_trait]
 impl ports::RemoteExecPort for RemoteExecRuntimePort {
+    async fn is_session_active(&self, session_id: i32) -> ports::PortResult<bool> {
+        Ok(self.manager.is_session_active(session_id).await)
+    }
+
     async fn exec_command_once(
         &self,
         request: ports::RemoteExecOneShotCommandRequest,

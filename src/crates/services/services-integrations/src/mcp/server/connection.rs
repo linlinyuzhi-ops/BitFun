@@ -641,7 +641,7 @@ mod tests {
             MCPConnection::new(stdin, rx).with_initialize_timeout(Some(Duration::from_millis(10)));
 
         let error = connection
-            .initialize("BitFunTest", "0.0.0")
+            .initialize("OpenBitFunTest", "0.0.0")
             .await
             .expect_err("initialize should time out");
         assert_eq!(error.kind(), crate::mcp::MCPRuntimeErrorKind::Timeout);
@@ -652,7 +652,7 @@ mod tests {
 
     #[test]
     fn mcp_connection_timeout_child() {
-        if std::env::var_os("BITFUN_MCP_CONNECTION_TIMEOUT_CHILD").is_some() {
+        if std::env::var_os("OPENBITFUN_MCP_CONNECTION_TIMEOUT_CHILD").is_some() {
             std::thread::sleep(Duration::from_secs(30));
         }
     }

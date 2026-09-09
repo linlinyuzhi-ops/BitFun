@@ -8,10 +8,11 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { OverflowText, Icon, KeyHint, Menu, MenuItem, MenuSeparator, Tooltip } from '@openbitfun/ui';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
-import { LayoutGrid, ChevronDown, X } from 'lucide-react';
+import { LayoutGrid } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Tooltip } from '@/component-library';
+
 import type { CanvasTab } from '../types';
 import './TabOverflowMenu.scss';
 export interface TabOverflowMenuProps {
@@ -164,21 +165,21 @@ export const TabOverflowMenu: React.FC<TabOverflowMenuProps> = ({
       : '';
 
   return (
-    <div data-bf-component="canvas-tab-overflow" data-bf-part="root" data-bf-state={isOpen ? 'open' : ''} ref={wrapperRef} className="canvas-tab-panorama-wrapper">
+    <div data-openbitfun-component="canvas-tab-overflow" data-openbitfun-part="root" data-openbitfun-state={isOpen ? 'open' : ''} ref={wrapperRef} className="canvas-tab-panorama-wrapper">
       <Tooltip content={tooltipContent} placement="bottom">
         <button
-          data-bf-component="canvas-tab-overflow"
-          data-bf-part="trigger"
+          data-openbitfun-component="canvas-tab-overflow"
+          data-openbitfun-part="trigger"
           className={`canvas-tab-panorama-btn ${hasOverflow ? 'has-overflow' : ''} ${isOpen ? 'is-open' : ''} ${!hasMissionControl ? 'overflow-only' : ''}`}
           onClick={handleButtonClick}
         >
           {hasMissionControl ? (
             <LayoutGrid size={14} />
           ) : (
-            <ChevronDown size={14} />
+            <Icon name="chevron-down" size="sm" />
           )}
           {hasOverflow && (
-            <span data-bf-component="canvas-tab-overflow" data-bf-part="badge" className="canvas-tab-panorama-btn__badge">
+            <span data-openbitfun-component="canvas-tab-overflow" data-openbitfun-part="badge" className="canvas-tab-panorama-btn__badge">
               +{overflowTabs.length}
             </span>
           )}
@@ -186,10 +187,8 @@ export const TabOverflowMenu: React.FC<TabOverflowMenuProps> = ({
       </Tooltip>
 
       {isOpen && hasOverflow && createPortal(
-        <div
+        <Menu
           ref={menuRef}
-          data-bf-component="canvas-tab-overflow"
-          data-bf-part="menu"
           className="canvas-tab-overflow-menu"
           style={{
             position: 'fixed',
@@ -200,64 +199,66 @@ export const TabOverflowMenu: React.FC<TabOverflowMenuProps> = ({
           {/* Mission control entry - shown only when available */}
           {hasMissionControl && (
             <>
-              <div
-                data-bf-component="canvas-tab-overflow"
-                data-bf-part="missionControl"
-                className="canvas-tab-overflow-menu__mission-control"
+              <MenuItem
+                className="canvas-tab-overflow-menu__mission-control-row canvas-tab-overflow-menu__mission-control"
                 onClick={handleMissionControlClick}
+                leading={<LayoutGrid size={14} />}
+                shortcut={<KeyHint>⌘.</KeyHint>}
               >
-                <LayoutGrid size={14} />
                 <span>{t('tabs.missionControl')}</span>
-                <kbd>⌘.</kbd>
-              </div>
+              </MenuItem>
 
               {/* Divider */}
-              <div data-bf-component="canvas-tab-overflow" data-bf-part="divider" className="canvas-tab-overflow-menu__divider" />
+              <MenuSeparator className="canvas-tab-overflow-menu__divider" />
             </>
           )}
 
           {/* Overflow tab list */}
-          <div data-bf-component="canvas-tab-overflow" data-bf-part="list" className="canvas-tab-overflow-menu__list">
+          <div className="canvas-tab-overflow-menu__list">
             {overflowTabs.map((tab) => {
               const deletedSuffix = tab.fileDeletedFromDisk ? ` - ${t('tabs.fileDeleted')}` : '';
               const titleWithDeleted = `${tab.title}${deletedSuffix}`;
               return (
-              <div data-bf-component="canvas-tab-overflow" data-bf-part="item"
-                data-bf-state={[
-                  activeTabId === tab.id && 'active',
-                  tab.isDirty && 'dirty',
-                  tab.fileDeletedFromDisk && 'deleted',
-                ].filter(Boolean).join(' ')}
+              <MenuItem data-overflow-trigger
                 key={tab.id}
-                className={`canvas-tab-overflow-menu__item ${
+                role="menuitemradio"
+                checked={activeTabId === tab.id}
+                className={`canvas-tab-overflow-menu__item-row canvas-tab-overflow-menu__item ${
                   activeTabId === tab.id ? 'is-active' : ''
                 } ${tab.isDirty ? 'is-dirty' : ''} ${tab.fileDeletedFromDisk ? 'is-file-deleted' : ''}`}
                 onClick={() => handleTabClick(tab.id)}
                 onMouseDown={(e) => handleItemMiddleMouseDown(e, tab)}
                 onAuxClick={(e) => void handleItemAuxClick(e, tab)}
+                actions={[{
+                  id: `close:${tab.id}`,
+                  label: t('tabs.close'),
+                  icon: <Icon name="xmark" size="xs" />,
+                  onClick: (e) => { void handleCloseClick(e, tab.id); },
+                }]}
               >
-                <span data-bf-component="canvas-tab-overflow" data-bf-part="itemTitle" className="canvas-tab-overflow-menu__item-title">
+                <OverflowText behavior="marquee"
+                  data-openbitfun-component="canvas-tab-overflow"
+                  data-openbitfun-part="itemTitle"
+                  data-openbitfun-state={[
+                    activeTabId === tab.id && 'active',
+                    tab.isDirty && 'dirty',
+                    tab.fileDeletedFromDisk && 'deleted',
+                  ].filter(Boolean).join(' ') || undefined}
+                  className="canvas-tab-overflow-menu__item-title"
+                >
                   {tab.state === 'preview' && <em>{titleWithDeleted}</em>}
                   {tab.state !== 'preview' && titleWithDeleted}
-                </span>
+                </OverflowText>
                 
                 {tab.isDirty && (
                   <span className="canvas-tab-overflow-menu__item-dirty">●</span>
                 )}
                 
-                <button
-                  data-bf-component="canvas-tab-overflow"
-                  data-bf-part="itemClose"
-                  className="canvas-tab-overflow-menu__item-close"
-                  onClick={(e) => handleCloseClick(e, tab.id)}
-                >
-                  <X size={12} />
-                </button>
-              </div>
+              </MenuItem>
             );
             })}
           </div>
-        </div>,
+        </Menu>,
         getAppearanceOverlayHost()
       )}
     </div>

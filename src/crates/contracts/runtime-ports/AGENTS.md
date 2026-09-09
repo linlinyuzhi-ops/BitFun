@@ -2,12 +2,12 @@
 
 Scope: this guide applies to `src/crates/contracts/runtime-ports`.
 
-`bitfun-runtime-ports` owns stable runtime-facing ports, DTOs, and capability
+`openbitfun-runtime-ports` owns stable runtime-facing ports, DTOs, and capability
 facts. It is an interface crate, not a runtime implementation crate.
 
 ## Guardrails
 
-- Do not depend on `bitfun-core`, app crates, Tauri, concrete service crates,
+- Do not depend on `openbitfun-core`, app crates, Tauri, concrete service crates,
   AI adapters, transport adapters, or tool implementations.
 - Keep ports narrow and typed. Avoid untyped service locators, global registries,
   or catch-all context structs.
@@ -26,6 +26,17 @@ facts. It is an interface crate, not a runtime implementation crate.
   load/invoke/cancel/dispose requests, execution context paths, and string
   results. Ecosystem source parsing, approval/conflict policy, product routing,
   process supervision, dependency installation, and UI do not belong here.
+- `HookFunctionRuntime` owns only provider-neutral availability, single-worker
+  start/transform-config/execute-tool/cancel/dispose requests, a complete
+  plugin-generation registration **notification sink** (not a load response),
+  a reverse-channel sink (`metadata`/`ask`/`ask_reply`), and typed config/tool
+  results. One worker owns the ordered plugin set and returns one final config
+  result for the complete config hook chain.
+  Plugin activation/trust, process supervision, `server(PluginInput)` to
+  `Hooks` construction, permission decisions, and UI do not belong here. It
+  deliberately diverges from `ScriptToolRuntime` (push notifications plus
+  reverse channel, versus synchronous load/invoke response); do not collapse
+  the two.
 - Do not put filesystem writes, process execution, network clients, Git/AI/MCP
   concrete behavior, product policy, permission decisions, audit outcomes, UI
   extension behavior, UI implementation, or UI command logic here.
@@ -41,10 +52,10 @@ facts. It is an interface crate, not a runtime implementation crate.
 ## Verification
 
 ```bash
-cargo check --locked -p bitfun-runtime-ports --no-default-features
-cargo test --locked -p bitfun-runtime-ports --no-default-features --features agent-api --lib
-cargo test --locked -p bitfun-runtime-ports --no-default-features --features workspace-ports --test session_store_contracts
-cargo test --locked -p bitfun-runtime-ports --no-default-features --features plugin-runtime --test plugin_runtime_contracts
+cargo check --locked -p openbitfun-runtime-ports --no-default-features
+cargo test --locked -p openbitfun-runtime-ports --no-default-features --features agent-api --lib
+cargo test --locked -p openbitfun-runtime-ports --no-default-features --features workspace-ports --test session_store_contracts
+cargo test --locked -p openbitfun-runtime-ports --no-default-features --features plugin-runtime --test plugin_runtime_contracts
 node scripts/check-core-boundaries.mjs
 ```
 

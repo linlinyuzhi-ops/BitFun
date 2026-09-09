@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { Button, Icon } from '@openbitfun/ui';
 import type { AnnouncementCard } from '../types';
 import { useAnnouncementStore } from '../store/announcementStore';
 import { useAnnouncementI18n } from '../hooks/useAnnouncementI18n';
@@ -93,7 +93,7 @@ const AnnouncementToastItem: React.FC<Props> = ({ card }) => {
               onClick={handleDismiss}
               aria-label={t('announcements.common.close')}
             >
-              <X strokeWidth={2} />
+              <Icon name="xmark" size="lg" />
             </button>
           </div>
         )}
@@ -104,13 +104,13 @@ const AnnouncementToastItem: React.FC<Props> = ({ card }) => {
 
       {/* Row 3: action buttons */}
       <div className="announcement-toast__actions">
-        <button
-          type="button"
-          className="announcement-toast__btn announcement-toast__btn--primary"
+        <Button
+          variant="fill"
+          size="sm"
           onClick={handleAction}
         >
           {actionLabel}
-        </button>
+        </Button>
       </div>
 
     </div>

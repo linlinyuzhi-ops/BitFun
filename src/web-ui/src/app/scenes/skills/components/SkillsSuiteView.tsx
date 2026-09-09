@@ -1,8 +1,8 @@
+import { Button, Checkbox, Icon, IconButton, OverflowText, ScrollArea, SegmentedControl, StatusPill } from '@openbitfun/ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Package, RefreshCw, RotateCcw, Settings2, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Package, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Badge, Button } from '@/component-library';
-import { confirmDialog } from '@/component-library/components/ConfirmDialog/confirmService';
+import { confirmDialog } from '@/infrastructure/confirm-dialog';
 import { configAPI } from '@/infrastructure/api';
 import { useWorkspaceManagerSync } from '@/infrastructure/hooks/useWorkspaceManagerSync';
 import { useGallerySceneAutoRefresh } from '@/app/hooks/useGallerySceneAutoRefresh';
@@ -26,7 +26,6 @@ const SUITE_MODES = [
   { id: 'agentic', labelKey: 'suite.modes.agentic', descKey: 'suite.modeDescriptions.agentic' },
   { id: 'Cowork', labelKey: 'suite.modes.cowork', descKey: 'suite.modeDescriptions.cowork' },
   { id: 'Claw', labelKey: 'shared:agents.claw', descKey: 'suite.modeDescriptions.claw' },
-  { id: 'Team', labelKey: 'suite.modes.team', descKey: 'suite.modeDescriptions.team' },
 ] as const;
 
 type SuiteMode = typeof SUITE_MODES[number];
@@ -406,109 +405,106 @@ const SkillsSuiteView: React.FC = () => {
   }, [currentMode.labelKey, draftEnabledKeys, notification, suiteModeId, t, workspacePath]);
 
   return (
-    <div className="skills-suite" data-bf-scene="skills" data-bf-part="suite" data-bf-mode={suiteModeId}>
-      <div className="skills-suite__hero" data-bf-scene="skills" data-bf-part="suiteHero">
-        <div className="skills-suite__hero-copy" data-bf-scene="skills" data-bf-part="suiteHeroCopy">
+    <div className="skills-suite" data-openbitfun-scene="skills" data-openbitfun-part="suite" data-openbitfun-mode={suiteModeId}>
+      <div className="skills-suite__hero" data-openbitfun-scene="skills" data-openbitfun-part="suiteHero">
+        <div className="skills-suite__hero-copy" data-openbitfun-scene="skills" data-openbitfun-part="suiteHeroCopy">
           <h2 className="skills-suite__title">{t('suite.title')}</h2>
           <p className="skills-suite__subtitle">{t('suite.subtitle')}</p>
         </div>
-        <div className="skills-suite__hero-actions" data-bf-scene="skills" data-bf-part="suiteHeroActions">
+        <div className="skills-suite__hero-actions" data-openbitfun-scene="skills" data-openbitfun-part="suiteHeroActions">
           <Button
-            variant="secondary"
-            size="small"
+            variant="outline"
+            size="sm"
+            leadingIcon={<Icon name="settings" size="xs" />}
             onClick={() => setIsGroupManagerOpen(true)}
             disabled={isSaving}
           >
-            <Settings2 size={13} />
-            <span>{t('suite.manageGroups')}</span>
+            {t('suite.manageGroups')}
           </Button>
           <Button
-            variant="secondary"
-            size="small"
+            variant="outline"
+            size="sm"
+            leadingIcon={<Icon name="refresh" size="sm" />}
             onClick={() => void refresh()}
             title={t('suite.refreshTooltip')}
             aria-label={t('suite.refreshTooltip')}
             disabled={loading || isSaving || hasUnsavedChanges}
           >
-            <RefreshCw size={13} />
-            <span>{t('suite.refreshAction')}</span>
+            {t('suite.refreshAction')}
           </Button>
         </div>
       </div>
 
-      <div className="skills-suite__mode-toolbar" data-bf-scene="skills" data-bf-part="suiteModeToolbar">
-        <div className="skills-suite__modes" role="tablist" aria-label={t('suite.modeLabel')} data-bf-scene="skills" data-bf-part="suiteModes">
-        {SUITE_MODES.map((mode) => (
-            <button
-              key={mode.id}
-              id={`skills-suite-tab-${mode.id}`}
-              type="button"
-              role="tab"
-              aria-selected={suiteModeId === mode.id}
-              aria-controls={`skills-suite-panel-${mode.id}`}
-              className={`skills-suite__mode-tab${suiteModeId === mode.id ? ' is-active' : ''}`}
-              onClick={() => handleModeSelect(mode.id)}
-              disabled={isSaving}
-              title={t(mode.descKey)}
-              data-bf-scene="skills"
-              data-bf-part="suiteModeTab"
-              data-bf-mode={mode.id}
-              data-bf-state={suiteModeId === mode.id ? 'active' : undefined}
-            >
-              <span className="skills-suite__mode-tab-label" data-bf-scene="skills" data-bf-part="suiteModeTabLabel">{t(mode.labelKey)}</span>
-            </button>
-        ))}
+      <div className="skills-suite__mode-toolbar" data-openbitfun-scene="skills" data-openbitfun-part="suiteModeToolbar">
+        <div className="skills-suite__modes" data-openbitfun-scene="skills" data-openbitfun-part="suiteModes">
+          <SegmentedControl
+            size="sm"
+            tone="neutral"
+            value={suiteModeId}
+            disabled={isSaving}
+            onValueChange={(value) => handleModeSelect(value as SuiteModeId)}
+            aria-label={t('suite.modeLabel')}
+            options={SUITE_MODES.map((mode) => ({
+              value: mode.id,
+              label: (
+                <span
+                  id={`skills-suite-tab-${mode.id}`}
+                  title={t(mode.descKey)}
+                  data-openbitfun-scene="skills"
+                  data-openbitfun-part="suiteModeTab"
+                  data-openbitfun-mode={mode.id}
+                  data-openbitfun-state={suiteModeId === mode.id ? 'active' : undefined}
+                >
+                  <span data-openbitfun-scene="skills" data-openbitfun-part="suiteModeTabLabel">{t(mode.labelKey)}</span>
+                </span>
+              ),
+            }))}
+          />
         </div>
-        <Button
-          variant="secondary"
-          size="small"
+        <IconButton
+          size="sm"
           className="skills-suite__mode-reset"
-          iconOnly
-          isLoading={resettingModeId === suiteModeId}
+          loading={resettingModeId === suiteModeId}
           disabled={isSaving}
           onClick={() => { void resetMode(currentMode); }}
           title={t('suite.modeActions.reset', { mode: t(currentMode.labelKey) })}
           aria-label={t('suite.modeActions.reset', { mode: t(currentMode.labelKey) })}
-        >
-          <RotateCcw size={13} />
-        </Button>
+          icon={<Icon glyph={RotateCcw} />}
+        />
       </div>
 
       {loading && (
-        <div className="skills-suite__loading" aria-busy="true" aria-label={t('suite.loading')} data-bf-scene="skills" data-bf-part="suiteLoading">
-          <RefreshCw size={16} className="skills-suite__loading-icon" />
+        <div className="skills-suite__loading" aria-busy="true" aria-label={t('suite.loading')} data-openbitfun-scene="skills" data-openbitfun-part="suiteLoading">
+          <Icon name="refresh" size="md" className="skills-suite__loading-icon" />
           <span>{t('suite.loading')}</span>
         </div>
       )}
 
       {!loading && error && (
-        <div className="skills-main__empty skills-main__empty--error" data-bf-scene="skills" data-bf-part="error">
-          <Package size={28} strokeWidth={1.2} />
+        <div className="skills-main__empty skills-main__empty--error" data-openbitfun-scene="skills" data-openbitfun-part="error">
+          <Icon glyph={Package} size="lg" />
           <span>{error}</span>
         </div>
       )}
 
       {!loading && !error && suiteGroups.length === 0 && (
-        <div className="skills-main__empty" data-bf-scene="skills" data-bf-part="empty">
-          <Package size={28} strokeWidth={1.2} />
+        <div className="skills-main__empty" data-openbitfun-scene="skills" data-openbitfun-part="empty">
+          <Icon glyph={Package} size="lg" />
           <span>{t('suite.empty')}</span>
         </div>
       )}
 
       {!loading && !error && suiteGroups.length > 0 && (
-        <div
+        <ScrollArea
           id={`skills-suite-panel-${suiteModeId}`}
-          role="tabpanel"
+          role="region"
           aria-labelledby={`skills-suite-tab-${suiteModeId}`}
           className="skills-suite__sections"
-          data-bf-scene="skills"
-          data-bf-part="suiteSections"
-          data-bf-mode={suiteModeId}
         >
           {suiteSections.map(([sectionLabel, sectionGroups]) => (
-            <section key={sectionLabel} className="skills-suite__section" data-bf-scene="skills" data-bf-part="suiteSection">
-              <span className="skills-suite__section-label" data-bf-scene="skills" data-bf-part="suiteSectionLabel">{sectionLabel}</span>
-              <div className="skills-suite__grid" data-bf-scene="skills" data-bf-part="suiteGrid">
+            <section key={sectionLabel} className="skills-suite__section" data-openbitfun-scene="skills" data-openbitfun-part="suiteSection">
+              <span className="skills-suite__section-label" data-openbitfun-scene="skills" data-openbitfun-part="suiteSectionLabel">{sectionLabel}</span>
+              <div className="skills-suite__grid" data-openbitfun-scene="skills" data-openbitfun-part="suiteGrid">
                 {sectionGroups.map((group) => {
                   const allEnabled = group.enabledCount === group.totalCount;
                   const someEnabled = group.enabledCount > 0;
@@ -528,27 +524,27 @@ const SkillsSuiteView: React.FC = () => {
                     <section
                       key={group.id}
                       className="skills-suite__group-card"
-                      data-bf-scene="skills"
-                      data-bf-part="suiteGroupCard"
-                      data-bf-state={allEnabled ? 'enabled' : undefined}
+                      data-openbitfun-scene="skills"
+                      data-openbitfun-part="suiteGroupCard"
+                      data-openbitfun-state={allEnabled ? 'enabled' : undefined}
                     >
-                      <div className="skills-suite__group-head" data-bf-scene="skills" data-bf-part="suiteGroupHead">
-                        <div className="skills-suite__group-title-wrap" data-bf-scene="skills" data-bf-part="suiteGroupTitleWrap">
-                          <div className="skills-suite__group-title-row" data-bf-scene="skills" data-bf-part="suiteGroupTitleRow">
-                            <span className="skills-suite__group-title" data-bf-scene="skills" data-bf-part="suiteGroupTitle">{group.label}</span>
-                            <Badge variant={groupStateVariant}>{groupStateLabel}</Badge>
+                      <div className="skills-suite__group-head" data-openbitfun-scene="skills" data-openbitfun-part="suiteGroupHead">
+                        <div className="skills-suite__group-title-wrap" data-openbitfun-scene="skills" data-openbitfun-part="suiteGroupTitleWrap">
+                          <div className="skills-suite__group-title-row" data-openbitfun-scene="skills" data-openbitfun-part="suiteGroupTitleRow">
+                            <span className="skills-suite__group-title" data-openbitfun-scene="skills" data-openbitfun-part="suiteGroupTitle"><OverflowText>{group.label}</OverflowText></span>
+                            <StatusPill tone={groupStateVariant}>{groupStateLabel}</StatusPill>
                           </div>
-                          <span className="skills-suite__group-count" data-bf-scene="skills" data-bf-part="suiteGroupCount">
+                          <span className="skills-suite__group-count" data-openbitfun-scene="skills" data-openbitfun-part="suiteGroupCount">
                             {t('suite.groupCount', { total: group.totalCount })}
                           </span>
                         </div>
 
-                        <div className="skills-suite__group-actions" data-bf-scene="skills" data-bf-part="suiteGroupActions">
+                        <div className="skills-suite__group-actions" data-openbitfun-scene="skills" data-openbitfun-part="suiteGroupActions">
                           {showSaveButton ? (
                             <Button
-                              variant="primary"
-                              size="small"
-                              isLoading={savingAction?.groupKey === group.id && savingAction.kind === 'save'}
+                              variant="fill"
+                              size="sm"
+                              loading={savingAction?.groupKey === group.id && savingAction.kind === 'save'}
                               disabled={isSaving}
                               onClick={() => void saveGroup(group)}
                             >
@@ -556,9 +552,9 @@ const SkillsSuiteView: React.FC = () => {
                             </Button>
                           ) : null}
                           <Button
-                            variant={allEnabled ? 'secondary' : 'primary'}
-                            size="small"
-                            isLoading={savingAction?.groupKey === group.id && savingAction.kind === 'toggle'}
+                            variant={allEnabled ? 'outline' : 'fill'}
+                            size="sm"
+                            loading={savingAction?.groupKey === group.id && savingAction.kind === 'toggle'}
                             disabled={isSaving}
                             onClick={() => void saveGroupVisibility(group, !allEnabled)}
                           >
@@ -567,7 +563,7 @@ const SkillsSuiteView: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="skills-suite__skills" data-bf-scene="skills" data-bf-part="suiteSkills">
+                      <div className="skills-suite__skills" data-openbitfun-scene="skills" data-openbitfun-part="suiteSkills">
                         {group.skills.map((skill) => {
                           const draftEnabled = draftEnabledKeySet.has(skill.key);
                           const dirty = committedEnabledKeySet.has(skill.key) !== draftEnabled;
@@ -584,8 +580,7 @@ const SkillsSuiteView: React.FC = () => {
                           );
 
                           return (
-                            <button
-                              type="button"
+                            <div
                               key={skill.key}
                               className={[
                                 'skills-suite__skill-chip',
@@ -594,51 +589,55 @@ const SkillsSuiteView: React.FC = () => {
                                 dirty ? 'is-dirty' : '',
                                 !skill.globallyEnabled ? 'is-globally-disabled' : '',
                               ].filter(Boolean).join(' ')}
-                              title={accessibleStatus}
-                              aria-label={`${skill.name}. ${accessibleStatus}`}
-                              aria-pressed={draftEnabled}
-                              disabled={isSaving}
-                              data-bf-scene="skills"
-                              data-bf-part="suiteSkill"
-                              data-bf-state={[
+                              data-openbitfun-scene="skills"
+                              data-openbitfun-part="suiteSkill"
+                              data-openbitfun-state={[
                                 draftEnabled && 'enabled',
                                 shadowed && 'covered',
                                 dirty && 'dirty',
                               ].filter(Boolean).join(' ') || undefined}
-                              onClick={() => {
-                                setDraftEnabledKeys((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(skill.key)) {
-                                    next.delete(skill.key);
-                                  } else {
-                                    next.add(skill.key);
-                                  }
-                                  return uniqueKeys(next);
-                                });
-                              }}
                             >
-                              <span className="skills-suite__skill-chip-name" data-bf-scene="skills" data-bf-part="suiteSkillName">{skill.name}</span>
-                              {draftEnabled && !shadowed ? (
-                                <ShieldCheck size={11} />
-                              ) : (
-                                <ShieldAlert size={11} />
-                              )}
-                              {shadowed && (
-                                <span className="skills-suite__skill-chip-status" data-bf-scene="skills" data-bf-part="suiteSkillStatus">
-                                  {t('suite.skillState.covered', { source: coverageSource })}
-                                </span>
-                              )}
-                              {dirty && (
-                                <span className="skills-suite__skill-chip-status" data-bf-scene="skills" data-bf-part="suiteSkillStatus">
-                                  {t('suite.skillState.pending')}
-                                </span>
-                              )}
-                              {!skill.globallyEnabled && (
-                                <span className="skills-suite__skill-chip-status">
-                                  {t('suite.skillState.globalDisabled')}
-                                </span>
-                              )}
-                            </button>
+                              <Checkbox
+                                className="skills-suite__skill-control"
+                                size="sm"
+                                checked={draftEnabled}
+                                disabled={isSaving}
+                                title={accessibleStatus}
+                                aria-label={`${skill.name}. ${accessibleStatus}`}
+                                label={(
+                                  <span className="skills-suite__skill-chip-name" data-openbitfun-scene="skills" data-openbitfun-part="suiteSkillName">
+                                    <OverflowText>{skill.name}</OverflowText>
+                                  </span>
+                                )}
+                                onCheckedChange={(checked) => {
+                                  setDraftEnabledKeys((prev) => {
+                                    const next = new Set(prev);
+                                    if (checked) {
+                                      next.add(skill.key);
+                                    } else {
+                                      next.delete(skill.key);
+                                    }
+                                    return uniqueKeys(next);
+                                  });
+                                }}
+                              >
+                                {shadowed && (
+                                  <span className="skills-suite__skill-chip-status" data-openbitfun-scene="skills" data-openbitfun-part="suiteSkillStatus">
+                                    {t('suite.skillState.covered', { source: coverageSource })}
+                                  </span>
+                                )}
+                                {dirty && (
+                                  <span className="skills-suite__skill-chip-status" data-openbitfun-scene="skills" data-openbitfun-part="suiteSkillStatus">
+                                    {t('suite.skillState.pending')}
+                                  </span>
+                                )}
+                                {!skill.globallyEnabled && (
+                                  <span className="skills-suite__skill-chip-status">
+                                    {t('suite.skillState.globalDisabled')}
+                                  </span>
+                                )}
+                              </Checkbox>
+                            </div>
                           );
                         })}
                       </div>
@@ -648,7 +647,7 @@ const SkillsSuiteView: React.FC = () => {
               </div>
             </section>
           ))}
-        </div>
+        </ScrollArea>
       )}
       <SkillGroupManagerModal
         isOpen={isGroupManagerOpen}

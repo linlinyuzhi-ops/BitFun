@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$BinDir = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'BitFun\bin'),
+    [string]$BinDir = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'OpenBitFun\bin'),
     [switch]$SkipPathUpdate
 )
 
@@ -25,7 +25,7 @@ function Resolve-RepoRoot {
         $candidate = $parent
     }
 
-    throw "Could not locate the BitFun repository root from $PSScriptRoot"
+    throw "Could not locate the OpenBitFun repository root from $PSScriptRoot"
 }
 
 function Resolve-TargetRoot([string]$RepoRoot) {
@@ -76,26 +76,19 @@ function Assert-CommandSucceeded([string]$Description) {
     }
 }
 
-function Assert-EntrypointPair([string]$Primary, [string]$Legacy) {
-    & $Primary --version | Out-Null
-    Assert-CommandSucceeded 'bitfun --version'
+function Assert-Entrypoint([string]$Executable) {
+    & $Executable --version | Out-Null
+    Assert-CommandSucceeded 'openbitfun --version'
+    & $Executable --help | Out-Null
+    Assert-CommandSucceeded 'openbitfun --help'
+}
 
-    $id = [guid]::NewGuid().ToString('N')
-    $stdoutFile = Join-Path ([IO.Path]::GetTempPath()) "bitfun-install-$id.out"
-    $stderrFile = Join-Path ([IO.Path]::GetTempPath()) "bitfun-install-$id.err"
-    try {
-        $legacyProcess = Start-Process -FilePath $Legacy -ArgumentList '--version' -Wait -PassThru -NoNewWindow `
-            -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
-        if ($legacyProcess.ExitCode -ne 0) {
-            throw "bitfun-cli --version failed with exit code $($legacyProcess.ExitCode)"
+function Assert-PluginHostResources([string]$Directory) {
+    foreach ($entry in @('extension-host.js')) {
+        $path = Join-Path $Directory $entry
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Plugin Host resource is missing: $path"
         }
-        $legacyWarning = (Get-Content -LiteralPath $stderrFile -Raw).TrimEnd("`r", "`n")
-        if ($legacyWarning -cne $script:deprecation) {
-            throw "Deprecated entrypoint emitted an unexpected warning: $legacyWarning"
-        }
-    }
-    finally {
-        Remove-Item -LiteralPath $stdoutFile, $stderrFile -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -145,9 +138,9 @@ function Install-EntrypointPair(
             Move-Item -LiteralPath $primaryTarget -Destination $primaryBackup
             $primaryBackedUp = $true
         }
-        if (Test-Path -LiteralPath $legacyTarget -PathType Leaf) {
-            Move-Item -LiteralPath $legacyTarget -Destination $legacyBackup
-            $legacyBackedUp = $true
+        if (Test-Path -LiteralPath $pluginHostTarget -PathType Container) {
+            Move-Item -LiteralPath $pluginHostTarget -Destination $pluginHostBackup
+            $pluginHostBackedUp = $true
         }
         if (Test-Path -LiteralPath $pluginHostTarget -PathType Container) {
             Move-Item -LiteralPath $pluginHostTarget -Destination $pluginHostBackup
@@ -174,9 +167,6 @@ function Install-EntrypointPair(
         }
         if ($primaryCommitted) {
             Remove-Item -LiteralPath $primaryTarget -Force -ErrorAction SilentlyContinue
-        }
-        if ($legacyBackedUp) {
-            Move-Item -LiteralPath $legacyBackup -Destination $legacyTarget -Force
         }
         if ($primaryBackedUp) {
             Move-Item -LiteralPath $primaryBackup -Destination $primaryTarget -Force
@@ -208,24 +198,22 @@ if (-not (Get-Command rustc -ErrorAction SilentlyContinue)) {
     throw 'rustc was not found. Install Rust from https://rustup.rs and re-run.'
 }
 
-Write-Host '=== BitFun CLI Install ==='
+Write-Host '=== OpenBitFun CLI Install ==='
 Write-Host "Repo: $repoRoot"
 Write-Host "Install dir: $BinDir"
 
 Push-Location $repoRoot
 try {
-    Write-Host '[1/3] Building the bitfun and deprecated bitfun-cli entrypoints...'
-    & cargo build -p bitfun-cli --release
+    Write-Host '[1/3] Building openbitfun...'
+    & cargo build -p openbitfun-cli --release --bin openbitfun
     Assert-CommandSucceeded 'cargo build'
 }
 finally {
     Pop-Location
 }
 
-foreach ($source in @($primarySource, $legacySource)) {
-    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-        throw "Built executable was not found at $source"
-    }
+if (-not (Test-Path -LiteralPath $primarySource -PathType Leaf)) {
+    throw "Built executable was not found at $primarySource"
 }
 Assert-PluginHostResources $pluginHostSource
 
@@ -247,7 +235,6 @@ Assert-EntrypointPair $primaryInstalled $legacyInstalled
 Assert-PluginHostResources (Join-Path $BinDir 'resources\ext-host')
 
 Write-Host '=== Install complete ==='
-Write-Host 'Open a new terminal, then run: bitfun'
-Write-Host "Current PowerShell: `$env:Path = `"$([IO.Path]::GetFullPath($BinDir));`$env:Path`"; bitfun"
+Write-Host 'Open a new terminal, then run: openbitfun'
+Write-Host "Current PowerShell: `$env:Path = `"$([IO.Path]::GetFullPath($BinDir));`$env:Path`"; openbitfun"
 Write-Host "Direct path: $primaryInstalled"
-Write-Host 'Deprecated compatibility command: bitfun-cli'

@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import '@openbitfun/theme-openbitfun/default.css';
 import App from './App';
 import './styles.css';
 

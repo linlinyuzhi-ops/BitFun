@@ -5,8 +5,9 @@
 
 pub mod ai;
 pub mod errors;
-pub mod lsp;
+pub mod installer_config_handoff;
 pub mod model;
+pub mod product_identity;
 pub mod session;
 pub mod session_usage;
 pub mod speech;
@@ -23,9 +24,10 @@ pub use ai::{
     ProviderCatalogModelLimits, ProviderCatalogModelPricing, ProviderCatalogModelSource,
     ProviderCatalogProvider, ProviderCatalogSource, ProviderCatalogUpstreamProvider, ProxyConfig,
     ReasoningCapabilityStatus, ReasoningCatalogBinding, ReasoningCatalogProjection,
-    ReasoningCatalogProjectionRequest, ReasoningConfig, ReasoningPreset, ReasoningPresetAction,
-    ReasoningPresetDescriptor, ReasoningPresetSource, RemoteModelInfo, ToolCall,
-    ToolCallConfirmationDetails, ToolCallRequestInfo, ToolCallResponseInfo, ToolDefinition,
+    ReasoningCatalogProjectionRequest, ReasoningConfig, ReasoningContentKind, ReasoningPreset,
+    ReasoningPresetAction, ReasoningPresetDescriptor, ReasoningPresetSource, RemoteModelInfo,
+    ToolCall, ToolCallConfirmationDetails, ToolCallRequestInfo, ToolCallResponseInfo,
+    ToolDefinition,
 };
 pub use errors::{AiErrorDetail, ErrorCategory};
 pub use model::{

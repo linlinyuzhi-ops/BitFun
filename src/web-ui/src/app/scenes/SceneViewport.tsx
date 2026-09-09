@@ -1,11 +1,11 @@
 /**
  * SceneViewport — renders the active scene component.
  *
- * All tabs are mounted but only the active one is visible,
- * preserving state across tab switches.
+ * All open scenes stay mounted, but only the active tab is visible, preserving
+ * state across tab switches until the user explicitly closes a scene.
  *
- * 'welcome' is a proper scene tab; it auto-closes when any other
- * scene is explicitly opened.
+ * When no tabs are open, the viewport renders WelcomeScene as a shell-owned
+ * landing surface rather than manufacturing a tab for it.
  */
 
 import React, {
@@ -21,10 +21,11 @@ import type { SceneTabId } from '../components/SceneBar/types';
 import { useSceneManager } from '../hooks/useSceneManager';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
 import { useDialogCompletionNotify } from '../hooks/useDialogCompletionNotify';
-import { DotMatrixLoader } from '@/component-library';
+import { Spinner } from '@openbitfun/ui';
 import SettingsScene from './settings/SettingsScene';
 import AssistantScene from './assistant/AssistantScene';
 import SessionScene from './session/SessionScene';
+import WelcomeScene from './welcome/WelcomeScene';
 import './SceneViewport.scss';
 
 // Session is the primary interaction path. Keep it in the main scene bundle so
@@ -35,13 +36,15 @@ const FileViewerScene = lazy(() => import('./file-viewer/FileViewerScene'));
 const ProfileScene    = lazy(() => import('./profile/ProfileScene'));
 const AgentsScene       = lazy(() => import('./agents/AgentsScene'));
 const SkillsScene     = lazy(() => import('./skills/SkillsScene'));
+const EcosystemCompatibilityScene = lazy(
+  () => import('./ecosystem-compatibility/EcosystemCompatibilityScene'),
+);
 const MiniAppGalleryScene = lazy(() => import('./miniapps/MiniAppGalleryScene'));
 const PagesScene      = lazy(() => import('./pages/PagesScene'));
 const BrowserScene    = lazy(() => import('./browser/BrowserScene'));
 const TodosScene      = lazy(() => import('./todos/TodosScene'));
 const InsightsScene   = lazy(() => import('./my-agent/InsightsScene'));
 const ShellScene      = lazy(() => import('./shell/ShellScene'));
-const WelcomeScene    = lazy(() => import('./welcome/WelcomeScene'));
 const MiniAppScene    = lazy(() => import('./miniapps/MiniAppScene'));
 const PanelViewScene  = lazy(() => import('./panel-view/PanelViewScene'));
 
@@ -91,9 +94,7 @@ const SceneViewport: React.FC<SceneViewportProps> = ({ workspacePath, isEntering
     navigationSequence,
   } = useSceneManager();
   const { t } = useI18n('common');
-  const activeRenderedSceneId: RenderedSceneId = openTabs.length === 0
-    ? EMPTY_SCENE_ID
-    : activeTabId;
+  const activeRenderedSceneId: RenderedSceneId = activeTabId ?? EMPTY_SCENE_ID;
   const [transition, setTransition] = useState<SceneTransition | null>(null);
   const [readyVersion, setReadyVersion] = useState(0);
   const readySceneIdsRef = useRef<Set<RenderedSceneId>>(new Set([EMPTY_SCENE_ID]));
@@ -201,18 +202,18 @@ const SceneViewport: React.FC<SceneViewportProps> = ({ workspacePath, isEntering
 
   return (
     <div
-      className="bitfun-scene-viewport"
+      className="openbitfun-scene-viewport"
       data-testid="scene-viewport"
-      data-bf-scene="workbench"
-      data-bf-part="viewport"
-      data-bf-state={activeRenderedSceneId === EMPTY_SCENE_ID ? 'empty' : undefined}
+      data-openbitfun-scene="workbench"
+      data-openbitfun-part="viewport"
+      data-openbitfun-state={activeRenderedSceneId === EMPTY_SCENE_ID ? 'empty' : undefined}
     >
       <div
-        className="bitfun-scene-viewport__clip"
+        className="openbitfun-scene-viewport__clip"
         data-testid="scene-viewport-clip"
         data-scene-motion-phase={pendingTransition?.phase}
-        data-bf-scene="workbench"
-        data-bf-part="viewportClip"
+        data-openbitfun-scene="workbench"
+        data-openbitfun-part="viewportClip"
       >
         {renderedTabIds.map(tabId => {
           const isEmpty = tabId === EMPTY_SCENE_ID;
@@ -226,49 +227,49 @@ const SceneViewport: React.FC<SceneViewportProps> = ({ workspacePath, isEntering
             <div
               key={tabId}
               className={[
-                'bitfun-scene-viewport__scene',
-                isEmpty && 'bitfun-scene-viewport__scene--empty',
-                isActive && 'bitfun-scene-viewport__scene--active',
-                isVisible && 'bitfun-scene-viewport__scene--visible',
-                isIncoming && 'bitfun-scene-viewport__scene--incoming',
-                isOutgoing && 'bitfun-scene-viewport__scene--outgoing',
+                'openbitfun-scene-viewport__scene',
+                isEmpty && 'openbitfun-scene-viewport__scene--empty',
+                isActive && 'openbitfun-scene-viewport__scene--active',
+                isVisible && 'openbitfun-scene-viewport__scene--visible',
+                isIncoming && 'openbitfun-scene-viewport__scene--incoming',
+                isOutgoing && 'openbitfun-scene-viewport__scene--outgoing',
               ].filter(Boolean).join(' ')}
               aria-hidden={!isActive || !isVisible}
               {...(!isActive || !isVisible ? { inert: '' } : {})}
               data-testid="scene-viewport-scene"
               data-scene-id={tabId}
               data-scene-active={isActive ? 'true' : 'false'}
-              data-bf-scene="workbench"
-              data-bf-part="scene"
-              data-bf-scene-id={isEmpty ? undefined : tabId}
-              data-bf-state={[
+              data-openbitfun-scene="workbench"
+              data-openbitfun-part="scene"
+              data-openbitfun-scene-id={isEmpty ? 'welcome' : tabId}
+              data-openbitfun-state={[
                 isActive && 'active',
                 isEmpty && 'empty',
               ].filter(Boolean).join(' ') || undefined}
             >
               {isEmpty ? (
                 <div
-                  className="bitfun-scene-viewport__empty"
+                  className="openbitfun-scene-viewport__empty"
                   data-testid="scene-viewport-empty"
-                  data-bf-scene="workbench"
-                  data-bf-part="empty"
-                  data-bf-state="empty"
+                  data-openbitfun-scene="workbench"
+                  data-openbitfun-part="empty"
+                  data-openbitfun-state="empty"
                 >
-                  <p className="bitfun-scene-viewport__empty-hint">{t('welcomeScene.emptyHint')}</p>
+                  <WelcomeScene />
                 </div>
               ) : (
                 <Suspense
                   fallback={
                     isActive ? (
                       <div
-                        className="bitfun-scene-viewport__lazy-fallback"
+                        className="openbitfun-scene-viewport__lazy-fallback"
                         role="status"
                         aria-busy="true"
                         aria-label={t('loading.scenes')}
-                        data-bf-scene="workbench"
-                        data-bf-part="loading"
+                        data-openbitfun-scene="workbench"
+                        data-openbitfun-part="loading"
                       >
-                        <DotMatrixLoader size="medium" />
+                        <Spinner size="md" />
                       </div>
                     ) : null
                   }
@@ -293,8 +294,6 @@ function renderScene(
   isActive: boolean = false
 ) {
   switch (id) {
-    case 'welcome':
-      return <WelcomeScene />;
     case 'session':
       return <SessionScene workspacePath={workspacePath} isEntering={isEntering} isActive={isActive} />;
     case 'terminal':
@@ -302,7 +301,7 @@ function renderScene(
     case 'git':
       return <GitScene workspacePath={workspacePath} isActive={isActive} />;
     case 'settings':
-      return <SettingsScene />;
+      return <SettingsScene isActive={isActive} />;
     case 'file-viewer':
       return <FileViewerScene workspacePath={workspacePath} />;
     case 'profile':
@@ -311,6 +310,8 @@ function renderScene(
       return <AgentsScene />;
     case 'skills':
       return <SkillsScene />;
+    case 'ecosystem-compatibility':
+      return <EcosystemCompatibilityScene />;
     case 'miniapps':
       return <MiniAppGalleryScene />;
     case 'pages':
@@ -318,7 +319,7 @@ function renderScene(
     case 'browser':
       return <BrowserScene />;
     case 'assistant':
-      return <AssistantScene workspacePath={workspacePath} />;
+      return <AssistantScene />;
     case 'todos':
       return <TodosScene />;
     case 'insights':

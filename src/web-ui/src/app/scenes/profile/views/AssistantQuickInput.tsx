@@ -9,10 +9,9 @@
  * Completely independent from the main ChatInput / FlowChat stores.
  */
 
-import React, { useCallback, useState } from 'react';
-import { ArrowUp, Loader2 } from 'lucide-react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { OverflowText, Composer, ComposerToolbar, Icon, IconButton } from '@openbitfun/ui';
 import { useTranslation } from 'react-i18next';
-import { IconButton, Textarea } from '@/component-library';
 import { ModelSelector } from '@/flow_chat/components/ModelSelector';
 import { flowChatManager } from '@/flow_chat/services/FlowChatManager';
 import { openMainSession } from '@/flow_chat/services/sessionActivation';
@@ -92,10 +91,48 @@ const AssistantQuickInput: React.FC<AssistantQuickInputProps> = ({
     : t('input.placeholder');
 
   return (
-    <div data-bf-component="assistant-quick-input" data-bf-part="root" className="aqi">
-      <div className="aqi__box" data-bf-component="assistant-quick-input" data-bf-part="box">
-        <Textarea
-          className="aqi__embed"
+    <div data-openbitfun-component="assistant-quick-input" data-openbitfun-part="root" className="aqi">
+      <Composer
+        aria-label={placeholder}
+        className="aqi__composer"
+        disabled={sending}
+        toolbar={(
+          <ComposerToolbar
+            leading={(
+              <div
+                className="aqi__footer-left"
+                data-openbitfun-component="assistant-quick-input"
+                data-openbitfun-part="footerLeft"
+              >
+                <ModelSelector currentMode="Claw" className="aqi__model" />
+                <OverflowText
+                  className="aqi__hint"
+                  data-openbitfun-component="assistant-quick-input"
+                  data-openbitfun-part="hint"
+                >
+                  {t('input.sendHint')}
+                </OverflowText>
+              </div>
+            )}
+            trailing={(
+              <IconButton
+                type="button"
+                variant="primary"
+                size="sm"
+                loading={sending}
+                disabled={!value.trim() || sending}
+                onClick={() => { void handleSend(); }}
+                aria-label={t('actions.send')}
+                className="aqi__send"
+                icon={<Icon name="arrow-up" size="lg" />}
+              />
+            )}
+          />
+        )}
+      >
+        <textarea
+          ref={textareaRef}
+          className="aqi__editor"
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
@@ -104,32 +141,8 @@ const AssistantQuickInput: React.FC<AssistantQuickInputProps> = ({
           placeholder={placeholder}
           rows={1}
           disabled={sending}
-          autoResize
-          variant="default"
         />
-      <div className="aqi__footer" data-bf-component="assistant-quick-input" data-bf-part="footer">
-        <div className="aqi__footer-left" data-bf-component="assistant-quick-input" data-bf-part="footerLeft">
-            <ModelSelector currentMode="Claw" className="aqi__model" />
-          <span className="aqi__hint" data-bf-component="assistant-quick-input" data-bf-part="hint">
-              {t('input.sendHint')}
-            </span>
-          </div>
-          <IconButton
-            type="button"
-            variant="success"
-            size="small"
-            isLoading={sending}
-            disabled={!value.trim() || sending}
-            onClick={() => { void handleSend(); }}
-            aria-label={t('actions.send')}
-            className="aqi__send"
-          >
-            {sending
-              ? <Loader2 size={14} />
-              : <ArrowUp size={14} />}
-          </IconButton>
-        </div>
-      </div>
+      </Composer>
     </div>
   );
 };

@@ -1,4 +1,4 @@
-use bitfun_services_integrations::remote_ssh::{
+use openbitfun_services_integrations::remote_ssh::{
     canonicalize_local_workspace_root, local_workspace_roots_equal,
     local_workspace_stable_storage_id, normalize_local_workspace_root_for_stable_id,
     normalize_remote_workspace_path, remote_root_to_mirror_subpath, remote_workspace_runtime_root,
@@ -6,7 +6,8 @@ use bitfun_services_integrations::remote_ssh::{
     sanitize_remote_mirror_path_component, sanitize_ssh_connection_id_for_local_dir,
     sanitize_ssh_hostname_for_mirror, unresolved_remote_session_storage_dir,
     unresolved_remote_session_storage_key, workspace_logical_key, workspace_session_identity,
-    ContainerAccess, ContainerWorkspaceConfig, RemoteWorkspace, RemoteWorkspaceRegistry,
+    ContainerAccess, ContainerWorkspaceConfig, PortForward, PortForwardDirection,
+    PortForwardRequest, RemoteListeningPort, RemoteWorkspace, RemoteWorkspaceRegistry,
     SSHAuthMethod, SSHConnectionConfig, SavedAuthType, SavedConnection, LOCAL_WORKSPACE_SSH_HOST,
 };
 
@@ -35,6 +36,7 @@ fn remote_ssh_legacy_agent_auth_keeps_default_private_key_fallback() {
     }
     assert_eq!(config.proxy_jump, None);
     assert_eq!(config.container, None);
+    assert_eq!(config.wsl, None);
     assert_eq!(config.options.connect_timeout_secs, 30);
     assert_eq!(config.options.auth_timeout_secs, 60);
     assert_eq!(config.options.auth_attempts, 3);
@@ -61,6 +63,7 @@ fn remote_ssh_legacy_agent_auth_keeps_default_private_key_fallback() {
     ));
     assert_eq!(saved.proxy_jump, None);
     assert_eq!(saved.container, None);
+    assert_eq!(saved.wsl, None);
     assert_eq!(saved.options.connect_timeout_secs, 30);
     assert_eq!(saved.options.auth_timeout_secs, 60);
     assert_eq!(saved.options.auth_attempts, 3);
@@ -91,6 +94,7 @@ fn remote_target_contract_uses_proxy_jump_and_kebab_case_container_access() {
             user: Some("trainer".to_string()),
             interactive: true,
         }),
+        wsl: None,
         options: Default::default(),
     };
 
@@ -180,8 +184,8 @@ fn remote_workspace_path_helpers_preserve_current_identity_contract() {
         "localhost:/Users/p/w"
     );
 
-    let local_id = local_workspace_stable_storage_id("/Users/foo/BitFun");
-    assert_eq!(local_id, "local_1d9bbee7a88cb84fc9500423130a3e99");
+    let local_id = local_workspace_stable_storage_id("/Users/foo/OpenBitFun");
+    assert_eq!(local_id, "local_20fa48956633477b7a38a742510b63ea");
 
     let remote_id = remote_workspace_stable_id("myhost", "/root/proj");
     assert_eq!(remote_id, "remote_0b6e9c54b3e51fd56bf721ed35c1ce88");
@@ -192,7 +196,7 @@ fn remote_workspace_path_helpers_preserve_current_identity_contract() {
 
 #[test]
 fn remote_workspace_session_paths_use_supplied_mirror_root() {
-    let mirror_root = std::path::PathBuf::from("/bitfun/remote_ssh");
+    let mirror_root = std::path::PathBuf::from("/openbitfun/remote_ssh");
 
     assert_eq!(
         remote_workspace_runtime_root(&mirror_root, " Example.COM ", "/home/user/repo"),
@@ -221,7 +225,7 @@ fn remote_workspace_session_paths_use_supplied_mirror_root() {
 #[test]
 fn local_workspace_identity_helpers_preserve_canonical_root_contract() {
     let workspace_root = std::env::temp_dir().join(format!(
-        "bitfun-services-remote-ssh-contract-{}",
+        "openbitfun-services-remote-ssh-contract-{}",
         std::process::id()
     ));
     let nested = workspace_root.join("nested");
@@ -250,7 +254,7 @@ fn local_workspace_identity_helpers_preserve_canonical_root_contract() {
 #[test]
 fn workspace_session_identity_preserves_local_and_remote_contracts() {
     let workspace_root = std::env::temp_dir().join(format!(
-        "bitfun-services-workspace-identity-{}",
+        "openbitfun-services-workspace-identity-{}",
         std::process::id()
     ));
     std::fs::create_dir_all(&workspace_root).expect("workspace root should exist");
@@ -370,4 +374,121 @@ async fn remote_workspace_registry_preserves_legacy_state_and_clear_contract() {
         .await;
     assert!(!registry.has_any().await);
     assert!(!registry.get_state().await.is_active);
+}
+
+#[test]
+fn port_forward_request_defaults_keep_a_bare_remote_port_usable() {
+    // The UI is allowed to send nothing but the connection and the remote port;
+    // every other field has to default to the safe, common-case answer.
+    let request: PortForwardRequest = serde_json::from_value(serde_json::json!({
+        "connectionId": "conn-1",
+        "remotePort": 3000
+    }))
+    .expect("a minimal request must deserialize");
+
+    assert_eq!(request.effective_remote_host(), "127.0.0.1");
+    assert_eq!(
+        request.effective_local_host(),
+        "127.0.0.1",
+        "a forward must never reach beyond loopback unless asked to"
+    );
+    assert_eq!(request.preferred_local_port(), None);
+    assert_eq!(request.normalized_label(), None);
+    assert!(!request.expose_on_lan);
+}
+
+#[test]
+fn port_forward_request_honors_an_explicit_lan_exposure() {
+    let request: PortForwardRequest = serde_json::from_value(serde_json::json!({
+        "connectionId": "conn-1",
+        "remotePort": 8080,
+        "remoteHost": "10.0.0.5",
+        "localPort": 18080,
+        "exposeOnLan": true,
+        "label": "  staging api  "
+    }))
+    .expect("a full request must deserialize");
+
+    assert_eq!(request.effective_remote_host(), "10.0.0.5");
+    assert_eq!(request.effective_local_host(), "0.0.0.0");
+    assert_eq!(request.preferred_local_port(), Some(18080));
+    assert_eq!(request.normalized_label().as_deref(), Some("staging api"));
+}
+
+#[test]
+fn port_forward_wire_shape_stays_camel_case() {
+    let forward = PortForward {
+        id: "forward-1".to_string(),
+        connection_id: "conn-1".to_string(),
+        direction: PortForwardDirection::Local,
+        label: None,
+        local_host: "127.0.0.1".to_string(),
+        local_port: 3001,
+        requested_local_port: Some(3000),
+        remote_host: "127.0.0.1".to_string(),
+        remote_port: 3000,
+        active_connections: 2,
+        total_connections: 17,
+        last_error: None,
+    };
+
+    let value = serde_json::to_value(&forward).expect("a forward must serialize");
+    assert_eq!(value["localPort"], 3001);
+    assert_eq!(
+        value["requestedLocalPort"], 3000,
+        "the UI needs the requested port to explain a moved mapping"
+    );
+    assert_eq!(value["remotePort"], 3000);
+    assert_eq!(value["activeConnections"], 2);
+    assert_eq!(value["direction"], "local");
+    assert_eq!(forward.local_address(), "127.0.0.1:3001");
+}
+
+#[test]
+fn remote_listening_port_wire_shape_stays_camel_case() {
+    let port = RemoteListeningPort {
+        port: 5173,
+        bind_address: "127.0.0.1".to_string(),
+        process: Some("vite".to_string()),
+        pid: Some(4242),
+    };
+    let value = serde_json::to_value(&port).expect("a listening port must serialize");
+    assert_eq!(value["bindAddress"], "127.0.0.1");
+    assert_eq!(value["process"], "vite");
+    assert_eq!(value["pid"], 4242);
+}
+
+#[test]
+fn wsl_target_and_legacy_ssh_profiles_round_trip_without_requiring_new_fields() {
+    let legacy = serde_json::json!({
+        "id": "legacy", "name": "legacy", "host": "example.test", "port": 22,
+        "username": "dev", "auth": { "type": "Password", "password": "" }
+    });
+    let config: SSHConnectionConfig = serde_json::from_value(legacy).unwrap();
+    let wire = serde_json::to_value(&config).unwrap();
+    assert!(wire.get("wsl").is_none());
+    let round_trip: SSHConnectionConfig = serde_json::from_value(wire).unwrap();
+    assert!(config.connection_params_equal(&round_trip));
+    assert!(!round_trip.uses_local_process());
+
+    let wsl_wire = serde_json::json!({
+        "id": "wsl-Ubuntu-", "name": "WSL", "host": "wsl.invalid", "port": 0,
+        "username": "", "auth": { "type": "PrivateKey", "keyPath": "" },
+        "wsl": { "distribution": "Ubuntu" }
+    });
+    let config: SSHConnectionConfig = serde_json::from_value(wsl_wire).unwrap();
+    assert!(config.uses_local_process());
+    assert!(config.uses_shell_filesystem());
+    assert!(!config.uses_local_docker());
+    assert!(!config.uses_docker_exec());
+    assert_eq!(config.wsl.as_ref().unwrap().user, None);
+    let round_trip: SSHConnectionConfig =
+        serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+    assert!(config.connection_params_equal(&round_trip));
+    let mut other = round_trip;
+    other.wsl.as_mut().unwrap().distribution = "Debian".into();
+    assert!(!config.connection_params_equal(&other));
+    other.wsl.as_mut().unwrap().distribution = "Ubuntu".into();
+    other.wsl.as_mut().unwrap().user = Some("root".into());
+    assert!(!config.connection_params_equal(&other));
 }

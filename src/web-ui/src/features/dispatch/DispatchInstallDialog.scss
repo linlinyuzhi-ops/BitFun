@@ -1,46 +1,10 @@
-@use '../../component-library/styles/tokens' as *;
-
-// Three deliberate type steps, so "section" reads louder than "item" and
-// "item" reads louder than "explanation":
-//   title   18px/600  — the dialog's own heading
-//   section 13px/600  — section headings
-//   body    13px/400  — values and labels
-//   support 12px      — descriptions under a title
-// Nothing uses 10px; at that size the descriptions were unreadable and every
-// level looked the same.
-//
-// One box level only. Sections are separated by a hairline rule instead of
-// being drawn as cards: the modal is already a surface, and nesting a card
-// inside it (and a second card inside that) made a three-field form read as a
-// stack of unrelated panels. The approval options stay bordered because they
-// are the one thing here that is clickable and selectable.
 .dispatch-install-dialog {
   display: flex;
   min-height: 0;
   max-height: min(78vh, 720px);
   flex-direction: column;
-  color: var(--bf-appearance-token-color-text-primary);
-  font-size: var(--bf-appearance-token-font-size-sm);
-
-  &__header {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: $size-gap-4 $size-gap-4 $size-gap-3;
-  }
-
-  &__title {
-    margin: 0;
-    color: var(--bf-appearance-token-color-text-primary);
-    font-size: 18px;
-    font-weight: 600;
-    line-height: 1.3;
-  }
-
-  &__subtitle {
-    color: var(--bf-appearance-token-color-text-secondary);
-    font-size: var(--bf-appearance-token-font-size-xs);
-  }
+  color: var(--openbitfun-color-content-primary);
+  font-size: var(--openbitfun-type-label-md-font-size);
 
   // The one scrolling region. Keeps the footer reachable on short viewports,
   // which the section stack used to push off-screen.
@@ -49,8 +13,6 @@
     min-height: 0;
     flex: 1;
     flex-direction: column;
-    padding: 0 $size-gap-4 $size-gap-4;
-    overflow-y: auto;
 
     // The body is a height-constrained column flex container, so its children
     // would otherwise shrink below their content instead of scrolling.
@@ -59,15 +21,15 @@
     }
 
     > [role='alert'] {
-      margin-bottom: $size-gap-3;
+      margin-bottom: var(--openbitfun-space-3);
     }
   }
 
   &__section {
     display: flex;
     flex-direction: column;
-    gap: $size-gap-2;
-    padding: $size-gap-3 0;
+    gap: var(--openbitfun-space-2);
+    padding: var(--openbitfun-space-3) 0;
 
     &:first-child {
       padding-top: 0;
@@ -78,32 +40,32 @@
     }
 
     + .dispatch-install-dialog__section {
-      border-top: 1px solid var(--bf-appearance-token-border-subtle);
+      border-top: 1px solid var(--openbitfun-color-border-subtle);
     }
   }
 
   &__section-title {
     margin: 0;
-    font-size: var(--bf-appearance-token-font-size-sm);
-    font-weight: 600;
+    font-size: var(--openbitfun-type-label-md-font-size);
+    font-weight: var(--openbitfun-type-label-selected-font-weight);
   }
 
   &__hint {
-    color: var(--bf-appearance-token-color-text-muted);
-    font-size: var(--bf-appearance-token-font-size-xs);
-    line-height: 1.45;
+    color: var(--openbitfun-color-content-muted);
+    font-size: var(--openbitfun-type-label-sm-font-size);
+    line-height: var(--openbitfun-type-flow-support-line-height);
   }
 
   &__field {
     display: flex;
     flex-direction: column;
-    gap: $size-gap-1;
+    gap: var(--openbitfun-space-1);
   }
 
   &__field-label {
-    color: var(--bf-appearance-token-color-text-secondary);
-    font-size: var(--bf-appearance-token-font-size-xs);
-    font-weight: 600;
+    color: var(--openbitfun-color-content-secondary);
+    font-size: var(--openbitfun-type-label-sm-font-size);
+    font-weight: var(--openbitfun-type-label-selected-font-weight);
   }
 
   // A read-only path, not a code sample: drop the global `code` pill so the
@@ -113,60 +75,25 @@
     border: 0;
     background: none;
     overflow-wrap: anywhere;
-    color: var(--bf-appearance-token-color-text-secondary);
-    font-family: var(--bf-appearance-token-font-family-mono);
-    font-size: var(--bf-appearance-token-font-size-xs);
+    color: var(--openbitfun-color-content-secondary);
+    font-family:var(--openbitfun-type-code-md-font-family);
+    font-size: var(--openbitfun-type-label-sm-font-size);
   }
 
   &__base-ref {
+    min-inline-size: 0;
+    gap: var(--openbitfun-space-2);
     cursor: text;
 
+    // Input owns its border, surface, sizing, and focus state on the wrapper.
     input {
-      box-sizing: border-box;
-      width: 100%;
-      min-height: 32px;
-      padding: 0 $size-gap-2;
-      border: 1px solid var(--bf-appearance-token-border-subtle);
-      border-radius: $size-radius-base;
-      background: var(--bf-appearance-token-color-bg-primary);
-      color: var(--bf-appearance-token-color-text-primary);
-      font-family: var(--bf-appearance-token-font-family-mono);
-      font-size: var(--bf-appearance-token-font-size-xs);
-
-      &:focus-visible {
-        border-color: var(--bf-appearance-token-color-accent-500);
-        outline: 2px solid color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 24%, transparent);
-        outline-offset: 1px;
-      }
+      font-family: var(--openbitfun-type-code-md-font-family);
+      font-size: var(--openbitfun-type-label-sm-font-size);
     }
   }
 
-  // Checkbox with its explanation attached, rather than a label and a loose
-  // hint that could belong to anything below it.
   &__toggle {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: start;
-    gap: $size-gap-2;
-    font-size: var(--bf-appearance-token-font-size-xs);
-    line-height: 1.4;
-    cursor: pointer;
-
-    input {
-      margin: 1px 0 0;
-    }
-
-    > span {
-      display: flex;
-      min-width: 0;
-      flex-direction: column;
-      gap: 2px;
-      font-weight: 500;
-    }
-
-    small {
-      font-weight: 400;
-    }
+    width: 100%;
   }
 
   &__checks {
@@ -176,34 +103,34 @@
     > div {
       display: grid;
       grid-template-columns: minmax(104px, auto) minmax(0, 1fr);
-      gap: $size-gap-2;
-      padding: $size-gap-2 0;
+      gap: var(--openbitfun-space-2);
+      padding: var(--openbitfun-space-2) 0;
 
       + div {
-        border-top: 1px solid var(--bf-appearance-token-border-subtle);
+        border-top: 1px solid var(--openbitfun-color-border-subtle);
       }
 
       > span {
-        color: var(--bf-appearance-token-color-text-muted);
-        font-size: var(--bf-appearance-token-font-size-xs);
+        color: var(--openbitfun-color-content-muted);
+        font-size: var(--openbitfun-type-label-sm-font-size);
       }
 
       > strong {
         min-width: 0;
         overflow-wrap: anywhere;
-        font-weight: 500;
+        font-weight: var(--openbitfun-type-label-sm-font-weight);
       }
 
       &[data-state='ok'] > strong {
-        color: var(--bf-appearance-token-color-success);
+        color: var(--openbitfun-color-status-success-content);
       }
 
       &[data-state='blocked'] > strong {
-        color: var(--bf-appearance-token-color-warning);
+        color: var(--openbitfun-color-status-warning-content);
       }
 
       &[data-state='pending'] > strong {
-        color: var(--bf-appearance-token-color-text-secondary);
+        color: var(--openbitfun-color-content-secondary);
       }
     }
   }
@@ -212,9 +139,9 @@
   &__retry {
     display: flex;
     align-items: center;
-    gap: $size-gap-2;
-    color: var(--bf-appearance-token-color-text-secondary);
-    font-size: var(--bf-appearance-token-font-size-xs);
+    gap: var(--openbitfun-space-2);
+    color: var(--openbitfun-color-content-secondary);
+    font-size: var(--openbitfun-type-label-sm-font-size);
   }
 
   &__retry {
@@ -227,28 +154,12 @@
 
   &__details {
     width: 100%;
-    color: var(--bf-appearance-token-color-text-secondary);
-    font-size: var(--bf-appearance-token-font-size-xs);
-
-    summary {
-      width: fit-content;
-      color: var(--bf-appearance-token-color-text-secondary);
-      cursor: pointer;
-      user-select: none;
-
-      &:hover,
-      &:focus-visible {
-        color: var(--bf-appearance-token-color-text-primary);
-      }
-    }
-
-    &[open] summary {
-      margin-bottom: $size-gap-2;
-    }
+    color: var(--openbitfun-color-content-secondary);
+    font-size: var(--openbitfun-type-label-sm-font-size);
 
     dl {
       display: grid;
-      gap: $size-gap-1;
+      gap: var(--openbitfun-space-1);
       width: 100%;
       margin: 0;
     }
@@ -256,29 +167,23 @@
     dl > div {
       display: grid;
       grid-template-columns: 84px minmax(0, 1fr);
-      gap: $size-gap-2;
+      gap: var(--openbitfun-space-2);
     }
 
     dt {
-      color: var(--bf-appearance-token-color-text-muted);
+      color: var(--openbitfun-color-content-muted);
     }
 
     dd {
       min-width: 0;
       margin: 0;
       overflow-wrap: anywhere;
-      font-family: var(--bf-appearance-token-font-family-mono);
+      font-family:var(--openbitfun-type-code-md-font-family);
     }
   }
 
-  // Pinned so the primary action never scrolls away.
   &__actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: $size-gap-2;
-    padding: $size-gap-3 $size-gap-4;
-    border-top: 1px solid var(--bf-appearance-token-border-subtle);
-    background: var(--bf-appearance-token-color-bg-primary);
+    flex-shrink: 0;
   }
 
   &__spin {

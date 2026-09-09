@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { Button, Icon, IconButton, ScrollArea } from '@openbitfun/ui';
 import { useAnnouncementStore } from '../store/announcementStore';
 import FeatureModalPage from './FeatureModalPage';
 import { useAnnouncementI18n } from '../hooks/useAnnouncementI18n';
@@ -40,7 +40,7 @@ const FeatureModalPages: React.FC<FeatureModalPagesProps> = ({ pages, currentPag
     const page = pages[pageIndex];
     if (!page) return null;
     return (
-      <div
+      <ScrollArea
         key={`${state}-${pageIndex}`}
         className="feature-modal__page"
         data-state={state}
@@ -49,7 +49,7 @@ const FeatureModalPages: React.FC<FeatureModalPagesProps> = ({ pages, currentPag
         {...(state !== 'active' ? { inert: '' } : {})}
       >
         <FeatureModalPage page={page} active={state === 'active'} />
-      </div>
+      </ScrollArea>
     );
   };
 
@@ -79,6 +79,7 @@ const FeatureModal: React.FC = () => {
     currentPage,
     setPage,
     closeModal,
+    markModalPresented,
   } = useAnnouncementStore();
 
   const [exiting, setExiting] = React.useState(false);
@@ -94,7 +95,22 @@ const FeatureModal: React.FC = () => {
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
   }, []);
 
-  if (!openModal || !modalVisible) return null;
+  useEffect(() => {
+    if (
+      openModal
+      && modalVisible
+      && openModal.modal?.presentation !== 'release_letter'
+      && backdropRef.current
+    ) {
+      markModalPresented(openModal);
+    }
+  }, [markModalPresented, modalVisible, openModal]);
+
+  if (
+    !openModal
+    || !modalVisible
+    || openModal.modal?.presentation === 'release_letter'
+  ) return null;
 
   const modal: ModalConfig = openModal.modal!;
   const pages = modal.pages ?? [];
@@ -122,36 +138,35 @@ const FeatureModal: React.FC = () => {
     <div
       ref={backdropRef}
       className={`feature-modal-backdrop${exiting ? ' feature-modal-backdrop--exiting' : ''}`}
-      data-bf-component="announcement"
-      data-bf-part="modalBackdrop"
+      data-openbitfun-component="announcement"
+      data-openbitfun-part="modalBackdrop"
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
       aria-hidden={exiting}
       {...(exiting ? { inert: '' } : {})}
     >
-      <div className={`feature-modal ${sizeClass}${exiting ? ' feature-modal--exiting' : ''}`} data-bf-component="announcement" data-bf-part="modal">
+      <div className={`feature-modal ${sizeClass}${exiting ? ' feature-modal--exiting' : ''}`} data-openbitfun-component="announcement" data-openbitfun-part="modal">
         {/* Close button */}
         {modal.closable && (
-          <button
-            type="button"
+          <IconButton
             className="feature-modal__close"
-            data-bf-component="announcement"
-            data-bf-part="modalClose"
+            icon={<Icon name="xmark" size="lg" />}
+            size="md"
+            data-openbitfun-component="announcement"
+            data-openbitfun-part="modalClose"
             onClick={() => triggerClose()}
             aria-label={t('announcements.common.close')}
-          >
-            <X size={14} strokeWidth={2} />
-          </button>
+          />
         )}
 
         {/* Page viewport */}
-        <div className="feature-modal__pages" data-bf-component="announcement" data-bf-part="modalPages">
+        <div className="feature-modal__pages" data-openbitfun-component="announcement" data-openbitfun-part="modalPages">
           <FeatureModalPages pages={pages} currentPage={currentPage} />
         </div>
 
         {/* Footer navigation */}
-        <div className="feature-modal__footer" data-bf-component="announcement" data-bf-part="modalFooter">
+        <div className="feature-modal__footer" data-openbitfun-component="announcement" data-openbitfun-part="modalFooter">
           {/* Dot indicators */}
           <div className="feature-modal__dots" aria-label="Page navigation">
             {pages.map((_, i) => (
@@ -166,41 +181,41 @@ const FeatureModal: React.FC = () => {
           </div>
 
           {/* Navigation buttons */}
-          <div className="feature-modal__nav" data-bf-component="announcement" data-bf-part="modalNavigation">
+          <div className="feature-modal__nav" data-openbitfun-component="announcement" data-openbitfun-part="modalNavigation">
             {modal.completion_action === 'never_show_again' && isLast && (
-              <button
-                type="button"
-                className="feature-modal__never"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => triggerClose(true)}
               >
                 {t('announcements.common.never_show_again')}
-              </button>
+              </Button>
             )}
             {!isFirst && (
-              <button
-                type="button"
-                className="feature-modal__nav-btn feature-modal__nav-btn--prev"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setPage(currentPage - 1)}
               >
                 {t('announcements.common.prev')}
-              </button>
+              </Button>
             )}
             {!isLast ? (
-              <button
-                type="button"
-                className="feature-modal__nav-btn feature-modal__nav-btn--next"
+              <Button
+                variant="fill"
+                size="sm"
                 onClick={() => setPage(currentPage + 1)}
               >
                 {t('announcements.common.next')}
-              </button>
+              </Button>
             ) : (
-              <button
-                type="button"
-                className="feature-modal__nav-btn feature-modal__nav-btn--done"
+              <Button
+                variant="fill"
+                size="sm"
                 onClick={() => triggerClose()}
               >
                 {t('announcements.common.done')}
-              </button>
+              </Button>
             )}
           </div>
         </div>

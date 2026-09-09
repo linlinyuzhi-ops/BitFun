@@ -3,9 +3,9 @@ use crate::agentic::agents::{
     PromptBuilderContext, UserContextPolicy,
 };
 use crate::agentic::session::SystemPromptCacheIdentity;
-use crate::util::errors::BitFunResult;
+use crate::util::errors::OpenBitFunResult;
 use async_trait::async_trait;
-use bitfun_runtime_ports::PermissionConstraintLayer;
+use openbitfun_runtime_ports::PermissionConstraintLayer;
 
 /// Immutable, generation-keyed projection of an approved external definition.
 /// Prompt text remains backend-only and the type deliberately implements no
@@ -17,6 +17,7 @@ pub(crate) struct ExternalProvidedAgent {
     prompt: String,
     tools: Vec<String>,
     permission_constraints: PermissionConstraintLayer,
+    temperature: Option<f64>,
     readonly: bool,
     behavior_version: String,
 }
@@ -29,6 +30,7 @@ impl ExternalProvidedAgent {
         prompt: String,
         tools: Vec<String>,
         permission_constraints: PermissionConstraintLayer,
+        temperature: Option<f64>,
         readonly: bool,
         behavior_version: String,
     ) -> Self {
@@ -39,6 +41,7 @@ impl ExternalProvidedAgent {
             prompt,
             tools,
             permission_constraints,
+            temperature,
             readonly,
             behavior_version,
         }
@@ -71,7 +74,7 @@ impl Agent for ExternalProvidedAgent {
         SystemPromptCacheIdentity::new(format!("external_agent_behavior:{}", self.behavior_version))
     }
 
-    async fn build_prompt(&self, context: &PromptBuilderContext) -> BitFunResult<String> {
+    async fn build_prompt(&self, context: &PromptBuilderContext) -> OpenBitFunResult<String> {
         PromptBuilder::new(context.clone())
             .build_prompt_from_template(&self.prompt)
             .await
@@ -83,6 +86,10 @@ impl Agent for ExternalProvidedAgent {
 
     fn permission_constraints(&self) -> &PermissionConstraintLayer {
         &self.permission_constraints
+    }
+
+    fn model_temperature_override(&self) -> Option<f64> {
+        self.temperature
     }
 
     fn user_context_policy(&self) -> UserContextPolicy {

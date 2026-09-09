@@ -39,14 +39,14 @@ describe('pull request Review linking', () => {
       remoteId: 'old-origin-name',
       platform: 'github',
       host: 'HTTPS://GitHub.com/',
-      projectPath: '/GCWing/BitFun/',
+      projectPath: '/GCWing/OpenBitFun/',
       pullRequestId: '1502',
       number: 1502,
-      webUrl: 'https://github.com/GCWing/BitFun/pull/1502',
+      webUrl: 'https://github.com/GCWing/OpenBitFun/pull/1502',
     }, {
       platform: 'github',
       host: 'github.com',
-      projectPath: 'gcwing/bitfun',
+      projectPath: 'gcwing/openbitfun',
       pullRequestId: '1502',
     })).toBe(true);
   });
@@ -76,7 +76,7 @@ describe('pull request Review linking', () => {
     const first = pullRequestReviewLaunchKey({
       platform: 'GitHub',
       host: 'HTTPS://GitHub.com/',
-      projectPath: '/GCWing/BitFun/',
+      projectPath: '/GCWing/OpenBitFun/',
       pullRequestId: '1503',
       baseRevision,
       headRevision,
@@ -84,7 +84,7 @@ describe('pull request Review linking', () => {
     const second = pullRequestReviewLaunchKey({
       platform: 'github',
       host: 'github.com',
-      projectPath: 'gcwing/bitfun',
+      projectPath: 'gcwing/openbitfun',
       pullRequestId: '1503',
       baseRevision: baseRevision.toUpperCase(),
       headRevision: headRevision.toUpperCase(),
@@ -127,6 +127,7 @@ describe('pull request Review linking', () => {
       files: [{ path: 'src/lib.rs' }],
       commits: [{ id: 'commit-1' }],
       threads: [{ id: 'thread-1' }],
+      limitations: ['gitee_commit_list_limit', 'provider_ci_head_unavailable'],
     } as ReviewPlatformPullRequestDetail;
     const overview = {
       baseRevision,
@@ -144,6 +145,7 @@ describe('pull request Review linking', () => {
     expect(merged.files).toBe(current.files);
     expect(merged.commits).toBe(current.commits);
     expect(merged.threads).toBe(current.threads);
+    expect(merged.limitations).toEqual(['gitee_commit_list_limit']);
   });
 
   it('drops cached sections when provider revisions change', () => {
@@ -154,6 +156,7 @@ describe('pull request Review linking', () => {
       files: [{ path: 'src/lib.rs' }],
       commits: [{ id: 'commit-1' }],
       threads: [{ id: 'thread-1' }],
+      limitations: ['gitee_commit_list_limit'],
     } as ReviewPlatformPullRequestDetail;
     const overview = {
       baseRevision,
@@ -167,6 +170,117 @@ describe('pull request Review linking', () => {
     const merged = mergeRevalidatedPullRequestOverview(current, overview);
 
     expect(merged).toBe(overview);
+    expect(merged.limitations).toBeUndefined();
+  });
+
+  it('keeps coverage warnings for other tabs and clears only refreshed section warnings', () => {
+    const files = mergePullRequestDetailLimitations(undefined, ['gitee_file_list_limit'], 'files');
+    const commits = mergePullRequestDetailLimitations(files, ['gitee_commit_list_limit'], 'commits');
+    expect(commits).toEqual(['gitee_file_list_limit', 'gitee_commit_list_limit']);
+    expect(mergePullRequestDetailLimitations(commits, undefined, 'reviews')).toEqual(commits);
+    expect(mergePullRequestDetailLimitations(commits, [], 'commits')).toEqual(['gitee_file_list_limit']);
+    expect(mergePullRequestDetailLimitations(commits, ['gitee_file_list_limit'], 'files')).toEqual([
+      'gitee_commit_list_limit', 'gitee_file_list_limit',
+    ]);
+  });
+
+  it('does not replace known change stats when overview enrichment fails', () => {
+    const current = {
+      baseRevision,
+      headRevision,
+      additions: 133,
+      deletions: 22,
+      changedFiles: 13,
+      changedFileCountKnown: true,
+      ci: [],
+      files: [],
+      commits: [],
+      threads: [],
+    } as unknown as ReviewPlatformPullRequestDetail;
+    const overview = {
+      baseRevision,
+      headRevision,
+      additions: 100,
+      deletions: 10,
+      changedFiles: 0,
+      changedFileCountKnown: false,
+      ci: [],
+      files: [],
+      commits: [],
+      threads: [],
+    } as unknown as ReviewPlatformPullRequestDetail;
+
+    const merged = mergeRevalidatedPullRequestOverview(current, overview);
+
+    expect(merged.changedFiles).toBe(13);
+    expect(merged.changedFileCountKnown).toBe(true);
+    expect(merged.additions).toBe(133);
+    expect(merged.deletions).toBe(22);
+  });
+
+  it.each([undefined, true])('accepts zero line counts from a legacy overview with file-count flag %s', changedFileCountKnown => {
+    const current = {
+      baseRevision, headRevision, additions: 133, deletions: 22,
+      changedFiles: 13, changedFileCountKnown: true,
+      ci: [], files: [], commits: [], threads: [],
+    } as unknown as ReviewPlatformPullRequestDetail;
+    const overview = { ...current, additions: 0, deletions: 0, changedFiles: 0, changedFileCountKnown };
+    const merged = mergeRevalidatedPullRequestOverview(current, overview);
+    expect(merged.additions).toBe(0);
+    expect(merged.deletions).toBe(0);
+    expect(merged.lineStatsKnown).toBeUndefined();
+  });
+
+  it('keeps an authoritative zero when merging file counts', () => {
+    expect(mergeChangedFileCount({
+      changedFiles: 13,
+      changedFileCountKnown: true,
+    }, {
+      changedFiles: 0,
+      changedFileCountKnown: true,
+    })).toEqual({
+      changedFiles: 0,
+      changedFileCountKnown: true,
+    });
+  });
+
+  it('preserves known and legacy file counts when incoming data is incomplete', () => {
+    expect(mergeChangedFileCount({
+      changedFiles: 13,
+      changedFileCountKnown: true,
+    }, {
+      changedFiles: 0,
+      changedFileCountKnown: false,
+    })).toEqual({
+      changedFiles: 13,
+      changedFileCountKnown: true,
+    });
+    expect(mergeChangedFileCount({ changedFiles: 7 }, { changedFiles: 0 })).toEqual({
+      changedFiles: 7,
+      changedFileCountKnown: undefined,
+    });
+  });
+
+  it('distinguishes an unknown file count from a real zero', () => {
+    expect(resolvedChangedFileCount({
+      changedFiles: 0,
+      changedFileCountKnown: false,
+    })).toBeNull();
+    expect(resolvedChangedFileCount({
+      changedFiles: 0,
+      changedFileCountKnown: true,
+    })).toBe(0);
+  });
+
+  it('falls back to a known count and accepts legacy payloads', () => {
+    expect(resolvedChangedFileCount({
+      changedFiles: 0,
+      changedFileCountKnown: false,
+    }, {
+      changedFiles: 13,
+      changedFileCountKnown: true,
+    })).toBe(13);
+    expect(resolvedChangedFileCount({ changedFiles: 7 })).toBe(7);
   });
 
   it('does not replace known change stats when overview enrichment fails', () => {

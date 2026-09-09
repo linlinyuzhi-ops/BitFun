@@ -11,6 +11,8 @@ import { isRemoteWorkspace } from '../../../shared/types';
 import { addFileMentionToChat } from '@/shared/utils/chatContext';
 import { dirnameAbsolutePath } from '@/shared/utils/pathUtils';
 import { isHtmlFilePath } from '@/shared/utils/htmlFilePreview';
+import { openFileInBestTarget } from '@/shared/utils/tabUtils';
+import { getActiveSurfaceId } from '@/infrastructure/peer-device/deviceSurface';
 
 const PASTE_SHORTCUT = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? 'Cmd+V' : 'Ctrl+V';
 
@@ -48,6 +50,17 @@ export class FileExplorerMenuProvider implements IMenuProvider {
   async getMenuItems(context: MenuContext): Promise<MenuItem[]> {
     const items: MenuItem[] = [];
     const localFileActionsDisabled = isRemoteWorkspace(workspaceManager.getState().currentWorkspace);
+    const surfaceId = getActiveSurfaceId();
+    const newTerminalItem = (directory: string, workspacePath: string): MenuItem => ({
+      id: 'file-new-terminal',
+      label: i18nService.t('common:nav.resources.openTerminalHere'),
+      icon: 'Terminal',
+      onClick: () => {
+        window.dispatchEvent(new CustomEvent('terminal-create-requested', {
+          detail: { workingDirectory: directory, workspacePath, surfaceId },
+        }));
+      },
+    });
 
     if (context.type === ContextType.EMPTY_SPACE) {
       const emptyContext = context as any;
@@ -56,7 +69,8 @@ export class FileExplorerMenuProvider implements IMenuProvider {
       const workspaceRoot = this.findWorkspaceRoot(emptyContext.targetElement);
       
       if (workspaceRoot) {
-        const parentPath = workspaceRoot; 
+        const parentPath = workspaceRoot;
+        items.push(newTerminalItem(parentPath, workspaceRoot));
         
         items.push({
           id: 'file-new-file',
@@ -101,22 +115,50 @@ export class FileExplorerMenuProvider implements IMenuProvider {
     const fileContext = context as FileNodeContext;
     const isDirectory = fileContext.isDirectory;
     const isReadOnly = fileContext.isReadOnly;
+    if (isDirectory && fileContext.workspacePath) {
+      items.push(newTerminalItem(fileContext.filePath, fileContext.workspacePath));
+    }
 
     
     if (!isDirectory) {
+      const isHtmlFile = isHtmlFilePath(fileContext.filePath);
+
       items.push({
         id: 'file-open',
         label: i18nService.t('common:actions.open'),
         icon: 'FileText',
         onClick: () => {
+          if (isHtmlFile) {
+            openFileInBestTarget({
+              filePath: fileContext.filePath,
+              fileName: fileContext.fileName,
+              workspacePath: fileContext.workspacePath,
+              editorType: 'code-editor',
+            });
+            return;
+          }
+
           globalEventBus.emit('file:open', { path: fileContext.filePath });
         }
       });
 
-      if (isHtmlFilePath(fileContext.filePath)) {
+      if (isHtmlFile) {
+        items.push({
+          id: 'file-open-html-in-integrated-browser',
+          label: i18nService.t('common:file.openInIntegratedBrowser'),
+          icon: 'PanelRightOpen',
+          onClick: () => {
+            openFileInBestTarget({
+              filePath: fileContext.filePath,
+              fileName: fileContext.fileName,
+              workspacePath: fileContext.workspacePath,
+              editorType: 'html-preview',
+            });
+          }
+        });
         items.push({
           id: 'file-open-html-in-browser',
-          label: i18nService.t('common:file.openInBrowser'),
+          label: i18nService.t('common:file.openInSystemBrowser'),
           icon: 'ExternalLink',
           command: 'file.open-html-in-browser',
           disabled: localFileActionsDisabled,

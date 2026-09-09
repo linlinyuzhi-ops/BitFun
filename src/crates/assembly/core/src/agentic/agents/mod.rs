@@ -1,4 +1,4 @@
-//! Mode system for BitFun
+//! Mode system for OpenBitFun
 //!
 //! Provides flexible mode selection with different system prompts and tool sets
 
@@ -9,19 +9,8 @@ mod registry;
 use crate::agentic::session::{SystemPromptCacheIdentity, UserContextCacheIdentity};
 use crate::agentic::tools::framework::ToolExposure;
 use crate::agentic::WorkspaceBinding;
-use crate::util::errors::{BitFunError, BitFunResult};
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use async_trait::async_trait;
-pub use bitfun_agent_runtime::agents::{
-    mode_config_profile_label, mode_config_profile_member_mode_ids, mode_presentation_rank,
-    resolve_mode_config_profile_id, shared_coding_mode_user_context_policy,
-    SHARED_CODING_MODE_CONFIG_PROFILE_ID, SHARED_CODING_MODE_CONFIG_PROFILE_LABEL,
-    SHARED_CODING_MODE_IDS, SHARED_CODING_MODE_PROMPT_TEMPLATE,
-};
-pub use bitfun_agent_runtime::custom_agent::{
-    custom_agent_model_or_default, custom_agent_review_writable_tools, default_custom_agent_tools,
-    default_custom_agent_user_context_policy, CustomAgentKind, CustomAgentLevel,
-};
-use bitfun_runtime_ports::PermissionConstraintLayer;
 pub use definitions::custom::{CustomMode, CustomSubagent, CustomSubagentKind};
 #[cfg(feature = "external-sources")]
 pub(crate) use definitions::external::ExternalProvidedAgent;
@@ -33,9 +22,22 @@ pub use definitions::modes::{
 pub use definitions::review::{ReviewFixerAgent, ReviewJudgeAgent, ReviewWorkerAgent};
 pub use definitions::shared::ReadonlySubagent;
 pub use definitions::subagents::{
-    ComputerUseMode, ExploreAgent, FileFinderAgent, GeneralPurposeAgent, ResearchSpecialistAgent,
+    ComputerUseMode, ExploreAgent, GeneralPurposeAgent, ResearchSpecialistAgent, SwarmPlannerAgent,
+    SwarmReviewerAgent, SwarmWorkerAgent,
 };
 use indexmap::IndexMap;
+pub use openbitfun_agent_runtime::agents::{
+    is_swarm_delegate_agent_type, is_swarm_planner_agent_type, mode_config_profile_label,
+    mode_config_profile_member_mode_ids, mode_presentation_rank, resolve_mode_config_profile_id,
+    shared_coding_mode_user_context_policy, SHARED_CODING_MODE_CONFIG_PROFILE_ID,
+    SHARED_CODING_MODE_CONFIG_PROFILE_LABEL, SHARED_CODING_MODE_IDS,
+    SHARED_CODING_MODE_PROMPT_TEMPLATE, SWARM_DELEGATE_AGENT_TYPES, SWARM_PLANNER_AGENT_TYPES,
+};
+pub use openbitfun_agent_runtime::custom_agent::{
+    custom_agent_model_or_default, custom_agent_review_writable_tools, default_custom_agent_tools,
+    default_custom_agent_user_context_policy, CustomAgentKind, CustomAgentLevel,
+};
+use openbitfun_runtime_ports::PermissionConstraintLayer;
 pub use prompt_builder::{
     build_prompt_context_for_workspace, render_direct_tool_listing_body, PrependedPromptReminders,
     PromptBuilder, PromptBuilderContext, RemoteExecutionHints, RuntimeContextNeeds,
@@ -61,17 +63,17 @@ pub use registry::{
 };
 use std::any::Any;
 
-pub use bitfun_agent_content::EMBEDDED_PROMPTS;
+pub use openbitfun_agent_content::EMBEDDED_PROMPTS;
 
 /// Returns a built-in Agent prompt by its stable compatibility key.
 pub fn get_embedded_prompt(prompt_name: &str) -> Option<&'static str> {
-    bitfun_agent_content::agent_prompt(prompt_name)
+    openbitfun_agent_content::agent_prompt(prompt_name)
 }
 
 /// Returns all built-in Agent prompt keys.
 #[allow(dead_code)]
 pub fn get_all_embedded_prompt_names() -> Vec<&'static str> {
-    bitfun_agent_content::agent_prompt_names()
+    openbitfun_agent_content::agent_prompt_names()
 }
 
 pub type AgentToolPolicyOverrides = IndexMap<String, ToolExposure>;
@@ -91,34 +93,8 @@ pub fn shared_coding_mode_tool_exposure_overrides() -> AgentToolPolicyOverrides 
     overrides
 }
 
-fn append_provider_group_tools(tools: &mut Vec<String>, provider_id: &'static str) {
-    #[cfg(feature = "tool-packs")]
-    {
-        let provider_groups =
-            bitfun_tool_packs::try_product_tool_provider_group_plan_for_ids(&[provider_id])
-                .expect("shared coding mode provider group must exist");
-        for group in provider_groups {
-            tools.extend(
-                group
-                    .tool_names()
-                    .iter()
-                    .map(|tool_name| tool_name.to_string()),
-            );
-        }
-    }
-
-    #[cfg(all(feature = "canvas-runtime", not(feature = "tool-packs")))]
-    if provider_id == "core.canvas" {
-        tools.extend(
-            ["CreateCanvas", "ReadCanvas", "UpdateCanvas", "PatchCanvas"]
-                .into_iter()
-                .map(str::to_string),
-        );
-    }
-}
-
 pub fn shared_coding_mode_tools() -> Vec<String> {
-    let mut tools = vec![
+    vec![
         "Task".to_string(),
         "ListModels".to_string(),
         "AgentWait".to_string(),
@@ -131,6 +107,11 @@ pub fn shared_coding_mode_tools() -> Vec<String> {
         "ExecCommand".to_string(),
         "WriteStdin".to_string(),
         "ExecControl".to_string(),
+        // The companion to ExecCommand for remote work: a server started on
+        // an SSH host is unreachable from the user's machine until a forward
+        // exists, and an Agent that cannot see this tool reinvents it with
+        // hand-written `ssh -L` instructions the user has to run themselves.
+        "PortForward".to_string(),
         "Grep".to_string(),
         "Glob".to_string(),
         "WebSearch".to_string(),
@@ -142,23 +123,16 @@ pub fn shared_coding_mode_tools() -> Vec<String> {
         "GenerativeUI".to_string(),
         "Skill".to_string(),
         "AskUserQuestion".to_string(),
-        "CreatePlan".to_string(),
-        "Git".to_string(),
         "ReviewPlatform".to_string(),
         "ControlHub".to_string(),
         // Pairs with ControlHub: its `wait` sends anything repeating, or
         // further out than an hour, to Cron rather than holding the turn open
         // for the interval.
         "Cron".to_string(),
-        "InitMiniApp".to_string(),
-        "FinalizeMiniApp".to_string(),
-        "PublishMiniApp".to_string(),
         "PublishAppearance".to_string(),
         "PageDeploy".to_string(),
         "PagePublish".to_string(),
-    ];
-    append_provider_group_tools(&mut tools, "core.canvas");
-    tools
+    ]
 }
 
 /// Agent trait defining the interface for all agents
@@ -201,11 +175,11 @@ pub trait Agent: Send + Sync + 'static {
     fn user_context_policy(&self) -> UserContextPolicy;
 
     /// Build the system prompt for this agent
-    async fn build_prompt(&self, context: &PromptBuilderContext) -> BitFunResult<String> {
+    async fn build_prompt(&self, context: &PromptBuilderContext) -> OpenBitFunResult<String> {
         let prompt_components = PromptBuilder::new(context.clone());
         let template_name = self.prompt_template_name(context.model_name.as_deref());
         let system_prompt_template = get_embedded_prompt(template_name).ok_or_else(|| {
-            BitFunError::Agent(format!("{} not found in embedded files", template_name))
+            OpenBitFunError::Agent(format!("{} not found in embedded files", template_name))
         })?;
 
         let prompt = prompt_components
@@ -219,11 +193,11 @@ pub trait Agent: Send + Sync + 'static {
     async fn get_system_prompt(
         &self,
         context: Option<&PromptBuilderContext>,
-    ) -> BitFunResult<String> {
+    ) -> OpenBitFunResult<String> {
         if let Some(context) = context {
             self.build_prompt(context).await
         } else {
-            Err(BitFunError::Agent(
+            Err(OpenBitFunError::Agent(
                 "Prompt build context is required".to_string(),
             ))
         }
@@ -238,11 +212,11 @@ pub trait Agent: Send + Sync + 'static {
         &self,
         _previous_agent_type: Option<&str>,
         _workspace: Option<&WorkspaceBinding>,
-    ) -> BitFunResult<String> {
+    ) -> OpenBitFunResult<String> {
         if let Some(system_reminder_template_name) = self.system_reminder_template_name() {
             let system_reminder =
                 get_embedded_prompt(system_reminder_template_name).ok_or_else(|| {
-                    BitFunError::Agent(format!(
+                    OpenBitFunError::Agent(format!(
                         "{} not found in embedded files",
                         system_reminder_template_name
                     ))
@@ -279,6 +253,18 @@ pub trait Agent: Send + Sync + 'static {
         &EMPTY_PERMISSION_CONSTRAINTS
     }
 
+    /// Whether dynamic MCP tools may be appended to this Agent's manifest.
+    fn include_dynamic_mcp_tools(&self) -> bool {
+        true
+    }
+
+    /// Optional model sampling temperature supplied by an external Agent
+    /// definition. The execution owner applies this to a per-turn client
+    /// clone; built-in Agents inherit the configured model temperature.
+    fn model_temperature_override(&self) -> Option<f64> {
+        None
+    }
+
     /// Whether this agent is read-only (prevents file modifications)
     fn is_readonly(&self) -> bool {
         false
@@ -289,8 +275,7 @@ pub trait Agent: Send + Sync + 'static {
 mod tests {
     use super::{
         get_embedded_prompt, shared_coding_mode_tool_exposure_overrides, shared_coding_mode_tools,
-        shared_coding_mode_user_context_policy, Agent, AgenticMode, DebugMode, MultitaskMode,
-        PlanMode, EMBEDDED_PROMPTS,
+        shared_coding_mode_user_context_policy, Agent, AgenticMode, MinimalMode, EMBEDDED_PROMPTS,
     };
 
     #[test]
@@ -302,44 +287,19 @@ mod tests {
     }
 
     #[test]
-    fn shared_template_modes_share_system_prompt_cache_identity() {
-        let agentic = AgenticMode::new();
-        let multitask = MultitaskMode::new();
-        let plan = PlanMode::new();
-        let debug = DebugMode::new();
-
-        assert_eq!(
-            agentic.system_prompt_cache_identity(None),
-            multitask.system_prompt_cache_identity(None)
-        );
-        assert_eq!(
-            agentic.system_prompt_cache_identity(None),
-            plan.system_prompt_cache_identity(None)
-        );
-        assert_eq!(
-            agentic.system_prompt_cache_identity(None),
-            debug.system_prompt_cache_identity(None)
-        );
-        assert_eq!(
-            agentic.user_context_cache_identity(),
-            multitask.user_context_cache_identity()
-        );
-        assert_eq!(
-            agentic.user_context_cache_identity(),
-            plan.user_context_cache_identity()
-        );
-        assert_eq!(
-            agentic.user_context_cache_identity(),
-            debug.user_context_cache_identity()
+    fn minimal_agent_prompt_resolves_to_embedded_prompt() {
+        assert!(
+            get_embedded_prompt(MinimalMode::new().prompt_template_name(None)).is_some(),
+            "minimal Agent prompt must resolve through the embedded prompt catalog"
         );
     }
 
     #[test]
-    fn shared_coding_mode_tools_include_plan_and_debug_specific_tools() {
+    fn shared_coding_mode_tools_exclude_create_plan_and_include_goal_tools() {
         let tools = shared_coding_mode_tools();
 
         assert!(tools.contains(&"ListModels".to_string()));
-        assert!(tools.contains(&"CreatePlan".to_string()));
+        assert!(!tools.contains(&"CreatePlan".to_string()));
         assert!(tools.contains(&"get_goal".to_string()));
         assert!(tools.contains(&"update_goal".to_string()));
     }
@@ -352,46 +312,34 @@ mod tests {
     }
 
     #[test]
-    fn shared_coding_mode_tools_include_canvas_provider_tools() {
+    fn shared_coding_mode_tools_keep_canvas_provider_tools_opt_in() {
         let tools = shared_coding_mode_tools();
 
-        assert!(tools.contains(&"CreateCanvas".to_string()));
-        assert!(tools.contains(&"ReadCanvas".to_string()));
-        assert!(tools.contains(&"UpdateCanvas".to_string()));
-        assert!(tools.contains(&"PatchCanvas".to_string()));
+        assert!(!tools.contains(&"CreateCanvas".to_string()));
+        assert!(!tools.contains(&"ReadCanvas".to_string()));
+        assert!(!tools.contains(&"UpdateCanvas".to_string()));
+        assert!(!tools.contains(&"PatchCanvas".to_string()));
     }
 
     #[test]
-    fn shared_coding_modes_share_default_tools() {
+    fn agentic_mode_uses_shared_coding_tools() {
         let shared_tools = shared_coding_mode_tools();
 
         assert_eq!(AgenticMode::new().default_tools(), shared_tools);
-        assert_eq!(MultitaskMode::new().default_tools(), shared_tools);
-        assert_eq!(PlanMode::new().default_tools(), shared_tools);
-        assert_eq!(DebugMode::new().default_tools(), shared_tools);
     }
 
     #[test]
-    fn shared_coding_mode_user_context_policy_matches_all_shared_modes() {
+    fn agentic_mode_uses_shared_coding_user_context_policy() {
         let shared_policy = shared_coding_mode_user_context_policy();
 
         assert_eq!(AgenticMode::new().user_context_policy(), shared_policy);
-        assert_eq!(MultitaskMode::new().user_context_policy(), shared_policy);
-        assert_eq!(PlanMode::new().user_context_policy(), shared_policy);
-        assert_eq!(DebugMode::new().user_context_policy(), shared_policy);
     }
 
     #[test]
-    fn shared_coding_mode_tool_exposure_overrides_match_all_shared_modes() {
+    fn agentic_mode_uses_shared_coding_tool_exposure_overrides() {
         let shared_overrides = shared_coding_mode_tool_exposure_overrides();
         let agentic = AgenticMode::new();
-        let multitask = MultitaskMode::new();
-        let plan = PlanMode::new();
-        let debug = DebugMode::new();
 
         assert_eq!(agentic.tool_exposure_overrides(), &shared_overrides);
-        assert_eq!(multitask.tool_exposure_overrides(), &shared_overrides);
-        assert_eq!(plan.tool_exposure_overrides(), &shared_overrides);
-        assert_eq!(debug.tool_exposure_overrides(), &shared_overrides);
     }
 }

@@ -68,6 +68,19 @@
       "switchToSideBySide": "Switch to side-by-side view"
     },
     "markdownEditor": {
+      "blockTypes": {
+        "math": "Equation",
+        "code": "Code block",
+        "reference": "Link reference",
+        "footnote": "Footnote"
+      },
+      "finishBlockEdit": "Done editing",
+      "editImage": "Edit image",
+      "imageAddress": "Image address",
+      "imageAltText": "Alternative text",
+      "imageTitle": "Image title",
+      "richText": "Document",
+      "editBlockSource": "Edit block source",
       "loadingFile": "Loading file...",
       "placeholder": "Start writing Markdown...",
       "source": "Source",
@@ -75,9 +88,9 @@
       "preview": "Preview",
       "copyMarkdown": "Copy Markdown",
       "copiedMarkdown": "Copied Markdown",
-      "viewModeLabel": "Markdown and preview mode",
+      "viewModeLabel": "Document and source mode",
       "notice": {
-        "sourcePreviewFallback": "This document contains syntax that is not safely editable in visual mode. Edit in source mode or switch to preview."
+        "sourcePreviewFallback": "Rich text could not load. You can continue editing the Markdown source."
       }
     },
     "planViewer": {
@@ -105,6 +118,20 @@
       "enterFullscreen": "Enter fullscreen",
       "exitFullscreen": "Exit fullscreen",
       "imageUrlEmpty": "Image URL is empty"
+    },
+    "pdfViewer": {
+      "loading": "Loading PDF...",
+      "filePathEmpty": "File path is empty",
+      "loadFailedWithMessage": "Failed to load PDF: {{message}}",
+      "renderFailedWithMessage": "Failed to render PDF page: {{message}}",
+      "pageCount": "Page {{current}} of {{total}}",
+      "currentPage": "Current page",
+      "previousPage": "Previous page",
+      "nextPage": "Next page",
+      "zoomOut": "Zoom out",
+      "zoomLevel": "Zoom level",
+      "zoomIn": "Zoom in",
+      "rotate90": "Rotate 90°"
     },
     "meditor": {
       "placeholder": "Enter Markdown...",
@@ -178,9 +205,6 @@
       "indentSettings": "Indent Settings",
       "fileEncoding": "File Encoding",
       "selectLanguageMode": "Select Language Mode",
-      "lspConnected": "LSP Connected",
-      "lspConnecting": "LSP Connecting...",
-      "lspDisconnected": "LSP Disconnected",
       "selectionLinesChars": "{{lines}} lines, {{chars}} chars",
       "selectionChars": "{{count}} selected",
       "ln": "Ln",
@@ -189,7 +213,7 @@
       "indentTab": "Tab: {{n}}",
       "goToLineHint": "Line or Line:Col (Enter to go, Esc to close)",
       "goToLinePlaceholder": "e.g. 10 or 10:5",
-      "selectIndent": "Select Indent",
+      "selectIndent": "Current file · indentation",
       "selectEncoding": "Select Encoding",
       "selectLanguageModeHint": "Select Language Mode (click to switch)",
       "indentOptionSpaces": "Spaces: {{n}}",
@@ -277,23 +301,6 @@
       "viewHistory": "View History",
       "viewChanges": "View Changes",
       "resolveConflict": "Resolve Conflict"
-    }
-  },
-  "lsp": {
-    "referencesPanel": {
-      "previewFallback": "(no preview)",
-      "emptyTitle": "No references found",
-      "emptyWithSymbol": "No references found for symbol \"{{symbol}}\"",
-      "emptyDescription": "No references found",
-      "titleWithSymbol": "References for \"{{symbol}}\"",
-      "title": "References",
-      "emptyLine": "(empty line)"
-    },
-    "errors": {
-      "loadPluginsFailed": "Failed to load plugins",
-      "installPluginFailed": "Failed to install plugin",
-      "uninstallPluginFailed": "Failed to uninstall plugin",
-      "initializeFailed": "Failed to initialize LSP"
     }
   },
   "fileTree": {

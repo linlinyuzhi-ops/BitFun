@@ -23,10 +23,8 @@ describe('FlowChat collapse spacing', () => {
     const projectionRoots = [
       '.explore-region__content',
       '.thinking-content',
-      '.base-tool-card-expanded',
-      '.base-tool-card-error',
-      '.compact-tool-card-expanded',
-      '.view-image-tool-card__content',
+      "[data-openbitfun-component='flow-chat-tool-card'][data-openbitfun-part='expanded']",
+      "[data-openbitfun-component='flow-chat-tool-card'][data-openbitfun-part='error']",
       '.subagent-items-container',
       '.subagent-projection-container--expanded',
     ];
@@ -46,71 +44,64 @@ describe('FlowChat collapse spacing', () => {
 
     expect(exploreContent).toContain('padding: 0;');
     expect(thinkingContent).toMatch(
-      /padding:\s*var\(--bf-appearance-token-flowchat-card-expanded-pad-y\)\s*var\(--bf-appearance-token-flowchat-card-expanded-pad-x\)\s*var\(--bf-appearance-token-flowchat-card-expanded-pad-y\)\s*0;/,
+      /padding:\s*var\(--openbitfun-control-flow-chat-card-expanded-padding-block\)\s*var\(--openbitfun-control-flow-chat-card-expanded-padding-inline\)\s*var\(--openbitfun-control-flow-chat-card-expanded-padding-block\)\s*0;/,
     );
   });
 
+  it('uses the thinking-style non-button disclosure and icon swap for explore', () => {
+    const renderer = readSource('./ExploreGroupRenderer.tsx');
+    const exploreStyles = readSource('./ExploreRegion.scss');
+
+    expect(renderer).toMatch(
+      /<div\s+data-openbitfun-component="explore-group"\s+data-openbitfun-part="header"[\s\S]*?data-testid="chat-explore-group-toggle"/,
+    );
+    expect(renderer).not.toMatch(
+      /<button[\s\S]*?data-testid="chat-explore-group-toggle"/,
+    );
+    expect(renderer).not.toContain('aria-expanded={isExpanded}');
+    expect(renderer).not.toContain('data-motion="none"');
+    expect(renderer).toContain('name="search" size="sm" className="explore-region__leading-icon--default"');
+    expect(renderer).toContain('name="chevron-right" size="sm" className="explore-region__leading-icon--collapsed-hover"');
+    expect(renderer).toContain('name="chevron-down" size="sm" className="explore-region__leading-icon--expanded"');
+    expect(exploreStyles).toContain('background: transparent;');
+    expect(exploreStyles).not.toContain('background: var(--openbitfun-color-action-neutral-surface-hover);');
+    expect(exploreStyles).not.toContain('transform: rotate(');
+  });
+
   it('keeps bordered tool and subagent bodies padded on every side', () => {
-    const baseToolStyles = readSource('../../tool-cards/BaseToolCard.scss');
-    const compactToolStyles = readSource('../../tool-cards/CompactToolCard.scss');
-    const imageStyles = readSource('../../tool-cards/ViewImageToolCard.scss');
+    const publicToolCardStyles = readSource('../../../../../../design-system/packages/ui/src/flow-chat/tool-cards/FlowChatToolCard.module.css');
+    const flowToolCardStyles = readSource('../FlowToolCard.scss');
     const subagentStyles = readSource('./SubagentItems.scss');
     const subagentProjectionStyles = readSource('../subagent/SubagentProjectionView.scss');
     const taskStyles = readSource('../../tool-cards/TaskToolDisplay.scss');
 
-    expect(extractBlock(baseToolStyles, '.base-tool-card-expanded')).toContain(
-      'padding: var(--bf-appearance-token-flowchat-card-expanded-pad-y) var(--bf-appearance-token-tool-card-expanded-pad-x);',
+    expect(publicToolCardStyles).toMatch(
+      /\.expanded,\s*\.error\s*\{[\s\S]*?padding:\s*var\(--openbitfun-space-3\);/,
     );
-    expect(extractBlock(baseToolStyles, '.base-tool-card-error')).toContain(
-      'margin-left: 0;',
-    );
-    expect(extractBlock(baseToolStyles, '.base-tool-card-error')).toMatch(
-      /padding:\s*var\(--bf-appearance-token-flowchat-card-expanded-pad-y\)\s*var\(--bf-appearance-token-flowchat-card-expanded-pad-x\)\s*var\(--bf-appearance-token-flowchat-card-expanded-pad-y\)\s*var\(--bf-appearance-token-flowchat-card-expanded-pad-x\);/,
-    );
-    expect(extractBlock(compactToolStyles, '.compact-tool-card-expanded')).toContain(
-      'margin-left: 0;',
-    );
-    expect(extractBlock(compactToolStyles, '.compact-tool-card-expanded')).toContain(
-      'padding: 12px;',
-    );
-    expect(extractBlock(compactToolStyles, '.flow-tool-card-note')).toContain(
-      'margin-left: 0;',
-    );
-    expect(extractBlock(imageStyles, '.view-image-tool-card__content')).toContain(
-      'margin: 8px 0 0;',
+    expect(extractBlock(flowToolCardStyles, '.flow-tool-card-note')).toContain(
+      'margin-inline-start: 0;',
     );
     expect(extractBlock(subagentStyles, '.subagent-items-container')).toContain(
-      'padding: var(--bf-appearance-token-flowchat-card-expanded-pad-y) var(--bf-appearance-token-flowchat-card-expanded-pad-x);',
+      'padding: var(--openbitfun-control-flow-chat-card-expanded-padding-block) var(--openbitfun-control-flow-chat-card-expanded-padding-inline);',
     );
     expect(
       extractBlock(subagentProjectionStyles, '.subagent-projection-container--expanded'),
     ).toContain(
-      'padding: var(--bf-appearance-token-flowchat-card-expanded-pad-y) var(--bf-appearance-token-flowchat-card-expanded-pad-x);',
+      'padding: var(--openbitfun-control-flow-chat-card-expanded-padding-block) var(--openbitfun-control-flow-chat-card-expanded-padding-inline);',
     );
     expect(
-      extractBlock(taskStyles, '.task-expanded-content .task-prompt-content'),
+      extractBlock(taskStyles, '.task-prompt-content'),
     ).toContain('padding: 0;');
-    expect(taskStyles).toContain('--task-prompt-inline-pad: calc(');
+    expect(taskStyles).not.toContain('--task-prompt-inline-pad');
     expect(taskStyles).toMatch(
-      /\.subagent-projection-container--expanded\s*\{[\s\S]*?padding:\s*8px\s*var\(--task-prompt-inline-pad\)\s*10px\s*var\(--task-prompt-inline-pad\);/,
+      /^    \.subagent-projection-container--expanded\s*\{\s*padding:\s*var\(--openbitfun-space-2\)\s*var\(--openbitfun-space-3\)\s*var\(--openbitfun-space-3\);/m,
     );
   });
 
-  it('lets full-bleed footer and list surfaces consume the shared body inset', () => {
-    const terminalStyles = readSource('../../tool-cards/TerminalToolCard.scss');
-    const gitStyles = readSource('../../tool-cards/GitToolDisplay.scss');
+  it('lets product-owned full-bleed footer surfaces consume the shared body inset', () => {
     const miniAppStyles = readSource('../../tool-cards/MiniAppToolDisplay.scss');
-    const todoStyles = readSource('../../tool-cards/TodoWriteDisplay.scss');
-
-    expect(terminalStyles).toContain(
-      '.base-tool-card-wrapper.terminal-tool-card .terminal-result-footer {\n  margin-left: calc(-1 * var(--bf-appearance-token-flowchat-card-expanded-pad-x));',
-    );
-    expect(gitStyles).toMatch(/git-result-footer[\s\S]{0,120}margin-left:\s*-\d/);
     expect(miniAppStyles).toContain(
-      '.base-tool-card-wrapper.miniapp-tool-display .miniapp-result-footer {\n  margin-left: calc(-1 * var(--bf-appearance-token-flowchat-card-expanded-pad-x));',
-    );
-    expect(extractBlock(todoStyles, '.todo-expanded-body')).toMatch(
-      /margin:\s*calc\(var\(--bf-appearance-token-flowchat-card-expanded-pad-y\) \* -1\)\s*calc\(var\(--bf-appearance-token-tool-card-expanded-pad-x\) \* -1\);/,
+      ".miniapp-tool-display[data-openbitfun-attention='prominent'] .miniapp-result-footer {\n  margin-left: calc(-1 * var(--openbitfun-control-flow-chat-card-expanded-padding-inline));",
     );
   });
 });

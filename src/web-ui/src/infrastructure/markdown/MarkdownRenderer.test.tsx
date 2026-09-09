@@ -1,0 +1,783 @@
+// @vitest-environment jsdom
+
+import React, { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { MenuItem } from '@/shared/context-menu-system/types';
+import { MarkdownRenderer } from './MarkdownRenderer';
+
+const mocks = vi.hoisted(() => ({
+  getCurrentWorkspacePath: vi.fn(),
+  revealInExplorer: vi.fn(),
+  readFileContent: vi.fn(),
+  openExternal: vi.fn(),
+  openFileInBestTarget: vi.fn(),
+  openHtmlFileInExternalBrowser: vi.fn(),
+  renderMath: vi.fn(),
+  showContextMenu: vi.fn(),
+}));
+
+vi.mock('@/infrastructure/api', () => ({
+  globalAPI: {
+    getCurrentWorkspacePath: (...args: unknown[]) => mocks.getCurrentWorkspacePath(...args),
+  },
+  workspaceAPI: {
+    revealInExplorer: (...args: unknown[]) => mocks.revealInExplorer(...args),
+    readFileContent: (...args: unknown[]) => mocks.readFileContent(...args),
+  },
+  systemAPI: {
+    openExternal: (...args: unknown[]) => mocks.openExternal(...args),
+  },
+}));
+
+vi.mock('@/infrastructure/i18n', () => ({
+  i18nService: {
+    t: (key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key,
+  },
+}));
+
+vi.mock('@/infrastructure/appearance', () => ({
+  useAppearance: () => ({ current: { mode: 'dark' } }),
+}));
+
+vi.mock('./MermaidBlock', () => ({
+  MermaidBlock: () => <div data-testid="mermaid-block" />,
+}));
+
+vi.mock('./MarkdownMathRenderer', () => ({
+  default: ({ markdownContent }: { markdownContent: string }) => {
+    mocks.renderMath(markdownContent);
+    return <span data-testid="markdown-math-renderer">{markdownContent}</span>;
+  },
+}));
+
+vi.mock('./AsyncPrismSyntaxHighlighter', () => ({
+  AsyncPrismSyntaxHighlighter: ({ children }: { children: React.ReactNode }) => <pre>{children}</pre>,
+}));
+
+vi.mock('@/shared/context-menu-system/core/ContextMenuController', () => ({
+  contextMenuController: {
+    show: (...args: unknown[]) => mocks.showContextMenu(...args),
+  },
+}));
+
+vi.mock('@/shared/utils/tabUtils', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/shared/utils/tabUtils')>(),
+  openFileInBestTarget: (...args: unknown[]) => mocks.openFileInBestTarget(...args),
+}));
+
+vi.mock('@/shared/utils/htmlFilePreview', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/shared/utils/htmlFilePreview')>(),
+  openHtmlFileInExternalBrowser: (...args: unknown[]) => mocks.openHtmlFileInExternalBrowser(...args),
+}));
+
+vi.mock('@/shared/utils/logger', () => ({
+  createLogger: () => ({
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  }),
+}));
+
+vi.mock('@/shared/utils/startupTrace', () => ({
+  isStartupRenderTraceEnabled: () => false,
+  recordReactRenderProfile: vi.fn(),
+  startupTrace: {},
+}));
+
+const EXAMPLE_WORKSPACE = 'C:\\ExampleWorkspace';
+const EXAMPLE_ABSOLUTE_README = 'D:\\SampleDocs\\Guides\\README.md';
+
+describe('Markdown file links', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let onFileViewRequest: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    onFileViewRequest = vi.fn();
+    mocks.getCurrentWorkspacePath.mockReset();
+    mocks.revealInExplorer.mockReset();
+    mocks.readFileContent.mockReset();
+    mocks.openExternal.mockReset();
+    mocks.openFileInBestTarget.mockReset();
+    mocks.openHtmlFileInExternalBrowser.mockReset();
+    mocks.renderMath.mockReset();
+    mocks.showContextMenu.mockReset();
+    mocks.getCurrentWorkspacePath.mockResolvedValue(EXAMPLE_WORKSPACE);
+    mocks.readFileContent.mockResolvedValue('cmVsdS1wbmc=');
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    vi.clearAllMocks();
+  });
+
+  it('does not resolve workspace path for markdown without local file links', async () => {
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={'Plain answer without file links.\n\n```ts\nconst value = 1;\n```'}
+          onFileViewRequest={onFileViewRequest}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.getCurrentWorkspacePath).not.toHaveBeenCalled();
+  });
+
+  it('renders separate footnote regions and follows their shared anchors', async () => {
+    const reference = 'Text[^a].';
+    const definition = '[^a]: Definition';
+    const content = `${reference}\n\n${definition}`;
+    await act(async () => root.render(<>
+      <MarkdownRenderer content={content} sourceRange={{ start: 0, end: reference.length, idPrefix: 'test-editor-' }} />
+      <MarkdownRenderer content={content} sourceRange={{ start: reference.length + 2, end: content.length, idPrefix: 'test-editor-' }} />
+    </>));
+    const link = container.querySelector<HTMLAnchorElement>('[data-footnote-ref]')!;
+    const target = document.getElementById(link.hash.slice(1))!;
+    const scrollIntoView = vi.fn();
+    target.scrollIntoView = scrollIntoView;
+    expect(container.querySelectorAll('section[data-footnotes] li')).toHaveLength(1);
+    expect(target.textContent).toContain('Definition');
+    act(() => link.click());
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+  });
+
+  it.each([
+    '[Open Canvas](openbitfun-canvas://session/session_1/canvas/canvas_1)',
+    'openbitfun-canvas://session/session_1/canvas/canvas_1',
+  ])('opens Canvas artifact links in the Canvas panel: %s', async (content) => {
+    const onCreateTab = vi.fn();
+    window.addEventListener('agent-create-tab', onCreateTab);
+
+    try {
+      await act(async () => {
+        root.render(
+          <MarkdownRenderer
+            content={content}
+            basePath="/srv/project"
+            remoteConnectionId="remote-connection-1"
+            remoteSshHost="workspace.example"
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      const link = container.querySelector<HTMLButtonElement>('button.canvas-link');
+      expect(link).not.toBeNull();
+
+      act(() => link?.click());
+
+      expect(onCreateTab).toHaveBeenCalledTimes(1);
+      const event = onCreateTab.mock.calls[0][0] as CustomEvent;
+      expect(event.detail).toMatchObject({
+        type: 'openbitfun-canvas',
+        title: 'OpenBitFun Canvas',
+        data: {
+          artifactReference: 'openbitfun-canvas://session/session_1/canvas/canvas_1',
+          workspacePath: '/srv/project',
+          remoteConnectionId: 'remote-connection-1',
+          remoteSshHost: 'workspace.example',
+          _source: { type: 'markdown-link' },
+        },
+        metadata: {
+          artifactReference: 'openbitfun-canvas://session/session_1/canvas/canvas_1',
+          fromMarkdown: true,
+        },
+        checkDuplicate: true,
+        duplicateCheckKey: 'openbitfun-canvas-openbitfun-canvas://session/session_1/canvas/canvas_1',
+        replaceExisting: true,
+      });
+      expect(mocks.getCurrentWorkspacePath).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('agent-create-tab', onCreateTab);
+    }
+  });
+
+  it('opens chat http links in the built-in browser by default', async () => {
+    container.className = 'openbitfun-session-scene modern-flowchat-container';
+    const onCreateTab = vi.fn();
+    window.addEventListener('agent-create-tab', onCreateTab);
+
+    try {
+      await act(async () => {
+        root.render(<MarkdownRenderer content={'[Example](https://example.com/docs)'} />);
+        await Promise.resolve();
+      });
+
+      const link = container.querySelector<HTMLAnchorElement>('a[href="https://example.com/docs"]');
+      expect(link).not.toBeNull();
+
+      await act(async () => {
+        link?.click();
+        await Promise.resolve();
+      });
+
+      expect(mocks.openExternal).not.toHaveBeenCalled();
+      expect(onCreateTab).toHaveBeenCalledTimes(1);
+      const event = onCreateTab.mock.calls[0][0] as CustomEvent;
+      expect(event.detail).toMatchObject({
+        type: 'browser',
+        data: { url: 'https://example.com/docs' },
+        duplicateCheckKey: 'browser-panel:https://example.com/docs',
+        replaceExisting: false,
+      });
+    } finally {
+      window.removeEventListener('agent-create-tab', onCreateTab);
+    }
+  });
+
+  it('expands a collapsed right panel before creating a browser tab', async () => {
+    vi.useFakeTimers();
+    container.className = 'openbitfun-session-scene modern-flowchat-container';
+    (window as any).__OPENBITFUN_LAYOUT_STATE__ = { rightPanelCollapsed: true };
+    const onExpandPanel = vi.fn();
+    const onCreateTab = vi.fn();
+    window.addEventListener('expand-right-panel', onExpandPanel);
+    window.addEventListener('agent-create-tab', onCreateTab);
+
+    try {
+      await act(async () => {
+        root.render(<MarkdownRenderer content={'[Example](https://example.com/docs)'} />);
+        await Promise.resolve();
+      });
+
+      const link = container.querySelector<HTMLAnchorElement>('a[href="https://example.com/docs"]');
+      expect(link).not.toBeNull();
+
+      act(() => {
+        link?.click();
+      });
+
+      expect(onExpandPanel).toHaveBeenCalledTimes(1);
+      expect(onCreateTab).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(onCreateTab).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (window as any).__OPENBITFUN_LAYOUT_STATE__;
+      window.removeEventListener('expand-right-panel', onExpandPanel);
+      window.removeEventListener('agent-create-tab', onCreateTab);
+      vi.useRealTimers();
+    }
+  });
+
+  it('opens modified chat link clicks in the external browser', async () => {
+    container.className = 'openbitfun-session-scene modern-flowchat-container';
+    const onCreateTab = vi.fn();
+    window.addEventListener('agent-create-tab', onCreateTab);
+
+    try {
+      await act(async () => {
+        root.render(<MarkdownRenderer content={'[Example](https://example.com/docs)'} />);
+        await Promise.resolve();
+      });
+
+      const link = container.querySelector<HTMLAnchorElement>('a[href="https://example.com/docs"]');
+      expect(link).not.toBeNull();
+
+      await act(async () => {
+        link?.dispatchEvent(new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          ctrlKey: true,
+        }));
+        await Promise.resolve();
+      });
+
+      expect(mocks.openExternal).toHaveBeenCalledWith('https://example.com/docs');
+      expect(onCreateTab).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('agent-create-tab', onCreateTab);
+    }
+  });
+
+  it('adds source, integrated browser, and system browser actions to FlowChat HTML file links', async () => {
+    container.className = 'openbitfun-session-scene modern-flowchat-container';
+
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={'[Preview](docs/index.html#L7)'}
+          basePath={EXAMPLE_WORKSPACE}
+          onFileViewRequest={onFileViewRequest}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    const link = container.querySelector<HTMLButtonElement>('button.file-link');
+    expect(link).not.toBeNull();
+
+    act(() => {
+      link?.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 12,
+        clientY: 24,
+      }));
+    });
+
+    expect(mocks.showContextMenu).toHaveBeenCalledTimes(1);
+    const [, items, context] = mocks.showContextMenu.mock.calls[0] as [
+      unknown,
+      MenuItem[],
+      Parameters<NonNullable<MenuItem['onClick']>>[0],
+    ];
+    expect(items.slice(0, 3)).toMatchObject([
+      {
+        id: 'markdown-open-html-as-text',
+        label: 'common:actions.open',
+        icon: 'FileText',
+      },
+      {
+        id: 'markdown-open-html-in-integrated-browser',
+        label: 'common:file.openInIntegratedBrowser',
+        icon: 'PanelRightOpen',
+      },
+      {
+        id: 'markdown-open-html-in-system-browser',
+        label: 'common:file.openInSystemBrowser',
+        icon: 'ExternalLink',
+        disabled: false,
+      },
+    ]);
+
+    await items[0].onClick?.(context);
+    expect(mocks.openFileInBestTarget).toHaveBeenLastCalledWith(expect.objectContaining({
+      fileName: 'index.html',
+      workspacePath: EXAMPLE_WORKSPACE,
+      editorType: 'code-editor',
+      jumpToRange: { start: 7, end: undefined },
+    }));
+
+    await items[1].onClick?.(context);
+    expect(mocks.openFileInBestTarget).toHaveBeenLastCalledWith(expect.objectContaining({
+      fileName: 'index.html',
+      workspacePath: EXAMPLE_WORKSPACE,
+      editorType: 'html-preview',
+    }));
+
+    await items[2].onClick?.(context);
+    expect(mocks.openHtmlFileInExternalBrowser).toHaveBeenCalledWith(
+      expect.stringMatching(/docs[\\/]index\.html$/),
+    );
+  });
+
+  it('keeps system-browser opening disabled for remote FlowChat HTML links', async () => {
+    container.className = 'openbitfun-session-scene modern-flowchat-container';
+
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={'[Preview](site/page.htm)'}
+          basePath={'/srv/project'}
+          remoteConnectionId={'remote-connection-1'}
+          onFileViewRequest={onFileViewRequest}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>('button.file-link')?.dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    const items = mocks.showContextMenu.mock.calls[0]?.[1] as MenuItem[];
+    const integrated = items.find(item => item.id === 'markdown-open-html-in-integrated-browser');
+    const system = items.find(item => item.id === 'markdown-open-html-in-system-browser');
+
+    expect(system?.disabled).toBe(true);
+    await integrated?.onClick?.(mocks.showContextMenu.mock.calls[0][2]);
+    expect(mocks.openFileInBestTarget).toHaveBeenCalledWith(expect.objectContaining({
+      filePath: '/srv/project/site/page.htm',
+      workspacePath: '/srv/project',
+      remoteConnectionId: 'remote-connection-1',
+      editorType: 'html-preview',
+    }));
+  });
+
+  it('routes detached HTML and unknown file types through the target callback and disables host actions', async () => {
+    container.className = 'openbitfun-session-scene modern-flowchat-container';
+    await act(async () => {
+      root.render(<MarkdownRenderer content={'[Preview](page.html) [Binary](result.bin)'} basePath="/target" fileActionsViaCallbackOnly onFileViewRequest={onFileViewRequest} />);
+    });
+    const links = container.querySelectorAll<HTMLButtonElement>('button.file-link');
+    act(() => links[1].click());
+    expect(onFileViewRequest).toHaveBeenCalledWith('/target/result.bin', 'result.bin', undefined);
+    act(() => links[0].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+    const items = mocks.showContextMenu.mock.calls[0][1] as MenuItem[];
+    expect(items.find(item => item.id === 'markdown-open-in-explorer')?.disabled).toBe(true);
+    expect(items.some(item => item.id === 'markdown-open-html-in-system-browser')).toBe(false);
+    await items.find(item => item.id === 'markdown-open-remote-file')?.onClick?.(mocks.showContextMenu.mock.calls[0][2]);
+    expect(onFileViewRequest).toHaveBeenCalledWith('/target/page.html', 'page.html', undefined);
+    expect(mocks.openFileInBestTarget).not.toHaveBeenCalled();
+    expect(mocks.revealInExplorer).not.toHaveBeenCalled();
+  });
+
+  it('routes same-label relative, absolute, and computer links independently', async () => {
+    const content = [
+      '1. [README.md](.\\README.md)',
+      `2. [README.md](${EXAMPLE_ABSOLUTE_README})`,
+      '3. [README.md](computer://README.md)',
+      `4. [README.md](computer://${EXAMPLE_ABSOLUTE_README})`,
+      '5. [deck.pptx](computer://deck.pptx)',
+    ].join('\n');
+
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={content}
+          onFileViewRequest={onFileViewRequest}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('button.file-link'));
+    expect(buttons).toHaveLength(5);
+
+    await act(async () => {
+      buttons[0].click();
+      await Promise.resolve();
+    });
+
+    expect(onFileViewRequest).toHaveBeenNthCalledWith(1, '.\\README.md', 'README.md', undefined);
+    expect(mocks.revealInExplorer).not.toHaveBeenCalled();
+
+    await act(async () => {
+      buttons[1].click();
+      await Promise.resolve();
+    });
+
+    expect(onFileViewRequest).toHaveBeenNthCalledWith(2, EXAMPLE_ABSOLUTE_README, 'README.md', undefined);
+    expect(mocks.revealInExplorer).not.toHaveBeenCalled();
+
+    await act(async () => {
+      buttons[2].click();
+      await Promise.resolve();
+    });
+
+    expect(onFileViewRequest).toHaveBeenNthCalledWith(3, 'README.md', 'README.md', undefined);
+    expect(mocks.revealInExplorer).not.toHaveBeenCalled();
+
+    await act(async () => {
+      buttons[3].click();
+      await Promise.resolve();
+    });
+
+    expect(onFileViewRequest).toHaveBeenNthCalledWith(4, EXAMPLE_ABSOLUTE_README, 'README.md', undefined);
+    expect(mocks.revealInExplorer).not.toHaveBeenCalled();
+
+    await act(async () => {
+      buttons[4].click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.revealInExplorer).toHaveBeenNthCalledWith(1, `${EXAMPLE_WORKSPACE}\\deck.pptx`);
+    expect(onFileViewRequest).toHaveBeenCalledTimes(4);
+  });
+
+  it('routes PDF links through the integrated file viewer instead of the file manager', async () => {
+    const pdfPath = 'D:\\SampleDocs\\Report.PDF';
+
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={`[Report.pdf](${pdfPath})`}
+          onFileViewRequest={onFileViewRequest}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    const link = container.querySelector<HTMLButtonElement>('button.file-link');
+    expect(link).not.toBeNull();
+
+    act(() => link?.click());
+
+    expect(onFileViewRequest).toHaveBeenCalledWith(pdfPath, 'Report.PDF', undefined);
+    expect(mocks.revealInExplorer).not.toHaveBeenCalled();
+  });
+
+  it('does not load the math renderer for ordinary markdown', async () => {
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={'Plain answer with **bold** text and a table-like sentence.'}
+          onFileViewRequest={onFileViewRequest}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain('Plain answer with');
+    expect(container.querySelector('[data-testid="markdown-math-renderer"]')).toBeNull();
+    expect(mocks.renderMath).not.toHaveBeenCalled();
+  });
+
+  it('keeps math markdown visible while the math renderer loads', async () => {
+    act(() => {
+      root.render(
+        <MarkdownRenderer
+          content={'Formula: $x + y$'}
+          onFileViewRequest={onFileViewRequest}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain('Formula:');
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[data-testid="markdown-math-renderer"]')).not.toBeNull();
+    expect(mocks.renderMath).toHaveBeenCalledWith('Formula: $x + y$');
+  });
+
+  it('loads relative markdown images from the provided base path', async () => {
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={'![ReLU 图像](relu.png)'}
+          basePath={EXAMPLE_WORKSPACE}
+          onFileViewRequest={onFileViewRequest}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const image = container.querySelector<HTMLImageElement>('img[alt="ReLU 图像"]');
+    expect(image).not.toBeNull();
+    expect(mocks.readFileContent).toHaveBeenCalledWith(
+      `${EXAMPLE_WORKSPACE}/relu.png`,
+      'base64',
+      undefined,
+    );
+    expect(image?.src).toBe('data:image/png;base64,cmVsdS1wbmc=');
+    expect(mocks.getCurrentWorkspacePath).not.toHaveBeenCalled();
+  });
+
+  it.each(['dispatch-private.png', '/srv/private/dispatch-private.png'])(
+    'does not read controller images or resolve its workspace for dispatch observers: %s',
+    async (imagePath) => {
+      await act(async () => {
+        root.render(<MarkdownRenderer content={`![Target image](${imagePath})`} fileActionsViaCallbackOnly />);
+      });
+
+      expect(mocks.readFileContent).not.toHaveBeenCalled();
+      expect(mocks.getCurrentWorkspacePath).not.toHaveBeenCalled();
+      expect(container.querySelector('img')).toBeNull();
+      expect(container.textContent).toContain('Target image');
+      expect(container.textContent).toContain('components:markdown.remoteImageUnavailable');
+    },
+  );
+
+  it('does not reuse a cached controller image when switching to a dispatch observer', async () => {
+    const content = '![Private controller image](cached-controller-image.png)';
+    await act(async () => {
+      root.render(<MarkdownRenderer content={content} basePath="/srv/project" />);
+    });
+    expect(mocks.readFileContent).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('img')?.src).toContain('data:image/png;base64,');
+
+    await act(async () => {
+      root.render(<MarkdownRenderer content={content} basePath="/srv/project" fileActionsViaCallbackOnly />);
+    });
+    expect(container.querySelector('img')).toBeNull();
+    expect(mocks.readFileContent).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain('components:markdown.remoteImageUnavailable');
+  });
+
+  it('keeps externally hosted images available to dispatch observers', async () => {
+    await act(async () => {
+      root.render(<MarkdownRenderer content="![Public image](https://example.com/image.png)" fileActionsViaCallbackOnly />);
+    });
+    expect(container.querySelector('img')?.src).toBe('https://example.com/image.png');
+    expect(mocks.readFileContent).not.toHaveBeenCalled();
+    expect(mocks.getCurrentWorkspacePath).not.toHaveBeenCalled();
+  });
+
+  it('preserves existing markdown nodes while streaming content is appended', async () => {
+    const initialContent = [
+      'Before image',
+      '',
+      '![Stable diagram](stream-stable.png)',
+      '',
+      'After image',
+    ].join('\n');
+
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={initialContent}
+          basePath={EXAMPLE_WORKSPACE}
+          isStreaming
+          onFileViewRequest={onFileViewRequest}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const imageBefore = container.querySelector<HTMLImageElement>('img[alt="Stable diagram"]');
+    const paragraphsBefore = Array.from(container.querySelectorAll('p'));
+    expect(imageBefore).not.toBeNull();
+    expect(paragraphsBefore).toHaveLength(3);
+    expect(mocks.readFileContent).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={`${initialContent}\n\nNew streamed paragraph`}
+          basePath={EXAMPLE_WORKSPACE}
+          isStreaming
+          onFileViewRequest={onFileViewRequest}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    const imageAfter = container.querySelector<HTMLImageElement>('img[alt="Stable diagram"]');
+    const paragraphsAfter = Array.from(container.querySelectorAll('p'));
+    expect(imageAfter).toBe(imageBefore);
+    expect(paragraphsAfter).toHaveLength(4);
+    expect(paragraphsAfter.slice(0, 3)).toEqual(paragraphsBefore);
+    expect(mocks.readFileContent).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders alt text instead of a broken image when a local image read fails', async () => {
+    mocks.readFileContent.mockRejectedValueOnce(new Error('missing image'));
+
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={'![Missing diagram](missing-stream-image.png)'}
+          basePath={EXAMPLE_WORKSPACE}
+          isStreaming
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('img[alt="Missing diagram"]')).toBeNull();
+    const fallback = container.querySelector('[data-openbitfun-part="imageFallback"]');
+    expect(fallback?.textContent).toBe('Missing diagram');
+
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={'![Missing diagram](missing-stream-image.png)\n\nLater streamed text'}
+          basePath={EXAMPLE_WORKSPACE}
+          isStreaming
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[data-openbitfun-part="imageFallback"]')).toBe(fallback);
+    expect(mocks.readFileContent).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces an externally hosted image after the browser reports an error', async () => {
+    await act(async () => {
+      root.render(<MarkdownRenderer content={'![Unavailable chart](https://example.invalid/chart.png)'} />);
+      await Promise.resolve();
+    });
+
+    const image = container.querySelector<HTMLImageElement>('img[alt="Unavailable chart"]');
+    expect(image).not.toBeNull();
+
+    act(() => {
+      image?.dispatchEvent(new Event('error'));
+    });
+
+    expect(container.querySelector('img[alt="Unavailable chart"]')).toBeNull();
+    expect(container.querySelector('[data-openbitfun-part="imageFallback"]')?.textContent)
+      .toBe('Unavailable chart');
+  });
+
+  it('uses the latest source text and callback without remounting a file link', async () => {
+    const firstHandler = vi.fn();
+    const secondHandler = vi.fn();
+    const firstPath = 'D:\\First\\README.md';
+    const secondPath = 'E:\\Second\\README.md';
+
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={`[README.md](${firstPath})`}
+          onFileViewRequest={firstHandler}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const linkBefore = container.querySelector<HTMLButtonElement>('button.file-link');
+    expect(linkBefore).not.toBeNull();
+
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={`[README.md](${secondPath})`}
+          onFileViewRequest={secondHandler}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    const linkAfter = container.querySelector<HTMLButtonElement>('button.file-link');
+    expect(linkAfter).toBe(linkBefore);
+    act(() => linkAfter?.click());
+    expect(firstHandler).not.toHaveBeenCalled();
+    expect(secondHandler).toHaveBeenCalledWith(secondPath, 'README.md', undefined);
+  });
+
+  it('routes remote markdown image reads through the session connection', async () => {
+    await act(async () => {
+      root.render(
+        <MarkdownRenderer
+          content={'![Remote chart](artifacts/chart.png)'}
+          basePath={'/srv/project'}
+          remoteConnectionId={'remote-connection-1'}
+          onFileViewRequest={onFileViewRequest}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.readFileContent).toHaveBeenCalledWith(
+      '/srv/project/artifacts/chart.png',
+      'base64',
+      'remote-connection-1',
+    );
+  });
+});

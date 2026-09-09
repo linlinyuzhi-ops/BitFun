@@ -4,7 +4,9 @@ use crate::client::{AIClient, StreamResponse};
 use crate::providers::shared;
 use crate::stream::handle_responses_stream;
 use crate::trace::ModelExchangeTraceConfig;
-use crate::types::{Message, ModelRequestContext, ReasoningPresetAction, ToolDefinition};
+use crate::types::{
+    Message, ModelRequestContext, ReasoningPresetAction, ReasoningPresetDescriptor, ToolDefinition,
+};
 use anyhow::{anyhow, Result};
 use log::debug;
 use sha2::{Digest, Sha256};
@@ -64,6 +66,49 @@ fn log_prompt_cache_diagnostics(request_body: &serde_json::Value) {
     );
 }
 
+fn ensure_reasoning_summary_opt_in(request_body: &mut serde_json::Value) {
+    let Some(reasoning) = request_body
+        .get_mut("reasoning")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    reasoning
+        .entry("summary".to_string())
+        .or_insert_with(|| serde_json::Value::String("auto".to_string()));
+}
+
+fn compile_reasoning_action(
+    preset: &ReasoningPresetDescriptor,
+    action: &ReasoningPresetAction,
+    body: &mut serde_json::Value,
+) -> Result<bool> {
+    match action {
+        ReasoningPresetAction::Effort { value } => {
+            if value.trim().is_empty() {
+                return Err(anyhow!("Responses reasoning effort must not be empty"));
+            }
+            body["reasoning"] = serde_json::json!({ "effort": value, "summary": "auto" });
+            Ok(true)
+        }
+        ReasoningPresetAction::Toggle { enabled }
+            if shared::is_generic_reasoning_preset(preset) =>
+        {
+            body["reasoning"] = serde_json::json!({
+                "effort": if *enabled { "medium" } else { "none" },
+                "summary": "auto"
+            });
+            Ok(true)
+        }
+        ReasoningPresetAction::Toggle { .. } | ReasoningPresetAction::BudgetTokens { .. } => {
+            Ok(false)
+        }
+        ReasoningPresetAction::RequestPatch { .. } => {
+            unreachable!("patches are compiled by shared code")
+        }
+    }
+}
+
 fn try_build_request_body_with_context(
     client: &AIClient,
     instructions: Option<String>,
@@ -107,25 +152,14 @@ fn try_build_request_body_with_context(
         "prompt_cache_key",
         "tools",
     ];
-    let compile = |action: &ReasoningPresetAction, body: &mut serde_json::Value| -> Result<bool> {
-        match action {
-            ReasoningPresetAction::Effort { value } => {
-                if value.trim().is_empty() {
-                    return Err(anyhow!("Responses reasoning effort must not be empty"));
-                }
-                body["reasoning"] = serde_json::json!({ "effort": value });
-                Ok(true)
-            }
-            ReasoningPresetAction::Toggle { .. } | ReasoningPresetAction::BudgetTokens { .. } => {
-                Ok(false)
-            }
-            ReasoningPresetAction::RequestPatch { .. } => {
-                unreachable!("patches are compiled by shared code")
-            }
-        }
-    };
     if let Some(preset) = client.model_reasoning_preset.as_ref() {
-        shared::apply_reasoning_actions(preset, &mut request_body, protected_keys, &[], compile)?;
+        shared::apply_reasoning_actions(
+            preset,
+            &mut request_body,
+            protected_keys,
+            &[],
+            |action, body| compile_reasoning_action(preset, action, body),
+        )?;
     }
 
     let protected_body = shared::protect_request_body(
@@ -165,7 +199,22 @@ fn try_build_request_body_with_context(
             &["reasoning"],
             &[],
         );
-        shared::apply_reasoning_actions(preset, &mut request_body, protected_keys, &[], compile)?;
+        shared::apply_reasoning_actions(
+            preset,
+            &mut request_body,
+            protected_keys,
+            &[],
+            |action, body| compile_reasoning_action(preset, action, body),
+        )?;
+    }
+    ensure_reasoning_summary_opt_in(&mut request_body);
+    if let Some(schema) = request_context.and_then(|context| context.output_schema.as_ref()) {
+        request_body["text"]["format"] = serde_json::json!({
+            "type": "json_schema",
+            "name": "openbitfun_output",
+            "strict": true,
+            "schema": schema
+        });
     }
     if let Some(schema) = request_context.and_then(|context| context.output_schema.as_ref()) {
         request_body["text"]["format"] = serde_json::json!({
@@ -259,12 +308,19 @@ pub(crate) async fn send_stream(
     // self-contained so the standard Responses path stays untouched.
     if super::codex_chatgpt::is_codex_chatgpt_endpoint(&client.config.request_url) {
         return super::codex_chatgpt::send_stream(
-            client, messages, tools, extra_body, max_tries, trace,
+            client,
+            messages,
+            tools,
+            extra_body,
+            max_tries,
+            trace,
+            request_context,
         )
         .await;
     }
 
     let url = client.config.request_url.clone();
+    let request_context = shared::prepare_request_context(client, request_context);
     debug!(
         "Responses config: model={}, request_url={}, max_tries={}",
         client.config.model, client.config.request_url, max_tries
@@ -319,6 +375,9 @@ mod tests {
     use super::{build_request_body, build_request_body_with_context};
     use crate::types::{ModelRequestContext, ToolDefinition};
     use crate::{client::AIClient, types::AIConfig};
+    use openbitfun_core_types::{
+        ReasoningPresetAction, ReasoningPresetDescriptor, ReasoningPresetSource,
+    };
     use serde_json::json;
 
     fn test_client() -> AIClient {
@@ -408,6 +467,51 @@ mod tests {
         );
 
         assert!(request_body.get("include").is_none());
+    }
+
+    #[test]
+    fn responses_reasoning_effort_requests_auto_summary() {
+        let client = test_client().with_reasoning_preset(&ReasoningPresetDescriptor {
+            id: "high".to_string(),
+            label: "High".to_string(),
+            order: 0,
+            actions: vec![ReasoningPresetAction::Effort {
+                value: "high".to_string(),
+            }],
+            source: ReasoningPresetSource::ModelConfig,
+            execution_provider: None,
+            execution_model: None,
+        });
+        let request_body = build_request_body(&client, None, Vec::new(), None, None);
+
+        assert_eq!(
+            request_body["reasoning"],
+            json!({ "effort": "high", "summary": "auto" })
+        );
+    }
+
+    #[test]
+    fn responses_reasoning_summary_preserves_explicit_override() {
+        let concise_request_body = build_request_body(
+            &test_client(),
+            None,
+            Vec::new(),
+            None,
+            Some(json!({ "reasoning": { "effort": "low", "summary": "concise" } })),
+        );
+        let disabled_request_body = build_request_body(
+            &test_client(),
+            None,
+            Vec::new(),
+            None,
+            Some(json!({ "reasoning": { "effort": "low", "summary": null } })),
+        );
+
+        assert_eq!(
+            concise_request_body["reasoning"]["summary"],
+            json!("concise")
+        );
+        assert_eq!(disabled_request_body["reasoning"]["summary"], json!(null));
     }
 
     #[test]

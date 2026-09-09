@@ -5,17 +5,9 @@
  * job list at top, inline editor expands below the selected job.
  */
 
+import { OverflowText, Icon, Button, Combobox, Switch, IconButton, Input, Select, Textarea, Tooltip } from '@openbitfun/ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, Trash2 } from 'lucide-react';
-import {
-  Button,
-  IconButton,
-  Input,
-  Select,
-  Switch,
-  Textarea,
-  confirmDanger,
-} from '@/component-library';
+import { confirmDanger } from '@/infrastructure/confirm-dialog';
 import {
   cronAPI,
   type CreateCronJobRequest,
@@ -582,27 +574,27 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
   return (
     <div
       className="asv"
-      data-bf-component="scheduled-jobs-view"
-      data-bf-part="root"
-      data-bf-target={targetKind}
-      data-bf-schedule={draft.scheduleKind}
+      data-openbitfun-component="scheduled-jobs-view"
+      data-openbitfun-part="root"
+      data-openbitfun-target={targetKind}
+      data-openbitfun-schedule={draft.scheduleKind}
     >
       <div
         className={`asv__head${hasHeaderContent ? '' : ' asv__head--actions-only'}`}
-        data-bf-component="scheduled-jobs-view"
-        data-bf-part="header"
+        data-openbitfun-component="scheduled-jobs-view"
+        data-openbitfun-part="header"
       >
         {targetLabel?.trim() ? (
           <div
             className="asv__target"
             title={targetDescription || targetLabel}
-            data-bf-component="scheduled-jobs-view"
-            data-bf-part="target"
+            data-openbitfun-component="scheduled-jobs-view"
+            data-openbitfun-part="target"
           >
             <span className="asv__target-kind">{targetTypeLabel}</span>
-            <span className="asv__target-main">{targetLabel}</span>
+            <OverflowText className="asv__target-main">{targetLabel}</OverflowText>
             {targetDescription?.trim() ? (
-              <span className="asv__target-sub">{targetDescription}</span>
+              <OverflowText className="asv__target-sub">{targetDescription}</OverflowText>
             ) : null}
           </div>
         ) : effectiveHeaderTitle ? (
@@ -610,8 +602,8 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
         ) : null}
         <Button
           type="button"
-          size="small"
-          variant="secondary"
+          size="sm"
+          variant="outline"
           className="asv__new-job"
           onClick={handleCreateNew}
           disabled={assistantWorkspaceMode ? !workspaceRef : targetKind === 'session' ? !canSave : !workspaceRef}
@@ -623,24 +615,24 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
       {expandedJobId === NEW_JOB_ID ? renderEditor() : null}
 
       {loading ? (
-        <div className="asv__empty" data-bf-component="scheduled-jobs-view" data-bf-part="empty" data-bf-state="loading">
-          <RefreshCw size={14} className="asv__spin" />
+        <div className="asv__empty" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="empty" data-openbitfun-state="loading">
+          <Icon name="refresh" size="sm" className="asv__spin" />
         </div>
       ) : sortedJobs.length === 0 && expandedJobId !== NEW_JOB_ID ? (
-        <div className="asv__empty" data-bf-component="scheduled-jobs-view" data-bf-part="empty">
+        <div className="asv__empty" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="empty">
           <p className="asv__empty-title">{emptyTitle}</p>
         </div>
       ) : sortedJobs.length > 0 ? (
-        <div className="asv__list" data-bf-component="scheduled-jobs-view" data-bf-part="list">
+        <div className="asv__list" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="list">
           {sortedJobs.map(job => {
             const isExpanded = expandedJobId === job.id;
             return (
               <React.Fragment key={job.id}>
-                <div
+                <div data-overflow-trigger
                   className={`asv__item${isExpanded ? ' is-expanded' : ''}`}
-                  data-bf-component="scheduled-jobs-view"
-                  data-bf-part="job"
-                  data-bf-state={isExpanded ? 'expanded' : undefined}
+                  data-openbitfun-component="scheduled-jobs-view"
+                  data-openbitfun-part="job"
+                  data-openbitfun-state={isExpanded ? 'expanded' : undefined}
                   role="group"
                   tabIndex={0}
                   aria-expanded={isExpanded}
@@ -653,17 +645,17 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
                     }
                   }}
                 >
-                  <div className="asv__item-body" data-bf-component="scheduled-jobs-view" data-bf-part="jobBody">
+                  <div className="asv__item-body" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="jobBody">
                     <div className="asv__item-top">
-                      <span className="asv__item-name">{job.name}</span>
-                      <div className="asv__item-actions" data-bf-component="scheduled-jobs-view" data-bf-part="jobActions">
+                      <OverflowText className="asv__item-name">{job.name}</OverflowText>
+                      <div className="asv__item-actions" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="jobActions">
                         <div
                           className="asv__switch-wrap"
                           onClick={e => e.stopPropagation()}
                           role="presentation"
                         >
                           <Switch
-                            size="small"
+                            className="asv__switch"
                             checked={job.enabled}
                             onChange={e => {
                               void handleToggleEnabled(job, e.currentTarget.checked);
@@ -671,31 +663,31 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
                             aria-label={t('nav.scheduledJobs.actions.toggleEnabled')}
                           />
                         </div>
-                        <IconButton
-                          type="button"
-                          size="xs"
-                          variant="danger"
-                          aria-label={t('nav.scheduledJobs.actions.delete')}
-                          tooltip={t('nav.scheduledJobs.actions.delete')}
-                          onClick={e => { e.stopPropagation(); void handleDeleteJob(job); }}
-                        >
-                          <Trash2 size={13} />
-                        </IconButton>
+                        <Tooltip content={t('nav.scheduledJobs.actions.delete')}>
+                          <IconButton
+                            type="button"
+                            size="sm"
+                            tone="danger"
+                            aria-label={t('nav.scheduledJobs.actions.delete')}
+                            onClick={e => { e.stopPropagation(); void handleDeleteJob(job); }}
+                            icon={<Icon name="delete" size="lg" style={{ width: 13, height: 13 }} />}
+                          />
+                        </Tooltip>
                       </div>
                     </div>
-                    <div className="asv__item-meta-row" data-bf-component="scheduled-jobs-view" data-bf-part="jobMeta">
-                      <div className="asv__item-meta">
+                    <div className="asv__item-meta-row" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="jobMeta">
+                      <div className="asv__item-meta"><OverflowText>
                         {formatJobMetaSummary(job, formatDate, t, {
                           showTarget: assistantWorkspaceMode,
                           resolveSessionLabel: sessionId => sessionLabelById.get(sessionId),
                         })}
-                      </div>
-                      <div className="asv__item-meta asv__item-meta--dim asv__item-next-run">
+                      </OverflowText></div>
+                      <div className="asv__item-meta asv__item-meta--dim asv__item-next-run"><OverflowText>
                         {t('nav.scheduledJobs.nextRunLabel')}: {formatTimestamp(getNextExecutionAtMs(job), formatDate, t)}
-                      </div>
+                      </OverflowText></div>
                     </div>
                     {job.state.lastError ? (
-                      <div className="asv__item-error" data-bf-component="scheduled-jobs-view" data-bf-part="error">
+                      <div className="asv__item-error" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="error">
                         {job.state.lastError}
                       </div>
                     ) : null}
@@ -715,8 +707,8 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
       <section
         className="asv__editor"
         aria-label={t('nav.scheduledJobs.title')}
-        data-bf-component="scheduled-jobs-view"
-        data-bf-part="editor"
+        data-openbitfun-component="scheduled-jobs-view"
+        data-openbitfun-part="editor"
       >
         {renderForm()}
       </section>
@@ -725,47 +717,47 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
 
   function renderForm() {
     return (
-      <div className="asv__form" data-bf-component="scheduled-jobs-view" data-bf-part="form">
+      <div className="asv__form" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="form">
         {targetKind === 'session' && !assistantWorkspaceMode && !canSave ? (
-          <p className="asv__warning" data-bf-component="scheduled-jobs-view" data-bf-part="warning">
+          <p className="asv__warning" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="warning">
             {t('nav.scheduledJobs.messages.sessionRequired')}
           </p>
         ) : null}
 
-        <div className="asv__form-row asv__form-row--inline" data-bf-component="scheduled-jobs-view" data-bf-part="field">
-          <div className="asv__field-meta" data-bf-component="scheduled-jobs-view" data-bf-part="fieldMeta">
+        <div className="asv__form-row asv__form-row--inline" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="field">
+          <div className="asv__field-meta" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldMeta">
             <span className="asv__field-label">{t('nav.scheduledJobs.fields.name')}</span>
           </div>
-          <div className="asv__field-control" data-bf-component="scheduled-jobs-view" data-bf-part="fieldControl">
+          <div className="asv__field-control" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldControl">
             <Input
-              size="small"
               value={draft.name}
               onChange={e => {
                 const name = e.currentTarget.value;
                 setValidationErrors(current => ({ ...current, name: false }));
                 setDraft(c => ({ ...c, name }));
               }}
-              error={validationErrors.name}
+              invalid={validationErrors.name}
               placeholder={t('nav.scheduledJobs.placeholders.name')}
+              size="sm"
             />
           </div>
         </div>
 
-        <div className="asv__form-row asv__form-row--inline" data-bf-component="scheduled-jobs-view" data-bf-part="field">
-          <div className="asv__field-meta" data-bf-component="scheduled-jobs-view" data-bf-part="fieldMeta">
+        <div className="asv__form-row asv__form-row--inline" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="field">
+          <div className="asv__field-meta" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldMeta">
             <span className="asv__field-label">{t('nav.scheduledJobs.fields.scheduleKind')}</span>
           </div>
-          <div className="asv__field-control" data-bf-component="scheduled-jobs-view" data-bf-part="fieldControl">
+          <div className="asv__field-control" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldControl">
             <div className="asv__control-grid asv__control-grid--schedule">
               <Select
-                size="small"
+                size="sm"
                 value={draft.scheduleKind}
                 options={[
                   { value: 'at', label: t('nav.scheduledJobs.scheduleKinds.at') },
                   { value: 'every', label: t('nav.scheduledJobs.scheduleKinds.every') },
                   { value: 'cron', label: t('nav.scheduledJobs.scheduleKinds.cron') },
                 ]}
-                onChange={value => {
+                onValueChange={value => {
                   setValidationErrors(current => ({
                     ...current,
                     at: false,
@@ -780,10 +772,10 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
                 }}
               />
 
-              <div className="asv__toggle-card" data-bf-component="scheduled-jobs-view" data-bf-part="toggle">
+              <div className="asv__toggle-card" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="toggle">
                 <span className="asv__toggle-label">{t('nav.scheduledJobs.fields.enabled')}</span>
                 <Switch
-                  size="small"
+                  className="asv__switch"
                   checked={draft.enabled}
                   onChange={e => {
                     const enabled = e.currentTarget.checked;
@@ -797,11 +789,11 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
         </div>
 
         {draft.scheduleKind === 'at' && (
-          <div className="asv__form-row asv__form-row--inline" data-bf-component="scheduled-jobs-view" data-bf-part="field">
-            <div className="asv__field-meta" data-bf-component="scheduled-jobs-view" data-bf-part="fieldMeta">
+          <div className="asv__form-row asv__form-row--inline" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="field">
+            <div className="asv__field-meta" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldMeta">
               <span className="asv__field-label">{t('nav.scheduledJobs.fields.at')}</span>
             </div>
-            <div className="asv__field-control" data-bf-component="scheduled-jobs-view" data-bf-part="fieldControl">
+            <div className="asv__field-control" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldControl">
               <LocalizedDateTimeField
                 value={draft.at}
                 error={validationErrors.at}
@@ -820,43 +812,43 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
 
         {draft.scheduleKind === 'every' && (
           <>
-            <div className="asv__form-row asv__form-row--inline" data-bf-component="scheduled-jobs-view" data-bf-part="field">
-              <div className="asv__field-meta" data-bf-component="scheduled-jobs-view" data-bf-part="fieldMeta">
+            <div className="asv__form-row asv__form-row--inline" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="field">
+              <div className="asv__field-meta" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldMeta">
                 <span className="asv__field-label">{t('nav.scheduledJobs.fields.everyMs')}</span>
               </div>
-              <div className="asv__field-control" data-bf-component="scheduled-jobs-view" data-bf-part="fieldControl">
+              <div className="asv__field-control" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldControl">
                 <div className="asv__control-grid asv__control-grid--interval">
                   <Input
-                    size="small"
                     type="number"
                     value={draft.everyValue}
-                    error={validationErrors.everyValue}
+                    invalid={validationErrors.everyValue}
                     onChange={e => {
                       const everyValue = e.currentTarget.value;
                       setValidationErrors(current => ({ ...current, everyValue: false }));
                       setDraft(c => ({ ...c, everyValue }));
                     }}
                     placeholder="1"
+                    size="sm"
                   />
                   <Select
-                    size="small"
+                    size="sm"
                     value={draft.everyUnit}
                     options={INTERVAL_UNIT_OPTIONS.map(unit => ({
                       value: unit,
                       label: t(`nav.scheduledJobs.intervalUnits.${unit}`),
                     }))}
-                    onChange={value => {
+                    onValueChange={value => {
                       setDraft(c => ({ ...c, everyUnit: value as IntervalUnit }));
                     }}
                   />
                 </div>
               </div>
             </div>
-            <div className="asv__form-row asv__form-row--inline" data-bf-component="scheduled-jobs-view" data-bf-part="field">
-              <div className="asv__field-meta" data-bf-component="scheduled-jobs-view" data-bf-part="fieldMeta">
+            <div className="asv__form-row asv__form-row--inline" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="field">
+              <div className="asv__field-meta" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldMeta">
                 <span className="asv__field-label">{t('nav.scheduledJobs.fields.anchorMs')}</span>
               </div>
-              <div className="asv__field-control" data-bf-component="scheduled-jobs-view" data-bf-part="fieldControl">
+              <div className="asv__field-control" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldControl">
                 <LocalizedDateTimeField
                   value={draft.anchorMs}
                   onChange={anchorMs => setDraft(c => ({ ...c, anchorMs }))}
@@ -869,40 +861,40 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
 
         {draft.scheduleKind === 'cron' && (
           <>
-            <div className="asv__form-row asv__form-row--inline" data-bf-component="scheduled-jobs-view" data-bf-part="field">
-              <div className="asv__field-meta" data-bf-component="scheduled-jobs-view" data-bf-part="fieldMeta">
+            <div className="asv__form-row asv__form-row--inline" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="field">
+              <div className="asv__field-meta" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldMeta">
                 <span className="asv__field-label">{t('nav.scheduledJobs.fields.cronExpr')}</span>
               </div>
-              <div className="asv__field-control" data-bf-component="scheduled-jobs-view" data-bf-part="fieldControl">
+              <div className="asv__field-control" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldControl">
                 <Input
-                  size="small"
                   value={draft.expr}
-                  error={validationErrors.cronExpr}
+                  invalid={validationErrors.cronExpr}
                   onChange={e => {
                     const expr = e.currentTarget.value;
                     setValidationErrors(current => ({ ...current, cronExpr: false }));
                     setDraft(c => ({ ...c, expr }));
                   }}
                   placeholder="0 8 * * *"
+                  size="sm"
                 />
                 <span className="asv__field-note">
                   {t('nav.scheduledJobs.hints.cronExpr')}
                 </span>
               </div>
             </div>
-            <div className="asv__form-row asv__form-row--inline" data-bf-component="scheduled-jobs-view" data-bf-part="field">
-              <div className="asv__field-meta" data-bf-component="scheduled-jobs-view" data-bf-part="fieldMeta">
+            <div className="asv__form-row asv__form-row--inline" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="field">
+              <div className="asv__field-meta" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldMeta">
                 <span className="asv__field-label">{t('nav.scheduledJobs.fields.timezone')}</span>
               </div>
-              <div className="asv__field-control" data-bf-component="scheduled-jobs-view" data-bf-part="fieldControl">
+              <div className="asv__field-control" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldControl">
                 <Input
-                  size="small"
                   value={draft.tz}
                   onChange={e => {
                     const tz = e.currentTarget.value;
                     setDraft(c => ({ ...c, tz }));
                   }}
                   placeholder={t('nav.scheduledJobs.placeholders.timezone')}
+                  size="sm"
                 />
               </div>
             </div>
@@ -910,22 +902,20 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
         )}
 
         {assistantWorkspaceMode ? (
-          <div className="asv__form-row asv__form-row--inline" data-bf-component="scheduled-jobs-view" data-bf-part="field">
-            <div className="asv__field-meta" data-bf-component="scheduled-jobs-view" data-bf-part="fieldMeta">
+          <div className="asv__form-row asv__form-row--inline" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="field">
+            <div className="asv__field-meta" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldMeta">
               <span className="asv__field-label">{t('nav.scheduledJobs.fields.session')}</span>
             </div>
-            <div className="asv__field-control" data-bf-component="scheduled-jobs-view" data-bf-part="fieldControl">
-              <Select
-                size="small"
+            <div className="asv__field-control" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldControl">
+              <Combobox
+                size="sm"
                 options={sessionOptions}
                 value={draft.sessionId}
-                error={validationErrors.sessionId}
-                allowCustomValue
-                searchable
+                invalid={validationErrors.sessionId}
+                onCreateValue={value => value}
                 clearable
                 className="asv__session-select"
-                dropdownClassName="asv__session-select-dropdown"
-                onChange={value => {
+                onValueChange={value => {
                   setValidationErrors(current => ({ ...current, sessionId: false }));
                   setDraft(c => ({ ...c, sessionId: String(value) }));
                 }}
@@ -934,28 +924,19 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
             </div>
           </div>
         ) : targetKind === 'workspace' ? (
-          <div className="asv__form-row asv__form-row--inline" data-bf-component="scheduled-jobs-view" data-bf-part="field">
-            <div className="asv__field-meta" data-bf-component="scheduled-jobs-view" data-bf-part="fieldMeta">
+          <div className="asv__form-row asv__form-row--inline" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="field">
+            <div className="asv__field-meta" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldMeta">
               <span className="asv__field-label">{t('nav.scheduledJobs.fields.agentType')}</span>
             </div>
-            <div className="asv__field-control" data-bf-component="scheduled-jobs-view" data-bf-part="fieldControl">
-              <Select
-                size="small"
+            <div className="asv__field-control" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldControl">
+              <Combobox
+                size="sm"
                 options={workspaceAgentOptions}
                 value={draft.agentType}
-                error={validationErrors.agentType}
+                invalid={validationErrors.agentType}
                 disabled={workspaceKind === WorkspaceKind.Assistant}
                 className="asv__agent-select"
-                dropdownClassName="asv__agent-select-dropdown"
-                renderOption={option => (
-                  <div className="asv__agent-option">
-                    <span className="asv__agent-option-label">{option.label}</span>
-                    {option.description ? (
-                      <span className="asv__agent-option-description">{option.description}</span>
-                    ) : null}
-                  </div>
-                )}
-                onChange={value => {
+                onValueChange={value => {
                   const agentType = String(value);
                   setValidationErrors(current => ({ ...current, agentType: false }));
                   setDraft(c => ({ ...c, agentType }));
@@ -965,19 +946,18 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
             </div>
           </div>
         ) : !lockSessionId ? (
-          <div className="asv__form-row asv__form-row--inline" data-bf-component="scheduled-jobs-view" data-bf-part="field">
-            <div className="asv__field-meta" data-bf-component="scheduled-jobs-view" data-bf-part="fieldMeta">
+          <div className="asv__form-row asv__form-row--inline" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="field">
+            <div className="asv__field-meta" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldMeta">
               <span className="asv__field-label">{t('nav.scheduledJobs.fields.session')}</span>
             </div>
-            <div className="asv__field-control" data-bf-component="scheduled-jobs-view" data-bf-part="fieldControl">
-              <Select
-                size="small"
+            <div className="asv__field-control" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldControl">
+              <Combobox
+                size="sm"
                 options={sessionOptions}
                 value={draft.sessionId}
-                error={validationErrors.sessionId}
-                allowCustomValue
-                searchable
-                onChange={value => {
+                invalid={validationErrors.sessionId}
+                onCreateValue={value => value}
+                onValueChange={value => {
                   setValidationErrors(current => ({ ...current, sessionId: false }));
                   setDraft(c => ({ ...c, sessionId: String(value) }));
                 }}
@@ -987,20 +967,21 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
           </div>
         ) : null}
 
-        <div className="asv__form-row asv__form-row--inline asv__form-row--prompt" data-bf-component="scheduled-jobs-view" data-bf-part="field">
-          <div className="asv__field-meta" data-bf-component="scheduled-jobs-view" data-bf-part="fieldMeta">
+        <div className="asv__form-row asv__form-row--inline asv__form-row--prompt" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="field">
+          <div className="asv__field-meta" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldMeta">
             <span className="asv__field-label">{t('nav.scheduledJobs.fields.prompt')}</span>
           </div>
-          <div className="asv__field-control" data-bf-component="scheduled-jobs-view" data-bf-part="fieldControl">
+          <div className="asv__field-control" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="fieldControl">
             <Textarea
               className="asv__prompt-textarea"
+              rows={4}
               value={draft.text}
               onChange={e => {
                 const text = e.currentTarget.value;
                 setValidationErrors(current => ({ ...current, text: false }));
                 setDraft(c => ({ ...c, text }));
               }}
-              error={validationErrors.text}
+              invalid={validationErrors.text}
               autoResize
               showCount
               maxLength={4000}
@@ -1009,22 +990,22 @@ const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
           </div>
         </div>
 
-        <div className="asv__form-actions" data-bf-component="scheduled-jobs-view" data-bf-part="formActions">
+        <div className="asv__form-actions" data-openbitfun-component="scheduled-jobs-view" data-openbitfun-part="formActions">
           <Button
-            size="small"
-            className="asv__action-btn asv__action-btn--ghost"
-            variant="ghost"
+            size="sm"
+            className="asv__action-btn"
+            variant="outline"
             onClick={handleCloseEditor}
           >
             {t('nav.scheduledJobs.actions.cancel')}
           </Button>
           <Button
-            size="small"
-            className="asv__action-btn asv__action-btn--primary"
-            variant="primary"
+            size="sm"
+            className="asv__action-btn"
+            variant="fill"
             onClick={() => { void handleSave(); }}
             disabled={!canSave}
-            isLoading={saving}
+            loading={saving}
           >
             {selectedJobId
               ? t('nav.scheduledJobs.actions.save')

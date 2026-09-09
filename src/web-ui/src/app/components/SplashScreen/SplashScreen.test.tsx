@@ -29,13 +29,29 @@ describe('SplashScreen', () => {
     dom.window.close();
   });
 
+  it('uses the reusable vector mark surface without theme-specific image elements', () => {
+    act(() => {
+      root.render(
+        <SplashScreen
+          isExiting={false}
+          onExited={() => {}}
+        />
+      );
+    });
+
+    const logo = container.querySelector('.splash-screen__logo');
+    expect(logo?.tagName).toBe('SPAN');
+    expect(logo?.getAttribute('aria-hidden')).toBe('true');
+    expect(container.querySelectorAll('img')).toHaveLength(0);
+  });
+
   it('reveals the subtle startup hint only after the delay', () => {
     act(() => {
       root.render(
         <SplashScreen
           isExiting={false}
           onExited={() => {}}
-          delayedMessage="Starting BitFun..."
+          delayedMessage="Starting OpenBitFun..."
           delayedMessageMs={1000}
         />
       );
@@ -52,7 +68,7 @@ describe('SplashScreen', () => {
       vi.advanceTimersByTime(1);
     });
     const message = container.querySelector('.splash-screen__message');
-    expect(message?.textContent).toBe('Starting BitFun...');
+    expect(message?.textContent).toBe('Starting OpenBitFun...');
     expect(message?.classList.contains('splash-screen__message--visible')).toBe(true);
   });
 
@@ -62,7 +78,7 @@ describe('SplashScreen', () => {
         <SplashScreen
           isExiting={false}
           onExited={() => {}}
-          delayedMessage="Starting BitFun..."
+          delayedMessage="Starting OpenBitFun..."
         />
       );
     });
@@ -87,7 +103,7 @@ describe('SplashScreen', () => {
         <SplashScreen
           isExiting={true}
           onExited={() => {}}
-          delayedMessage="Starting BitFun..."
+          delayedMessage="Starting OpenBitFun..."
           delayedMessageMs={1000}
         />
       );

@@ -16,8 +16,20 @@ use crate::agentic::tools;
 use crate::infrastructure::ai::AIClientFactory;
 use crate::infrastructure::try_get_path_manager_arc;
 use crate::runtime_ownership::CoreRuntimeOwnership;
-use crate::service::token_usage::{TokenUsageService, TokenUsageSubscriber};
-pub use bitfun_product_capabilities::DeliveryProfile;
+use crate::service::token_usage::{
+    set_global_token_usage_service, TokenUsageService, TokenUsageSubscriber,
+};
+pub use openbitfun_product_capabilities::DeliveryProfile;
+
+fn session_manager_config_for_profile(
+    delivery_profile: DeliveryProfile,
+) -> session::SessionManagerConfig {
+    let mut config = session::SessionManagerConfig::default();
+    if delivery_profile == DeliveryProfile::Sdk {
+        config.session_idle_timeout = Duration::MAX;
+    }
+    config
+}
 
 fn session_manager_config_for_profile(
     delivery_profile: DeliveryProfile,
@@ -92,6 +104,7 @@ pub async fn init_agentic_system_for_profile_with_runtime_ownership(
     let path_manager = try_get_path_manager_arc()?;
     let persistence_manager = Arc::new(persistence::PersistenceManager::new(path_manager.clone())?);
     let token_usage_service = Arc::new(TokenUsageService::new(path_manager.clone()).await?);
+    set_global_token_usage_service(token_usage_service.clone());
 
     let context_store = Arc::new(session::SessionContextStore::new());
     let context_compressor = Arc::new(session::ContextCompressor::new(Default::default()));

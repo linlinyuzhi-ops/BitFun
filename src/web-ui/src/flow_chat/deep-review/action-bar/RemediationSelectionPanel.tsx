@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, ChevronDown, ChevronUp, Info, Loader2 } from 'lucide-react';
-import { Checkbox } from '@/component-library';
+import { Loader2 } from 'lucide-react';
+import { Checkbox, Icon } from '@openbitfun/ui';
 import type { ReviewRemediationItem } from '../../utils/codeReviewRemediation';
 import { REMEDIATION_GROUP_ORDER } from '../../utils/codeReviewRemediation';
 import type { RemediationGroupId } from '../../utils/codeReviewReport';
@@ -28,10 +28,10 @@ interface RemediationSelectionPanelProps {
 const EMPTY_FIXING_REMEDIATION_IDS = new Set<string>();
 
 const GROUP_PRIORITY_META: Record<RemediationGroupId, { color: string }> = {
-  must_fix: { color: 'var(--bf-appearance-token-color-error)' },
-  should_improve: { color: 'var(--bf-appearance-token-color-warning)' },
-  needs_decision: { color: 'var(--bf-appearance-token-color-accent-500)' },
-  verification: { color: 'var(--bf-appearance-token-color-success)' },
+  must_fix: { color: 'var(--openbitfun-color-status-danger-content)' },
+  should_improve: { color: 'var(--openbitfun-color-status-warning-content)' },
+  needs_decision: { color: 'var(--openbitfun-color-accent-default)' },
+  verification: { color: 'var(--openbitfun-color-status-success-content)' },
 };
 
 const stopNestedScrollPropagation = (event: React.WheelEvent | React.TouchEvent) => {
@@ -102,7 +102,7 @@ export const RemediationSelectionPanel: React.FC<RemediationSelectionPanelProps>
             }
           }}
           disabled={selectionDisabled || totalCount === 0}
-          size="small"
+          size="sm"
         />
         <span className="deep-review-action-bar__remediation-label">
           {t('toolCards.codeReview.remediationActions.selectionCount', {
@@ -110,7 +110,7 @@ export const RemediationSelectionPanel: React.FC<RemediationSelectionPanelProps>
             total: totalCount,
           })}
         </span>
-        {showRemediationList ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        {showRemediationList ? <Icon name="chevron-up" size="sm" /> : <Icon name="chevron-down" size="sm" />}
       </button>
 
       {showRemediationList && (
@@ -144,7 +144,7 @@ export const RemediationSelectionPanel: React.FC<RemediationSelectionPanelProps>
                         onToggleGroup(groupId);
                       }
                     }}
-                    size="small"
+                    size="sm"
                     disabled={selectionDisabled || groupTotalCount === 0}
                     label={(
                       <>
@@ -179,14 +179,14 @@ export const RemediationSelectionPanel: React.FC<RemediationSelectionPanelProps>
                           checked={isCompleted || selectedRemediationIds.has(item.id)}
                           onChange={() => !isLocked && onToggleRemediation(item.id)}
                           disabled={isLocked}
-                          size="small"
+                          size="sm"
                         />
                         <span
                           className="deep-review-action-bar__remediation-text"
                           title={item.decisionContext ? item.plan : undefined}
                         >
                           {isCompleted && (
-                            <CheckCircle size={12} className="deep-review-action-bar__completed-icon" />
+                            <Icon name="check-circle" size="xs" className="deep-review-action-bar__completed-icon" />
                           )}
                           {isFixing && (
                             <Loader2 size={12} className="deep-review-action-bar__fixing-icon" />
@@ -287,7 +287,7 @@ export const RemediationSelectionPanel: React.FC<RemediationSelectionPanelProps>
 
       {!selectionDisabled && totalCount > 0 && selectedCount === 0 && (
         <div className="deep-review-action-bar__empty-selection" role="note">
-          <Info size={14} className="deep-review-action-bar__empty-selection-icon" />
+          <Icon name="info" size="sm" className="deep-review-action-bar__empty-selection-icon" />
           <span>
             {t('toolCards.codeReview.remediationActions.noSelectionHint')}
           </span>

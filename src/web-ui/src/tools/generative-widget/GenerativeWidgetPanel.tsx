@@ -1,3 +1,4 @@
+import { Button, Textarea } from '@openbitfun/ui';
 import React from 'react';
 import { Code2, RotateCcw, Save } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -96,8 +97,8 @@ export const GenerativeWidgetPanel: React.FC<GenerativeWidgetPanelProps> = ({
 
   if (!draftCode) {
     return (
-      <div className="bitfun-generative-widget-panel bitfun-generative-widget-panel--empty" data-bf-component="generative-widget" data-bf-part="empty" data-bf-state="empty">
-        <div className="bitfun-generative-widget-panel__empty-copy">
+      <div className="openbitfun-generative-widget-panel openbitfun-generative-widget-panel--empty" data-openbitfun-component="generative-widget" data-openbitfun-part="empty" data-openbitfun-state="empty">
+        <div className="openbitfun-generative-widget-panel__empty-copy">
           {t('toolCards.generativeUI.empty')}
         </div>
       </div>
@@ -105,50 +106,54 @@ export const GenerativeWidgetPanel: React.FC<GenerativeWidgetPanelProps> = ({
   }
 
   return (
-    <div className="bitfun-generative-widget-panel" data-bf-component="generative-widget" data-bf-part="root">
-      <div className="bitfun-generative-widget-panel__toolbar" data-bf-component="generative-widget" data-bf-part="toolbar">
-        <div className="bitfun-generative-widget-panel__toolbar-meta" data-bf-component="generative-widget" data-bf-part="toolbarMeta">
-          <span className={`bitfun-generative-widget-panel__save-state bitfun-generative-widget-panel__save-state--${saveState}`}>
+    <div className="openbitfun-generative-widget-panel" data-openbitfun-component="generative-widget" data-openbitfun-part="root">
+      <div className="openbitfun-generative-widget-panel__toolbar" data-openbitfun-component="generative-widget" data-openbitfun-part="toolbar">
+        <div className="openbitfun-generative-widget-panel__toolbar-meta" data-openbitfun-component="generative-widget" data-openbitfun-part="toolbarMeta">
+          <span className={`openbitfun-generative-widget-panel__save-state openbitfun-generative-widget-panel__save-state--${saveState}`}>
             {saveLabel}
           </span>
         </div>
-        <div className="bitfun-generative-widget-panel__toolbar-actions" data-bf-component="generative-widget" data-bf-part="toolbarActions">
-          <button
-            type="button"
-            className="bitfun-generative-widget-panel__button"
+        <div className="openbitfun-generative-widget-panel__toolbar-actions" data-openbitfun-component="generative-widget" data-openbitfun-part="toolbarActions">
+          <Button
+            variant="outline"
+            size="sm"
+            leadingIcon={<RotateCcw size={14} />}
             onClick={handleReset}
             disabled={draftCode === savedCodeRef.current}
           >
-            <RotateCcw size={14} />
-            <span>{t('toolCards.generativeUI.reset')}</span>
-          </button>
-          <button
-            type="button"
-            className="bitfun-generative-widget-panel__button bitfun-generative-widget-panel__button--primary"
+            {t('toolCards.generativeUI.reset')}
+          </Button>
+          <Button
+            variant="fill"
+            size="sm"
+            leadingIcon={<Save size={14} />}
+            loading={saveState === 'saving'}
             onClick={handleSaveNow}
-            disabled={saveState === 'saving' || draftCode === savedCodeRef.current}
+            disabled={draftCode === savedCodeRef.current}
           >
-            <Save size={14} />
-            <span>{t('toolCards.generativeUI.saveNow')}</span>
-          </button>
+            {t('toolCards.generativeUI.saveNow')}
+          </Button>
         </div>
       </div>
 
-      <div className="bitfun-generative-widget-panel__workspace" data-bf-component="generative-widget" data-bf-part="workspace">
-        <section className="bitfun-generative-widget-panel__pane bitfun-generative-widget-panel__pane--editor" data-bf-component="generative-widget" data-bf-part="editorPane">
-          <div className="bitfun-generative-widget-panel__pane-header" data-bf-component="generative-widget" data-bf-part="paneHeader">
-            <span className="bitfun-generative-widget-panel__pane-title">
+      <div className="openbitfun-generative-widget-panel__workspace" data-openbitfun-component="generative-widget" data-openbitfun-part="workspace">
+        <section className="openbitfun-generative-widget-panel__pane openbitfun-generative-widget-panel__pane--editor" data-openbitfun-component="generative-widget" data-openbitfun-part="editorPane">
+          <div className="openbitfun-generative-widget-panel__pane-header" data-openbitfun-component="generative-widget" data-openbitfun-part="paneHeader">
+            <span className="openbitfun-generative-widget-panel__pane-title">
               <Code2 size={14} />
               <span>{t('toolCards.generativeUI.source')}</span>
             </span>
           </div>
-          <textarea
-            className="bitfun-generative-widget-panel__editor"
-            data-bf-component="generative-widget"
-            data-bf-part="editor"
+          <Textarea
+            className="openbitfun-generative-widget-panel__editor-field"
+            font="mono"
+            layout="fill"
+            resize="none"
+            data-openbitfun-component="generative-widget"
+            data-openbitfun-part="editor"
             value={draftCode}
-            onChange={(event) => {
-              setDraftCode(event.target.value);
+            onValueChange={(value) => {
+              setDraftCode(value);
               if (saveState === 'error') {
                 setSaveState('unsaved');
                 setSaveError(null);
@@ -161,7 +166,7 @@ export const GenerativeWidgetPanel: React.FC<GenerativeWidgetPanelProps> = ({
       </div>
 
       {saveError && (
-        <div className="bitfun-generative-widget-panel__error" data-bf-component="generative-widget" data-bf-part="error">
+        <div className="openbitfun-generative-widget-panel__error" data-openbitfun-component="generative-widget" data-openbitfun-part="error">
           {saveError}
         </div>
       )}

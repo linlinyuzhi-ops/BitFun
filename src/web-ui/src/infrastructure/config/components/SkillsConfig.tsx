@@ -1,8 +1,12 @@
 /* eslint-disable @typescript-eslint/no-use-before-define */
+import { OverflowText, Button, Card, CardBody, ConfirmDialog, Field, Icon, IconButton, Input, SearchField, Select, Tooltip } from '@openbitfun/ui';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2, RefreshCw, FolderOpen, X, Download, CheckCircle2, TrendingUp } from 'lucide-react';
-import { Select, Input, Button, Search, IconButton, ConfirmDialog, Card, CardBody, Tooltip } from '@/component-library';
+import { FolderOpen, TrendingUp } from 'lucide-react';
+
+import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
+import { installedSkillMarketIds, isSkillMarketItemInstalled } from '@/infrastructure/config/skillMarketInstallation';
+
 import { ConfigPageHeader, ConfigPageLayout, ConfigPageContent, ConfigPageSection, ConfigCollectionItem } from './common';
 import { useCurrentWorkspace } from '@/infrastructure/contexts/WorkspaceContext';
 import { useNotification } from '@/shared/notification-system';
@@ -22,6 +26,7 @@ const log = createLogger('SkillsConfig');
 
 const SkillsConfig: React.FC = () => {
   const { t } = useTranslation('settings/skills');
+  const { t: tShared } = useI18n(['components', 'common']);
   const [showAddForm, setShowAddForm] = useState(false);
   const [expandedSkillIds, setExpandedSkillIds] = useState<Set<string>>(new Set());
   const [skills, setSkills] = useState<SkillInfo[]>([]);
@@ -217,67 +222,78 @@ const SkillsConfig: React.FC = () => {
   const renderAddForm = (level: SkillLevel) => {
     if (!showAddForm || formLevel !== level) return null;
     return (
-      <div className="bitfun-collection-form" data-bf-component="skills-config" data-bf-part="form">
-        <div className="bitfun-collection-form__header">
+      <div className="openbitfun-collection-form" data-openbitfun-component="skills-config" data-openbitfun-part="form">
+        <div className="openbitfun-collection-form__header">
           <h3>{t('form.title')}</h3>
-          <IconButton variant="ghost" size="small" onClick={resetForm} tooltip={t('form.closeTooltip')}>
-            <X size={14} />
-          </IconButton>
+          <Tooltip content={t('form.closeTooltip')}>
+            <IconButton
+              aria-label={t('form.closeTooltip')}
+              size="sm"
+              onClick={resetForm}
+              icon={<Icon name="xmark" size="sm" />}
+            />
+          </Tooltip>
         </div>
-        <div className="bitfun-collection-form__body" data-bf-component="skills-config" data-bf-part="formBody">
-          <Select
-            label={t('form.level.label')}
-            options={[
-              { label: t('form.level.user'), value: 'user' },
-              {
-                label: `${t('form.level.project')}${!hasWorkspace ? t('form.level.projectDisabled') : ''}`,
-                value: 'project',
-                disabled: !hasWorkspace
-              }
-            ]}
-            value={formLevel}
-            onChange={(value) => setFormLevel(value as SkillLevel)}
-            size="medium"
-          />
+        <div className="openbitfun-collection-form__body" data-openbitfun-component="skills-config" data-openbitfun-part="formBody">
+          <Field label={t('form.level.label')} controlWidth="fill">
+            <Select
+              options={[
+                { label: t('form.level.user'), value: 'user' },
+                {
+                  label: `${t('form.level.project')}${!hasWorkspace ? t('form.level.projectDisabled') : ''}`,
+                  value: 'project',
+                  disabled: !hasWorkspace
+                }
+              ]}
+              value={formLevel}
+              onValueChange={(value) => setFormLevel(value as SkillLevel)}
+              size="sm"
+            />
+          </Field>
           {formLevel === 'project' && hasWorkspace && (
-            <div className="bitfun-skills-config__form-hint">
+            <div className="openbitfun-skills-config__form-hint">
               {t('form.level.currentWorkspace', { path: workspacePath })}
             </div>
           )}
-          <div className="bitfun-skills-config__path-input">
-            <Input
-              label={t('form.path.label')}
-              placeholder={t('form.path.placeholder')}
-              value={formPath}
-              onChange={(e) => setFormPath(e.target.value)}
-              variant="outlined"
-            />
-            <IconButton variant="default" size="medium" onClick={handleBrowse} tooltip={t('form.path.browseTooltip')}>
-              <FolderOpen size={16} />
-            </IconButton>
+          <div className="openbitfun-skills-config__path-input">
+            <Field label={t('form.path.label')} controlWidth="fill">
+              <Input
+                placeholder={t('form.path.placeholder')}
+                value={formPath}
+                onChange={(e) => setFormPath(e.target.value)}
+              />
+            </Field>
+            <Tooltip content={t('form.path.browseTooltip')}>
+              <IconButton
+                aria-label={t('form.path.browseTooltip')}
+                size="sm"
+                onClick={handleBrowse}
+                icon={<FolderOpen size={16} />}
+              />
+            </Tooltip>
           </div>
-          <div className="bitfun-skills-config__path-hint">{t('form.path.hint')}</div>
-          {isValidating && <div className="bitfun-skills-config__validating">{t('form.validating')}</div>}
+          <div className="openbitfun-skills-config__path-hint">{t('form.path.hint')}</div>
+          {isValidating && <div className="openbitfun-skills-config__validating">{t('form.validating')}</div>}
           {validationResult && (
-            <div className={`bitfun-skills-config__validation ${validationResult.valid ? 'is-valid' : 'is-invalid'}`}>
+            <div className={`openbitfun-skills-config__validation ${validationResult.valid ? 'is-valid' : 'is-invalid'}`}>
               {validationResult.valid ? (
                 <>
-                  <div className="bitfun-skills-config__validation-name">✓ {validationResult.name}</div>
-                  <div className="bitfun-skills-config__validation-desc">{validationResult.description}</div>
+                  <div className="openbitfun-skills-config__validation-name">✓ {validationResult.name}</div>
+                  <div className="openbitfun-skills-config__validation-desc">{validationResult.description}</div>
                 </>
               ) : (
-                <div className="bitfun-skills-config__validation-error">✗ {validationResult.error}</div>
+                <div className="openbitfun-skills-config__validation-error">✗ {validationResult.error}</div>
               )}
             </div>
           )}
         </div>
-        <div className="bitfun-collection-form__footer">
-          <Button variant="secondary" size="small" onClick={resetForm}>
+        <div className="openbitfun-collection-form__footer">
+          <Button variant="outline" size="sm" onClick={resetForm}>
             {t('form.actions.cancel')}
           </Button>
           <Button
-            variant="primary"
-            size="small"
+            variant="fill"
+            size="sm"
             onClick={handleAdd}
             disabled={!validationResult?.valid || isAdding}
           >
@@ -293,7 +309,7 @@ const SkillsConfig: React.FC = () => {
     const coverageSourceLabel = coverageSourceBySkillKey.get(skill.key);
     const badge = (
       <>
-        <span className="bitfun-collection-item__badge">
+        <span className="openbitfun-collection-item__badge">
           {isRemote
             ? skill.level === 'user'
               ? t('list.item.localUser')
@@ -302,12 +318,12 @@ const SkillsConfig: React.FC = () => {
               ? t('list.item.user')
               : t('list.item.project')}
         </span>
-        <span className="bitfun-collection-item__badge bitfun-skills-config__source-badge">
+        <span className="openbitfun-collection-item__badge openbitfun-skills-config__source-badge">
           {sourceLabel}
         </span>
         {skill.isShadowed && (
           <span
-            className="bitfun-collection-item__badge bitfun-skills-config__covered-badge"
+            className="openbitfun-collection-item__badge openbitfun-skills-config__covered-badge"
             title={t('list.item.shadowedTooltip', {
               source: coverageSourceLabel ?? t('list.item.unknownSource'),
             })}
@@ -320,23 +336,23 @@ const SkillsConfig: React.FC = () => {
     const control = canDeleteSkill(skill) ? (
         <button
           type="button"
-          className="bitfun-collection-btn bitfun-collection-btn--danger"
+          className="openbitfun-collection-btn openbitfun-collection-btn--danger"
           onClick={() => setDeleteConfirm({ show: true, skill })}
           title={t('list.item.deleteTooltip')}
         >
-          <Trash2 size={14} />
+          <Icon name="delete" size="sm" />
         </button>
     ) : null;
     const details = (
-      <div data-bf-component="skills-config" data-bf-part="details">
-        <div className="bitfun-collection-details__field">{skill.description}</div>
-        <div className="bitfun-collection-details__meta">
-          <span className="bitfun-collection-details__label">{t('list.item.sourceLabel')}</span>
+      <div data-openbitfun-component="skills-config" data-openbitfun-part="details">
+        <div className="openbitfun-collection-details__field">{skill.description}</div>
+        <div className="openbitfun-collection-details__meta">
+          <span className="openbitfun-collection-details__label">{t('list.item.sourceLabel')}</span>
           <span>{sourceLabel}</span>
         </div>
         {skill.isShadowed && (
-          <div className="bitfun-collection-details__meta bitfun-skills-config__coverage-detail">
-            <span className="bitfun-collection-details__label">{t('list.item.shadowedLabel')}</span>
+          <div className="openbitfun-collection-details__meta openbitfun-skills-config__coverage-detail">
+            <span className="openbitfun-collection-details__label">{t('list.item.shadowedLabel')}</span>
             <span>
               {t('list.item.shadowedDetail', {
                 source: coverageSourceLabel ?? t('list.item.unknownSource'),
@@ -344,9 +360,9 @@ const SkillsConfig: React.FC = () => {
             </span>
           </div>
         )}
-        <div className="bitfun-collection-details__meta">
-          <span className="bitfun-collection-details__label">{t('list.item.pathLabel')}</span>
-          <code className="bitfun-skills-config__path-value">{skill.path}</code>
+        <div className="openbitfun-collection-details__meta">
+          <span className="openbitfun-collection-details__label">{t('list.item.pathLabel')}</span>
+          <code className="openbitfun-skills-config__path-value">{skill.path}</code>
         </div>
       </div>
     );
@@ -360,10 +376,10 @@ const SkillsConfig: React.FC = () => {
         details={details}
         expanded={expandedSkillIds.has(skill.key)}
         onToggle={() => toggleSkillExpanded(skill.key)}
-        className={skill.isShadowed ? 'bitfun-skills-config__item--covered' : undefined}
-        data-bf-component="skills-config"
-        data-bf-part="item"
-        data-bf-state={skill.isShadowed ? 'covered' : undefined}
+        className={skill.isShadowed ? 'openbitfun-skills-config__item--covered' : undefined}
+        data-openbitfun-component="skills-config"
+        data-openbitfun-part="item"
+        data-openbitfun-state={skill.isShadowed ? 'covered' : undefined}
       />
     );
   };
@@ -371,25 +387,25 @@ const SkillsConfig: React.FC = () => {
   const renderMarketList = () => {
     if (marketLoading) {
       return (
-        <div className="bitfun-skills-config__market-list" aria-busy="true" aria-label={t('market.loading')} data-bf-component="skills-config" data-bf-part="marketList" data-bf-state="loading">
+        <div className="openbitfun-skills-config__market-list" aria-busy="true" aria-label={t('market.loading')} data-openbitfun-component="skills-config" data-openbitfun-part="marketList" data-openbitfun-state="loading">
           {Array.from({ length: 5 }).map((_, index) => (
             <Card
               key={`market-loading-${index}`}
-              variant="elevated"
+              appearance="raised"
               padding="none"
-              className="bitfun-skills-config__market-item is-loading"
-              data-bf-component="skills-config"
-              data-bf-part="marketItem"
-              data-bf-state="loading"
+              className="openbitfun-skills-config__market-item is-loading"
+              data-openbitfun-component="skills-config"
+              data-openbitfun-part="marketItem"
+              data-openbitfun-state="loading"
             >
-              <CardBody className="bitfun-skills-config__market-item-body">
-                <div className="bitfun-skills-config__market-skeleton-main">
-                  <div className="bitfun-skills-config__market-skeleton-line bitfun-skills-config__market-skeleton-line--title" />
-                  <div className="bitfun-skills-config__market-skeleton-line bitfun-skills-config__market-skeleton-line--desc" />
-                  <div className="bitfun-skills-config__market-skeleton-line bitfun-skills-config__market-skeleton-line--desc is-short" />
-                  <div className="bitfun-skills-config__market-skeleton-chip" />
+              <CardBody className="openbitfun-skills-config__market-item-body">
+                <div className="openbitfun-skills-config__market-skeleton-main">
+                  <div className="openbitfun-skills-config__market-skeleton-line openbitfun-skills-config__market-skeleton-line--title" />
+                  <div className="openbitfun-skills-config__market-skeleton-line openbitfun-skills-config__market-skeleton-line--desc" />
+                  <div className="openbitfun-skills-config__market-skeleton-line openbitfun-skills-config__market-skeleton-line--desc is-short" />
+                  <div className="openbitfun-skills-config__market-skeleton-chip" />
                 </div>
-                <div className="bitfun-skills-config__market-skeleton-btn" />
+                <div className="openbitfun-skills-config__market-skeleton-btn" />
               </CardBody>
             </Card>
           ))}
@@ -398,22 +414,22 @@ const SkillsConfig: React.FC = () => {
     }
 
     if (marketError) {
-      return <div className="bitfun-skills-config__market-state bitfun-skills-config__market-state--error" data-bf-component="skills-config" data-bf-part="marketState" data-bf-state="error">{t('market.errorPrefix')}{marketError}</div>;
+      return <div className="openbitfun-skills-config__market-state openbitfun-skills-config__market-state--error" data-openbitfun-component="skills-config" data-openbitfun-part="marketState" data-openbitfun-state="error">{t('market.errorPrefix')}{marketError}</div>;
     }
 
     if (marketSkills.length === 0) {
       return (
-        <div className="bitfun-skills-config__market-state" data-bf-component="skills-config" data-bf-part="marketState">
+        <div className="openbitfun-skills-config__market-state" data-openbitfun-component="skills-config" data-openbitfun-part="marketState">
           {marketKeyword.trim() ? t('market.empty.noMatch') : t('market.empty.noSkills')}
         </div>
       );
     }
 
     return (
-      <div className="bitfun-skills-config__market-list" data-bf-component="skills-config" data-bf-part="marketList">
+      <div className="openbitfun-skills-config__market-list" data-openbitfun-component="skills-config" data-openbitfun-part="marketList">
         {displayMarketSkills.map((skill) => {
           const isDownloading = downloadingPackage === skill.installId;
-          const isInstalled = installedSkillNames.has(skill.name);
+          const isInstalled = isSkillMarketItemInstalled(skill, installedMarketIds);
           const sourceLabel = formatMarketSource(skill.source);
           const projectTooltipText = !hasWorkspace
             ? t('messages.noWorkspace')
@@ -424,56 +440,62 @@ const SkillsConfig: React.FC = () => {
           return (
             <Card
               key={skill.installId}
-              variant="elevated"
+              appearance="raised"
               padding="none"
-              className={`bitfun-skills-config__market-item${isInstalled ? ' is-installed' : ''}`}
-              data-bf-component="skills-config"
-              data-bf-part="marketItem"
-              data-bf-state={isInstalled ? 'installed' : undefined}
+              className={`openbitfun-skills-config__market-item${isInstalled ? ' is-installed' : ''}`}
+              data-openbitfun-component="skills-config"
+              data-openbitfun-part="marketItem"
+              data-openbitfun-state={isInstalled ? 'installed' : undefined}
             >
-              <CardBody className="bitfun-skills-config__market-item-body">
-                <div className="bitfun-skills-config__market-item-main">
-                  <div className="bitfun-skills-config__market-item-head">
-                    <div className="bitfun-skills-config__market-item-name-wrap">
-                      <div className="bitfun-skills-config__market-item-name">{skill.name}</div>
+              <CardBody className="openbitfun-skills-config__market-item-body">
+                <div className="openbitfun-skills-config__market-item-main">
+                  <div className="openbitfun-skills-config__market-item-head">
+                    <div className="openbitfun-skills-config__market-item-name-wrap">
+                      <div className="openbitfun-skills-config__market-item-name">{skill.name}</div>
                       {isInstalled ? (
-                        <span className="bitfun-skills-config__market-item-badge bitfun-skills-config__market-item-badge--installed">
-                          <CheckCircle2 size={12} />
+                        <span className="openbitfun-skills-config__market-item-badge openbitfun-skills-config__market-item-badge--installed">
+                          <Icon name="check-circle" size="xs" />
                           {t('market.item.installed')}
                         </span>
                       ) : null}
                     </div>
-                    <span className="bitfun-skills-config__market-item-installs">
+                    <span className="openbitfun-skills-config__market-item-installs">
                       <TrendingUp size={12} />
                       {t('market.item.installs', { count: skill.installs })}
                     </span>
                   </div>
-                  <div className="bitfun-skills-config__market-item-description">
+                  <div className="openbitfun-skills-config__market-item-description">
                     {skill.description?.trim() || t('market.item.noDescription')}
                   </div>
-                  <div className="bitfun-skills-config__market-item-meta">
+                  <div className="openbitfun-skills-config__market-item-meta">
                     {skill.source ? (
                       sourceLabel !== skill.source ? (
                         <Tooltip content={skill.source}>
-                          <span className="bitfun-skills-config__market-item-chip bitfun-skills-config__market-item-source">
+                          <span className="openbitfun-skills-config__market-item-chip openbitfun-skills-config__market-item-source"><OverflowText>
                             {t('market.item.sourceLabel')}{sourceLabel}
-                          </span>
+                          </OverflowText></span>
                         </Tooltip>
                       ) : (
-                        <span className="bitfun-skills-config__market-item-chip bitfun-skills-config__market-item-source">
+                        <span className="openbitfun-skills-config__market-item-chip openbitfun-skills-config__market-item-source"><OverflowText>
                           {t('market.item.sourceLabel')}{sourceLabel}
-                        </span>
+                        </OverflowText></span>
                       )
                     ) : null}
                   </div>
                 </div>
 
-                <div className="bitfun-skills-config__market-item-action">
+                <div className="openbitfun-skills-config__market-item-action">
                   {isInstalled ? (
                     <Tooltip content={installedTooltipText}>
                       <span>
-                        <Button variant="primary" size="small" disabled>
-                          <CheckCircle2 size={14} />
+                        <Button
+                          className="openbitfun-skills-config__market-action-button"
+                          variant="fill"
+                          size="sm"
+                          disabled
+                          leadingIcon={<Icon name="check-circle" size="sm" />}
+                        >
+
                           {t('market.item.installed')}
                         </Button>
                       </span>
@@ -484,12 +506,14 @@ const SkillsConfig: React.FC = () => {
                         <Tooltip content={projectTooltipText}>
                           <span>
                             <Button
-                              variant="primary"
-                              size="small"
+                              className="openbitfun-skills-config__market-action-button"
+                              variant="fill"
+                              size="sm"
                               onClick={() => handleDownload(skill, 'project')}
                               disabled={isDownloading || !hasWorkspace}
+                              leadingIcon={<Icon name="arrow-down" size="sm" />}
                             >
-                              <Download size={14} />
+
                               {isDownloading ? t('market.item.downloading') : t('market.item.downloadProject')}
                             </Button>
                           </span>
@@ -498,12 +522,14 @@ const SkillsConfig: React.FC = () => {
                       <Tooltip content={userTooltipText}>
                         <span>
                           <Button
-                            variant={isRemote ? 'primary' : 'secondary'}
-                            size="small"
+                            className="openbitfun-skills-config__market-action-button"
+                            variant={isRemote ? 'fill' : 'outline'}
+                            size="sm"
                             onClick={() => handleDownload(skill, 'user')}
                             disabled={isDownloading}
+                            leadingIcon={<Icon name="arrow-down" size="sm" />}
                           >
-                            <Download size={14} />
+
                             {isDownloading ? t('market.item.downloading') : t('market.item.downloadUser')}
                           </Button>
                         </span>
@@ -520,33 +546,34 @@ const SkillsConfig: React.FC = () => {
   };
 
   const refreshExtra = (
-    <IconButton
-      variant="ghost"
-      size="small"
-      onClick={() => loadSkills(true)}
-      tooltip={t('toolbar.refreshTooltip')}
-    >
-      <RefreshCw size={16} />
-    </IconButton>
+    <Tooltip content={t('toolbar.refreshTooltip')}>
+      <IconButton
+        aria-label={t('toolbar.refreshTooltip')}
+        size="sm"
+        onClick={() => loadSkills(true)}
+        icon={<Icon name="refresh" size="md" />}
+      />
+    </Tooltip>
   );
 
   const makeAddExtra = (level: SkillLevel) => (
     <>
       {level === 'user' && refreshExtra}
-      <IconButton
-        variant="primary"
-        size="small"
-        onClick={() => { setFormLevel(level); setShowAddForm(true); }}
-        tooltip={t('toolbar.addTooltip')}
-        disabled={level === 'project' && !hasWorkspace}
-      >
-        <Plus size={16} />
-      </IconButton>
+      <Tooltip content={t('toolbar.addTooltip')}>
+        <IconButton
+          aria-label={t('toolbar.addTooltip')}
+          variant="primary"
+          size="sm"
+          onClick={() => { setFormLevel(level); setShowAddForm(true); }}
+          disabled={level === 'project' && !hasWorkspace}
+          icon={<Icon name="plus" size="md" />}
+        />
+      </Tooltip>
     </>
   );
 
-  const installedSkillNames = useMemo(
-    () => new Set(skills.map((skill) => skill.name)),
+  const installedMarketIds = useMemo(
+    () => installedSkillMarketIds(skills),
     [skills]
   );
 
@@ -574,7 +601,7 @@ const SkillsConfig: React.FC = () => {
     const entries = marketSkills.map((skill, index) => ({
       skill,
       index,
-      installed: installedSkillNames.has(skill.name),
+      installed: isSkillMarketItemInstalled(skill, installedMarketIds),
     }));
 
     entries.sort((a, b) => {
@@ -591,7 +618,7 @@ const SkillsConfig: React.FC = () => {
     });
 
     return entries.map((entry) => entry.skill);
-  }, [marketSkills, installedSkillNames]);
+  }, [marketSkills, installedMarketIds]);
 
   const handleMarketSearch = useCallback(() => {
     loadMarketSkills(marketKeyword);
@@ -599,10 +626,10 @@ const SkillsConfig: React.FC = () => {
 
   if (loading) {
     return (
-      <ConfigPageLayout className="bitfun-skills-config" data-bf-component="skills-config" data-bf-part="root" data-bf-state="loading">
+      <ConfigPageLayout className="openbitfun-skills-config" data-openbitfun-component="skills-config" data-openbitfun-part="root" data-openbitfun-state="loading">
         <ConfigPageHeader title={t('title')} subtitle={t('subtitle')} />
-        <ConfigPageContent data-bf-component="skills-config" data-bf-part="content">
-          <div className="bitfun-collection-empty" data-bf-component="skills-config" data-bf-part="loading" data-bf-state="loading"><p>{t('list.loading')}</p></div>
+        <ConfigPageContent data-openbitfun-component="skills-config" data-openbitfun-part="content">
+          <div className="openbitfun-collection-empty" data-openbitfun-component="skills-config" data-openbitfun-part="loading" data-openbitfun-state="loading"><p>{t('list.loading')}</p></div>
         </ConfigPageContent>
       </ConfigPageLayout>
     );
@@ -610,10 +637,10 @@ const SkillsConfig: React.FC = () => {
 
   if (error) {
     return (
-      <ConfigPageLayout className="bitfun-skills-config" data-bf-component="skills-config" data-bf-part="root" data-bf-state="error">
+      <ConfigPageLayout className="openbitfun-skills-config" data-openbitfun-component="skills-config" data-openbitfun-part="root" data-openbitfun-state="error">
         <ConfigPageHeader title={t('title')} subtitle={t('subtitle')} />
-        <ConfigPageContent data-bf-component="skills-config" data-bf-part="content">
-          <div className="bitfun-collection-empty" data-bf-component="skills-config" data-bf-part="error" data-bf-state="error"><p>{t('list.errorPrefix')}{error}</p></div>
+        <ConfigPageContent data-openbitfun-component="skills-config" data-openbitfun-part="content">
+          <div className="openbitfun-collection-empty" data-openbitfun-component="skills-config" data-openbitfun-part="error" data-openbitfun-state="error"><p>{t('list.errorPrefix')}{error}</p></div>
         </ConfigPageContent>
       </ConfigPageLayout>
     );
@@ -623,34 +650,40 @@ const SkillsConfig: React.FC = () => {
   const projectSkills = skills.filter(s => s.level === 'project');
 
   return (
-    <ConfigPageLayout className="bitfun-skills-config" data-bf-component="skills-config" data-bf-part="root">
+    <ConfigPageLayout className="openbitfun-skills-config" data-openbitfun-component="skills-config" data-openbitfun-part="root">
       <ConfigPageHeader title={t('title')} subtitle={t('subtitle')} />
 
-      <ConfigPageContent data-bf-component="skills-config" data-bf-part="content">
+      <ConfigPageContent data-openbitfun-component="skills-config" data-openbitfun-part="content">
         <ConfigPageSection
           title={t('market.title')}
           description={t('market.subtitle')}
           extra={(
-            <IconButton
-              variant="ghost"
-              size="small"
-              onClick={() => loadMarketSkills(marketKeyword)}
-              tooltip={t('market.refreshTooltip')}
-            >
-              <RefreshCw size={16} />
-            </IconButton>
+            <Tooltip content={t('market.refreshTooltip')}>
+              <IconButton
+                aria-label={t('market.refreshTooltip')}
+                size="sm"
+                onClick={() => loadMarketSkills(marketKeyword)}
+                icon={<Icon name="refresh" size="md" />}
+              />
+            </Tooltip>
           )}
         >
-          <div className="bitfun-skills-config__market-toolbar" data-bf-component="skills-config" data-bf-part="marketToolbar">
-            <Search
+          <div className="openbitfun-skills-config__market-toolbar" data-openbitfun-component="skills-config" data-openbitfun-part="marketToolbar">
+            <SearchField
+              className="openbitfun-skills-config__market-search"
               placeholder={t('market.searchPlaceholder')}
+              aria-label={t('market.searchPlaceholder')}
+              leadingIcon={<Icon name="search" size="sm" aria-hidden />}
               value={marketKeyword}
-              onChange={(value) => setMarketKeyword(value)}
+              onValueChange={(value) => setMarketKeyword(value)}
               onSearch={handleMarketSearch}
-              showSearchButton
-              clearable
-              size="small"
+              clearLabel={marketKeyword ? tShared('components:search.clear') : undefined}
+              onClear={marketKeyword ? () => setMarketKeyword('') : undefined}
+              size="sm"
             />
+            <Button size="sm" variant="fill" onClick={handleMarketSearch}>
+              {tShared('common:actions.search')}
+            </Button>
           </div>
           {renderMarketList()}
         </ConfigPageSection>
@@ -662,9 +695,9 @@ const SkillsConfig: React.FC = () => {
         >
           {renderAddForm('user')}
           {userSkills.length === 0 && !(showAddForm && formLevel === 'user') ? (
-            <div className="bitfun-collection-empty" data-bf-component="skills-config" data-bf-part="empty">
-              <Button variant="dashed" size="small" onClick={() => { setFormLevel('user'); setShowAddForm(true); }}>
-                <Plus size={14} />
+            <div className="openbitfun-collection-empty" data-openbitfun-component="skills-config" data-openbitfun-part="empty">
+              <Button variant="outline" size="sm" onClick={() => { setFormLevel('user'); setShowAddForm(true); }} leadingIcon={<Icon name="plus" size="sm" />}>
+
                 {t('toolbar.addTooltip')}
               </Button>
             </div>
@@ -678,11 +711,11 @@ const SkillsConfig: React.FC = () => {
         >
           {renderAddForm('project')}
           {projectSkills.length === 0 && !(showAddForm && formLevel === 'project') ? (
-            <div className="bitfun-collection-empty" data-bf-component="skills-config" data-bf-part="empty">
+            <div className="openbitfun-collection-empty" data-openbitfun-component="skills-config" data-openbitfun-part="empty">
               {!hasWorkspace && <p>{t('messages.noWorkspace')}</p>}
               {hasWorkspace && (
-                <Button variant="dashed" size="small" onClick={() => { setFormLevel('project'); setShowAddForm(true); }}>
-                  <Plus size={14} />
+                <Button variant="outline" size="sm" onClick={() => { setFormLevel('project'); setShowAddForm(true); }} leadingIcon={<Icon name="plus" size="sm" />}>
+
                   {t('toolbar.addTooltip')}
                 </Button>
               )}
@@ -692,14 +725,14 @@ const SkillsConfig: React.FC = () => {
       </ConfigPageContent>
 
       <ConfirmDialog
-        isOpen={deleteConfirm.show && !!deleteConfirm.skill}
-        onClose={() => setDeleteConfirm({ show: false, skill: null })}
+        open={deleteConfirm.show && !!deleteConfirm.skill}
+        onOpenChange={() => setDeleteConfirm({ show: false, skill: null })}
         onConfirm={confirmDelete}
         title={t('deleteModal.title')}
         message={
           <>
             <p>{t('deleteModal.message', { name: deleteConfirm.skill?.name })}</p>
-            <p style={{ marginTop: '8px', color: 'var(--bf-appearance-token-color-warning)' }}>{t('deleteModal.warning')}</p>
+            <p style={{ marginTop: '8px', color: 'var(--openbitfun-color-status-warning-content)' }}>{t('deleteModal.warning')}</p>
           </>
         }
         type="warning"

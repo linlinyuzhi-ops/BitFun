@@ -7,15 +7,20 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export function setBuildVersion(root, version) {
-  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+  if (!/^([1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
     throw new Error(`Invalid build version: ${version}`);
   }
 
   for (const relative of [
     'package.json',
     'package-lock.json',
-    'BitFun-Installer/package.json',
-    'BitFun-Installer/package-lock.json',
+    'OpenBitFun-Installer/package.json',
+    'OpenBitFun-Installer/package-lock.json',
+    'src/web-ui/package.json',
+    'src/mobile-web/package.json',
+    'src/mobile-web/package-lock.json',
+    'src/miniapp-market-web/package.json',
+    'src/skin-market-web/package.json',
   ]) {
     const file = path.join(root, relative);
     const data = JSON.parse(readFileSync(file, 'utf8'));
@@ -37,7 +42,7 @@ export function setBuildVersion(root, version) {
     `version = "${version}" # x-release-please-version`,
   );
   replaceVersion(
-    path.join(root, 'BitFun-Installer/src-tauri/Cargo.toml'),
+    path.join(root, 'OpenBitFun-Installer/src-tauri/Cargo.toml'),
     /^version = "[^"]+"$/m,
     `version = "${version}"`,
   );

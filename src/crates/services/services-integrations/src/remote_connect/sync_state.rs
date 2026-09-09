@@ -1,7 +1,7 @@
 //! Local account sync cursors and upload content hashes.
 //!
-//! Persists per-user state under `<BITFUN_HOME>/account_sync/` (normally
-//! `~/.bitfun/account_sync/`) so incremental
+//! Persists per-user state under `<OPENBITFUN_HOME>/account_sync/` (normally
+//! `~/.openbitfun/account_sync/`) so incremental
 //! `?since=` pulls and upload dedupe survive app restarts. Not secret —
 //! hashes are of plaintext session bundles; cursors are relay version ints.
 //!
@@ -10,35 +10,19 @@
 //! backup loop and the settings sync engine are independent writers, so a
 //! shared read-modify-write file could drop one writer's update.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 /// On-disk sync progress for one account.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct AccountSyncState {
-    /// Highest relay session `version` successfully processed by a pull.
-    #[serde(default)]
-    pub last_session_since: i64,
-    /// Last successfully uploaded content hash per session_id.
-    #[serde(default)]
-    pub uploaded_hashes: HashMap<String, String>,
-}
+pub use crate::remote_persistence::AccountSyncStateRecord as AccountSyncState;
 
 /// Settings sync progress for one account: the cloud settings blob version
 /// this device last uploaded or applied, plus the content hash of that blob.
 /// Lets the periodic pull skip unchanged blobs across restarts and the push
 /// path skip unchanged content.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SettingsCursor {
-    #[serde(default)]
-    pub version: i64,
-    #[serde(default)]
-    pub hash: String,
-}
+pub use crate::remote_persistence::SettingsCursorRecord as SettingsCursor;
 
 /// SHA-256 hex digest of session bundle plaintext (stable skip key).
 pub fn content_hash(plaintext: &str) -> String {
@@ -47,8 +31,8 @@ pub fn content_hash(plaintext: &str) -> String {
 }
 
 fn sync_dir() -> Result<PathBuf> {
-    let home = super::bitfun_home_dir()
-        .ok_or_else(|| anyhow!("cannot determine BitFun home directory"))?;
+    let home = super::product_home_dir()
+        .ok_or_else(|| anyhow!("cannot determine OpenBitFun home directory"))?;
     Ok(home.join("account_sync"))
 }
 
@@ -79,22 +63,16 @@ pub fn load(user_id: &str) -> AccountSyncState {
         Ok(p) => p,
         Err(_) => return AccountSyncState::default(),
     };
-    match std::fs::read_to_string(&path) {
-        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
-        Err(_) => AccountSyncState::default(),
-    }
+    crate::remote_persistence::read_account_sync_state(&path)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
 }
 
 /// Persist sync state for `user_id`.
 pub fn save(user_id: &str, state: &AccountSyncState) -> Result<()> {
-    let dir = sync_dir()?;
-    std::fs::create_dir_all(&dir)?;
     let path = sync_state_path(user_id)?;
-    let raw = serde_json::to_string_pretty(state)?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, raw)?;
-    std::fs::rename(&tmp, &path)?;
-    Ok(())
+    crate::remote_persistence::write_account_sync_state(&path, state)
 }
 
 /// Load the settings cursor for `user_id`, defaulting when missing/corrupt.
@@ -103,22 +81,16 @@ pub fn load_settings_cursor(user_id: &str) -> SettingsCursor {
         Ok(p) => p,
         Err(_) => return SettingsCursor::default(),
     };
-    match std::fs::read_to_string(&path) {
-        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
-        Err(_) => SettingsCursor::default(),
-    }
+    crate::remote_persistence::read_settings_cursor(&path)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
 }
 
 /// Persist the settings cursor for `user_id`.
 pub fn save_settings_cursor(user_id: &str, cursor: &SettingsCursor) -> Result<()> {
-    let dir = sync_dir()?;
-    std::fs::create_dir_all(&dir)?;
     let path = settings_cursor_path(user_id)?;
-    let raw = serde_json::to_string_pretty(cursor)?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, raw)?;
-    std::fs::rename(&tmp, &path)?;
-    Ok(())
+    crate::remote_persistence::write_settings_cursor(&path, cursor)
 }
 
 impl AccountSyncState {

@@ -5,9 +5,10 @@
  * several rows with different times.
  */
 
+import { OverflowText, Icon, IconButton, Switch, Tooltip } from '@openbitfun/ui';
 import React from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
-import { IconButton, Switch } from '@/component-library';
+import { CalendarClock } from 'lucide-react';
+
 import { useI18n } from '@/infrastructure/i18n';
 import type { CronJob } from '@/infrastructure/api';
 import type { WorkspaceInfo } from '@/shared/types';
@@ -66,17 +67,17 @@ const TodoItemRow: React.FC<TodoItemRowProps> = ({
   ].filter(Boolean).join(' ');
 
   return (
-    <div
+    <div data-overflow-trigger
       className={[
-        'bf-todos__row',
-        isRunning ? 'bf-todos__row--running' : '',
-        isOverdue ? 'bf-todos__row--overdue' : '',
-        job.enabled ? '' : 'bf-todos__row--disabled',
-        isSelected ? 'bf-todos__row--selected' : '',
+        'openbitfun-todos__row',
+        isRunning ? 'openbitfun-todos__row--running' : '',
+        isOverdue ? 'openbitfun-todos__row--overdue' : '',
+        job.enabled ? '' : 'openbitfun-todos__row--disabled',
+        isSelected ? 'openbitfun-todos__row--selected' : '',
       ].filter(Boolean).join(' ')}
-      data-bf-scene="todos"
-      data-bf-part="row"
-      data-bf-state={rowState || undefined}
+      data-openbitfun-scene="todos"
+      data-openbitfun-part="row"
+      data-openbitfun-state={rowState || undefined}
       data-testid="todos-row"
       role="group"
       tabIndex={0}
@@ -89,85 +90,89 @@ const TodoItemRow: React.FC<TodoItemRowProps> = ({
         }
       }}
     >
-      <div className="bf-todos__row-time" data-bf-scene="todos" data-bf-part="rowTime">
-        <span className="bf-todos__row-clock">{timeLabel ?? '—'}</span>
-        {relativeLabel ? (
-          <span className="bf-todos__row-relative">{relativeLabel}</span>
-        ) : null}
+      <div className="openbitfun-todos__row-icon" data-openbitfun-scene="todos" data-openbitfun-part="rowIcon">
+        <CalendarClock size={19} aria-hidden="true" />
       </div>
 
-      <div className="bf-todos__row-body" data-bf-scene="todos" data-bf-part="rowBody">
-        <div className="bf-todos__row-title-line">
-          <span className="bf-todos__row-name">{job.name}</span>
+      <div className="openbitfun-todos__row-body" data-openbitfun-scene="todos" data-openbitfun-part="rowBody">
+        <div className="openbitfun-todos__row-title-line">
+          <OverflowText className="openbitfun-todos__row-name">{job.name}</OverflowText>
           {isRunning ? (
             <span
-              className="bf-todos__row-badge bf-todos__row-badge--running"
-              data-bf-scene="todos"
-              data-bf-part="rowBadge"
+              className="openbitfun-todos__row-badge openbitfun-todos__row-badge--running"
+              data-openbitfun-scene="todos"
+              data-openbitfun-part="rowBadge"
             >
               {t('shared:statuses.running')}
             </span>
           ) : isNextRun ? (
-            <span className="bf-todos__row-badge" data-bf-scene="todos" data-bf-part="rowBadge">
+            <span className="openbitfun-todos__row-badge" data-openbitfun-scene="todos" data-openbitfun-part="rowBadge">
               {t('badges.nextRun')}
             </span>
           ) : null}
           {isOverdue ? (
             <span
-              className="bf-todos__row-badge bf-todos__row-badge--warn"
-              data-bf-scene="todos"
-              data-bf-part="rowBadge"
+              className="openbitfun-todos__row-badge openbitfun-todos__row-badge--warn"
+              data-openbitfun-scene="todos"
+              data-openbitfun-part="rowBadge"
             >
               {t('badges.overdue')}
             </span>
           ) : null}
         </div>
-        <div className="bf-todos__row-meta">
+        <div className="openbitfun-todos__row-meta"><OverflowText behavior="marquee">
           <span>{resolveJobWorkspaceLabel(job, workspaces)}</span>
-          <span className="bf-todos__row-meta-sep" aria-hidden="true">·</span>
+          <span className="openbitfun-todos__row-meta-sep" aria-hidden="true">·</span>
           <span>{formatScheduleSummary(job.schedule, t, formatDate)}</span>
-          <span className="bf-todos__row-meta-sep" aria-hidden="true">·</span>
+          <span className="openbitfun-todos__row-meta-sep" aria-hidden="true">·</span>
           <span>{formatJobTargetLabel(job, t)}</span>
-        </div>
+          {relativeLabel ? (
+            <>
+              <span className="openbitfun-todos__row-meta-sep" aria-hidden="true">·</span>
+              <span title={timeLabel ?? undefined}>{relativeLabel}</span>
+            </>
+          ) : null}
+        </OverflowText></div>
         {job.state.lastError ? (
-          <p className="bf-todos__row-error" data-bf-scene="todos" data-bf-part="rowError">
+          <p className="openbitfun-todos__row-error" data-openbitfun-scene="todos" data-openbitfun-part="rowError">
             {job.state.lastError}
           </p>
         ) : null}
       </div>
 
       <div
-        className="bf-todos__row-actions"
-        data-bf-scene="todos"
-        data-bf-part="rowActions"
+        className="openbitfun-todos__row-actions"
+        data-openbitfun-scene="todos"
+        data-openbitfun-part="rowActions"
         onClick={(event) => event.stopPropagation()}
         role="presentation"
       >
         <Switch
-          size="small"
           checked={job.enabled}
           aria-label={t('actions.toggleEnabled')}
           onChange={(event) => onToggleEnabled(job, event.currentTarget.checked)}
         />
-        <IconButton
-          type="button"
-          size="xs"
-          aria-label={t('actions.edit')}
-          tooltip={t('actions.edit')}
-          onClick={() => onEdit(job)}
-        >
-          <Pencil size={13} />
-        </IconButton>
-        <IconButton
-          type="button"
-          size="xs"
-          variant="danger"
-          aria-label={t('actions.delete')}
-          tooltip={t('actions.delete')}
-          onClick={() => onDelete(job)}
-        >
-          <Trash2 size={13} />
-        </IconButton>
+        <div className="openbitfun-todos__row-action-buttons">
+          <Tooltip content={t('actions.edit')}>
+            <IconButton
+              type="button"
+              size="sm"
+              aria-label={t('actions.edit')}
+              icon={<Icon name="edit" size="lg" />}
+              onClick={() => onEdit(job)}
+            />
+          </Tooltip>
+          <Tooltip content={t('actions.delete')}>
+            <IconButton
+              type="button"
+              size="sm"
+              tone="danger"
+              aria-label={t('actions.delete')}
+              icon={<Icon name="delete" size="lg" />}
+              onClick={() => onDelete(job)}
+            />
+          </Tooltip>
+        </div>
       </div>
     </div>
   );

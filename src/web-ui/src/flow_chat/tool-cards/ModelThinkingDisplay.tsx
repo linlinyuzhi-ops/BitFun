@@ -1,6 +1,8 @@
 /**
  * Model thinking display component.
- * Default expanded while this is still the active last step.
+ * Ordinary reasoning defaults expanded while this is still the active last
+ * step; reasoning summaries use their compact collapsed presentation by
+ * default.
  * If the component mounts after later content already appeared
  * (for example after a parent remount), start collapsed directly
  * to avoid a visible expand-then-collapse flash.
@@ -8,7 +10,7 @@
  */
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { OverflowText, Icon } from '@openbitfun/ui';
 import { useTranslation } from 'react-i18next';
 import type { FlowThinkingItem } from '../types/flow-chat';
 import { useTypewriter } from '../hooks/useTypewriter';
@@ -22,7 +24,8 @@ import {
   isTailFollowDiagnosticsEnabled,
   noteTailFollowStep,
 } from '@/infrastructure/diagnostics/flowChatTailFollowDiagnostics';
-import { Markdown } from '@/component-library/components/Markdown/Markdown';
+import { latestReasoningSummaryPreview } from '../utils/reasoningSummaryPresentation';
+import { MarkdownRenderer } from '@/infrastructure/markdown';
 import './ModelThinkingDisplay.scss';
 
 interface ModelThinkingDisplayProps {
@@ -41,6 +44,7 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
 }) => {
   const { t } = useTranslation('flow-chat');
   const { content, isStreaming, status } = thinkingItem;
+  const isSummary = thinkingItem.reasoningKind === 'summary';
   const contentRef = useRef<HTMLDivElement>(null);
   const shouldFollowTailRef = useRef(true);
   const tailFollowPauseVersionRef = useRef(0);
@@ -48,15 +52,23 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
   /** Frame the follow has booked, and the sign that it is still travelling. */
   const tailFollowFrameRef = useRef<number | null>(null);
   const touchScrollStartYRef = useRef<number | null>(null);
+  const lastScrollPositionRef = useRef<{
+    top: number;
+    height: number;
+    viewport: number;
+  } | null>(null);
 
   const isActive = isStreaming || status === 'streaming';
-  const { displayText: displayContent, isRevealing } = useTypewriter(content, isActive);
+  const { displayText: displayContent, isRevealing } = useTypewriter(
+    isSummary ? '' : content,
+    isActive && !isSummary,
+  );
   useReportTypewriterReveal(thinkingItem.id, isRevealing);
-  const shouldDefaultExpanded = forceExpanded || (
+  const shouldDefaultExpanded = forceExpanded || (!isSummary && (
     displayContext === 'subagent-projection'
       ? isActive || isLastItem
       : isLastItem
-  );
+  ));
 
   const [isExpanded, setIsExpanded] = useState(shouldDefaultExpanded);
   const userToggledRef = useRef(false);
@@ -76,7 +88,7 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
   // ends. Snapping to full `content` here would make the drain invisible
   // while `isRevealing` still holds the reveal gate, delaying the round
   // footer for no visible reason.
-  const renderedContent = isRevealing ? displayContent : content;
+  const renderedContent = !isSummary && isRevealing ? displayContent : content;
   // Cover the whole reveal with Markdown streaming mode so the Prism upgrade
   // does not land mid-drain.
   const isVisuallyStreaming = isActive || isRevealing;
@@ -90,6 +102,38 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
     cancelAnimationFrame(tailFollowFrameRef.current);
     tailFollowFrameRef.current = null;
   }, []);
+
+  const pauseTailFollowForUserScroll = useCallback(() => {
+    shouldFollowTailRef.current = false;
+    tailFollowPauseVersionRef.current += 1;
+    tailFollowUserPauseUntilMsRef.current = performance.now() + 700;
+    stopTailFollow();
+  }, [stopTailFollow]);
+
+  const recordScrollPosition = useCallback((el: HTMLElement) => {
+    lastScrollPositionRef.current = {
+      top: el.scrollTop,
+      height: el.scrollHeight,
+      viewport: el.clientHeight,
+    };
+  }, []);
+
+  const detectUpwardScroll = useCallback((el: HTMLElement) => {
+    const previous = lastScrollPositionRef.current;
+    // Scrollbar drags have no wheel/key event. Compare with our last actual
+    // offset, allowing rounding noise and excluding layout-driven movement.
+    const movedUp = isExpanded && previous !== null &&
+      el.scrollHeight >= previous.height &&
+      el.clientHeight === previous.viewport &&
+      el.scrollTop < previous.top - 1;
+    recordScrollPosition(el);
+    if (movedUp) pauseTailFollowForUserScroll();
+    return movedUp;
+  }, [isExpanded, pauseTailFollowForUserScroll, recordScrollPosition]);
+
+  useLayoutEffect(() => {
+    lastScrollPositionRef.current = null;
+  }, [isExpanded]);
 
   /**
    * Follow the tail across the frames it is given, rather than in one write.
@@ -112,6 +156,8 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
       tailFollowFrameRef.current = null;
       const el = contentRef.current;
       if (!el) return;
+      // The browser may update the offset before delivering its scroll event.
+      if (detectUpwardScroll(el)) return;
       if (expectedPauseVersion !== tailFollowPauseVersionRef.current) return;
       if (!shouldFollowTailRef.current) return;
 
@@ -125,6 +171,7 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
         : { offsetPx: targetPx, outcome: 'snapped' as const };
 
       el.scrollTop = step.offsetPx;
+      recordScrollPosition(el);
       // Read back rather than taken from the step: the browser clamps to the
       // scrollable range, and a platform without fractional scroll offsets
       // rounds the last part of an ease away entirely. Believing the step there
@@ -148,23 +195,17 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
     };
 
     tailFollowFrameRef.current = requestAnimationFrame(runFrame);
-  }, []);
+  }, [detectUpwardScroll, recordScrollPosition]);
 
   /** A follow in flight outlives neither the card nor its collapse. */
   useEffect(() => stopTailFollow, [isExpanded, stopTailFollow]);
-
-  const pauseTailFollowForUserScroll = useCallback(() => {
-    shouldFollowTailRef.current = false;
-    tailFollowPauseVersionRef.current += 1;
-    tailFollowUserPauseUntilMsRef.current = performance.now() + 700;
-  }, []);
 
   // Auto-scroll to bottom while content grows.
   useEffect(() => {
     if (isExpanded && contentRef.current) {
       const el = contentRef.current;
       const gap = getThinkingScrollGap(el);
-      const wasNearBottom = gap < 80;
+      const wasNearBottom = gap < 20;
       const userPauseActive = performance.now() <= tailFollowUserPauseUntilMsRef.current;
       if (wasNearBottom && !userPauseActive) {
         shouldFollowTailRef.current = true;
@@ -208,6 +249,7 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
   const checkScrollState = useCallback(() => {
     const el = contentRef.current;
     if (!el) return;
+    detectUpwardScroll(el);
     const gap = getThinkingScrollGap(el);
     const nextScrollState = {
       hasScroll: el.scrollHeight > el.clientHeight,
@@ -242,7 +284,7 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
           atBottom: nextScrollState.atBottom,
         }
     ));
-  }, [getThinkingScrollGap]);
+  }, [detectUpwardScroll, getThinkingScrollGap]);
 
   useEffect(() => {
     if (isExpanded) {
@@ -255,6 +297,11 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
     if (!content || content.length === 0) return t('toolCards.think.thinkingComplete');
     return t('toolCards.think.thinkingCharacters', { count: content.length });
   }, [content, t]);
+
+  const summaryPreview = useMemo(
+    () => latestReasoningSummaryPreview(content),
+    [content],
+  );
 
   const handleToggleClick = () => {
     const nextExpanded = !isExpanded;
@@ -300,12 +347,17 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
     }
   }, [pauseTailFollowForUserScroll]);
 
-  const headerLabel = (isExpanded
-    ? (isActive ? t('toolCards.think.thinking') : t('toolCards.think.thinkingProcess'))
-    : contentLengthText).replace(/ /g, '\u00A0');
+  const headerLabel = isSummary
+    ? (isExpanded
+      ? t('toolCards.think.thinkingSummary')
+      : summaryPreview || t('toolCards.think.thinkingSummary'))
+    : (isExpanded
+      ? (isActive ? t('toolCards.think.thinking') : t('toolCards.think.thinkingProcess'))
+      : contentLengthText).replace(/ /g, '\u00A0');
 
   const wrapperClassName = [
     'flow-thinking-item',
+    isSummary ? 'summary' : 'reasoning',
     isExpanded ? 'expanded' : 'collapsed',
   ].filter(Boolean).join(' ');
 
@@ -317,17 +369,34 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
       data-status={status}
       data-streaming={isActive ? 'true' : 'false'}
       data-expanded={isExpanded ? 'true' : 'false'}
+      data-reasoning-kind={thinkingItem.reasoningKind ?? 'reasoning'}
       className={wrapperClassName}
-     data-bf-component="model-thinking-display" data-bf-part="root" data-bf-context={displayContext} data-bf-state={[isExpanded && 'expanded', isVisuallyStreaming && 'streaming'].filter(Boolean).join(' ')}>
-      <div
-        data-bf-component="model-thinking-display"
-        data-bf-part="header"
+     data-openbitfun-component="model-thinking-display" data-openbitfun-part="root" data-openbitfun-context={displayContext} data-openbitfun-state={[isExpanded && 'expanded', isVisuallyStreaming && 'streaming'].filter(Boolean).join(' ')}>
+      <div data-overflow-trigger
+        data-openbitfun-component="model-thinking-display"
+        data-openbitfun-part="header"
         data-testid="chat-thinking-toggle"
         className="thinking-collapsed-header"
         onClick={handleToggleClick}
       >
-        <ChevronRight size={14} className="thinking-chevron" data-bf-component="model-thinking-display" data-bf-part="chevron" />
-        <span data-bf-component="model-thinking-display" data-bf-part="label" className="thinking-label">{headerLabel}</span>
+        <span
+          aria-hidden="true"
+          className="thinking-leading-icon"
+          data-openbitfun-component="model-thinking-display"
+          data-openbitfun-part="leadingIcon"
+        >
+          <Icon name="thinking" size="sm" className="thinking-leading-icon__default" />
+          <Icon name="chevron-right" size="sm" className="thinking-leading-icon__collapsed-hover" />
+          <Icon name="chevron-down" size="sm" className="thinking-leading-icon__expanded" />
+        </span>
+        <OverflowText
+          data-openbitfun-component="model-thinking-display"
+          data-openbitfun-part="label"
+          className="thinking-label"
+          title={isSummary && !isExpanded ? headerLabel : undefined}
+        >
+          {headerLabel}
+        </OverflowText>
       </div>
 
       <div
@@ -335,14 +404,14 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
           'thinking-expand-container',
           isExpanded ? 'thinking-expand-container--open' : '',
         ].filter(Boolean).join(' ')}
-        data-bf-component="model-thinking-display"
-        data-bf-part="expandContainer"
+        data-openbitfun-component="model-thinking-display"
+        data-openbitfun-part="expandContainer"
       >
-        <div className={`thinking-content-wrapper ${scrollState.hasScroll ? 'has-scroll' : ''} ${scrollState.atTop ? 'at-top' : ''} ${scrollState.atBottom ? 'at-bottom' : ''}`} data-bf-component="model-thinking-display" data-bf-part="contentWrapper">
+        <div className={`thinking-content-wrapper ${scrollState.hasScroll ? 'has-scroll' : ''} ${scrollState.atTop ? 'at-top' : ''} ${scrollState.atBottom ? 'at-bottom' : ''}`} data-openbitfun-component="model-thinking-display" data-openbitfun-part="contentWrapper">
           <div
             ref={contentRef}
-            data-bf-component="model-thinking-display"
-            data-bf-part="content"
+            data-openbitfun-component="model-thinking-display"
+            data-openbitfun-part="content"
             data-testid="chat-thinking-content"
             data-status={status}
             data-streaming={isActive ? 'true' : 'false'}
@@ -354,7 +423,7 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
             onTouchEnd={handleContentTouchEnd}
             onKeyDown={handleContentKeyDown}
           >
-            <Markdown
+            <MarkdownRenderer
               content={renderedContent}
               isStreaming={isVisuallyStreaming}
               className="thinking-markdown"

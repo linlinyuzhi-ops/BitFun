@@ -15,7 +15,7 @@ import React, { useMemo, memo, useRef, useEffect, useState, useCallback, useDefe
 import { getPrismLanguage } from '@/infrastructure/language-detection';
 import { useAppearance } from '@/infrastructure/appearance';
 import { getLoadedPrismSyntaxHighlighter, loadPrismSyntaxHighlighter } from '@/shared/utils/syntaxHighlighterLoader';
-import { buildCodePreviewPrismStyle, CODE_PREVIEW_FONT_FAMILY } from './codePreviewPrismTheme';
+import { buildCodePreviewPrismStyle } from './codePreviewPrismTheme';
 import './CodePreview.scss';
 
 export interface CodePreviewProps {
@@ -47,6 +47,7 @@ function detectLanguageFromPath(filePath: string): string {
   return getPrismLanguage(filePath);
 }
 
+// typography-audit: allow -- virtualization estimate only; rendered code uses type.flow.code
 const CODE_PREVIEW_STREAMING_LINE_HEIGHT_PX = 22;
 const STREAMING_TAIL_MIN_LINES = 4;
 const STREAMING_TAIL_MAX_LINES = 24;
@@ -207,9 +208,9 @@ export const CodePreview: React.FC<CodePreviewProps> = memo(({
       style: {
         display: 'block',
         backgroundColor: isHighlighted
-          ? 'color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 15%, transparent)'
+          ? 'color-mix(in srgb, var(--openbitfun-color-accent-default) 15%, transparent)'
           : 'transparent',
-        borderLeft: isHighlighted ? '3px solid var(--bf-appearance-token-color-accent-500)' : '3px solid transparent',
+        borderLeft: isHighlighted ? '3px solid var(--openbitfun-color-accent-default)' : '3px solid transparent',
         marginLeft: '-3px',
         paddingLeft: '3px',
         transition: 'background-color 0.15s ease, border-color 0.15s ease',
@@ -221,8 +222,8 @@ export const CodePreview: React.FC<CodePreviewProps> = memo(({
   
   if (!content) {
     return (
-      <div data-bf-component="code-preview" data-bf-part="root" data-bf-state="empty" className={`code-preview code-preview--empty ${className}`}>
-        <span data-bf-component="code-preview" data-bf-part="placeholder" className="code-preview__placeholder">No content</span>
+      <div data-openbitfun-component="code-preview" data-openbitfun-part="root" data-openbitfun-state="empty" className={`code-preview code-preview--empty ${className}`}>
+        <span data-openbitfun-component="code-preview" data-openbitfun-part="placeholder" className="code-preview__placeholder">No content</span>
       </div>
     );
   }
@@ -232,11 +233,11 @@ export const CodePreview: React.FC<CodePreviewProps> = memo(({
   };
   
   return (
-    <div data-bf-component="code-preview" data-bf-part="root" data-bf-state={isStreaming ? 'streaming' : undefined} className={`code-preview ${isStreaming ? 'code-preview--streaming' : ''} ${className}`}>
+    <div data-openbitfun-component="code-preview" data-openbitfun-part="root" data-openbitfun-state={isStreaming ? 'streaming' : undefined} className={`code-preview ${isStreaming ? 'code-preview--streaming' : ''} ${className}`}>
       <div 
         ref={containerRef}
-        data-bf-component="code-preview"
-        data-bf-part="content"
+        data-openbitfun-component="code-preview"
+        data-openbitfun-part="content"
         className="code-preview__content"
         style={containerStyle}
       >
@@ -257,10 +258,10 @@ export const CodePreview: React.FC<CodePreviewProps> = memo(({
             }}
             codeTagProps={{
               style: {
-                fontFamily: CODE_PREVIEW_FONT_FAMILY,
-                fontSize: '12px',
-                lineHeight: '1.6',
-                fontWeight: 400,
+                fontFamily: 'var(--openbitfun-type-flow-code-font-family)',
+                fontSize: 'var(--openbitfun-type-flow-code-font-size)',
+                lineHeight: 'var(--openbitfun-type-flow-code-line-height)',
+                fontWeight: 'var(--openbitfun-type-flow-code-font-weight)',
               }
             }}
             lineNumberStyle={{
@@ -268,27 +269,27 @@ export const CodePreview: React.FC<CodePreviewProps> = memo(({
               paddingRight: '1em',
               textAlign: 'right',
               userSelect: 'none',
-              color: 'var(--bf-appearance-token-color-text-muted)',
+              color: 'var(--openbitfun-color-content-muted)',
               opacity: isLight ? 0.88 : 0.6,
             }}
           >
             {displayContent}
           </SyntaxHighlighter>
         ) : (
-          <pre data-bf-component="code-preview" data-bf-part="plain" className="code-preview__plain" aria-label="Code preview">
+          <pre data-openbitfun-component="code-preview" data-openbitfun-part="plain" className="code-preview__plain" aria-label="Code preview">
             <code>
               {displayContent.split('\n').map((line, index) => {
                 const lineNumber = displayContentInfo.startingLineNumber + index;
                 return (
-                  <span data-bf-component="code-preview" data-bf-part="line" data-bf-state={highlightedLine === lineNumber ? 'highlighted' : undefined}
+                  <span data-openbitfun-component="code-preview" data-openbitfun-part="line" data-openbitfun-state={highlightedLine === lineNumber ? 'highlighted' : undefined}
                     key={`${lineNumber}-${index}`}
                     className={`code-preview__plain-line${highlightedLine === lineNumber ? ' code-preview__plain-line--highlighted' : ''}`}
                     onClick={() => handleLineClick(lineNumber)}
                   >
                     {showLineNumbers && (
-                      <span data-bf-component="code-preview" data-bf-part="lineNumber" className="code-preview__plain-line-number">{lineNumber}</span>
+                      <span data-openbitfun-component="code-preview" data-openbitfun-part="lineNumber" className="code-preview__plain-line-number">{lineNumber}</span>
                     )}
-                    <span data-bf-component="code-preview" data-bf-part="lineContent" className="code-preview__plain-line-content">{line || '\u00A0'}</span>
+                    <span data-openbitfun-component="code-preview" data-openbitfun-part="lineContent" className="code-preview__plain-line-content">{line || '\u00A0'}</span>
                   </span>
                 );
               })}
@@ -298,7 +299,7 @@ export const CodePreview: React.FC<CodePreviewProps> = memo(({
         
         {/* Streaming cursor indicator */}
         {isStreaming && (
-          <span data-bf-component="code-preview" data-bf-part="cursor" className="code-preview__cursor" />
+          <span data-openbitfun-component="code-preview" data-openbitfun-part="cursor" className="code-preview__cursor" />
         )}
       </div>
     </div>

@@ -1,8 +1,11 @@
-# BitFun web-ui 交互流畅度(UI 响应性)审阅报告
+# OpenBitFun web-ui 交互流畅度(UI 响应性)审阅报告
 
 - 审阅范围:`src/web-ui`(React 18 + Vite + zustand v5 + Monaco + xterm + react-virtuoso)
 - 审阅方式:架构走读(入口/状态管理/场景) → 反模式全量 Grep 扫描(渲染、事件、CSS 三条线)→ 关键交互组件精读(聊天流式管线、输入框、终端、文件树、Monaco、Markdown 渲染)。**所有条目均已打开源码核对上下文**,文中行号以当前 main 分支(48a003b73)为准。
 - 日期:2026-07-26
+
+> 退役说明（2026-08）：本文是提交 `48a003b73` 的固定历史审阅证据。鼠标跟随光效此后已完整删除，
+> 因此下文 F9 与 T10 已通过退役关闭；相关段落仅解释当时结论，不得据此恢复或重新实现该功能。
 
 ## 总体评价(先说结论)
 
@@ -37,12 +40,12 @@
 | F6 | 桌面宠物:28ms 自失效 interval(每 tick 重建)+ 120ms Tauri IPC 轮询 + rect 读取 | `AgentCompanionDesktopPet.tsx:308-333,490-501` | 常驻 CPU 底噪、耗电 | 中 |
 | F7 | 聊天输入框同一元素叠加 backdrop-filter: blur(16px) 与 min/max-height、padding 的 transition | `ChatInput.scss:632-640` | 胶囊↔多行切换 320ms 内逐帧重排+重采样模糊 | 中 |
 | F8 | 工具卡完成退出动画:1000ms 的 max-height/margin 关键帧 + will-change 误用 | `ModelRoundItem.scss:394-445` | 流式时消息列表连续 1 秒逐帧重排 | 中 |
-| F9 | mouse-glow:每帧对事件路径全部元素 getComputedStyle;overlay 逐帧改 width/height/渐变 | `MouseGlowService.ts:273-332,374-393`、`MouseGlowEffect.scss:31-38,93-96` | 移动鼠标时的常驻重绘/CPU 底噪 | 中 |
+| F9（已关闭） | 历史鼠标跟随光效的常驻重绘问题；功能已退役 | 已删除 | 不再适用 | 已关闭 |
 | F10 | zustand 全量订阅:useCanvasStore() 无 selector(且同时订阅 5 个作用域 store);useMessageEditStore() 每条消息全量订阅 | `canvasStore.ts:1299-1320` 及 4 处调用、`UserMessageItem.tsx:100-108` | 面板/编辑区、消息列表的额外级联重渲染 | 中 |
 | F11 | VirtualMessageList 滚动补偿路径内刻意强制回流(写 footer 高度后立即读 offsetHeight/scrollHeight) | `VirtualMessageList.tsx:795-808,2255-2350` | 工具卡折叠 + 滚动同时发生时掉帧 | 中(高风险,慎改) |
 | F12 | 滚动回调未节流 + 循环内 getBoundingClientRect(文件树 O(2N)/洞察页);ExploreGroupRenderer onScroll 直接 setState | `FileExplorer.tsx:63-107`、`InsightsScene.tsx:472-490`、`ExploreGroupRenderer.tsx:95-107,272` | 大目录/长页滚动变钝 | 低-中 |
 | F13 | `transition: all` + hover 动画 width/height/box-shadow(面板分隔条,高频触发) | `resizer.css:15-38,56-70`、`SessionScene.scss:183,206,236-237,324,357` | 鼠标扫过面板边缘触发相邻面板重排 | 低-中 |
-| F14 | 常驻 6 层 box-shadow 无限呼吸动画;宠物 SVG url() 滤镜叠加无限 transform 动画 | `FlexiblePanel.scss:215-240,494,558`、`ChatInputPixelPet.scss:114,133,148-151` | 空闲时持续重绘、耗电 | 低 |
+| F14 | 常驻 6 层 box-shadow 无限呼吸动画;宠物 SVG url() 滤镜叠加无限 transform 动画 | `FlexiblePanel.scss:215-240,494,558`、`AgentCompanionPet.scss:114,133,148-151` | 空闲时持续重绘、耗电 | 低 |
 | F15 | 监听器清理缺口 4 处(GitStateManager dispose 不摘除全局监听、PeerHostInvokeBridge 与 useWindowControls 的 await-before-assign 竞态、WorkspaceAPI abort 监听残留) | `GitStateManager.ts:252-266,744-753`、`PeerHostInvokeBridge.tsx:75-112`、`useWindowControls.ts:164-210`、`WorkspaceAPI.ts:471-478` | 潜在泄漏/幽灵回调,当前影响有限 | 低 |
 | F16 | SceneViewport 所有已打开场景常驻挂载且未 memo,视口任一状态变化重渲染全部场景 | `SceneViewport.tsx:84-213` | 放大 F4 等上游重渲染的代价 | 低 |
 
@@ -115,7 +118,7 @@
 
 ### F7(中)输入框 backdrop-filter 与布局属性 transition 叠加
 
-`ChatInput.scss:632-640`:`.bitfun-chat-input__box` 同时有 `backdrop-filter: blur(16px) saturate(1.2)` 和对 `padding/min-height/max-height/box-shadow` 的 0.32s transition。胶囊↔多行切换(由 F3 的测量高频驱动)期间每帧:重排(布局属性)+ 16px 背景重采样 + box-shadow 重绘。嵌套层另有 blur(8/12/20px)(`:659,668,689,1137`)。
+`ChatInput.scss:632-640`:`.openbitfun-chat-input__box` 同时有 `backdrop-filter: blur(16px) saturate(1.2)` 和对 `padding/min-height/max-height/box-shadow` 的 0.32s transition。胶囊↔多行切换(由 F3 的测量高频驱动)期间每帧:重排(布局属性)+ 16px 背景重采样 + box-shadow 重绘。嵌套层另有 blur(8/12/20px)(`:659,668,689,1137`)。
 
 **优化方案**:transition 收窄为 `border-radius, border-color, box-shadow`;高度变化改用容器 `grid-template-rows`/transform 方案或接受瞬时切换;评估把模糊降级为半透明底色(至少在低端机/省电模式)。
 
@@ -125,14 +128,9 @@
 
 **优化方案**:退出动画拆两段——先 opacity/transform(合成器)200ms,再一次性(或用 `SmoothHeightCollapse` 的一次测量 + height 过渡,但缩短时长)收起高度;移除 will-change 中的 max-height;总时长压到 ≤300ms 以缩短逐帧重排窗口。
 
-### F9(中)mouse-glow 常驻底噪
+### F9（已关闭）鼠标跟随光效已退役
 
-pointermove 已 rAF 合并(`MouseGlowService.ts:223-247`,做得对),但每帧仍:
-- 对 `composedPath()` **每个元素**调 `getComputedStyle`(`:374-393`,IDE 下路径常 20-40 层),`findOverlayHost`(`:550-566`)再对祖先链重复取样;
-- 宿主切换时 `appendChild` 后同函数内立即 `getComputedStyle`/`getBoundingClientRect`(`:273-332`),强制同步布局;
-- overlay 逐帧写 `width/height/borderRadius/--mouse-glow-local-x/y`(`:286-292`),radial-gradient 背景整块重绘,浅色主题再叠三段 filter 链(`MouseGlowEffect.scss:93-96`),全程无合成路径。
-
-**优化方案**:命中首个 surface 后短路后续 style 读取;缓存上帧 surface(指针仍在其 rect 内时直接复用);overlay 尺寸用 `transform: scale` 替代 width/height;光斑位置已是 CSS 变量,可保留,但给 overlay 加 `will-change: transform` 并考虑将渐变换成一张模糊贴图位图以走合成路径。
+该功能及其全局指针监听、覆盖层和样式已删除，无后续优化任务。
 
 ### F10(中)zustand 全量订阅点
 
@@ -165,7 +163,7 @@ pointermove 已 rAF 合并(`MouseGlowService.ts:223-247`,做得对),但每帧仍
 ### F14(低)常驻无限动画
 
 - `FlexiblePanel.scss:215-240,494,558-559`:`needs-fix` 态 6 层 box-shadow(含 color-mix)3s infinite 呼吸,且 `:559` 的 `transition: box-shadow` 与 animation 争抢同一属性——一旦出现即永久逐帧重绘。改为动画化伪元素的 opacity。
-- `ChatInputPixelPet.scss:114,133,148-151` 等 15+ 处 infinite:SVG `filter: url(#...)` 宿主上跑永不停的 transform 动画,每帧重跑滤镜图;`--working` 态 0.36s 无限抖动更甚。建议 idle 降频/暂停(页面 hidden 或宠物不可见时移除动画类),暗色主题描边改用预渲染素材。
+- `AgentCompanionPet.scss:114,133,148-151` 等 15+ 处 infinite:SVG `filter: url(#...)` 宿主上跑永不停的 transform 动画,每帧重跑滤镜图;`--working` 态 0.36s 无限抖动更甚。建议 idle 降频/暂停(页面 hidden 或宠物不可见时移除动画类),暗色主题描边改用预渲染素材。
 
 ### F15(低)监听器清理缺口(修复清单)
 
@@ -195,13 +193,13 @@ pointermove 已 rAF 合并(`MouseGlowService.ts:223-247`,做得对),但每帧仍
 | T7 | **宠物打字机与轮询修复**:interval 改 rAF+ref(依赖不含被写状态);120ms hover 轮询按需启停。 | `AgentCompanionDesktopPet.tsx:308-333,471-501` | 低 |
 | T8 | **输入框 transition 收窄**:`ChatInput.scss:634-640` 只保留 border-radius/border-color/box-shadow;评估嵌套 blur 层合并。 | `ChatInput.scss:632-640,659,668,689,1137` | 低(视觉验收) |
 | T9 | **工具卡退出动画重做**:改 opacity/transform 主导 + 缩短高度收起窗口至 ≤300ms;移除 `will-change` 中的 max-height;顺带清理 `SceneBar.scss:80`、`SmoothHeightCollapse.scss:9` 的布局属性 will-change。 | `ModelRoundItem.scss:394-445`、`SceneBar.scss:66-80`、`SmoothHeightCollapse.scss` | 中(与 F11 补偿逻辑联动,需回归滚动) |
-| T10 | **mouse-glow 降噪**:首个 surface 短路 + 上帧 surface 缓存;宿主切换的写后读消除;overlay 尺寸改 transform,加 will-change。 | `MouseGlowService.ts:273-332,374-393,550-566`、`MouseGlowEffect.scss` | 中(视觉验收) |
+| T10（已关闭） | 历史鼠标跟随光效优化任务；功能已退役，不得实施或恢复。 | 已删除 | 不适用 |
 | T11 | **zustand selector 化**:4 处 `useCanvasStore()` 与 `UserMessageItem` 的 `useMessageEditStore()` 改细粒度 selector(编辑态用 turnId 门控)。 | `ContentCanvas.tsx`、`EditorArea.tsx`、`MissionControl.tsx`、`AuxPane.tsx`、`UserMessageItem.tsx:100-108` | 低 |
 | T12 | **滚动回调节流**:三处加 rAF 合并 + setState 浅比较短路;FileExplorer 评估 IntersectionObserver。 | `FileExplorer.tsx:63-107`、`InsightsScene.tsx:472-490`、`ExploreGroupRenderer.tsx:95-107,272` | 低 |
 | T13 | **transition:all 清理**:分隔条与 SessionScene 显式属性列表,宽度反馈改 transform/伪元素。 | `resizer.css`、`SessionScene.scss` | 低 |
-| T14 | **常驻动画整治**:FlexiblePanel 呼吸灯改伪元素 opacity;宠物 idle 降频、hidden 时暂停;删除 `animations.css` 死代码(`.anim-glass-shine` 等,TSX 零引用)。 | `FlexiblePanel.scss:215-240,558-559`、`ChatInputPixelPet.scss`、`animations.css:193,293` | 低 |
+| T14 | **常驻动画整治**:FlexiblePanel 呼吸灯改伪元素 opacity;宠物 idle 降频、hidden 时暂停;删除 `animations.css` 死代码(`.anim-glass-shine` 等,TSX 零引用)。 | `FlexiblePanel.scss:215-240,558-559`、`AgentCompanionPet.scss`、`animations.css:193,293` | 低 |
 | T15 | **监听器清理修复**:GitStateManager dispose 补摘除;两处 await 竞态改 resolve-后判 disposed;WorkspaceAPI abort 监听对齐 `:555-559` 模式。 | `GitStateManager.ts`、`PeerHostInvokeBridge.tsx`、`useWindowControls.ts`、`WorkspaceAPI.ts` | 低 |
 | T16 | **SceneViewport 场景 memo 化**:renderScene 按 tabId 缓存或 SceneHost memo 包装。 | `SceneViewport.tsx:170-209` | 低-中(确认场景 props 均为标量) |
 | T17 | 【谨慎,最后做】**VirtualMessageList 读写微整**:`applyFooterCompensationNow` 双读并一、handleScroll 几何读取快照化。**不得改动补偿/跟随逻辑本身**,改后人工回归 `FLOWCHAT_SCROLL_STABILITY.md` 所列场景。 | `VirtualMessageList.tsx:795-808,2255-2350` | 高 |
 
-**建议实施顺序**:T2 → T1 → T5/T6/T7/T11/T12/T15(低风险批)→ T3 → T8/T9/T13/T14 → T10/T16 → T4 → T17。T1+T2 是收益最大的组合拳,预计流式期间的 React commit 范围可从"整屏消息"缩小到"单个活跃文本块"。
+**建议实施顺序**:T2 → T1 → T5/T6/T7/T11/T12/T15(低风险批)→ T3 → T8/T9/T13/T14 → T16 → T4 → T17。T1+T2 是收益最大的组合拳,预计流式期间的 React commit 范围可从"整屏消息"缩小到"单个活跃文本块"。

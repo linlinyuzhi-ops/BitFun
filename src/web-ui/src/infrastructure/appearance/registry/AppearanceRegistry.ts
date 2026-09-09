@@ -12,8 +12,8 @@ import {
 
 const SURFACE_ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 const CONTRACT_ID_PATTERN = /^[a-z][a-zA-Z0-9]*$/;
-const FACET_ATTRIBUTE_PATTERN = /^data-bf-[a-z][a-z0-9-]*$/;
-const STATE_SUFFIX_PATTERN = /^(?::(?:hover|active|focus-visible|focus-within|disabled)(?::not\(:disabled\))?|:has\(input:checked\)|\[data-bf-state~="[a-z][a-zA-Z0-9-]*"\])$/;
+const FACET_ATTRIBUTE_PATTERN = /^data-openbitfun-[a-z][a-z0-9-]*$/;
+const STATE_SUFFIX_PATTERN = /^(?::(?:hover|active|focus-visible|focus-within|disabled)(?::not\(:disabled\))?|:has\(input:checked\)|\[data-openbitfun-state~="[a-z][a-zA-Z0-9-]*"\])$/;
 
 export class AppearanceRegistry {
   private readonly components = new Map<string, AppearanceSurfaceDescriptor>();
@@ -94,6 +94,9 @@ export class AppearanceRegistry {
   private prepareDescriptor(descriptor: AppearanceSurfaceDescriptor): AppearanceSurfaceDescriptor {
     if (!SURFACE_ID_PATTERN.test(descriptor.id)) {
       throw new Error(`Invalid appearance surface id: ${descriptor.id}`);
+    }
+    if (descriptor.hostSelectorId && !SURFACE_ID_PATTERN.test(descriptor.hostSelectorId)) {
+      throw new Error(`Invalid Appearance host selector id: ${descriptor.hostSelectorId}`);
     }
     if (descriptor.parts.length === 0) {
       throw new Error(`Appearance surface ${descriptor.id} must declare at least one part`);

@@ -13,6 +13,7 @@ use ignore::types::TypesBuilder;
 use ignore::{DirEntry, WalkBuilder, WalkState};
 
 const MAX_DISPLAY_COLUMNS: usize = 500;
+const MAX_VIRTUAL_GREP_CONTENT_LINES: usize = 4096;
 const VCS_DIRECTORIES_TO_EXCLUDE: &[&str] = &[".git", ".svn", ".hg", ".bzr", ".jj", ".sl"];
 
 /// Output mode enumeration
@@ -54,8 +55,11 @@ struct GrepSink {
     before_context: usize,
     after_context: usize,
     head_limit: Option<usize>,
+    /// Retain this many final physical output lines without stopping matching.
+    output_budget: Option<usize>,
     current_file: PathBuf,
     display_base: Option<String>,
+    display_path: Option<String>,
     output: Arc<Mutex<Vec<String>>>,
     line_count: Arc<Mutex<usize>>,
     match_count: Arc<Mutex<usize>>,
@@ -89,13 +93,29 @@ impl GrepSink {
             before_context,
             after_context,
             head_limit,
+            output_budget: None,
             current_file,
             display_base,
+            display_path: None,
             output: Arc::new(Mutex::new(Vec::new())),
             line_count: Arc::new(Mutex::new(0)),
             match_count: Arc::new(Mutex::new(0)),
             last_line_number: Arc::new(Mutex::new(None)),
         }
+    }
+
+    fn with_display_path(mut self, display_path: String) -> Self {
+        self.display_path = Some(display_path);
+        self
+    }
+
+    /// Limit retained output independently of the existing search stop limit.
+    /// Budget includes context and separators and uses the reducer's physical
+    /// line units. None is unbounded; Some(0) counts matches without retaining
+    /// text. Pass offset + head_limit after normalizing user head_limit=0 to None.
+    fn with_output_budget(mut self, output_budget: Option<usize>) -> Self {
+        self.output_budget = output_budget;
+        self
     }
 
     /// Takes the collected output lines, avoiding a split/realloc/join round
@@ -127,10 +147,40 @@ impl GrepSink {
         }
     }
 
-    fn write_line(&self, line: String) {
-        if self.increment_line_count() {
-            let mut output = lock_recover(&self.output, "output");
+    fn has_output_capacity(&self) -> bool {
+        self.output_budget
+            .is_none_or(|budget| lock_recover(&self.output, "output").len() < budget)
+    }
+
+    fn retain_output(&self, line: String) {
+        let mut output = lock_recover(&self.output, "output");
+        let Some(budget) = self.output_budget else {
+            // Keep the original representation for native/virtual consumers.
             output.push(line);
+            return;
+        };
+        let remaining = budget.saturating_sub(output.len());
+        if remaining == 0 {
+            return;
+        }
+        // Match reduce_grep_results exactly, including empty physical lines
+        // within a multiline match. The retained prefix can still be paginated
+        // by the existing reducer without changing context or separator output.
+        if line.contains('\n') {
+            output.extend(
+                line.lines()
+                    .filter(|part| !part.is_empty())
+                    .take(remaining)
+                    .map(str::to_string),
+            );
+        } else if !line.is_empty() {
+            output.push(line);
+        }
+    }
+
+    fn write_line(&self, format: impl FnOnce() -> String) {
+        if self.increment_line_count() && self.has_output_capacity() {
+            self.retain_output(format());
         }
     }
 
@@ -145,9 +195,8 @@ impl GrepSink {
         let mut last_line = lock_recover(&self.last_line_number, "last_line_number");
         if let Some(last) = *last_line {
             // If current line number is not continuous with previous line (difference > 1), insert separator
-            if current_line > last + 1 {
-                let mut output = lock_recover(&self.output, "output");
-                output.push("--".to_string());
+            if current_line > last + 1 && self.has_output_capacity() {
+                self.retain_output("--".to_string());
             }
         }
         *last_line = Some(current_line);
@@ -166,7 +215,9 @@ impl GrepSink {
             );
         }
         let separator = if is_match { ":" } else { "-" };
-        let path_prefix = relativize_display_path(&self.current_file, self.display_base.as_deref());
+        let path_prefix = self.display_path.clone().unwrap_or_else(|| {
+            relativize_display_path(&self.current_file, self.display_base.as_deref())
+        });
 
         if self.show_line_numbers {
             format!("{}{}{}:{}", path_prefix, separator, line_number, line_str)
@@ -191,8 +242,7 @@ impl Sink for GrepSink {
                 let line_number = mat.line_number().unwrap_or(0);
                 // Check if separator needs to be inserted
                 self.check_and_write_separator(line_number);
-                let formatted = self.format_line(line_number, mat.bytes(), true);
-                self.write_line(formatted);
+                self.write_line(|| self.format_line(line_number, mat.bytes(), true));
             }
             OutputMode::FilesWithMatches => {
                 return Ok(false); // Only need first match, then stop
@@ -221,8 +271,7 @@ impl Sink for GrepSink {
             let line_number = ctx.line_number().unwrap_or(0);
             // Check if separator needs to be inserted
             self.check_and_write_separator(line_number);
-            let formatted = self.format_line(line_number, ctx.bytes(), false);
-            self.write_line(formatted);
+            self.write_line(|| self.format_line(line_number, ctx.bytes(), false));
         }
 
         Ok(!self.should_stop())
@@ -240,6 +289,10 @@ impl Sink for GrepSink {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "grep_sink_tests.rs"]
+mod sink_tests;
 
 /// Progress report callback type
 pub type ProgressCallback = Arc<dyn Fn(usize, usize, usize) + Send + Sync>;
@@ -338,85 +391,6 @@ impl Default for GrepOptions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RemoteGrepCommandRequest {
-    pub pattern: String,
-    pub path: String,
-    pub case_insensitive: bool,
-    pub output_mode: OutputMode,
-    pub show_line_numbers: bool,
-    pub context: Option<usize>,
-    pub before_context: Option<usize>,
-    pub after_context: Option<usize>,
-    pub glob_patterns: Vec<String>,
-    pub file_type: Option<String>,
-    pub head_limit: Option<usize>,
-    pub offset: usize,
-}
-
-pub fn build_remote_grep_command(request: &RemoteGrepCommandRequest) -> String {
-    let offset_cmd = if request.offset > 0 {
-        format!(" | tail -n +{}", request.offset + 1)
-    } else {
-        String::new()
-    };
-    let limit_cmd = request
-        .head_limit
-        .map(|limit| format!(" | head -n {}", limit))
-        .unwrap_or_default();
-
-    let mut cmd = "rg --no-heading --hidden --max-columns 500".to_string();
-    if request.case_insensitive {
-        cmd.push_str(" -i");
-    }
-    if request.output_mode == OutputMode::FilesWithMatches {
-        cmd.push_str(" -l");
-    } else if request.output_mode == OutputMode::Count {
-        cmd.push_str(" -c");
-    } else if request.show_line_numbers {
-        cmd.push_str(" --line-number");
-    }
-    if request.output_mode == OutputMode::Content {
-        if let Some(context) = request.context {
-            cmd.push_str(&format!(" -C {}", context));
-        } else {
-            if let Some(before) = request.before_context {
-                cmd.push_str(&format!(" -B {}", before));
-            }
-            if let Some(after) = request.after_context {
-                cmd.push_str(&format!(" -A {}", after));
-            }
-        }
-    }
-    for glob_pattern in &request.glob_patterns {
-        cmd.push_str(&format!(" --glob {}", shell_single_quote(glob_pattern)));
-    }
-    if let Some(file_type) = &request.file_type {
-        cmd.push_str(&format!(" --type {}", shell_single_quote(file_type)));
-    }
-    cmd.push_str(&format!(
-        " -e {} {} 2>/dev/null{}{}",
-        shell_single_quote(&request.pattern),
-        shell_single_quote(&request.path),
-        offset_cmd,
-        limit_cmd
-    ));
-
-    format!(
-        "if command -v rg >/dev/null 2>&1; then {}; else grep -rn{} -e {} {} 2>/dev/null{}{}; fi",
-        cmd,
-        if request.case_insensitive { "i" } else { "" },
-        shell_single_quote(&request.pattern),
-        shell_single_quote(&request.path),
-        offset_cmd,
-        limit_cmd,
-    )
-}
-
-pub fn count_remote_grep_matches(stdout: &str) -> usize {
-    stdout.lines().count()
-}
-
 pub fn relativize_result_text(result_text: &str, display_base: Option<&str>) -> String {
     let Some(base) = display_base else {
         return result_text.to_string();
@@ -438,18 +412,6 @@ pub fn relativize_result_text(result_text: &str, display_base: Option<&str>) -> 
         })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-pub fn render_remote_grep_result_text(
-    stdout: &str,
-    pattern: &str,
-    display_base: Option<&str>,
-) -> String {
-    if stdout.lines().next().is_none() {
-        format!("No matches found for pattern '{}'", pattern)
-    } else {
-        relativize_result_text(stdout, display_base)
-    }
 }
 
 pub fn apply_offset_and_limit(items: &mut Vec<String>, offset: usize, head_limit: Option<usize>) {
@@ -717,26 +679,9 @@ fn modified_time(path: &Path) -> SystemTime {
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-fn normalize_display_base(base: &str) -> String {
-    base.replace('\\', "/").trim_end_matches('/').to_string()
-}
-
 fn relativize_display_path(path: &Path, display_base: Option<&str>) -> String {
-    let normalized = path.display().to_string().replace('\\', "/");
-    let Some(base) = display_base else {
-        return normalized;
-    };
-
-    let normalized_base = normalize_display_base(base);
-    if normalized == normalized_base {
-        return ".".to_string();
-    }
-
-    if let Some(rest) = normalized.strip_prefix(&(normalized_base + "/")) {
-        return rest.to_string();
-    }
-
-    normalized
+    let base = display_base.map(|base| native_search_path(Path::new(base)));
+    workspace_display_path(&native_search_path(path), base.as_deref())
 }
 
 fn apply_offset_limit<T>(
@@ -802,13 +747,9 @@ pub fn grep_search(
     let after_context = options
         .after_context
         .unwrap_or(options.context.unwrap_or(0));
-    let pattern = &options.pattern;
-    let case_insensitive = options.case_insensitive;
     let multiline = options.multiline;
     let output_mode = options.output_mode;
     let show_line_numbers = options.show_line_numbers;
-    let head_limit = options.head_limit;
-    let offset = options.offset;
     let file_type = options.file_type.as_deref();
     let display_base = options.display_base.clone();
 
@@ -829,16 +770,14 @@ pub fn grep_search(
         .git_global(true)
         .git_exclude(true);
 
-    // Add file type filter
-    let mut types_builder = TypesBuilder::new();
-    types_builder.add_defaults();
+    let types_builder = build_grep_file_types(file_type)?;
+    walk_builder.types(
+        types_builder
+            .build()
+            .map_err(|error| format!("Invalid file type: {error}"))?,
+    );
 
-    types_builder
-        .add("arkts", "*.ets")
-        .map_err(|e| format!("Failed to add arkts type: {}", e))?;
-    types_builder
-        .add("json", "*.json5")
-        .map_err(|e| format!("Failed to add json5 type: {}", e))?;
+    let glob_matchers = build_grep_globs(&options.globs)?;
 
     if let Some(ftype) = file_type {
         // Check if type already exists
@@ -1133,15 +1072,121 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("bitfun-grep-search-{name}-{unique}"));
+        let dir = std::env::temp_dir().join(format!("openbitfun-grep-search-{name}-{unique}"));
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn workspace_paths_normalize_native_drives_without_rewriting_posix_names() {
+        assert_eq!(
+            super::workspace_search_path(r"C:\repo\src\main.py"),
+            "C:/repo/src/main.py"
+        );
+        assert_eq!(
+            super::workspace_search_path(r"\\server\share\a.py"),
+            "//server/share/a.py"
+        );
+        assert_eq!(
+            super::workspace_search_path(r"/repo/a\b.py"),
+            r"/repo/a\b.py"
+        );
+        assert_eq!(
+            super::workspace_search_path("/repo/./sub//a.py"),
+            "/repo/sub/a.py"
+        );
+        assert_eq!(
+            super::workspace_display_path(r"C:\repo\src\a.py", Some(r"C:\repo")),
+            "src/a.py"
+        );
+        assert_eq!(
+            super::workspace_display_path(r"/repo/a\b.py", Some("/repo")),
+            r#""a\\b.py""#
+        );
+    }
+
+    #[test]
+    fn relative_globs_use_search_root_without_rewriting_posix_backslashes() {
+        for (pattern, path, root) in [
+            ("src/*.rs", "/repo/src/lib.rs", "/repo"),
+            ("src/**", "/repo/src/nested/lib.rs", "/repo/"),
+            ("/repo/src/*.rs", "/repo/src/lib.rs", "/repo"),
+            ("lib.rs", "/repo/src/lib.rs", "/repo"),
+            (r"src/a\\b.rs", r"/repo/src/a\b.rs", "/repo"),
+            ("src/*.rs", r"C:\repo\src\lib.rs", r"C:\repo"),
+        ] {
+            let globs = super::build_grep_globs(&[pattern.to_string()]).unwrap();
+            assert!(
+                super::grep_globs_match(&globs, path, root),
+                "{pattern}: {path}"
+            );
+        }
+        let globs = super::build_grep_globs(&["src/*.rs".to_string()]).unwrap();
+        assert!(!super::grep_globs_match(
+            &globs,
+            "/repository/src/lib.rs",
+            "/repo"
+        ));
     }
 
     #[cfg(unix)]
     fn create_file_symlink(target: &std::path::Path, alias: &std::path::Path) -> bool {
         std::os::unix::fs::symlink(target, alias).expect("file symlink should be available");
         true
+    }
+
+    #[test]
+    fn virtual_file_search_preserves_regex_modes_filters_and_pagination() {
+        let files = vec![
+            (
+                ".miniapp-context/scope/a.json".to_string(),
+                std::sync::Arc::<str>::from("alpha\nNeedle one\nneedle two\n"),
+            ),
+            (
+                ".miniapp-context/scope/b.txt".to_string(),
+                std::sync::Arc::<str>::from("needle ignored by type\n"),
+            ),
+        ];
+        let result = grep_search_virtual_files(
+            GrepOptions::new("needle", ".miniapp-context/scope")
+                .case_insensitive(true)
+                .output_mode(OutputMode::Content)
+                .file_type("json")
+                .offset(1)
+                .head_limit(1),
+            &files,
+        )
+        .expect("virtual grep should succeed");
+
+        assert_eq!(result.file_count, 1);
+        assert_eq!(result.total_matches, 2);
+        assert_eq!(
+            result.result_text,
+            ".miniapp-context/scope/a.json:3:needle two"
+        );
+        assert_eq!(result.applied_offset, Some(1));
+    }
+
+    #[test]
+    fn virtual_file_search_bounds_explicit_unlimited_content_during_collection() {
+        let files = vec![(
+            ".miniapp-context/scope/large.ndjson".to_string(),
+            std::sync::Arc::<str>::from(
+                "needle\n".repeat(MAX_VIRTUAL_GREP_CONTENT_LINES.saturating_add(100)),
+            ),
+        )];
+        let result = grep_search_virtual_files(
+            GrepOptions::new("needle", ".miniapp-context/scope")
+                .output_mode(OutputMode::Content)
+                .head_limit(0),
+            &files,
+        )
+        .expect("virtual grep should replace an unlimited request with a hard bound");
+
+        assert_eq!(
+            result.result_text.lines().count(),
+            MAX_VIRTUAL_GREP_CONTENT_LINES
+        );
     }
 
     #[cfg(windows)]

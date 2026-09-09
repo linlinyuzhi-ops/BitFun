@@ -1,9 +1,11 @@
 import React, { useEffect, useCallback, useRef } from 'react';
+import { OverflowText, Button, Icon, IconButton, Tooltip } from '@openbitfun/ui';
 import { createPortal } from 'react-dom';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
-import { X, CheckCircle, XCircle } from 'lucide-react';
-import { PresenceBoundary, Tooltip } from '@/component-library';
+;
+import { RetainedMountBoundary } from '@/shared/presence';
 import { useI18n } from '@/infrastructure/i18n';
+import { isImeOwnedKeyboardEvent } from '@/shared/utils/ime';
 import { DiffEditor } from '../../../tools/editor';
 import './DiffFullscreenViewer.css';
 
@@ -53,7 +55,7 @@ export const DiffFullscreenViewer: React.FC<DiffFullscreenViewerProps> = ({
   // Close on Escape
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape' && isOpen && !isImeOwnedKeyboardEvent(e)) {
         onClose();
       }
     };
@@ -79,19 +81,19 @@ export const DiffFullscreenViewer: React.FC<DiffFullscreenViewerProps> = ({
   const fileName = retainedContent.filePath.split(/[/\\]/).pop() || retainedContent.filePath;
 
   const fullscreenContent = (
-    <div
+    <div data-overflow-trigger
       className="diff-fullscreen-overlay"
       data-state={isOpen ? 'open' : 'closed'}
       aria-hidden={!isOpen}
       {...(!isOpen ? { inert: '' } : {})}
       onClick={handleBackdropClick}
-      data-bf-component="diff-fullscreen-viewer"
-      data-bf-part="overlay"
+      data-openbitfun-component="diff-fullscreen-viewer"
+      data-openbitfun-part="overlay"
     >
-      <div className="diff-fullscreen-container" data-bf-component="diff-fullscreen-viewer" data-bf-part="container">
+      <div className="diff-fullscreen-container" data-openbitfun-component="diff-fullscreen-viewer" data-openbitfun-part="container">
         {/* Top toolbar */}
-        <div className="diff-fullscreen-header" data-bf-component="diff-fullscreen-viewer" data-bf-part="header">
-          <div className="file-info" data-bf-component="diff-fullscreen-viewer" data-bf-part="fileInfo">
+        <div className="diff-fullscreen-header" data-openbitfun-component="diff-fullscreen-viewer" data-openbitfun-part="header">
+          <div className="file-info" data-openbitfun-component="diff-fullscreen-viewer" data-openbitfun-part="fileInfo">
             <div className="file-icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -99,49 +101,51 @@ export const DiffFullscreenViewer: React.FC<DiffFullscreenViewerProps> = ({
               </svg>
             </div>
             <div className="file-details">
-              <div className="file-name">{fileName}</div>
-              <div className="file-path-full">{retainedContent.filePath}</div>
+              <div className="file-name"><OverflowText>{fileName}</OverflowText></div>
+              <div className="file-path-full"><OverflowText>{retainedContent.filePath}</OverflowText></div>
             </div>
           </div>
 
-          <div className="header-actions" data-bf-component="diff-fullscreen-viewer" data-bf-part="actions">
+          <div className="header-actions" data-openbitfun-component="diff-fullscreen-viewer" data-openbitfun-part="actions">
             <Tooltip content={t('diffFullscreen.acceptFileTooltip')}>
-              <button
-                className="header-btn accept-btn"
+              <Button
+                variant="fill"
+                size="sm"
+                leadingIcon={<Icon name="check-circle" size="lg" />}
                 onClick={onAcceptFile}
                 disabled={retainedContent.loading}
               >
-                <CheckCircle size={16} />
-                <span>{t('diffFullscreen.acceptFile')}</span>
-              </button>
+                {t('diffFullscreen.acceptFile')}
+              </Button>
             </Tooltip>
             
             <Tooltip content={t('diffFullscreen.rejectFileTooltip')}>
-              <button
-                className="header-btn reject-btn"
+              <Button
+                variant="outline"
+                size="sm"
+                leadingIcon={<Icon name="xmark" size="lg" />}
                 onClick={onRejectFile}
                 disabled={retainedContent.loading}
               >
-                <XCircle size={16} />
-                <span>{t('diffFullscreen.rejectFile')}</span>
-              </button>
+                {t('diffFullscreen.rejectFile')}
+              </Button>
             </Tooltip>
 
             <div className="header-divider" />
 
             <Tooltip content={t('tooltip.close')}>
-              <button
-                className="header-btn close-btn"
+              <IconButton
+                size="sm"
+                aria-label={t('tooltip.close')}
+                icon={<Icon name="xmark" size="lg" />}
                 onClick={onClose}
-              >
-                <X size={16} />
-              </button>
+              />
             </Tooltip>
           </div>
         </div>
 
         {/* Diff content */}
-        <div className="diff-fullscreen-content" data-bf-component="diff-fullscreen-viewer" data-bf-part="content">
+        <div className="diff-fullscreen-content" data-openbitfun-component="diff-fullscreen-viewer" data-openbitfun-part="content">
           <DiffEditor
             originalContent={retainedContent.originalContent}
             modifiedContent={retainedContent.modifiedContent}
@@ -154,7 +158,7 @@ export const DiffFullscreenViewer: React.FC<DiffFullscreenViewerProps> = ({
 
         {/* Loading overlay */}
         {retainedContent.loading && (
-          <div className="fullscreen-loading-overlay" data-bf-component="diff-fullscreen-viewer" data-bf-part="loading">
+          <div className="fullscreen-loading-overlay" data-openbitfun-component="diff-fullscreen-viewer" data-openbitfun-part="loading">
             <div className="loading-spinner" />
             <span>{t('diffFullscreen.processing')}</span>
           </div>
@@ -164,9 +168,9 @@ export const DiffFullscreenViewer: React.FC<DiffFullscreenViewerProps> = ({
   );
 
   return createPortal(
-    <PresenceBoundary active={isOpen}>
+    <RetainedMountBoundary present={isOpen}>
       {fullscreenContent}
-    </PresenceBoundary>,
+    </RetainedMountBoundary>,
     getAppearanceOverlayHost(),
   );
 };

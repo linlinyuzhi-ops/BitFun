@@ -1,14 +1,7 @@
-use super::manager::{
-    normalize_legacy_agent_model_defaults_config_value,
-    normalize_legacy_tool_permissions_config_value, strip_removed_model_reasoning_fields,
-};
-use super::providers::AIConfigProvider;
 use super::types::{
-    ConfigDiagnostic, ConfigDiagnosticRecoverability, ConfigDiagnosticSeverity, ConfigProvider,
-    GlobalConfig, ModelCapability, SubagentModelSelection, CURRENT_CONFIG_SCHEMA_VERSION,
+    ConfigDiagnostic, ConfigDiagnosticRecoverability, ConfigDiagnosticSeverity, GlobalConfig,
+    ModelCapability, SubagentModelSelection,
 };
-use crate::util::errors::{BitFunError, BitFunResult};
-use serde_json::Value;
 use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
@@ -116,7 +109,6 @@ pub fn reject_unsupported_schema(diagnostics: &[ConfigDiagnostic]) -> BitFunResu
 /// Canonicalizes typed model fields whose meaning is capability-dependent.
 pub fn normalize_typed_config(config: &mut GlobalConfig) -> Vec<ConfigDiagnostic> {
     let mut diagnostics = Vec::new();
-    config.schema_version = CURRENT_CONFIG_SCHEMA_VERSION;
 
     for (index, model) in config.ai.models.iter_mut().enumerate() {
         model.ensure_category_and_capabilities();
@@ -136,55 +128,6 @@ pub fn normalize_typed_config(config: &mut GlobalConfig) -> Vec<ConfigDiagnostic
     }
 
     diagnostics
-}
-
-/// Disables only individually invalid model entries so a local model mistake
-/// cannot prevent the rest of the product from starting. Cross-model/default
-/// integrity is repaired separately by the model reconciliation pass.
-pub async fn isolate_invalid_ai_models(
-    config: &mut GlobalConfig,
-) -> BitFunResult<Vec<ConfigDiagnostic>> {
-    let mut diagnostics = Vec::new();
-
-    for index in 0..config.ai.models.len() {
-        if !config.ai.models[index].enabled {
-            continue;
-        }
-
-        let mut isolated_ai = super::types::AIConfig::default();
-        isolated_ai.models = vec![config.ai.models[index].clone()];
-
-        let validation = AIConfigProvider
-            .validate_config(&serde_json::to_value(isolated_ai)?)
-            .await;
-        if let Err(error) = validation {
-            let error_message = error.to_string();
-            // Reasoning schemas are cross-cutting runtime contracts. Keep these
-            // as hard failures so a malformed preset is not silently hidden.
-            if error_message.to_ascii_lowercase().contains("reasoning") {
-                return Err(error);
-            }
-            let model_id = config.ai.models[index].id.clone();
-            config.ai.models[index].enabled = false;
-            diagnostics.push(ConfigDiagnostic {
-                path: format!("ai.models[{index}]"),
-                message: format!(
-                    "Disabled invalid model '{}' during configuration recovery",
-                    model_id
-                ),
-                code: "INVALID_MODEL_DISABLED".to_string(),
-                severity: ConfigDiagnosticSeverity::Warning,
-                recoverability: ConfigDiagnosticRecoverability::ModelDisabled,
-            });
-            log::warn!(
-                "Disabled invalid model during configuration recovery: model_id={}, error={}",
-                model_id,
-                error_message
-            );
-        }
-    }
-
-    Ok(diagnostics)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -258,7 +201,7 @@ pub fn reconcile_model_references(config: &mut GlobalConfig) -> ModelReferenceRe
     let mut invalidated = HashSet::new();
 
     let direct_text_reference_is_valid = |reference: &str| {
-        matches!(reference, "auto" | "primary" | "fast")
+        matches!(reference, "primary" | "fast")
             || enabled_model_with_capability(&snapshot, reference, ModelCapability::TextChat)
     };
 
@@ -270,7 +213,7 @@ pub fn reconcile_model_references(config: &mut GlobalConfig) -> ModelReferenceRe
             let valid = match selection {
                 crate::service::config::types::TaskModelSelection::Inherit => allow_inherit,
                 crate::service::config::types::TaskModelSelection::Fixed { model_id } => {
-                    model_id != "auto" && direct_text_reference_is_valid(model_id)
+                    direct_text_reference_is_valid(model_id)
                 }
             };
             if !valid {
@@ -302,14 +245,16 @@ pub fn reconcile_model_references(config: &mut GlobalConfig) -> ModelReferenceRe
 
     if !direct_text_reference_is_valid(&config.ai.agent_model_defaults.mode) {
         invalidated.insert(config.ai.agent_model_defaults.mode.clone());
-        let previous =
-            std::mem::replace(&mut config.ai.agent_model_defaults.mode, "auto".to_string());
+        let previous = std::mem::replace(
+            &mut config.ai.agent_model_defaults.mode,
+            "primary".to_string(),
+        );
         result.agent_model_defaults_changed = true;
         diagnose_reference_repair(
             &mut result.diagnostics,
             "ai.agent_model_defaults.mode",
             Some(&previous),
-            Some("auto"),
+            Some("primary"),
         );
     }
 
@@ -340,6 +285,24 @@ pub fn reconcile_model_references(config: &mut GlobalConfig) -> ModelReferenceRe
             previous.as_deref(),
             Some("fast"),
         );
+    }
+
+    if let std::collections::hash_map::Entry::Vacant(entry) = config
+        .ai
+        .agent_model_defaults
+        .subagents
+        .builtin
+        .entry("ResearchSpecialist".to_string())
+    {
+        entry.insert(SubagentModelSelection::Inherit);
+        result.agent_model_defaults_changed = true;
+        result.diagnostics.push(ConfigDiagnostic {
+            path: "ai.agent_model_defaults.subagents.builtin.ResearchSpecialist".to_string(),
+            message: "Configured ResearchSpecialist to inherit the parent model so DeepResearch does not depend on an unrelated fast-model endpoint".to_string(),
+            code: "RESEARCH_SPECIALIST_MODEL_DEFAULT_RESTORED".to_string(),
+            severity: ConfigDiagnosticSeverity::Warning,
+            recoverability: ConfigDiagnosticRecoverability::AutoFix,
+        });
     }
 
     config
@@ -605,27 +568,54 @@ mod tests {
             .contains(&"missing".to_string()));
     }
 
-    #[tokio::test]
-    async fn global_ai_errors_do_not_disable_individually_valid_models() {
+    #[test]
+    fn missing_research_specialist_default_is_restored_for_current_writes() {
         let mut config = GlobalConfig::default();
-        config.ai.stream_idle_timeout_secs = Some(0);
-        config.ai.models.push(AIModelConfig {
-            id: "valid-text".to_string(),
-            name: "Valid text model".to_string(),
-            provider: "openai".to_string(),
-            model_name: "text-model".to_string(),
-            base_url: "https://example.com/v1".to_string(),
-            enabled: true,
-            capabilities: vec![ModelCapability::TextChat],
-            context_window: Some(64_000),
-            ..AIModelConfig::default()
-        });
+        config
+            .ai
+            .agent_model_defaults
+            .subagents
+            .builtin
+            .remove("ResearchSpecialist");
 
-        let diagnostics = isolate_invalid_ai_models(&mut config)
-            .await
-            .expect("model isolation should succeed");
+        let result = reconcile_model_references(&mut config);
 
-        assert!(diagnostics.is_empty());
-        assert!(config.ai.models[0].enabled);
+        assert!(result.agent_model_defaults_changed);
+        assert_eq!(
+            config
+                .ai
+                .agent_model_defaults
+                .subagents
+                .builtin
+                .get("ResearchSpecialist"),
+            Some(&SubagentModelSelection::Inherit)
+        );
+        assert!(result
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == "RESEARCH_SPECIALIST_MODEL_DEFAULT_RESTORED" }));
     }
+
+    #[test]
+    fn explicit_research_specialist_model_override_is_preserved() {
+        let mut config = GlobalConfig::default();
+        config.ai.agent_model_defaults.subagents.builtin.insert(
+            "ResearchSpecialist".to_string(),
+            SubagentModelSelection::fixed("fast"),
+        );
+
+        let result = reconcile_model_references(&mut config);
+
+        assert!(!result.agent_model_defaults_changed);
+        assert_eq!(
+            config
+                .ai
+                .agent_model_defaults
+                .subagents
+                .builtin
+                .get("ResearchSpecialist"),
+            Some(&SubagentModelSelection::fixed("fast"))
+        );
+    }
+
 }

@@ -24,6 +24,7 @@ interface ModelSelectorDropdownStyle {
   position: 'fixed';
   visibility: 'visible';
   left: string;
+  /** `auto` for a top-placed menu, which is held by its bottom edge instead. */
   top: string;
   bottom: 'auto';
   maxHeight: string;

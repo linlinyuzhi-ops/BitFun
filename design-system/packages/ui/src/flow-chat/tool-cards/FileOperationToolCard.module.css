@@ -1,0 +1,90 @@
+@layer openbitfun.components {
+  .root {
+    min-inline-size: 0;
+  }
+
+  .path {
+    display: block;
+    overflow: hidden;
+    min-inline-size: 0;
+    color: var(--openbitfun-color-content-secondary);
+    white-space: nowrap;
+  }
+
+  .path[data-operation="delete"] {
+    color: var(--openbitfun-color-content-muted);
+    text-decoration: line-through;
+  }
+
+  .inlineMessage {
+    overflow: hidden;
+    min-inline-size: 0;
+    color: var(--openbitfun-color-content-muted);
+    white-space: nowrap;
+  }
+
+  .statusDetail {
+    display: inline-block;
+    /* Shrinks with the extra slot and truncates so the trailing status icon
+       stays inside the card on narrow surfaces. */
+    flex: 0 1 auto;
+    min-inline-size: 0;
+    overflow: hidden;
+    padding-block: var(--openbitfun-space-1);
+    padding-inline: var(--openbitfun-space-2);
+    border-radius: var(--openbitfun-radius-sm);
+    color: var(--openbitfun-color-content-muted);
+    background: var(--openbitfun-color-action-neutral-surface);
+    font-size: var(--openbitfun-type-body-sm-font-size);
+    white-space: nowrap;
+  }
+
+  .warningStatusIcon {
+    color: var(--openbitfun-color-status-warning-emphasis);
+  }
+
+  .preview {
+    overflow: hidden;
+    inline-size: 100%;
+    min-inline-size: 0;
+    border-radius: var(--openbitfun-radius-sm);
+  }
+
+  .preview > * {
+    min-inline-size: 0;
+  }
+
+  .error {
+    display: flex;
+    flex-direction: column;
+    gap: var(--openbitfun-space-2);
+    color: var(--openbitfun-color-status-danger-content);
+    font-size: var(--openbitfun-type-body-sm-font-size);
+    line-height: var(--openbitfun-type-body-md-line-height);
+  }
+
+  .error[data-guidance="true"] {
+    color: var(--openbitfun-color-content-secondary);
+  }
+
+  .errorTitle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--openbitfun-space-2);
+    font-weight: var(--openbitfun-type-label-selected-font-weight);
+  }
+
+  .errorTitle > :where(svg, img) {
+    flex: 0 0 auto;
+    inline-size: var(--openbitfun-font-size-xl);
+    block-size: var(--openbitfun-font-size-xl);
+  }
+
+  .errorMessage {
+    max-block-size: 20rem;
+    overflow-y: auto;
+    color: var(--openbitfun-color-content-muted);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}

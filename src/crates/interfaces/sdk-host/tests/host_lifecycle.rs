@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use bitfun_agent_runtime::event_queue::{EventQueue, EventQueueConfig};
-use bitfun_agent_runtime::sdk::{
+use openbitfun_agent_runtime::event_queue::{EventQueue, EventQueueConfig};
+use openbitfun_agent_runtime::sdk::{
     AgentDialogTurnPort, AgentDialogTurnRequest, AgentEventSource, AgentRuntimeBuilder,
     AgentSessionClosePort, AgentSessionCreateRequest, AgentSessionCreateResult,
     AgentSessionDeleteRequest, AgentSessionListRequest, AgentSessionManagementPort,
@@ -123,6 +123,7 @@ impl FakeOwner {
         Self {
             queue: Mutex::new(Some(queue)),
             emit_terminal: true,
+            settlement_output_text: Some(output_text.clone()),
             output_text: Some(output_text),
             ..Self::default()
         }
@@ -537,7 +538,7 @@ impl AgentTurnSettlementPort for FakeOwner {
     async fn wait_for_turn_settlement(
         &self,
         request: AgentTurnSettlementRequest,
-    ) -> PortResult<()> {
+    ) -> PortResult<AgentTurnSettlementResult> {
         self.settlement_requests.lock().unwrap().push(request);
         if self.fail_settlement {
             return Err(PortError::new(
@@ -545,7 +546,28 @@ impl AgentTurnSettlementPort for FakeOwner {
                 "turn settlement is unknown",
             ));
         }
-        Ok(())
+        let status = self
+            .settlement_status
+            .lock()
+            .unwrap()
+            .unwrap_or(AgentTurnSettlementStatus::Completed);
+        Ok(AgentTurnSettlementResult {
+            status,
+            final_response: (status == AgentTurnSettlementStatus::Completed).then(|| {
+                self.settlement_output_text
+                    .clone()
+                    .or_else(|| self.output_text.clone())
+                    .unwrap_or_else(|| "fixture result".to_string())
+            }),
+            finish_reason: Some(
+                match status {
+                    AgentTurnSettlementStatus::Completed => "stop",
+                    AgentTurnSettlementStatus::Failed => "failed",
+                    AgentTurnSettlementStatus::Cancelled => "cancelled",
+                }
+                .to_string(),
+            ),
+        })
     }
 }
 
@@ -866,6 +888,9 @@ impl AgentTurnCancellationPort for FakeOwner {
         &self,
         request: AgentTurnCancellationRequest,
     ) -> PortResult<AgentTurnCancellationResult> {
+        if !self.keep_completed_settlement_after_cancel {
+            self.set_settlement_status(AgentTurnSettlementStatus::Cancelled);
+        }
         let cancel_index = {
             let mut requests = self.cancel_requests.lock().unwrap();
             requests.push(request.clone());
@@ -1304,7 +1329,8 @@ async fn initialize_is_required_and_version_mismatch_fails_closed() {
 
 #[tokio::test]
 async fn query_streams_existing_events_and_one_terminal_result() {
-    let (host, _, mut output) = host().await;
+    let (host, _, mut output) =
+        host_with_output("intermediate tool-round text", "authoritative final answer").await;
     initialize(&host, &mut output).await;
 
     host.handle_request(request(serde_json::json!({
@@ -1331,14 +1357,20 @@ async fn query_streams_existing_events_and_one_terminal_result() {
     assert_ne!(operation_id, query_id);
     assert_eq!(event["params"]["operationId"], operation_id);
     assert_eq!(event["params"]["event"]["type"], "assistant_text_delta");
-    assert_eq!(event["params"]["event"]["text"], "fixture result");
+    assert_eq!(
+        event["params"]["event"]["text"],
+        "intermediate tool-round text"
+    );
 
     let result = output.recv().await.unwrap();
     assert_eq!(result["method"], "query/result");
     assert_eq!(result["params"]["queryId"], query_id);
     assert_eq!(result["params"]["operationId"], operation_id);
     assert_eq!(result["params"]["status"], "completed");
-    assert_eq!(result["params"]["output"]["text"], "fixture result");
+    assert_eq!(
+        result["params"]["output"]["text"],
+        "authoritative final answer"
+    );
     assert!(output.try_recv().is_err(), "terminal result must be unique");
 }
 
@@ -1623,6 +1655,53 @@ async fn escaped_query_output_fails_before_exceeding_the_wire_budget() {
     assert_eq!(result["params"]["status"], "failed");
     assert_eq!(result["params"]["error"]["data"]["code"], "overloaded");
     assert_eq!(result["params"]["output"]["text"], "");
+}
+
+#[tokio::test]
+async fn host_output_failure_wins_when_runtime_completed_before_cancellation() {
+    let queue = Arc::new(EventQueue::new(EventQueueConfig::default()));
+    let owner = Arc::new(FakeOwner {
+        queue: Mutex::new(Some(queue.clone())),
+        emit_terminal: true,
+        output_text: Some("\\".repeat(384 * 1024 + 1)),
+        settlement_output_text: Some("authoritative final answer".to_string()),
+        keep_completed_settlement_after_cancel: true,
+        ..FakeOwner::default()
+    });
+    let runtime = AgentRuntimeBuilder::new()
+        .with_submission_port(owner.clone())
+        .with_dialog_turn_port(owner.clone())
+        .with_cancellation_port(owner.clone())
+        .with_turn_settlement_port(owner.clone())
+        .with_session_management_port(owner.clone())
+        .with_session_close_port(owner.clone())
+        .with_permission_request_manager(permission_manager())
+        .with_event_source(AgentEventSource::new(queue))
+        .build()
+        .unwrap();
+    let (sender, mut output) = mpsc::channel(16);
+    let host = SdkHostConnection::new(
+        runtime,
+        "D:/workspace/project",
+        sender,
+        SdkHostConfig::default(),
+        fake_installer(),
+    );
+    initialize(&host, &mut output).await;
+
+    host.handle_request(request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "query-output-race",
+        "method": "query/start",
+        "params": { "prompt": "produce excessive output" }
+    })))
+    .await;
+
+    assert_eq!(output.recv().await.unwrap()["id"], "query-output-race");
+    let result = output.recv().await.unwrap();
+    assert_eq!(result["method"], "query/result");
+    assert_eq!(result["params"]["status"], "failed");
+    assert_eq!(result["params"]["error"]["data"]["code"], "overloaded");
 }
 
 #[tokio::test]
@@ -2806,6 +2885,7 @@ async fn terminal_failure_is_typed_and_emitted_after_settlement() {
         .unwrap()
         .to_string();
     let queue = owner.queue.lock().unwrap().clone().unwrap();
+    owner.set_settlement_status(AgentTurnSettlementStatus::Failed);
     queue
         .enqueue(
             AgenticEvent::DialogTurnFailed {
@@ -2936,6 +3016,7 @@ async fn provider_quota_and_billing_keep_distinct_wire_codes() {
         // Cloned out of the guard first: the guard must not survive the
         // `enqueue` await below.
         let queue = owner.queue.lock().unwrap().clone().unwrap();
+        owner.set_settlement_status(AgentTurnSettlementStatus::Failed);
         queue
             .enqueue(
                 AgenticEvent::DialogTurnFailed {
@@ -3268,7 +3349,7 @@ async fn permission_request_is_streamed_and_can_be_allowed_once() {
         .unwrap();
     assert!(matches!(
         unrelated.wait().await,
-        bitfun_agent_runtime::permission::PermissionWaitOutcome::Cancelled { .. }
+        openbitfun_agent_runtime::permission::PermissionWaitOutcome::Cancelled { .. }
     ));
 
     let pending = permissions

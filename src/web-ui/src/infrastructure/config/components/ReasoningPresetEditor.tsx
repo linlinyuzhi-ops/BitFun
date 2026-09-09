@@ -1,27 +1,8 @@
+import { OverflowText, Button, Combobox, Icon, IconButton, Input, Listbox, ListboxEmpty, ListboxOption, Select, Switch, Textarea, Tooltip, type ComboboxOption, type SelectOption } from '@openbitfun/ui';
 import React, { useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  AlertTriangle,
-  ArrowDown,
-  ArrowUp,
-  ChevronDown,
-  ChevronRight,
-  Info,
-  Plus,
-  Trash2,
-} from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import {
-  Button,
-  IconButton,
-  Input,
-  NumberInput,
-  Select,
-  Switch,
-  Textarea,
-  Tooltip,
-  type SelectOption,
-} from '@/component-library';
 import type {
   ReasoningCatalogProjection,
   ReasoningConfig,
@@ -32,11 +13,7 @@ import type { ModelsDevReasoningCatalog } from '@/infrastructure/api/service-api
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { useAnchoredPopoverPosition } from '@/shared/utils/useAnchoredPopoverPosition';
 import {
-  availableReasoningActionTypes,
   cloneReasoningConfig,
-  nextReasoningActionType,
-  resolveDefaultReasoningEffortValue,
-  resolveReasoningEffortValues,
 } from '../utils/reasoningPresets';
 import './ReasoningPresetEditor.scss';
 
@@ -75,19 +52,12 @@ function tokenizeModelsDevSearch(value: string): string[] {
   return normalized ? normalized.split(' ') : [];
 }
 
-function defaultAction(
-  type: ReasoningPresetAction['type'],
-  defaultEffortValue: string,
-): ReasoningPresetAction {
-  switch (type) {
-    case 'toggle': return { type, enabled: true };
-    case 'budget_tokens': return { type, value: 8192 };
-    case 'request_patch': return { type, body: {} };
-    case 'effort': return { type, value: defaultEffortValue };
-  }
+function defaultRequestPatchAction(): ReasoningPresetAction {
+  return { type: 'request_patch', body: {} };
 }
 
 function parseJsonObject(value: string): Record<string, unknown> | null {
+  if (!value.trim()) return {};
   try {
     const parsed: unknown = JSON.parse(value);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
@@ -107,7 +77,7 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
   disabled = false,
   onValidationChange,
 }) => {
-  const { t } = useTranslation('settings/ai-model');
+  const { t } = useTranslation('settings/models');
   const modelsDevSearchListboxId = React.useId();
   const [jsonDrafts, setJsonDrafts] = useState<Record<string, string>>({});
   const [expandedPresetIndex, setExpandedPresetIndex] = useState<number | null>(null);
@@ -119,22 +89,11 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
   const invalidJsonKeysRef = useRef<Set<string>>(new Set());
   const presets = useMemo(() => value.presets ?? [], [value.presets]);
   const catalog = value.catalog ?? { source: 'auto' as const };
-  const actionOptions = useMemo<SelectOption[]>(() => [
-    { label: t('reasoningPresets.settingEffort'), value: 'effort' },
-    { label: t('reasoningPresets.settingToggle'), value: 'toggle' },
-    { label: t('reasoningPresets.settingBudget'), value: 'budget_tokens' },
-    { label: t('reasoningPresets.settingPatch'), value: 'request_patch' },
+  const catalogOptions = useMemo<ComboboxOption[]>(() => [
+    { description: t('reasoningPresets.catalogAutoTooltip'), label: t('reasoningPresets.catalogAuto'), value: 'auto' },
+    { description: t('reasoningPresets.catalogModelsDevTooltip'), label: t('reasoningPresets.catalogModelsDev'), value: 'models_dev' },
+    { description: t('reasoningPresets.catalogDisabledTooltip'), label: t('reasoningPresets.catalogDisabled'), value: 'disabled' },
   ], [t]);
-  const catalogOptions = useMemo<SelectOption[]>(() => [
-    { label: t('reasoningPresets.catalogAuto'), value: 'auto' },
-    { label: t('reasoningPresets.catalogModelsDev'), value: 'models_dev' },
-    { label: t('reasoningPresets.catalogDisabled'), value: 'disabled' },
-  ], [t]);
-  const catalogOptionTooltips = useMemo<Record<string, string>>(() => ({
-    auto: t('reasoningPresets.catalogAutoTooltip'),
-    models_dev: t('reasoningPresets.catalogModelsDevTooltip'),
-    disabled: t('reasoningPresets.catalogDisabledTooltip'),
-  }), [t]);
 
   const defaultOptions = useMemo<SelectOption[]>(() => [
     { label: t('reasoningPresets.auto'), value: '' },
@@ -153,18 +112,6 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
         }] as const),
     ]).values()),
   ], [generatedProjection?.presets, presets, t]);
-  const effortValues = useMemo(
-    () => resolveReasoningEffortValues(generatedProjection),
-    [generatedProjection],
-  );
-  const effortOptions = useMemo<SelectOption[]>(() => effortValues.map(effort => ({
-    label: effort,
-    value: effort,
-  })), [effortValues]);
-  const defaultEffortValue = useMemo(
-    () => resolveDefaultReasoningEffortValue(generatedProjection),
-    [generatedProjection],
-  );
   const unavailablePresetLabels = useMemo(() => (
     generatedProjection?.unavailable_presets
       ?.map(preset => preset.label || preset.id)
@@ -278,11 +225,6 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
     next[index] = { ...next[index], ...changes };
     update({ ...value, presets: next });
   };
-  const updateAction = (presetIndex: number, actionIndex: number, action: ReasoningPresetAction) => {
-    const actions = [...(presets[presetIndex]?.actions ?? [])];
-    actions[actionIndex] = action;
-    updatePreset(presetIndex, { actions });
-  };
   const setJsonValidation = (key: string, invalid: boolean) => {
     if (invalid) invalidJsonKeysRef.current.add(key);
     else invalidJsonKeysRef.current.delete(key);
@@ -296,6 +238,7 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
 
   const formatPresetSummary = (preset: ReasoningPreset) => {
     const actions = preset.actions ?? [];
+    if (actions.length === 1 && actions[0]?.type === 'request_patch') return null;
     const patchCount = actions.filter(action => action.type === 'request_patch').length;
     const summaries = actions.flatMap(action => {
       switch (action.type) {
@@ -323,7 +266,7 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
       id,
       label: id,
       order: presets.length * 10,
-      actions: [defaultAction('effort', defaultEffortValue)],
+      actions: [defaultRequestPatchAction()],
     });
     setExpandedPresetIndex(presets.length);
   };
@@ -342,55 +285,35 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
     update({ ...value, presets: next.map((preset, order) => ({ ...preset, order: order * 10 })) });
   };
 
-  const moveAction = (presetIndex: number, actionIndex: number, direction: -1 | 1) => {
-    const actions = [...(presets[presetIndex]?.actions ?? [])];
-    const target = actionIndex + direction;
-    if (target < 0 || target >= actions.length) return;
-    [actions[actionIndex], actions[target]] = [actions[target], actions[actionIndex]];
-    resetJsonDraftState();
-    updatePreset(presetIndex, { actions });
-  };
-
   return (
     <div
-      className="bitfun-reasoning-preset-editor"
-      data-bf-component="reasoning-preset-editor"
-      data-bf-part="root"
+      className="openbitfun-reasoning-preset-editor"
+      data-openbitfun-component="reasoning-preset-editor"
+      data-openbitfun-part="root"
       data-testid="settings-reasoning-preset-editor"
     >
       <section
-        className="bitfun-reasoning-preset-editor__section"
-        data-bf-component="reasoning-preset-editor"
-        data-bf-part="section"
+        className="openbitfun-reasoning-preset-editor__section"
+        data-openbitfun-component="reasoning-preset-editor"
+        data-openbitfun-part="section"
       >
         <div
-          className="bitfun-reasoning-preset-editor__primary-settings"
-          data-bf-component="reasoning-preset-editor"
-          data-bf-part="primarySettings"
+          className="openbitfun-reasoning-preset-editor__primary-settings"
+          data-openbitfun-component="reasoning-preset-editor"
+          data-openbitfun-part="primarySettings"
         >
-          <div className="bitfun-reasoning-preset-editor__primary-setting">
-            <span className="bitfun-reasoning-preset-editor__primary-setting-label">
+          <div className="openbitfun-reasoning-preset-editor__primary-setting">
+            <span className="openbitfun-reasoning-preset-editor__primary-setting-label">
               {t('reasoningPresets.catalogSource')}
             </span>
-            <Select
+            <Combobox
+              className="openbitfun-reasoning-preset-editor__primary-control"
               value={catalog.source}
               disabled={disabled}
-              size="small"
-              triggerAriaLabel={t('reasoningPresets.catalogSource')}
+              size="sm"
+              aria-label={t('reasoningPresets.catalogSource')}
               options={catalogOptions}
-              renderOption={(option) => (
-                <Tooltip content={catalogOptionTooltips[String(option.value)]} placement="right">
-                  <div className="bitfun-reasoning-preset-editor__catalog-option">
-                    <span>{option.label}</span>
-                    <Info
-                      className="bitfun-reasoning-preset-editor__catalog-option-info"
-                      size={13}
-                      aria-hidden="true"
-                    />
-                  </div>
-                </Tooltip>
-              )}
-              onChange={(next) => {
+              onValueChange={(next) => {
                 const source = next as 'auto' | 'models_dev' | 'disabled';
                 const nextCatalog = source === 'models_dev'
                   ? {
@@ -403,37 +326,38 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
               }}
             />
           </div>
-          <div className="bitfun-reasoning-preset-editor__primary-setting">
-            <span className="bitfun-reasoning-preset-editor__primary-setting-label">
+          <div className="openbitfun-reasoning-preset-editor__primary-setting">
+            <span className="openbitfun-reasoning-preset-editor__primary-setting-label">
               {t('reasoningPresets.defaultBehavior')}
             </span>
             <Select
+              className="openbitfun-reasoning-preset-editor__primary-control"
               value={value.default_preset ?? ''}
               disabled={disabled}
-              size="small"
-              triggerAriaLabel={t('reasoningPresets.defaultPreset')}
+              size="sm"
+              aria-label={t('reasoningPresets.defaultPreset')}
               options={defaultOptions}
-              onChange={(next) => update({ ...value, default_preset: String(next) || undefined })}
+              onValueChange={(next) => update({ ...value, default_preset: String(next) || undefined })}
             />
           </div>
         </div>
 
         {catalog.source === 'models_dev' && (
           <div
-            className="bitfun-reasoning-preset-editor__models-dev-binding"
-            data-bf-component="reasoning-preset-editor"
-            data-bf-part="binding"
+            className="openbitfun-reasoning-preset-editor__models-dev-binding"
+            data-openbitfun-component="reasoning-preset-editor"
+            data-openbitfun-part="binding"
           >
-            <div className="bitfun-reasoning-preset-editor__models-dev-search">
-              <div className="bitfun-reasoning-preset-editor__models-dev-search-field">
-                <div className="bitfun-reasoning-preset-editor__models-dev-search-input">
+            <div className="openbitfun-reasoning-preset-editor__models-dev-search">
+              <div className="openbitfun-reasoning-preset-editor__models-dev-search-field">
+                <div className="openbitfun-reasoning-preset-editor__models-dev-search-input">
                   <span>{t('reasoningPresets.catalogSearch')}</span>
                   <div
                     ref={modelsDevSearchAnchorRef}
-                    className="bitfun-reasoning-preset-editor__models-dev-search-control"
+                    className="openbitfun-reasoning-preset-editor__models-dev-search-control"
                   >
                     <Input
-                      size="small"
+                      className="openbitfun-reasoning-preset-editor__models-dev-search-field-control"
                       value={modelsDevSearch}
                       disabled={disabled}
                       placeholder={t('reasoningPresets.catalogSearchPlaceholder')}
@@ -472,15 +396,13 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
                           if (result) selectModelsDevSearchResult(result);
                         }
                       }}
+                      size="sm"
                     />
                     {showModelsDevSearchResults && createPortal(
                       <div
                         ref={modelsDevSearchPopoverRef}
-                        id={modelsDevSearchListboxId}
-                        className="bitfun-reasoning-preset-editor__models-dev-search-results"
-                        role="listbox"
-                        aria-label={t('reasoningPresets.catalogSearchResults')}
-                        data-bf-placement={modelsDevSearchLayout?.placement ?? 'bottom'}
+                        className="openbitfun-reasoning-preset-editor__models-dev-search-results"
+                        data-openbitfun-placement={modelsDevSearchLayout?.placement ?? 'bottom'}
                         style={{
                           top: `${modelsDevSearchLayout?.top ?? 0}px`,
                           left: `${modelsDevSearchLayout?.left ?? 0}px`,
@@ -490,30 +412,33 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
                           visibility: modelsDevSearchLayout ? 'visible' : 'hidden',
                         }}
                       >
-                        {modelsDevSearchResults.items.length > 0
-                          ? modelsDevSearchResults.items.map((result, index) => (
-                          <button
-                            type="button"
-                            id={`${modelsDevSearchListboxId}-${index}`}
-                            key={`${result.provider.id}/${result.model.id}`}
-                            className="bitfun-reasoning-preset-editor__models-dev-search-result"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onMouseEnter={() => setModelsDevSearchHighlight(index)}
-                            onClick={() => selectModelsDevSearchResult(result)}
-                            role="option"
-                            aria-selected={index === modelsDevSearchHighlight}
-                            data-highlighted={index === modelsDevSearchHighlight ? 'true' : undefined}
-                          >
-                            <strong>{result.model.display_name || result.model.id}</strong>
-                            <span>{result.provider.id} / {result.model.id}</span>
-                          </button>
-                        )) : (
-                          <div className="bitfun-reasoning-preset-editor__models-dev-search-empty">
-                            {t('reasoningPresets.catalogSearchEmpty')}
-                          </div>
-                        )}
+                        <Listbox
+                          aria-label={t('reasoningPresets.catalogSearchResults')}
+                          className="openbitfun-reasoning-preset-editor__models-dev-search-list"
+                          focusMode="virtual"
+                          id={modelsDevSearchListboxId}
+                        >
+                          {modelsDevSearchResults.items.length > 0
+                            ? modelsDevSearchResults.items.map((result, index) => (
+                            <ListboxOption
+                              active={index === modelsDevSearchHighlight}
+                              description={`${result.provider.id} / ${result.model.id}`}
+                              id={`${modelsDevSearchListboxId}-${index}`}
+                              key={`${result.provider.id}/${result.model.id}`}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => selectModelsDevSearchResult(result)}
+                              value={`${result.provider.id}/${result.model.id}`}
+                            >
+                              {result.model.display_name || result.model.id}
+                            </ListboxOption>
+                          )) : (
+                            <ListboxEmpty>
+                              {t('reasoningPresets.catalogSearchEmpty')}
+                            </ListboxEmpty>
+                          )}
+                        </Listbox>
                         {modelsDevSearchResults.total > modelsDevSearchResults.items.length && (
-                          <div className="bitfun-reasoning-preset-editor__models-dev-search-limit">
+                          <div className="openbitfun-reasoning-preset-editor__models-dev-search-limit">
                             {t('reasoningPresets.catalogSearchLimit')}
                           </div>
                         )}
@@ -522,25 +447,23 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
                     )}
                   </div>
                 </div>
-                <span className="bitfun-reasoning-preset-editor__models-dev-search-hint">
+                <span className="openbitfun-reasoning-preset-editor__models-dev-search-hint">
                   {t('reasoningPresets.catalogSearchHint')}
                 </span>
               </div>
             </div>
-            <div className="bitfun-reasoning-preset-editor__binding-field">
+            <div className="openbitfun-reasoning-preset-editor__binding-field">
               <span>{t('reasoningPresets.catalogProvider')}</span>
-              <Select
-                size="small"
-                triggerAriaLabel={t('reasoningPresets.catalogProvider')}
+              <Combobox
+                className="openbitfun-reasoning-preset-editor__binding-control"
+                size="sm"
+                aria-label={t('reasoningPresets.catalogProvider')}
                 value={catalog.provider}
                 options={modelsDevProviderOptions}
                 disabled={disabled}
-                searchable
                 clearable
-                allowCustomValue
-                customValueHint={t('reasoningPresets.catalogProviderCustomValueHint')}
-                searchPlaceholder={t('reasoningPresets.catalogProvider')}
-                onChange={(next) => {
+                onCreateValue={value => value}
+                onValueChange={(next) => {
                   const provider = String(next || '');
                   rebindCatalog(provider
                     ? { ...catalog, provider, model: provider === catalog.provider ? catalog.model : '' }
@@ -548,20 +471,18 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
                 }}
               />
             </div>
-            <div className="bitfun-reasoning-preset-editor__binding-field">
+            <div className="openbitfun-reasoning-preset-editor__binding-field">
               <span>{t('reasoningPresets.catalogModel')}</span>
-              <Select
-                size="small"
-                triggerAriaLabel={t('reasoningPresets.catalogModel')}
+              <Combobox
+                className="openbitfun-reasoning-preset-editor__binding-control"
+                size="sm"
+                aria-label={t('reasoningPresets.catalogModel')}
                 value={catalog.model}
                 options={modelsDevModelOptions}
                 disabled={disabled}
-                searchable
                 clearable
-                allowCustomValue
-                customValueHint={t('reasoningPresets.catalogModelCustomValueHint')}
-                searchPlaceholder={t('reasoningPresets.catalogModel')}
-                onChange={(next) => {
+                onCreateValue={value => value}
+                onValueChange={(next) => {
                   const model = String(next || '');
                   rebindCatalog(model
                     ? { ...catalog, model }
@@ -574,9 +495,9 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
 
         {catalog.source === 'models_dev' && unavailablePresetLabels.length > 0 && (
           <div
-            className="bitfun-reasoning-preset-editor__unavailable-warning"
-            data-bf-component="reasoning-preset-editor"
-            data-bf-part="unavailableWarning"
+            className="openbitfun-reasoning-preset-editor__unavailable-warning"
+            data-openbitfun-component="reasoning-preset-editor"
+            data-openbitfun-part="unavailableWarning"
             role="status"
           >
             <AlertTriangle size={16} aria-hidden="true" />
@@ -596,16 +517,16 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
           && (generatedProjection.presets?.some(preset => preset.source !== 'model_config') ?? false)
           && (
           <div
-            className="bitfun-reasoning-preset-editor__generated"
-            data-bf-component="reasoning-preset-editor"
-            data-bf-part="generated"
+            className="openbitfun-reasoning-preset-editor__generated"
+            data-openbitfun-component="reasoning-preset-editor"
+            data-openbitfun-part="generated"
           >
-            <div className="bitfun-reasoning-preset-editor__generated-title">
+            <div className="openbitfun-reasoning-preset-editor__generated-title">
               {t('reasoningPresets.generatedTitle')}
             </div>
-            <div className="bitfun-reasoning-preset-editor__generated-list">
+            <div className="openbitfun-reasoning-preset-editor__generated-list">
               {generatedProjection.presets?.filter(preset => preset.source !== 'model_config').map(preset => (
-                <span key={preset.id} className="bitfun-reasoning-preset-editor__generated-item">
+                <span key={preset.id} className="openbitfun-reasoning-preset-editor__generated-item">
                   {preset.label || preset.id}
                 </span>
               ))}
@@ -615,80 +536,92 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
       </section>
 
       <section
-        className="bitfun-reasoning-preset-editor__section"
-        data-bf-component="reasoning-preset-editor"
-        data-bf-part="section"
+        className="openbitfun-reasoning-preset-editor__section"
+        data-openbitfun-component="reasoning-preset-editor"
+        data-openbitfun-part="section"
       >
         <div
-          className="bitfun-reasoning-preset-editor__header"
-          data-bf-component="reasoning-preset-editor"
-          data-bf-part="header"
+          className="openbitfun-reasoning-preset-editor__header"
+          data-openbitfun-component="reasoning-preset-editor"
+          data-openbitfun-part="header"
         >
-          <div className="bitfun-reasoning-preset-editor__section-title-group">
-            <div className="bitfun-reasoning-preset-editor__section-title">
+          <div className="openbitfun-reasoning-preset-editor__section-title-group">
+            <div className="openbitfun-reasoning-preset-editor__section-title">
               {t('reasoningPresets.customTitle')}
             </div>
             <Tooltip content={t('reasoningPresets.customTooltip')} placement="top">
               <span
-                className="bitfun-reasoning-preset-editor__section-title-info"
+                className="openbitfun-reasoning-preset-editor__section-title-info"
                 role="button"
                 tabIndex={0}
                 aria-label={t('reasoningPresets.customTooltip')}
               >
-                <Info size={14} aria-hidden="true" />
+                <Icon name="info" size="sm" aria-hidden="true" />
               </span>
             </Tooltip>
           </div>
-          <Button variant="secondary" size="small" disabled={disabled} onClick={addPreset}>
-            <Plus size={14} aria-hidden="true" />
+          <Button variant="outline" size="sm" disabled={disabled} onClick={addPreset} leadingIcon={<Icon name="plus" size="sm" aria-hidden="true" />}>
+
             {t('reasoningPresets.add')}
           </Button>
         </div>
 
         {presets.length === 0 ? (
           <div
-            className="bitfun-reasoning-preset-editor__empty"
-            data-bf-component="reasoning-preset-editor"
-            data-bf-part="empty"
+            className="openbitfun-reasoning-preset-editor__empty"
+            data-openbitfun-component="reasoning-preset-editor"
+            data-openbitfun-part="empty"
           >
             {t('reasoningPresets.empty')}
           </div>
         ) : (
           <div
-            className="bitfun-reasoning-preset-editor__list"
-            data-bf-component="reasoning-preset-editor"
-            data-bf-part="list"
+            className="openbitfun-reasoning-preset-editor__list"
+            data-openbitfun-component="reasoning-preset-editor"
+            data-openbitfun-part="list"
           >
             {presets.map((preset, presetIndex) => {
               const expanded = expandedPresetIndex === presetIndex;
+              const actions = preset.actions ?? [];
+              const singlePatchAction = actions.length === 1 && actions[0]?.type === 'request_patch'
+                ? actions[0]
+                : undefined;
+              const usesSinglePatchEditor = actions.length === 0 || singlePatchAction !== undefined;
+              const jsonKey = `${presetIndex}:request-patch`;
+              const jsonValue = jsonDrafts[jsonKey]
+                ?? (Object.keys(singlePatchAction?.body ?? {}).length > 0
+                  ? JSON.stringify(singlePatchAction?.body, null, 2)
+                  : '');
+              const jsonIsValid = parseJsonObject(jsonValue) !== null;
+              const presetSummary = formatPresetSummary(preset);
               return (
                 <div
                   key={`${preset.id}-${presetIndex}`}
-                  className="bitfun-reasoning-preset-editor__row"
-                  data-bf-component="reasoning-preset-editor"
-                  data-bf-part="preset"
-                  data-bf-state={expanded ? 'expanded' : undefined}
+                  className="openbitfun-reasoning-preset-editor__row"
+                  data-openbitfun-component="reasoning-preset-editor"
+                  data-openbitfun-part="preset"
+                  data-openbitfun-state={expanded ? 'expanded' : undefined}
                   data-expanded={expanded ? 'true' : 'false'}
                 >
                   <div
-                    className="bitfun-reasoning-preset-editor__row-summary"
-                    data-bf-component="reasoning-preset-editor"
-                    data-bf-part="presetSummary"
+                    className="openbitfun-reasoning-preset-editor__row-summary"
+                    data-openbitfun-component="reasoning-preset-editor"
+                    data-openbitfun-part="presetSummary"
                   >
                     <button
                       type="button"
-                      className="bitfun-reasoning-preset-editor__row-toggle"
+                      className="openbitfun-reasoning-preset-editor__row-toggle"
                       onClick={() => setExpandedPresetIndex(expanded ? null : presetIndex)}
                       aria-expanded={expanded}
                       aria-label={preset.label?.trim() || preset.id}
                     >
-                      {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      {expanded ? <Icon name="chevron-down" size="sm" /> : <Icon name="chevron-right" size="sm" />}
                     </button>
-                    <div className="bitfun-reasoning-preset-editor__row-content">
+                    <div className="openbitfun-reasoning-preset-editor__row-content">
                       {expanded ? (
-                        <div className="bitfun-reasoning-preset-editor__row-name-editor">
+                        <div className="openbitfun-reasoning-preset-editor__row-name-editor">
                           <Input
-                            size="small"
+                            className="openbitfun-reasoning-preset-editor__row-name-input"
                             aria-label={t('reasoningPresets.label')}
                             value={preset.label ?? ''}
                             disabled={disabled}
@@ -696,206 +629,188 @@ export const ReasoningPresetEditor: React.FC<ReasoningPresetEditorProps> = ({
                             onChange={(event) => updatePreset(presetIndex, {
                               label: event.target.value || undefined,
                             })}
+                            size="sm"
                           />
                         </div>
                       ) : (
-                        <button
+                        <button data-overflow-trigger
                           type="button"
-                          className="bitfun-reasoning-preset-editor__row-name"
+                          className="openbitfun-reasoning-preset-editor__row-name"
                           onClick={() => setExpandedPresetIndex(presetIndex)}
-                        >
+                        ><OverflowText>
                           {preset.label?.trim() || preset.id}
-                        </button>
+                        </OverflowText></button>
                       )}
-                      <span className="bitfun-reasoning-preset-editor__row-preview">
-                        {formatPresetSummary(preset)}
-                      </span>
+                      {presetSummary && (
+                        <OverflowText className="openbitfun-reasoning-preset-editor__row-preview">
+                          {presetSummary}
+                        </OverflowText>
+                      )}
                     </div>
-                    <div className="bitfun-reasoning-preset-editor__row-badges">
+                    <div className="openbitfun-reasoning-preset-editor__row-badges">
                       {value.default_preset === preset.id && (
-                        <span className="bitfun-reasoning-preset-editor__badge">
+                        <span className="openbitfun-reasoning-preset-editor__badge">
                           {t('reasoningPresets.default')}
                         </span>
                       )}
                       <Switch
-                        size="small"
                         checked={!preset.disabled}
                         disabled={disabled}
                         aria-label={t('reasoningPresets.enabled')}
                         onChange={(event) => updatePreset(presetIndex, {
                           disabled: !event.target.checked,
                           actions: event.target.checked && !preset.actions?.length
-                            ? [defaultAction('effort', defaultEffortValue)]
+                            ? [defaultRequestPatchAction()]
                             : preset.actions,
                         })}
                       />
-                      <IconButton size="small" variant="ghost" tooltip={t('reasoningPresets.moveUp')} disabled={disabled || presetIndex === 0} onClick={() => movePreset(presetIndex, -1)}><ArrowUp size={14} /></IconButton>
-                      <IconButton size="small" variant="ghost" tooltip={t('reasoningPresets.moveDown')} disabled={disabled || presetIndex === presets.length - 1} onClick={() => movePreset(presetIndex, 1)}><ArrowDown size={14} /></IconButton>
-                      <IconButton
-                        size="small"
-                        variant="ghost"
-                        tooltip={t('reasoningPresets.remove')}
-                        disabled={disabled}
-                        onClick={() => {
-                          resetJsonDraftState();
-                          setExpandedPresetIndex(previous => {
-                            if (previous === null) return null;
-                            if (previous === presetIndex) return null;
-                            return previous > presetIndex ? previous - 1 : previous;
-                          });
-                          update({
-                            ...value,
-                            presets: presets.filter((_, index) => index !== presetIndex),
-                            default_preset: value.default_preset === preset.id ? undefined : value.default_preset,
-                          });
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </IconButton>
+                      <Tooltip content={t('reasoningPresets.moveUp')}>
+                        <IconButton
+                          aria-label={t('reasoningPresets.moveUp')}
+                          size="sm"
+                          disabled={disabled || presetIndex === 0}
+                          onClick={() => movePreset(presetIndex, -1)}
+                          icon={<Icon name="arrow-up" size="sm" />}
+                        />
+                      </Tooltip>
+                      <Tooltip content={t('reasoningPresets.moveDown')}>
+                        <IconButton
+                          aria-label={t('reasoningPresets.moveDown')}
+                          size="sm"
+                          disabled={disabled || presetIndex === presets.length - 1}
+                          onClick={() => movePreset(presetIndex, 1)}
+                          icon={<Icon name="arrow-down" size="sm" />}
+                        />
+                      </Tooltip>
+                      <Tooltip content={t('reasoningPresets.remove')}>
+                        <IconButton
+                          aria-label={t('reasoningPresets.remove')}
+                          size="sm"
+                          disabled={disabled}
+                          onClick={() => {
+                            resetJsonDraftState();
+                            setExpandedPresetIndex(previous => {
+                              if (previous === null) return null;
+                              if (previous === presetIndex) return null;
+                              return previous > presetIndex ? previous - 1 : previous;
+                            });
+                            update({
+                              ...value,
+                              presets: presets.filter((_, index) => index !== presetIndex),
+                              default_preset: value.default_preset === preset.id ? undefined : value.default_preset,
+                            });
+                          }}
+                          icon={<Icon name="delete" size="sm" />}
+                        />
+                      </Tooltip>
                     </div>
                   </div>
 
                   {expanded && (
                     <div
-                      className="bitfun-reasoning-preset-editor__row-editor"
-                      data-bf-component="reasoning-preset-editor"
-                      data-bf-part="presetEditor"
+                      className="openbitfun-reasoning-preset-editor__row-editor"
+                      data-openbitfun-component="reasoning-preset-editor"
+                      data-openbitfun-part="presetEditor"
                     >
-                      <div
-                        className="bitfun-reasoning-preset-editor__actions"
-                        data-bf-component="reasoning-preset-editor"
-                        data-bf-part="actions"
-                      >
-                  {(preset.actions ?? []).map((action, actionIndex) => {
-                    const jsonKey = `${presetIndex}:${actionIndex}`;
-                    const jsonValue = jsonDrafts[jsonKey]
-                      ?? (action.type === 'request_patch' ? JSON.stringify(action.body, null, 2) : '{}');
-                    const jsonIsValid = action.type !== 'request_patch' || parseJsonObject(jsonValue) !== null;
-                    return (
-                      <div
-                        key={jsonKey}
-                        className="bitfun-reasoning-preset-editor__action"
-                        data-bf-component="reasoning-preset-editor"
-                        data-bf-part="action"
-                      >
-                        <Select
-                          size="small"
-                          value={action.type}
-                          disabled={disabled}
-                          options={actionOptions.filter(option => (
-                            availableReasoningActionTypes(preset.actions ?? [], actionIndex)
-                              .includes(option.value as ReasoningPresetAction['type'])
-                          ))}
-                          onChange={(next) => {
-                            setJsonValidation(jsonKey, false);
-                            setJsonDrafts(previous => {
-                              const nextDrafts = { ...previous };
-                              delete nextDrafts[jsonKey];
-                              return nextDrafts;
-                            });
-                            updateAction(
-                              presetIndex,
-                              actionIndex,
-                              defaultAction(next as ReasoningPresetAction['type'], defaultEffortValue),
-                            );
-                          }}
-                        />
-                        {action.type === 'effort' && (
-                          <div className="bitfun-reasoning-preset-editor__effort-control">
-                            <Select
-                              size="small"
-                              value={action.value}
-                              disabled={disabled}
-                              options={effortOptions}
-                              searchable
-                              allowCustomValue
-                              customValueHint={t('reasoningPresets.effortCustomValueHint')}
-                              searchPlaceholder={t('reasoningPresets.effortSearchPlaceholder')}
-                              triggerAriaLabel={t('reasoningPresets.settingEffort')}
-                              onChange={(next) => updateAction(presetIndex, actionIndex, {
-                                type: 'effort',
-                                value: String(next),
-                              })}
-                            />
-                            {!effortValues.includes(action.value.trim()) && (
-                              <Tooltip content={t('reasoningPresets.effortCustomWarning')} placement="top">
-                                <span
-                                  className="bitfun-reasoning-preset-editor__effort-warning"
-                                  role="button"
-                                  tabIndex={0}
-                                  aria-label={t('reasoningPresets.effortCustomWarning')}
-                                >
-                                  <AlertTriangle size={13} aria-hidden="true" />
-                                </span>
-                              </Tooltip>
-                            )}
-                          </div>
-                        )}
-                        {action.type === 'toggle' && (
-                          <Switch size="small" checked={action.enabled} disabled={disabled} onChange={(event) => updateAction(presetIndex, actionIndex, { type: 'toggle', enabled: event.target.checked })} />
-                        )}
-                        {action.type === 'budget_tokens' && (
-                          <NumberInput size="small" value={action.value} min={1} max={2_000_000_000} step={1024} disabled={disabled} disableWheel onChange={(next) => updateAction(presetIndex, actionIndex, { type: 'budget_tokens', value: next })} />
-                        )}
-                        {action.type === 'request_patch' && (
-                          <div className="bitfun-reasoning-preset-editor__json">
-                            <Textarea
-                              value={jsonValue}
-                              disabled={disabled}
-                              rows={4}
-                              error={!jsonIsValid}
-                              errorMessage={!jsonIsValid ? t('reasoningPresets.invalidJson') : undefined}
-                              onChange={(event) => {
-                                const nextText = event.target.value;
-                                setJsonDrafts(previous => ({ ...previous, [jsonKey]: nextText }));
-                                const body = parseJsonObject(nextText);
-                                setJsonValidation(jsonKey, !body);
-                                if (body) updateAction(presetIndex, actionIndex, { type: 'request_patch', body });
-                              }}
-                            />
-                          </div>
-                        )}
+                      {usesSinglePatchEditor ? (
                         <div
-                          className="bitfun-reasoning-preset-editor__action-controls"
-                          data-bf-component="reasoning-preset-editor"
-                          data-bf-part="actionControls"
+                          className="openbitfun-reasoning-preset-editor__patch-editor"
+                          data-openbitfun-component="reasoning-preset-editor"
+                          data-openbitfun-part="patchEditor"
                         >
-                          <IconButton size="small" variant="ghost" tooltip={t('reasoningPresets.moveUp')} disabled={disabled || actionIndex === 0} onClick={() => moveAction(presetIndex, actionIndex, -1)}><ArrowUp size={14} /></IconButton>
-                          <IconButton size="small" variant="ghost" tooltip={t('reasoningPresets.moveDown')} disabled={disabled || actionIndex === (preset.actions?.length ?? 0) - 1} onClick={() => moveAction(presetIndex, actionIndex, 1)}><ArrowDown size={14} /></IconButton>
-                          <IconButton
-                            size="small"
-                            variant="ghost"
-                            tooltip={t('reasoningPresets.remove')}
-                            disabled={disabled || (preset.actions?.length ?? 0) <= 1}
-                            onClick={() => {
-                              resetJsonDraftState();
-                              updatePreset(presetIndex, { actions: preset.actions?.filter((_, index) => index !== actionIndex) });
+                          <div className="openbitfun-reasoning-preset-editor__patch-heading">
+                            <span className="openbitfun-reasoning-preset-editor__patch-title">
+                              {t('reasoningPresets.settingPatch')}
+                            </span>
+                          </div>
+                          <Textarea
+                            aria-label={t('reasoningPresets.settingPatch')}
+                            value={jsonValue}
+                            placeholder={t('reasoningPresets.patchPlaceholder', {
+                              format: requestFormatLabel || t('reasoningPresets.unknownRequestFormat'),
+                            })}
+                            disabled={disabled}
+                            rows={6}
+                            invalid={!jsonIsValid}
+                            errorMessage={!jsonIsValid ? t('reasoningPresets.invalidJson') : undefined}
+                            onChange={(event) => {
+                              const nextText = event.target.value;
+                              setJsonDrafts(previous => ({ ...previous, [jsonKey]: nextText }));
+                              const body = parseJsonObject(nextText);
+                              setJsonValidation(jsonKey, !body);
+                              if (body) {
+                                updatePreset(presetIndex, {
+                                  actions: [{ type: 'request_patch', body }],
+                                });
+                              }
                             }}
-                          >
-                            <Trash2 size={14} />
-                          </IconButton>
+                          />
                         </div>
-                      </div>
-                    );
-                  })}
-                  <Button
-                    variant="secondary"
-                    size="small"
-                    disabled={disabled}
-                    onClick={() => updatePreset(presetIndex, {
-                      actions: [
-                        ...(preset.actions ?? []),
-                        defaultAction(
-                          nextReasoningActionType(preset.actions ?? []),
-                          defaultEffortValue,
-                        ),
-                      ],
-                    })}
-                  >
-                    <Plus size={14} aria-hidden="true" />
-                    {t('reasoningPresets.addAction')}
-                  </Button>
-                      </div>
+                      ) : (
+                        <div
+                          className="openbitfun-reasoning-preset-editor__legacy"
+                          data-openbitfun-component="reasoning-preset-editor"
+                          data-openbitfun-part="legacy"
+                        >
+                          <div
+                            className="openbitfun-reasoning-preset-editor__legacy-notice"
+                            data-openbitfun-component="reasoning-preset-editor"
+                            data-openbitfun-part="legacyNotice"
+                          >
+                            <AlertTriangle size={16} aria-hidden="true" />
+                            <div className="openbitfun-reasoning-preset-editor__legacy-copy">
+                              <strong>{t('reasoningPresets.legacyTitle')}</strong>
+                              <span>{t('reasoningPresets.legacyDescription')}</span>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={disabled}
+                              onClick={() => {
+                                resetJsonDraftState();
+                                updatePreset(presetIndex, {
+                                  actions: [defaultRequestPatchAction()],
+                                });
+                              }}
+                            >
+                              {t('reasoningPresets.convertToSinglePatch')}
+                            </Button>
+                          </div>
+                          <div
+                            className="openbitfun-reasoning-preset-editor__actions"
+                            data-openbitfun-component="reasoning-preset-editor"
+                            data-openbitfun-part="actions"
+                          >
+                            {actions.map((action, actionIndex) => (
+                              <div
+                                key={`${presetIndex}:legacy:${actionIndex}`}
+                                className="openbitfun-reasoning-preset-editor__action"
+                                data-openbitfun-component="reasoning-preset-editor"
+                                data-openbitfun-part="action"
+                              >
+                                <span className="openbitfun-reasoning-preset-editor__legacy-action-type">
+                                  {action.type === 'effort'
+                                    ? t('reasoningPresets.settingEffort')
+                                    : action.type === 'toggle'
+                                      ? t('reasoningPresets.settingToggle')
+                                      : action.type === 'budget_tokens'
+                                        ? t('reasoningPresets.settingBudget')
+                                        : t('reasoningPresets.settingPatch')}
+                                </span>
+                                <pre className="openbitfun-reasoning-preset-editor__legacy-action-value">
+                                  {action.type === 'request_patch'
+                                    ? JSON.stringify(action.body, null, 2)
+                                    : action.type === 'toggle'
+                                      ? t(action.enabled
+                                          ? 'reasoningPresets.actionSummaryEnabled'
+                                          : 'reasoningPresets.actionSummaryDisabled')
+                                      : String(action.value)}
+                                </pre>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

@@ -190,7 +190,7 @@ function App() {
         <footer>
           <div className="footer-brand">
             <CubeFocus weight="duotone" aria-hidden="true" />
-            <span>BitFun MiniApp Market</span>
+            <span>OpenBitFun MiniApp Market</span>
           </div>
           <span className="footer-note">{t('footerNote')}</span>
           <a href={BITFUN_HOME_URL} target="_blank" rel="noreferrer">
@@ -265,7 +265,7 @@ function Header({
             <CubeFocus size={25} weight="duotone" aria-hidden="true" />
           </span>
           <span className="brand-copy">
-            <strong>BitFun</strong>
+            <strong>OpenBitFun</strong>
             <span>{t('market')}</span>
           </span>
         </button>
@@ -844,7 +844,7 @@ function DetailPage({
           <p className="prose">{app.changelog}</p>
         </div>
         <aside className="facts-panel">
-          <Fact label={t('requires')} value={`v${app.minBitfunVersion}+`} />
+          <Fact label={t('requires')} value={`v${app.minOpenBitFunVersion}+`} />
           <Fact
             label={t('downloadsLabel')}
             value={formatCompactNumber(app.downloadCount, locale)}
@@ -1000,7 +1000,7 @@ function SubmitPage({
                 .split(',')
                 .map((tag) => tag.trim())
                 .filter(Boolean),
-              minBitfunVersion: String(form.get('minBitfunVersion')),
+              minOpenBitFunVersion: String(form.get('minOpenBitFunVersion')),
               changelog: String(form.get('changelog')),
               license:
                 licenseKind === 'spdx'
@@ -1060,8 +1060,8 @@ function SubmitPage({
         <fieldset>
           <legend>{t('releaseSection')}</legend>
           <div className="form-grid">
-            <Field label={t('minBitfunVersionLabel')}>
-              <input name="minBitfunVersion" required defaultValue="0.2.15" />
+            <Field label={t('minOpenBitFunVersionLabel')}>
+              <input name="minOpenBitFunVersion" required defaultValue="1.0.0" />
             </Field>
             <Field label={t('publicRepositoryOptional')}>
               <input name="repositoryUrl" type="url" placeholder="https://github.com/…" />
@@ -1087,8 +1087,9 @@ function SubmitPage({
             <Field label={t('package')}>
               <input name="package" type="file" accept=".bfminiapp,application/zip" required />
             </Field>
-            <Field label={`${t('screenshots')} (1-5)`}>
+            <Field label={`${t('screenshots')} (1–5)`}>
               <input name="screenshots" type="file" accept="image/png,image/jpeg,image/webp" multiple required />
+              <small className="field-hint">{t('listingImageHint')}</small>
             </Field>
           </div>
           <div className="safety-note">
@@ -1340,8 +1341,8 @@ function AdminPage({
                 />
                 <Fact label={t('releaseLabel')} value={`v${selected.submission.releaseNumber}`} />
                 <Fact
-                  label={t('minimumBitfunLabel')}
-                  value={selected.submission.minBitfunVersion}
+                  label={t('minimumOpenBitFunLabel')}
+                  value={selected.submission.minOpenBitFunVersion}
                 />
                 <Fact
                   label={t('licenseLabel')}

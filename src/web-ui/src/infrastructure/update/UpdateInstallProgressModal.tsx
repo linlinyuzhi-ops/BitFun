@@ -1,9 +1,21 @@
 /**
- * Full-screen style modal showing download progress for in-app updates.
+ * Download progress and installation confirmation for in-app updates.
  */
 
+import {
+  Alert,
+  Button,
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogHeading,
+  DialogTitle,
+  Icon,
+} from '@openbitfun/ui';
 import React, { useMemo } from 'react';
-import { Modal, Alert, Button } from '@/component-library';
 import { useI18n } from '@/infrastructure/i18n';
 import type { UpdateDownloadProgressPayload } from './installUpdateWithProgress';
 import { formatUpdateInstallError } from './updateErrorMessage';
@@ -13,20 +25,26 @@ export interface UpdateInstallProgressModalProps {
   isOpen: boolean;
   error: string | null;
   installed?: boolean;
+  installing?: boolean;
+  version?: string | null;
   progress: UpdateDownloadProgressPayload;
   onCloseError?: () => void;
   onCloseInstalled?: () => void;
   onRestart?: () => void;
+  onDownloadAgain?: () => void;
 }
 
 export const UpdateInstallProgressModal: React.FC<UpdateInstallProgressModalProps> = ({
   isOpen,
   error,
   installed,
+  installing,
+  version,
   progress,
   onCloseError,
   onCloseInstalled,
-  onRestart
+  onRestart,
+  onDownloadAgain
 }) => {
   const { t } = useI18n('common');
   const { downloaded, total } = progress;
@@ -38,103 +56,139 @@ export const UpdateInstallProgressModal: React.FC<UpdateInstallProgressModalProp
     [error, t]
   );
   let title = t('update.downloadingTitle');
-  if (error) {
+  if (error && !installed) {
     title = t('update.downloadFailedTitle');
   } else if (installed) {
     title = t('update.installedTitle');
   }
 
   let onClose = () => {};
-  if (error) {
-    onClose = onCloseError ?? (() => {});
+  if (installing) {
+    onClose = () => {};
   } else if (installed) {
     onClose = onCloseInstalled ?? (() => {});
+  } else if (error) {
+    onClose = onCloseError ?? (() => {});
   }
 
   let body: React.ReactNode = null;
-  if (errorMessage) {
+  if (errorMessage && !installed) {
     body = (
-      <div data-bf-component="update" data-bf-part="alert">
+      <div data-openbitfun-component="update" data-openbitfun-part="alert">
         <Alert
-          type="error"
+          tone="error"
           message={errorMessage}
           showIcon
-          className="bitfun-update-progress__alert"
+          className="openbitfun-update-progress__alert"
         />
       </div>
     );
   } else if (installed) {
     body = (
       <>
-        <div data-bf-component="update" data-bf-part="alert">
-          <Alert
-            type="success"
-            message={t('update.installedMessage')}
-            showIcon
-            className="bitfun-update-progress__alert"
-          />
+        <div
+          className="openbitfun-update-progress__ready"
+          data-openbitfun-component="update"
+          data-openbitfun-part="alert"
+          role="status"
+        >
+          <span className="openbitfun-update-progress__status-icon" aria-hidden="true">
+            <Icon name="check-circle" size="md" tone="success" />
+          </span>
+          <div className="openbitfun-update-progress__summary">
+            <p className="openbitfun-update-progress__version">
+              {t('update.readyVersion', { version: version ?? '' })}
+            </p>
+            <div data-openbitfun-component="update" data-openbitfun-part="restartHint">
+              <DialogDescription>{t('update.installWarning')}</DialogDescription>
+            </div>
+          </div>
         </div>
-        <div className="bitfun-update-progress__actions" data-bf-component="update" data-bf-part="actions">
-          <Button variant="secondary" size="medium" onClick={onCloseInstalled}>
-            {t('update.restartLater')}
-          </Button>
-          <Button variant="primary" size="medium" onClick={onRestart}>
-            {t('update.restartNow')}
-          </Button>
-        </div>
+        {errorMessage ? (
+          <div data-openbitfun-component="update" data-openbitfun-part="alert">
+            <Alert tone="error" message={errorMessage} showIcon />
+          </div>
+        ) : null}
       </>
     );
   } else {
     body = (
       <>
         <div
-          className="bitfun-update-progress__bar"
+          className="openbitfun-update-progress__bar"
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={pct ?? undefined}
           aria-label={t('update.downloadingTitle')}
-          data-bf-component="update"
-          data-bf-part="progressBar"
+          data-openbitfun-component="update"
+          data-openbitfun-part="progressBar"
         >
           <div
             className={
               pct != null
-                ? 'bitfun-update-progress__fill'
-                : 'bitfun-update-progress__fill bitfun-update-progress__fill--indeterminate'
+                ? 'openbitfun-update-progress__fill'
+                : 'openbitfun-update-progress__fill openbitfun-update-progress__fill--indeterminate'
             }
             style={pct != null ? { transform: `scaleX(${pct / 100})` } : undefined}
-            data-bf-component="update"
-            data-bf-part="progressFill"
-            data-bf-state={pct == null ? 'indeterminate' : undefined}
+            data-openbitfun-component="update"
+            data-openbitfun-part="progressFill"
+            data-openbitfun-state={pct == null ? 'indeterminate' : undefined}
           />
         </div>
-        <p className="bitfun-update-progress__hint" data-bf-component="update" data-bf-part="progressHint">
+        <p className="openbitfun-update-progress__hint" data-openbitfun-component="update" data-openbitfun-part="progressHint">
           {pct != null
             ? t('update.progressPercent', { percent: String(pct) })
             : t('update.progressUnknown')}
         </p>
-        <p className="bitfun-update-progress__restart" data-bf-component="update" data-bf-part="restartHint">{t('update.restartHint')}</p>
+        <p className="openbitfun-update-progress__restart" data-openbitfun-component="update" data-openbitfun-part="restartHint">{t('update.restartHint')}</p>
       </>
     );
   }
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={title}
-      showCloseButton={!!error || !!installed}
-      size="small"
+    <Dialog
+      open={isOpen}
+      onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}
+      size="sm"
     >
-      <div
-        className="bitfun-update-progress"
-        data-bf-component="update"
-        data-bf-part="progressRoot"
-        data-bf-status={error ? 'error' : installed ? 'installed' : 'downloading'}
-      >
-        {body}
-      </div>
-    </Modal>
+      <DialogHeader>
+        <DialogHeading>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeading>
+        {!installing && (!!error || !!installed) && <DialogClose />}
+      </DialogHeader>
+      <DialogBody>
+        <div
+          className="openbitfun-update-progress"
+          data-openbitfun-component="update"
+          data-openbitfun-part="progressRoot"
+          data-openbitfun-status={error ? 'error' : installed ? 'installed' : 'downloading'}
+        >
+          {body}
+        </div>
+      </DialogBody>
+      {installed ? (
+        <DialogFooter>
+          <div
+            className="openbitfun-update-progress__actions"
+            data-openbitfun-component="update"
+            data-openbitfun-part="actions"
+          >
+            {errorMessage && onDownloadAgain ? (
+              <Button variant="outline" size="md" disabled={installing} onClick={onDownloadAgain}>
+                {t('update.downloadAgain')}
+              </Button>
+            ) : null}
+            <Button variant="outline" size="md" disabled={installing} onClick={onCloseInstalled}>
+              {t('update.restartLater')}
+            </Button>
+            <Button variant="primary" size="md" disabled={installing} loading={installing} onClick={onRestart}>
+              {t(installing ? 'update.installing' : 'update.installAndRestart')}
+            </Button>
+          </div>
+        </DialogFooter>
+      ) : null}
+    </Dialog>
   );
 };

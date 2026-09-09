@@ -1,127 +1,185 @@
 /**
- * SceneBar — horizontal scene-level tab bar (38px).
+ * SceneBar — horizontally scrollable scene-level tab bar.
  *
  * Delegates state to useSceneManager.
- * AI Agent tab shows the current session title as a subtitle.
+ * The Session tab uses the current session title as its single visible label.
  */
 
-import React, { useCallback, useRef } from 'react';
-import SceneTab from './SceneTab';
-import { WindowControls } from '@/component-library';
+import React, { useCallback } from 'react';
+
+import { Icon, TabGroup, type TabGroupItem } from '@openbitfun/ui';
+import { useSceneTabNavigation } from './useSceneTabNavigation';
 import { useSceneManager } from '../../hooks/useSceneManager';
 import { useCurrentSessionTitle } from '../../hooks/useCurrentSessionTitle';
-import { useCurrentSettingsTabTitle } from '../../hooks/useCurrentSettingsTabTitle';
+import { isSceneTabClosable } from '../../scenes/registry';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
-import { createLogger } from '@/shared/utils/logger';
-import { supportsNativeWindowDragging } from '@/infrastructure/runtime';
+import type { SceneTabId } from './types';
 import './SceneBar.scss';
 
-const log = createLogger('SceneBar');
-
-const INTERACTIVE_SELECTOR =
-  'button, input, textarea, select, a, [role="button"], [contenteditable="true"], .window-controls';
+function getSceneIdFromTabTarget(target: EventTarget | null): SceneTabId | undefined {
+  if (!(target instanceof HTMLElement)) return undefined;
+  const item = target.closest<HTMLElement>('[data-openbitfun-part="item"]');
+  const tab = item?.querySelector<HTMLElement>('[role="tab"][data-openbitfun-value]');
+  return tab?.dataset.openbitfunValue as SceneTabId | undefined;
+}
 
 interface SceneBarProps {
   className?: string;
-  onMinimize?: () => void;
-  onMaximize?: () => void;
-  onClose?: () => void;
-  isMaximized?: boolean;
 }
 
 const SceneBar: React.FC<SceneBarProps> = ({
   className = '',
-  onMinimize,
-  onMaximize,
-  onClose,
-  isMaximized = false,
 }) => {
-  const { openTabs, activeTabId, tabDefs, activateScene, closeScene } = useSceneManager();
+  const {
+    openTabs,
+    activeTabId,
+    navigationMotion,
+    tabDefs,
+    activateScene,
+    closeScene,
+  } = useSceneManager();
   const sessionTitle = useCurrentSessionTitle();
-  const settingsTabTitle = useCurrentSettingsTabTitle();
   const { t } = useI18n('common');
-  const hasWindowControls = !!(onMinimize && onMaximize && onClose);
-  const sceneBarClassName = `bitfun-scene-bar ${!hasWindowControls ? 'bitfun-scene-bar--no-controls' : ''} ${className}`.trim();
-  const isSingleTab = openTabs.length <= 1;
-  const canDragWindow = supportsNativeWindowDragging();
-  const tabCount = Math.max(openTabs.length, 1);
-  const tabsStyle = {
-    ['--bf-appearance-token-scene-tab-count' as string]: tabCount,
-  } as React.CSSProperties;
-  const lastMouseDownTimeRef = useRef<number>(0);
+  const sceneBarClassName = `openbitfun-scene-bar ${className}`.trim();
+  const {
+    tabRegionRef,
+    tabsRef,
+    scrollState: tabScrollState,
+    handleScroll: handleTabsScroll,
+    handleWheel: handleTabsWheel,
+    scrollByPage: scrollTabsByPage,
+  } = useSceneTabNavigation({
+    activeTabId,
+    navigationMotion,
+    openTabIds: openTabs.map(tab => tab.id),
+  });
 
-  const handleBarMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!canDragWindow) return;
-    if (!isSingleTab) return;
+  const handleTabValueChange = useCallback((value: string) => {
+    activateScene(value as SceneTabId);
+  }, [activateScene]);
 
-    const now = Date.now();
-    const timeSinceLastMouseDown = now - lastMouseDownTimeRef.current;
-    lastMouseDownTimeRef.current = now;
+  const handleTabsMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 1) return;
+    if ((e.target as HTMLElement | null)?.closest('[data-scene-bar-part="closeTab"]')) return;
+    const sceneId = getSceneIdFromTabTarget(e.target);
+    if (!sceneId || !isSceneTabClosable(tabDefs.find(def => def.id === sceneId))) return;
+    e.preventDefault();
+  }, [tabDefs]);
 
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement | null;
-    if (!target) return;
-    if (target.closest(INTERACTIVE_SELECTOR)) return;
-    if (timeSinceLastMouseDown < 500 && timeSinceLastMouseDown > 50) return;
+  const handleTabsAuxClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 1) return;
+    if ((e.target as HTMLElement | null)?.closest('[data-scene-bar-part="closeTab"]')) return;
+    const sceneId = getSceneIdFromTabTarget(e.target);
+    if (!sceneId || !isSceneTabClosable(tabDefs.find(def => def.id === sceneId))) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeScene(sceneId);
+  }, [closeScene, tabDefs]);
 
-    void (async () => {
-      try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        await getCurrentWindow().startDragging();
-      } catch (error) {
-        log.debug('startDragging failed', error);
-      }
-    })();
-  }, [canDragWindow, isSingleTab]);
+  const handleTabsKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Delete') return;
+    const sceneId = getSceneIdFromTabTarget(e.target);
+    if (!sceneId || !isSceneTabClosable(tabDefs.find(def => def.id === sceneId))) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeScene(sceneId);
+  }, [closeScene, tabDefs]);
 
-  const handleBarDoubleClick = useCallback((e: React.MouseEvent) => {
-    if (!isSingleTab) return;
-    const target = e.target as HTMLElement | null;
-    if (!target) return;
-    if (target.closest(INTERACTIVE_SELECTOR)) return;
-    onMaximize?.();
-  }, [isSingleTab, onMaximize]);
+  const tabItems = openTabs.reduce<TabGroupItem[]>((items, tab) => {
+    const def = tabDefs.find(candidate => candidate.id === tab.id);
+    if (!def) return items;
+
+    const translatedLabel = def.labelKey ? t(def.labelKey) : def.label;
+    const displayLabel = tab.id === 'session' && sessionTitle
+      ? sessionTitle
+      : translatedLabel;
+    const closeLabel = t('sceneBar.closeTab', { label: displayLabel });
+    const closable = isSceneTabClosable(def);
+
+    items.push({
+      value: tab.id,
+      label: displayLabel,
+      // Keep the close hit target stationary between pointer down and up;
+      // shrinking it can retarget the click at the button edge (issue #2210).
+      endAction: closable ? (
+        <button
+          type="button"
+          aria-label={closeLabel}
+          title={closeLabel}
+          data-motion="none"
+          data-scene-bar-part="closeTab"
+          data-scene-id={tab.id}
+          onClick={(event) => {
+            event.stopPropagation();
+            closeScene(tab.id);
+          }}
+          tabIndex={-1}
+        >
+          <Icon name="xmark" size="xs" aria-hidden="true" />
+        </button>
+      ) : undefined,
+    });
+    return items;
+  }, []);
 
   return (
-    <div data-bf-component="scene-bar" data-bf-part="root"
+    <div data-openbitfun-component="scene-bar" data-openbitfun-part="root"
       className={sceneBarClassName}
-      role="tablist"
-      aria-label="Scene tabs"
-      onMouseDown={handleBarMouseDown}
-      onDoubleClick={handleBarDoubleClick}
     >
-      <div className="bitfun-scene-bar__tabs" style={tabsStyle} data-bf-component="scene-bar" data-bf-part="tabs">
-        {openTabs.map(tab => {
-          const def = tabDefs.find(d => d.id === tab.id);
-          if (!def) return null;
-          const translatedLabel = def.labelKey ? t(def.labelKey) : def.label;
-          const subtitle =
-            (tab.id === 'session' && sessionTitle ? sessionTitle : undefined)
-            ?? (tab.id === 'settings' && settingsTabTitle ? settingsTabTitle : undefined);
-          return (
-            <SceneTab
-              key={tab.id}
-              tab={tab}
-              def={{ ...def, label: translatedLabel }}
-              isActive={tab.id === activeTabId}
-              subtitle={subtitle}
-              onActivate={activateScene}
-              onClose={closeScene}
-            />
-          );
-        })}
+      <div
+        ref={tabRegionRef}
+        className="openbitfun-scene-bar__tab-region"
+        data-overflow={tabScrollState.hasOverflow ? 'true' : 'false'}
+        data-openbitfun-component="scene-bar"
+        data-openbitfun-part="tabs"
+      >
+        {tabScrollState.hasOverflow && (
+          <button
+            type="button"
+            className="openbitfun-scene-bar__scroll-button"
+            aria-label={t('sceneBar.scrollPrevious')}
+            title={t('sceneBar.scrollPrevious')}
+            disabled={!tabScrollState.canScrollBackward}
+            onClick={() => scrollTabsByPage(-1)}
+            data-openbitfun-component="scene-bar"
+            data-openbitfun-part="scrollPrevious"
+          >
+            <Icon name="chevron-left" size="sm" aria-hidden="true" />
+          </button>
+        )}
+
+        <TabGroup
+          ref={tabsRef}
+          className="openbitfun-scene-bar__tabs"
+          aria-label={t('sceneBar.tabsLabel')}
+          items={tabItems}
+          size="sm"
+          value={activeTabId ?? undefined}
+          onValueChange={handleTabValueChange}
+          onScroll={handleTabsScroll}
+          onWheel={handleTabsWheel}
+          onKeyDown={handleTabsKeyDown}
+          onMouseDown={handleTabsMouseDown}
+          onAuxClick={handleTabsAuxClick}
+          data-scene-bar-part="tabs"
+        />
+
+        {tabScrollState.hasOverflow && (
+          <button
+            type="button"
+            className="openbitfun-scene-bar__scroll-button"
+            aria-label={t('sceneBar.scrollNext')}
+            title={t('sceneBar.scrollNext')}
+            disabled={!tabScrollState.canScrollForward}
+            onClick={() => scrollTabsByPage(1)}
+            data-openbitfun-component="scene-bar"
+            data-openbitfun-part="scrollNext"
+          >
+            <Icon name="chevron-right" size="sm" aria-hidden="true" />
+          </button>
+        )}
       </div>
 
-      {hasWindowControls && (
-        <div className="bitfun-scene-bar__controls" data-bf-component="scene-bar" data-bf-part="controls">
-          <WindowControls
-            onMinimize={onMinimize!}
-            onMaximize={onMaximize!}
-            onClose={onClose!}
-            isMaximized={isMaximized}
-          />
-        </div>
-      )}
     </div>
   );
 };

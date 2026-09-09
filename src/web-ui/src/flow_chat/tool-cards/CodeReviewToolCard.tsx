@@ -1,24 +1,20 @@
 /**
  * CodeReview tool display component
  * Displays structured code review results with collapsible/expandable details
- * Refactored based on BaseToolCard
+ * Uses the shared prominent FlowChat framework.
  */
 
+import { OverflowText, Icon } from '@openbitfun/ui';
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import {
-  Loader2,
-  AlertTriangle,
-  AlertCircle,
-  Clock,
-  Info,
-  ChevronDown,
-  ChevronUp,
-} from 'lucide-react';
+import { Loader2, AlertTriangle, AlertCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Tooltip, ToolProcessingDots } from '@/component-library';
 import type { ToolCardProps } from '../types/flow-chat';
 import { flowChatStore } from '../store/FlowChatStore';
-import { BaseToolCard, ToolCardHeader } from './BaseToolCard';
+import {
+  ProminentToolCard,
+  ProminentToolCardSummary,
+  ToolProcessingDots,
+} from '@openbitfun/ui/flow-chat';
 import { createLogger } from '@/shared/utils/logger';
 import { useToolCardHeightContract } from './useToolCardHeightContract';
 import {
@@ -55,10 +51,10 @@ const EVIDENCE_STATUS_LABEL_KEYS: Record<ReviewEvidenceStatus, string> = {
 const log = createLogger('CodeReviewToolCard');
 
 const riskLevelColors: Record<string, string> = {
-  low: 'var(--bf-appearance-token-color-success)',
-  medium: 'var(--bf-appearance-token-color-warning)',
-  high: 'color-mix(in srgb, var(--bf-appearance-token-color-warning) 55%, var(--bf-appearance-token-color-error))',
-  critical: 'var(--bf-appearance-token-color-error)',
+  low: 'var(--openbitfun-color-status-success-content)',
+  medium: 'var(--openbitfun-color-status-warning-content)',
+  high: 'color-mix(in srgb, var(--openbitfun-color-status-warning-content) 55%, var(--openbitfun-color-status-danger-content))',
+  critical: 'var(--openbitfun-color-status-danger-content)',
 };
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
@@ -80,19 +76,19 @@ const ReviewReportSection: React.FC<ReviewReportSectionProps> = ({
 }) => (
   <section
     className={`review-report-section ${expanded ? 'is-expanded' : ''}`}
-    data-bf-component="code-review-tool-card"
-    data-bf-part="group"
-    data-bf-state={expanded ? 'expanded' : undefined}
+    data-openbitfun-component="code-review-tool-card"
+    data-openbitfun-part="group"
+    data-openbitfun-state={expanded ? 'expanded' : undefined}
   >
-    <button
+    <button data-overflow-trigger
       type="button"
       className="review-report-section__header"
       onClick={onToggle}
       aria-expanded={expanded}
     >
-      <span className="review-report-section__title">{title}</span>
+      <OverflowText className="review-report-section__title">{title}</OverflowText>
       {summary && <span className="review-report-section__summary">{summary}</span>}
-      {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+      {expanded ? <Icon name="chevron-up" size="lg" style={{ width: 13, height: 13 }} /> : <Icon name="chevron-down" size="lg" style={{ width: 13, height: 13 }} />}
     </button>
     {expanded && (
       <div className="review-report-section__body">
@@ -199,7 +195,7 @@ function getReliabilityNoticeIcon(notice: ReviewReliabilityNotice): React.ReactN
     notice.kind === 'partial_reviewer' ||
     notice.kind === 'retry_guidance'
   ) {
-    return <Clock size={13} />;
+    return <Icon name="clock" size="lg" style={{ width: 13, height: 13 }} />;
   }
   if (
     notice.kind === 'user_decision' ||
@@ -209,7 +205,7 @@ function getReliabilityNoticeIcon(notice: ReviewReliabilityNotice): React.ReactN
   ) {
     return <AlertTriangle size={13} />;
   }
-  return <Info size={13} />;
+  return <Icon name="info" size="lg" style={{ width: 13, height: 13 }} />;
 }
 
 function getDeepReviewRunManifestForSession(sessionId?: string): ReviewTeamRunManifest | undefined {
@@ -225,7 +221,7 @@ function renderReportGroupList<TId extends RemediationGroupId | StrengthGroupId>
   titleForGroup: (id: TId) => string,
 ): React.ReactNode {
   return groups.map((group) => (
-    <div key={group.id} id={`review-remediation-group-${group.id}`} className="review-report-group" data-bf-component="code-review-tool-card" data-bf-part="group">
+    <div key={group.id} id={`review-remediation-group-${group.id}`} className="review-report-group" data-openbitfun-component="code-review-tool-card" data-openbitfun-part="group">
       <div className="review-report-group__title">{titleForGroup(group.id)}</div>
       <ul className="review-report-group__list">
         {group.items.map((item, index) => (
@@ -336,11 +332,11 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
       case 'medium':
         return <AlertTriangle size={14} style={{ color: riskLevelColors.medium }} />;
       case 'low':
-        return <Info size={14} style={{ color: riskLevelColors.low }} />;
+        return <Icon name="info" size="sm" style={{ color: riskLevelColors.low }} />;
       case 'info':
-        return <Info size={14} style={{ color: 'var(--bf-appearance-token-color-text-muted)' }} />;
+        return <Icon name="info" size="sm" style={{ color: 'var(--openbitfun-color-content-muted)' }} />;
       default:
-        return <Info size={14} style={{ color: 'var(--bf-appearance-token-color-text-muted)' }} />;
+        return <Icon name="info" size="sm" style={{ color: 'var(--openbitfun-color-content-muted)' }} />;
     }
   };
 
@@ -397,11 +393,6 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
       toggleExpanded();
     }
   }, [hasData, toggleExpanded]);
-
-  const handleToggleExpand = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    toggleExpanded();
-  }, [toggleExpanded]);
 
   const handleToggleRemediationDetails = useCallback((itemId: string) => {
     setExpandedRemediationIds((current) => {
@@ -546,35 +537,17 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
     return null;
   };
 
-  const renderHeader = () => {
+  const renderSummary = () => {
     return (
-      <ToolCardHeader
+      <ProminentToolCardSummary
         icon={null}
-        iconClassName="code-review-icon"
         content={renderContent()}
-        extra={(
-          <>
-            {hasData && reviewData && (
-              <CodeReviewReportExportActions
-                reviewData={reviewData}
-                runManifest={sessionRunManifest}
-              />
-            )}
-            {hasData && (
-              <Tooltip
-                content={isExpanded ? t('toolCards.codeReview.collapseDetails') : t('toolCards.codeReview.expandDetails')}
-                placement="top"
-              >
-                <button
-                  className="preview-toggle-btn"
-                  onClick={handleToggleExpand}
-                >
-                  {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                </button>
-              </Tooltip>
-            )}
-          </>
-        )}
+        actions={hasData && reviewData ? (
+          <CodeReviewReportExportActions
+            reviewData={reviewData}
+            runManifest={sessionRunManifest}
+          />
+        ) : undefined}
         statusIcon={getStatusIcon()}
       />
     );
@@ -604,12 +577,12 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
     const coverageExpanded = expandedReportSectionIds.has('coverage');
 
     return (
-      <div className="code-review-details" data-bf-component="code-review-tool-card" data-bf-part="details">
+      <div className="code-review-details" data-openbitfun-component="code-review-tool-card" data-openbitfun-part="details">
         {reliabilityNotices.length > 0 && (
           <div
             className="review-reliability-status"
-            data-bf-component="code-review-tool-card"
-            data-bf-part="reliability"
+            data-openbitfun-component="code-review-tool-card"
+            data-openbitfun-part="reliability"
             aria-label={t('toolCards.codeReview.reliabilityStatus.title')}
           >
             <div className="review-reliability-status__title">
@@ -620,8 +593,8 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
                 <div
                   key={notice.kind}
                   className={`review-reliability-status__item review-reliability-status__item--${notice.severity}`}
-                  data-bf-component="code-review-tool-card"
-                  data-bf-part="reliabilityItem"
+                  data-openbitfun-component="code-review-tool-card"
+                  data-openbitfun-part="reliabilityItem"
                 >
                   <span className="review-reliability-status__icon">
                     {getReliabilityNoticeIcon(notice)}
@@ -640,7 +613,7 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
           </div>
         )}
 
-        <div className="review-summary" data-bf-component="code-review-tool-card" data-bf-part="summary">
+        <div className="review-summary" data-openbitfun-component="code-review-tool-card" data-openbitfun-part="summary">
           <div className="summary-header">{t('toolCards.codeReview.overallAssessment')}</div>
           <div className="summary-rows">
             {riskLevel && (
@@ -709,12 +682,12 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
             expanded={issuesExpanded}
             onToggle={handleToggleReportSection('issues')}
           >
-            <div className="issues-list" data-bf-component="code-review-tool-card" data-bf-part="issues">
+            <div className="issues-list" data-openbitfun-component="code-review-tool-card" data-openbitfun-part="issues">
               {issues.map((issue, index) => (
                 (() => {
                   const coverageSource = getCoverageSourceLabel(issue.source_reviewer, t);
                   return (
-                    <div data-bf-component="code-review-tool-card" data-bf-part="issue"
+                    <div data-openbitfun-component="code-review-tool-card" data-openbitfun-part="issue"
                       key={index}
                       id={`review-issue-${index}`}
                       className={`review-issue-item severity-${getSeverityClass(issue.severity ?? 'info')}`}
@@ -729,9 +702,9 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
                             <span className="issue-source">{coverageSource}</span>
                           )}
                           {issue.file && (
-                            <span className="issue-location">
+                            <OverflowText className="issue-location">
                               {issue.file}{issue.line ? `:${issue.line}` : ''}
-                            </span>
+                            </OverflowText>
                           )}
                         </div>
                         <span className="issue-certainty">
@@ -768,7 +741,7 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
             expanded={remediationExpanded}
             onToggle={handleToggleReportSection('remediation')}
           >
-            <div className="review-remediation" data-bf-component="code-review-tool-card" data-bf-part="remediation">
+            <div className="review-remediation" data-openbitfun-component="code-review-tool-card" data-openbitfun-part="remediation">
             <div className="remediation-header-row">
               <div>
                 <div className="remediation-header">
@@ -777,7 +750,7 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
               </div>
             </div>
             {review_mode === 'deep' ? (
-              <div className="review-remediation__groups" data-bf-component="code-review-tool-card" data-bf-part="groups">
+              <div className="review-remediation__groups" data-openbitfun-component="code-review-tool-card" data-openbitfun-part="groups">
                 {reportSections.remediationGroups.map((group) => {
                   const groupTitle = getRemediationGroupTitle(group.id, t);
 
@@ -785,14 +758,14 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
                   if (group.id === 'needs_decision') {
                     const rawEntries = reviewData?.report_sections?.remediation_groups?.needs_decision;
                     return (
-                      <div data-bf-component="code-review-tool-card" data-bf-part="group" key={group.id} id={`review-remediation-group-${group.id}`} className="review-report-group">
+                      <div data-openbitfun-component="code-review-tool-card" data-openbitfun-part="group" key={group.id} id={`review-remediation-group-${group.id}`} className="review-report-group">
                         <div className="review-report-group__title">{groupTitle}</div>
                         <ul className="review-report-group__list">
                           {group.items.map((_, index) => {
                             const raw = rawEntries?.[index];
                             const ctx = raw ? normalizeDecisionEntry(raw as string | DecisionContext) : null;
                             return (
-                              <li data-bf-component="code-review-tool-card" data-bf-part="decision" key={`${group.id}-${index}`} id={`review-remediation-${group.id}-${index}`}>
+                              <li data-openbitfun-component="code-review-tool-card" data-openbitfun-part="decision" key={`${group.id}-${index}`} id={`review-remediation-${group.id}-${index}`}>
                                 {ctx && ctx.question !== ctx.plan ? (
                                   <div className="review-decision-item">
                                     <div className="review-decision-item__question">{ctx.question}</div>
@@ -822,7 +795,7 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
 
                   // Default rendering for other groups
                   return (
-                    <div data-bf-component="code-review-tool-card" data-bf-part="group" key={group.id} id={`review-remediation-group-${group.id}`} className="review-report-group">
+                    <div data-openbitfun-component="code-review-tool-card" data-openbitfun-part="group" key={group.id} id={`review-remediation-group-${group.id}`} className="review-report-group">
                       <div className="review-report-group__title">{groupTitle}</div>
                       <ul className="review-report-group__list">
                         {group.items.map((item, index) => (
@@ -834,7 +807,7 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
                 })}
               </div>
             ) : (
-              <div className="remediation-list" data-bf-component="code-review-tool-card" data-bf-part="remediationList">
+              <div className="remediation-list" data-openbitfun-component="code-review-tool-card" data-openbitfun-part="remediationList">
                 {remediationItems.map((item) => {
                 const issue = item.issue;
                 const expanded = expandedRemediationIds.has(item.id);
@@ -843,7 +816,7 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
                   : null;
 
                 return (
-                  <div data-bf-component="code-review-tool-card" data-bf-part="remediationItem"
+                  <div data-openbitfun-component="code-review-tool-card" data-openbitfun-part="remediationItem"
                     key={item.id}
                     className="remediation-item"
                   >
@@ -861,7 +834,7 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
                         }}
                         aria-expanded={expanded}
                       >
-                        {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                        {expanded ? <Icon name="chevron-up" size="lg" style={{ width: 13, height: 13 }} /> : <Icon name="chevron-down" size="lg" style={{ width: 13, height: 13 }} />}
                         <span>
                           {expanded
                             ? t('toolCards.codeReview.remediationActions.collapsePlan')
@@ -881,19 +854,19 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
                               {issue.severity && (
                                 <div>
                                   <span>{t('toolCards.codeReview.remediationActions.severity')}</span>
-                                  <strong>{t(`toolCards.codeReview.severities.${issue.severity}`, { defaultValue: issue.severity })}</strong>
+                                  <strong><OverflowText>{t(`toolCards.codeReview.severities.${issue.severity}`, { defaultValue: issue.severity })}</OverflowText></strong>
                                 </div>
                               )}
                               {issue.certainty && (
                                 <div>
                                   <span>{t('toolCards.codeReview.remediationActions.certainty')}</span>
-                                  <strong>{t(`toolCards.codeReview.certainties.${issue.certainty}`, { defaultValue: issue.certainty })}</strong>
+                                  <strong><OverflowText>{t(`toolCards.codeReview.certainties.${issue.certainty}`, { defaultValue: issue.certainty })}</OverflowText></strong>
                                 </div>
                               )}
                               {location && (
                                 <div>
                                   <span>{t('toolCards.codeReview.remediationActions.location')}</span>
-                                  <strong>{location}</strong>
+                                  <strong><OverflowText>{location}</OverflowText></strong>
                                 </div>
                               )}
                             </div>
@@ -937,7 +910,7 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
             expanded={strengthsExpanded}
             onToggle={handleToggleReportSection('strengths')}
           >
-            <div className="review-positive" data-bf-component="code-review-tool-card" data-bf-part="positive">
+            <div className="review-positive" data-openbitfun-component="code-review-tool-card" data-openbitfun-part="positive">
               {renderReportGroupList(
                 reportSections.strengthGroups,
                 (id) => getStrengthGroupTitle(id, t),
@@ -978,13 +951,13 @@ export const CodeReviewToolCard: React.FC<ToolCardProps> = React.memo(({
   const normalizedStatus = status === 'analyzing' ? 'running' : status;
 
   return (
-    <div data-bf-component="code-review-tool-card" data-bf-part="root" ref={cardRootRef} data-tool-card-id={toolId ?? ''}>
-      <BaseToolCard
+    <div data-openbitfun-component="code-review-tool-card" data-openbitfun-part="root" ref={cardRootRef} data-tool-card-id={toolId ?? ''}>
+      <ProminentToolCard
         status={normalizedStatus as 'pending' | 'preparing' | 'streaming' | 'running' | 'completed' | 'error' | 'cancelled'}
         isExpanded={isExpanded}
-        onClick={handleCardClick}
+        onToggle={handleCardClick}
         className="code-review-card"
-        header={renderHeader()}
+        summary={renderSummary()}
         expandedContent={expandedContent ?? undefined}
       />
     </div>

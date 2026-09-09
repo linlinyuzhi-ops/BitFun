@@ -9,7 +9,7 @@ import {
 
 afterEach(() => {
   document.body.innerHTML = '';
-  delete window.__BITFUN_STARTUP_OVERLAY_STARTED_AT__;
+  delete window.__OPENBITFUN_STARTUP_OVERLAY_STARTED_AT__;
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -17,12 +17,12 @@ afterEach(() => {
 describe('startupOverlay', () => {
   it('removes the existing startup overlay when its exit animation completes', async () => {
     vi.useFakeTimers();
-    document.body.innerHTML = '<div id="bitfun-startup-overlay"></div>';
+    document.body.innerHTML = '<div id="openbitfun-startup-overlay"></div>';
 
     const hidden = hideStartupOverlay();
 
-    const overlay = document.getElementById('bitfun-startup-overlay');
-    expect(overlay?.classList.contains('bitfun-startup-overlay--exiting')).toBe(true);
+    const overlay = document.getElementById('openbitfun-startup-overlay');
+    expect(overlay?.classList.contains('openbitfun-startup-overlay--exiting')).toBe(true);
     expect(overlay?.getAttribute('aria-hidden')).toBe('true');
 
     overlay?.dispatchEvent(new Event('animationend'));
@@ -57,7 +57,7 @@ describe('startupOverlay', () => {
 
   it('falls back to a timer when the exit animation event is not delivered', async () => {
     vi.useFakeTimers();
-    document.body.innerHTML = '<div id="bitfun-startup-overlay"></div>';
+    document.body.innerHTML = '<div id="openbitfun-startup-overlay"></div>';
 
     const hidden = hideStartupOverlay();
 
@@ -72,7 +72,7 @@ describe('startupOverlay', () => {
 
   it('tracks elapsed time from the static overlay first paint', () => {
     vi.spyOn(performance, 'now').mockReturnValue(1500);
-    window.__BITFUN_STARTUP_OVERLAY_STARTED_AT__ = 1200;
+    window.__OPENBITFUN_STARTUP_OVERLAY_STARTED_AT__ = 1200;
 
     expect(getStartupOverlayElapsedMs()).toBe(300);
   });

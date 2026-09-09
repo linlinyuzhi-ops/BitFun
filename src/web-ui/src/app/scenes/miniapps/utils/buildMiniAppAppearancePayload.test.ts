@@ -18,13 +18,13 @@ function createAppearance(
     components: {},
     scenes: {},
     renderers: {
-      'css-tokens': {
+      'theme-tokens': {
         tokens: {
-          '--bf-appearance-token-color-bg-primary': '#111111',
-          '--bf-appearance-token-color-text-primary': '#eeeeee',
-          '--bf-appearance-token-scrollbar-thumb': scrollbar?.thumb
+          '--openbitfun-color-surface-canvas': '#111111',
+          '--openbitfun-color-content-primary': '#eeeeee',
+          '--openbitfun-color-scrollbar-thumb': scrollbar?.thumb
             ?? (mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.15)'),
-          '--bf-appearance-token-scrollbar-thumb-hover': scrollbar?.thumbHover
+          '--openbitfun-color-scrollbar-thumb-hover': scrollbar?.thumbHover
             ?? (mode === 'dark' ? 'rgba(255, 255, 255, 0.24)' : 'rgba(0, 0, 0, 0.3)'),
         },
       },
@@ -41,9 +41,9 @@ describe('buildMiniAppAppearancePayload', () => {
       mode: 'dark',
       id: 'dark-fixture',
       vars: {
-        '--bitfun-bg': '#111111',
-        '--bitfun-text': '#eeeeee',
-        '--bitfun-scrollbar-thumb': 'rgba(255, 255, 255, 0.12)',
+        '--openbitfun-bg': '#111111',
+        '--openbitfun-text': '#eeeeee',
+        '--openbitfun-scrollbar-thumb': 'rgba(255, 255, 255, 0.12)',
       },
     });
   });
@@ -55,8 +55,8 @@ describe('buildMiniAppAppearancePayload', () => {
         thumbHover: 'appearance-thumb-hover',
       }))?.vars,
     ).toMatchObject({
-      '--bitfun-scrollbar-thumb': 'appearance-thumb',
-      '--bitfun-scrollbar-thumb-hover': 'appearance-thumb-hover',
+      '--openbitfun-scrollbar-thumb': 'appearance-thumb',
+      '--openbitfun-scrollbar-thumb-hover': 'appearance-thumb-hover',
     });
   });
 });

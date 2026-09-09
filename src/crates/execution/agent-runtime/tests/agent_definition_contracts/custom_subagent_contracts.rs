@@ -1,8 +1,8 @@
-use bitfun_agent_runtime::custom_agent::{
+use openbitfun_agent_runtime::custom_agent::{
     CustomAgentKind, DEFAULT_CUSTOM_SUBAGENT_MODEL, DEFAULT_CUSTOM_SUBAGENT_READONLY,
     DEFAULT_CUSTOM_SUBAGENT_REVIEW,
 };
-use bitfun_agent_runtime::custom_subagent::{
+use openbitfun_agent_runtime::custom_subagent::{
     custom_subagent_model_or_default, custom_subagent_model_should_save,
     custom_subagent_read_markdown_file, custom_subagent_read_markdown_str,
     custom_subagent_readonly_or_default, custom_subagent_readonly_should_save,
@@ -67,11 +67,11 @@ fn custom_subagent_defaults_match_existing_front_matter_contract() {
 
 #[test]
 fn custom_subagent_tool_front_matter_keeps_existing_comma_format() {
-    let tools = custom_subagent_tools_from_front_matter(Some("Read, Grep, Bash"));
-    assert_eq!(tools, ["Read", "Grep", "Bash"]);
+    let tools = custom_subagent_tools_from_front_matter(Some("Read, Grep, ExecCommand"));
+    assert_eq!(tools, ["Read", "Grep", "ExecCommand"]);
     assert_eq!(
         custom_subagent_tools_to_front_matter(&tools),
-        Some("Read, Grep, Bash".to_string())
+        Some("Read, Grep, ExecCommand".to_string())
     );
 }
 
@@ -160,7 +160,7 @@ fn custom_subagent_model_presence_distinguishes_default_from_fast_override() {
     assert!(explicit_fast.model_is_explicit);
     assert!(explicit_fast.should_save_model());
 
-    let dir = TestTempDir::new("bitfun-agent-runtime-explicit-model");
+    let dir = TestTempDir::new("openbitfun-agent-runtime-explicit-model");
     let implicit_path = dir.join("implicit.md");
     let explicit_path = dir.join("explicit.md");
     custom_subagent_save_markdown_file(&implicit_path, &implicit)
@@ -212,7 +212,7 @@ fn custom_subagent_definition_reports_legacy_missing_field_errors() {
 
 #[test]
 fn custom_subagent_markdown_io_writes_canonical_front_matter() {
-    let dir = TestTempDir::new("bitfun-agent-runtime-subagent");
+    let dir = TestTempDir::new("openbitfun-agent-runtime-subagent");
     let path = dir.join("reviewer.md");
     let definition = build_definition(BuildDefinitionInput(
         Some("Reviewer"),

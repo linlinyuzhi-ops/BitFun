@@ -9,12 +9,15 @@ use bitfun_core::infrastructure::ai::{AIClient, AIClientFactory};
 use bitfun_core::miniapp::{
     initialize_global_miniapp_manager, seed_builtin_miniapps, JsWorkerPool, MiniAppManager,
 };
-use bitfun_core::service::remote_ssh::{
-    init_remote_workspace_manager, RemoteFileService, RemoteTerminalManager, SSHConnectionManager,
+use openbitfun_core::service::remote_ssh::{
+    global_port_forward_manager, init_remote_workspace_manager, PortForwardManager,
+    RemoteFileService, RemoteTerminalManager, SSHConnectionManager,
 };
-use bitfun_core::service::{announcement, config, filesystem, mcp, search, token_usage, workspace};
-use bitfun_core::util::errors::*;
-use bitfun_services_integrations::speech::{SpeechService, SpeechStoragePaths};
+use openbitfun_core::service::{
+    announcement, config, filesystem, mcp, search, token_usage, workspace,
+};
+use openbitfun_core::util::errors::*;
+use openbitfun_services_integrations::speech::{SpeechService, SpeechStoragePaths};
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -75,7 +78,7 @@ pub struct AppState {
     pub speech_service: Arc<SpeechService>,
     pub agent_registry: Arc<agents::AgentRegistry>,
     pub mcp_service: Option<Arc<mcp::MCPService>>,
-    pub acp_client_service: Option<Arc<bitfun_acp::AcpClientService>>,
+    pub acp_client_service: Option<Arc<openbitfun_acp::AcpClientService>>,
     pub token_usage_service: Arc<token_usage::TokenUsageService>,
     pub miniapp_manager: Arc<MiniAppManager>,
     pub js_worker_pool: Option<Arc<JsWorkerPool>>,
@@ -86,6 +89,10 @@ pub struct AppState {
     pub ssh_manager: Arc<RwLock<Option<SSHConnectionManager>>>,
     pub remote_file_service: Arc<RwLock<Option<RemoteFileService>>>,
     pub remote_terminal_manager: Arc<RwLock<Option<RemoteTerminalManager>>>,
+    /// Local (`-L`) port forwards. Unlike the services above this needs no
+    /// `Option`: it is useful before any connection exists, and its own entry
+    /// points report a missing SSH manager.
+    pub port_forward_manager: PortForwardManager,
     pub remote_workspace: Arc<RwLock<Option<RemoteWorkspace>>>,
     pub active_searches: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     /// Cancellation flags for active file transfers (download/upload), keyed by transfer_id.
@@ -96,7 +103,7 @@ pub struct AppState {
 impl AppState {
     pub async fn new_async(
         token_usage_service: Arc<token_usage::TokenUsageService>,
-    ) -> BitFunResult<Self> {
+    ) -> OpenBitFunResult<Self> {
         let start_time = std::time::Instant::now();
 
         // Make the usage store reachable from tools that call the model outside
@@ -105,12 +112,12 @@ impl AppState {
         token_usage::set_global_token_usage_service(token_usage_service.clone());
 
         let config_service = config::get_global_config_service().await.map_err(|e| {
-            BitFunError::config(format!("Failed to get global config service: {}", e))
+            OpenBitFunError::config(format!("Failed to get global config service: {}", e))
         })?;
 
         let ai_client = Arc::new(RwLock::new(None));
         let ai_client_factory = AIClientFactory::get_global().await.map_err(|e| {
-            BitFunError::service(format!("Failed to get global AIClientFactory: {}", e))
+            OpenBitFunError::service(format!("Failed to get global AIClientFactory: {}", e))
         })?;
         let side_question_runtime = Arc::new(SideQuestionRuntime::new());
 
@@ -145,9 +152,12 @@ impl AppState {
         };
         let path_manager = workspace_service.path_manager().clone();
         let acp_client_service = Some(
-            bitfun_acp::AcpClientService::new(config_service.clone(), path_manager.clone())
+            openbitfun_acp::AcpClientService::new(config_service.clone(), path_manager.clone())
                 .map_err(|e| {
-                    BitFunError::service(format!("Failed to initialize ACP client service: {}", e))
+                    OpenBitFunError::service(format!(
+                        "Failed to initialize ACP client service: {}",
+                        e
+                    ))
                 })?,
         );
 
@@ -155,7 +165,7 @@ impl AppState {
             announcement::AnnouncementScheduler::new(&path_manager)
                 .await
                 .map_err(|e| {
-                    BitFunError::service(format!(
+                    OpenBitFunError::service(format!(
                         "Failed to initialize announcement scheduler: {}",
                         e
                     ))
@@ -304,6 +314,13 @@ impl AppState {
         let manager_for_fs = Arc::new(tokio::sync::RwLock::new(Some(manager_arc.as_ref().clone())));
         let fs = RemoteFileService::new(manager_for_fs.clone());
         let tm = RemoteTerminalManager::new(manager_arc.as_ref().clone());
+        // Share the process-wide registry rather than owning a private one: the
+        // Agent tool reaches forwards through the same global, and a mapping
+        // made in the UI has to be visible to the Agent and vice versa.
+        let port_forward_manager = global_port_forward_manager();
+        port_forward_manager
+            .set_ssh_manager(manager_arc.as_ref().clone())
+            .await;
 
         // Clone for storing in AppState
         let fs_for_state = fs.clone();
@@ -346,6 +363,7 @@ impl AppState {
             ssh_manager,
             remote_file_service,
             remote_terminal_manager,
+            port_forward_manager,
             remote_workspace,
             active_searches: Arc::new(Mutex::new(HashMap::new())),
             active_transfers: Arc::new(Mutex::new(HashMap::new())),
@@ -446,7 +464,7 @@ impl AppState {
 
         // Persist to SSHConnectionManager for restoration on restart
         if let Ok(manager) = self.get_ssh_manager_async().await {
-            let core_workspace = bitfun_core::service::remote_ssh::RemoteWorkspace {
+            let core_workspace = openbitfun_core::service::remote_ssh::RemoteWorkspace {
                 connection_id: workspace.connection_id.clone(),
                 remote_path: workspace.remote_path.clone(),
                 connection_name: workspace.connection_name.clone(),
@@ -502,14 +520,14 @@ impl AppState {
 
     /// Remove one remote workspace from persistence + registry (`connection_id` + `remote_path`).
     pub async fn unregister_remote_workspace_entry(&self, connection_id: &str, remote_path: &str) {
-        let rp = bitfun_core::service::remote_ssh::normalize_remote_workspace_path(remote_path);
+        let rp = openbitfun_core::service::remote_ssh::normalize_remote_workspace_path(remote_path);
         if let Ok(manager) = self.get_ssh_manager_async().await {
             if let Err(e) = manager.remove_remote_workspace(connection_id, &rp).await {
                 log::warn!("Failed to remove persisted remote workspace: {}", e);
             }
         }
         if let Some(state_manager) =
-            bitfun_core::service::remote_ssh::get_remote_workspace_manager()
+            openbitfun_core::service::remote_ssh::get_remote_workspace_manager()
         {
             state_manager
                 .unregister_remote_workspace(connection_id, &rp)
@@ -520,14 +538,14 @@ impl AppState {
             .as_ref()
             .map(|w| {
                 w.connection_id == connection_id
-                    && bitfun_core::service::remote_ssh::normalize_remote_workspace_path(
+                    && openbitfun_core::service::remote_ssh::normalize_remote_workspace_path(
                         &w.remote_path,
                     ) == rp
             })
             .unwrap_or(false);
         if clear_slot {
             *slot = None;
-            if let Some(m) = bitfun_core::service::remote_ssh::get_remote_workspace_manager() {
+            if let Some(m) = openbitfun_core::service::remote_ssh::get_remote_workspace_manager() {
                 m.set_active_connection_hint(None).await;
             }
         }

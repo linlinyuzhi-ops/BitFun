@@ -66,9 +66,11 @@
       "voiceInput": "本地麥克風輸入與語音轉文字模型。"
     },
     "categories": {
-      "general": "通用",
-      "smartCapabilities": "智慧化設定",
-      "devkit": "開發套件"
+      "application": "應用與介面",
+      "ai": "AI 與模型",
+      "workspace": "會話與工作區",
+      "tools": "工具與整合",
+      "data": "資料與維護"
     },
     "tabs": {
       "basics": "基礎",
@@ -93,6 +95,27 @@
       "quickActions": "快捷動作",
       "voiceInput": "語音輸入"
     }
+  },
+  "changeGuard": {
+    "title": "儲存未完成的設定？",
+    "message": "離開前需要處理未儲存的設定。",
+    "message_one": "離開前需要處理 {{count}} 項未儲存的設定。儲存失敗時會留在目前頁面。",
+    "message_other": "離開前需要處理 {{count}} 項未儲存的設定。儲存失敗時會留在目前頁面，已經儲存的項目不會重複提交。",
+    "saveFailed": "部分設定未能儲存。請檢查目前頁面的錯誤後重試，或放棄這些變更再離開。",
+    "saveAndLeave": "儲存並離開",
+    "discardAndLeave": "放棄並離開",
+    "keepEditing": "繼續編輯",
+    "unsavedPage": "此頁面有未儲存的變更"
+  },
+  "changeStatus": {
+    "unsaved": "尚未儲存",
+    "saving": "正在儲存…",
+    "saved": "已儲存",
+    "error": "儲存失敗"
+  },
+  "changeActions": {
+    "save": "儲存變更",
+    "discard": "放棄變更"
   },
   "general": {
     "title": "通用",
@@ -205,17 +228,28 @@
     "apply": "應用",
     "saving": "儲存中…",
     "reset": "重設為默認",
+    "resetConfirmTitle": "重設所有快捷鍵？",
+    "resetConfirmMessage": "所有自訂鍵位將被清除並恢復為預設快捷鍵。",
     "clickToRecord": "點擊錄製新的快捷鍵",
     "recording": "按下新鍵位…",
     "revertChange": "撤銷此更改",
-    "fixedBinding": "系統固定快捷鍵，無法自定義",
     "noResults": "未找到匹配的快捷鍵",
     "conflict": "衝突",
+    "conflictBlocking": "存在快捷鍵衝突。請為其中一個衝突操作錄製其他鍵位，或撤銷本次修改後再應用。",
     "saveError": "儲存失敗，請重試",
     "resetError": "重設失敗，請重試",
     "mergedNonUniform": "鍵位不一致，可重新錄製為一組",
     "keyLabels": {
-      "space": "空格"
+      "space": "空格",
+      "enter": "Enter",
+      "escape": "Esc",
+      "tab": "Tab",
+      "delete": "刪除",
+      "backspace": "退格",
+      "arrowUp": "上方向鍵",
+      "arrowDown": "下方向鍵",
+      "arrowLeft": "左方向鍵",
+      "arrowRight": "右方向鍵"
     },
     "scopes": {
       "app": "全局",
@@ -242,16 +276,12 @@
         "openSettings": "開啟設置",
         "openTerminal": "開啟終端"
       },
-      "app": {
-        "closePreview": "關閉預覽 / 關閉彈窗"
-      },
       "canvas": {
         "missionControl": "Mission Control",
         "splitHorizontal": "水平分屏",
         "splitVertical": "垂直分屏",
         "anchorZone": "切換錨點區",
-        "maximize": "最大化編輯器",
-        "closePreview": "關閉預覽"
+        "maximize": "最大化編輯器"
       },
       "editor": {
         "findInFile": "在檔案中尋找（Monaco）"
@@ -293,11 +323,6 @@
     "experimental": {
       "title": "實驗性功能",
       "description": "這些功能可能不穩定"
-    },
-    "debug": {
-      "title": "調試",
-      "logging": "啟用日誌",
-      "developerTools": "開發者工具"
     },
     "data": {
       "title": "資料",
@@ -528,20 +553,6 @@
     "wordWrap": "自動換行",
     "minimap": "顯示縮略圖",
     "lineNumbers": "顯示行號"
-  },
-  "lspConfig": {
-    "title": "語言服務",
-    "subtitle": "設定語言伺服器",
-    "installedServers": "已安裝的語言伺服器",
-    "noServers": "暫無語言伺服器",
-    "noServersHint": "語言伺服器提供代碼智能功能"
-  },
-  "debugConfig": {
-    "title": "調試",
-    "subtitle": "設定調試選項",
-    "enableLogging": "啟用日誌",
-    "logLevel": "日誌級別",
-    "developerTools": "開發者工具"
   },
   "terminalConfig": {
     "title": "終端",

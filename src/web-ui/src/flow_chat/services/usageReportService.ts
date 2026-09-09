@@ -8,6 +8,11 @@ import {
 } from '../components/usage/sessionUsageModalState';
 import type { Session } from '../types/flow-chat';
 import { sessionProjectWorkspacePath } from '../utils/sessionWorkspace';
+import { i18nService } from '@/infrastructure/i18n';
+import {
+  formatCacheHitRate,
+  formatTokenCount,
+} from '@/shared/utils/tokenUsageFormatting';
 
 const UNKNOWN_MODEL_ID = 'unknown_model';
 const LEGACY_MODEL_LABEL = 'Legacy model not tracked';
@@ -158,16 +163,19 @@ export function renderUsageReportMarkdown(report: SessionUsageReport): string {
     '| Metric | Value |',
     '| --- | --- |',
     `| Source | ${report.tokens.source} |`,
-    `| Input | ${formatNumber(report.tokens.inputTokens)} |`,
-    `| Output | ${formatNumber(report.tokens.outputTokens)} |`,
-    `| Total | ${formatNumber(report.tokens.totalTokens)} |`,
+    `| Input | ${formatUsageTokenCount(report.tokens.inputTokens)} |`,
+    `| Output | ${formatUsageTokenCount(report.tokens.outputTokens)} |`,
+    `| Total | ${formatUsageTokenCount(report.tokens.totalTokens)} |`,
     `| Cached | ${
       report.tokens.cacheCoverage === 'unavailable'
         ? 'not reported'
-        : `${formatNumber(report.tokens.cachedTokens)}${
+        : `${formatUsageTokenCount(report.tokens.cachedTokens)}${
             typeof report.tokens.cacheHitRate === 'number' &&
             Number.isFinite(report.tokens.cacheHitRate)
-              ? ` (${Math.round(report.tokens.cacheHitRate * 100)}%)`
+              ? ` (${formatCacheHitRate(
+                  report.tokens.cacheHitRate,
+                  (number, options) => i18nService.formatNumber(number, options),
+                )})`
               : ''
           }`
     } |`,
@@ -234,6 +242,15 @@ function formatNumber(value: number | undefined): string {
   return value === undefined ? 'unavailable' : String(value);
 }
 
+function formatUsageTokenCount(value: number | undefined): string {
+  return value === undefined
+    ? 'unavailable'
+    : formatTokenCount(
+        value,
+        (number, options) => i18nService.formatNumber(number, options),
+      );
+}
+
 function formatDuration(value: number | undefined): string {
   if (value === undefined) {
     return 'unavailable';
@@ -296,7 +313,6 @@ function getInferableSessionModelId(session: Session): string | undefined {
   }
   const normalizedModelId = modelId.toLowerCase();
   if (
-    normalizedModelId === 'auto' ||
     normalizedModelId === 'default' ||
     normalizedModelId === 'primary' ||
     normalizedModelId === 'fast' ||

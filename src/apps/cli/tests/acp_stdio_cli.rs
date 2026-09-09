@@ -166,7 +166,7 @@ async fn acp_stdio_preserves_mode_and_history_across_restart_then_closes_active_
     );
     assert_eq!(
         initialize.pointer("/result/agentInfo/name"),
-        Some(&json!("bitfun-acp"))
+        Some(&json!("openbitfun-acp"))
     );
     assert_eq!(
         initialize.pointer("/result/agentCapabilities/sessionCapabilities/close"),
@@ -215,14 +215,14 @@ async fn acp_stdio_preserves_mode_and_history_across_restart_then_closes_active_
             json!({
                 "sessionId": session_id,
                 "configId": "mode",
-                "value": " Plan "
+                "value": " Cowork "
             }),
         )
         .await;
     assert!(configured.get("error").is_none(), "{configured}");
     assert_eq!(
         current_config_value(&configured, "mode"),
-        Some(&json!("Plan"))
+        Some(&json!("Cowork"))
     );
     assert!(
         mode_updates.iter().all(|message| {
@@ -284,7 +284,7 @@ async fn acp_stdio_preserves_mode_and_history_across_restart_then_closes_active_
                 "cwd": environment.workspace().to_string_lossy(),
                 "mcpServers": [{
                     "name": "must-not-start",
-                    "command": "bitfun-command-that-must-not-run",
+                    "command": "openbitfun-command-that-must-not-run",
                     "args": [],
                     "env": []
                 }]
@@ -335,7 +335,7 @@ async fn acp_stdio_preserves_mode_and_history_across_restart_then_closes_active_
         .find(|response| response.get("error").is_some())
         .expect("one concurrent session/load must be rejected");
     assert!(loaded.get("error").is_none(), "{loaded}");
-    assert_eq!(current_config_value(loaded, "mode"), Some(&json!("Plan")));
+    assert_eq!(current_config_value(loaded, "mode"), Some(&json!("Cowork")));
     assert!(
         !replay_updates.is_empty(),
         "session/load must replay persisted history before its success response"
@@ -383,7 +383,7 @@ async fn acp_stdio_preserves_mode_and_history_across_restart_then_closes_active_
     );
     assert_eq!(
         current_config_value(&reloaded_after_close, "mode"),
-        Some(&json!("Plan"))
+        Some(&json!("Cowork"))
     );
     assert_eq!(
         replay_after_close
@@ -478,7 +478,7 @@ async fn acp_stdio_preserves_mode_and_history_across_restart_then_closes_active_
         .request(
             23,
             "session/set_model",
-            json!({ "sessionId": session_id, "modelId": "auto" }),
+            json!({ "sessionId": session_id, "modelId": "primary" }),
         )
         .await;
     assert_eq!(

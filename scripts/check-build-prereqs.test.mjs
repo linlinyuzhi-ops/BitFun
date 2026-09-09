@@ -18,7 +18,7 @@ function createTestRoot({
   pluginHostDist = false,
   sherpaOnnx = null,
 } = {}) {
-  const root = mkdtempSync(path.join(tmpdir(), 'bitfun-build-prereqs-'));
+  const root = mkdtempSync(path.join(tmpdir(), 'openbitfun-build-prereqs-'));
 
   if (nodeModules) {
     mkdirSync(path.join(root, 'node_modules'), { recursive: true });
@@ -97,7 +97,7 @@ if (args[0] === 'install') {
 function runCheck(root, { fix = false, extraPath = null, sherpaEnv = null } = {}) {
   const env = {
     ...process.env,
-    BITFUN_BUILD_PREREQS_TEST_ROOT: root,
+    OPENBITFUN_BUILD_PREREQS_TEST_ROOT: root,
   };
   if (extraPath) {
     env.PATH = `${extraPath}${path.delimiter}${env.PATH || ''}`;

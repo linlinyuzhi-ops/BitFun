@@ -123,6 +123,7 @@ import {
   ReadFileResult,
   RemoteSession,
   SelectedImageAttachment,
+  SteerTurnResult,
   SessionListResult,
   SessionMessagesResult,
   SessionSummary,
@@ -835,6 +836,7 @@ export class FakeRemoteSessionClient implements RemoteSessionClient {
   shouldFailList: boolean = false;
   shouldFailCreate: boolean = false;
   shouldFailDelete: boolean = false;
+  emitAllocationBeforeCreateReturn: boolean = false;
 
   async listSessions(limit: number, offset: number, query: string, agentType: string): Promise<SessionListResult> {
     this.listRequests.push(`${limit}:${offset}:${query}:${agentType}`);
@@ -855,6 +857,14 @@ export class FakeRemoteSessionClient implements RemoteSessionClient {
     if (this.shouldFailCreate) {
       throw new Error('Expected session create failure.');
     }
+    if (this.emitAllocationBeforeCreateReturn && onAllocated) {
+      await onAllocated({
+        sessionId: this.createdSession.sessionId,
+        title: this.createdSession.title,
+        workspacePath: this.createdSession.workspacePath,
+        agentType: this.createdSession.agentType
+      });
+    }
     return this.createdSession;
   }
 
@@ -874,11 +884,16 @@ export class RemoteSessionProjectionRecord {
 export class FakeRemoteChatCommandClient implements RemoteChatCommandClient {
   messageResults: SessionMessagesResult[] = [];
   messageRequests: string[] = [];
+  messageResolvers: Array<(result: SessionMessagesResult) => void> = [];
   sendRequests: string[] = [];
+  sendTurnIds: string[] = [];
+  buildPlanRequests: string[] = [];
+  steerRequests: string[] = [];
   cancelRequests: string[] = [];
   renameRequests: string[] = [];
   turnId: string = 'turn-1';
   shouldFailMessages: boolean = false;
+  deferMessages: boolean = false;
   shouldFailSend: boolean = false;
   shouldFailCancel: boolean = false;
   shouldFailRename: boolean = false;
@@ -888,6 +903,11 @@ export class FakeRemoteChatCommandClient implements RemoteChatCommandClient {
     if (this.shouldFailMessages) {
       throw new Error('Expected message load failure.');
     }
+    if (this.deferMessages) {
+      return new Promise<SessionMessagesResult>((resolve: (result: SessionMessagesResult) => void) => {
+        this.messageResolvers.push(resolve);
+      });
+    }
     const result = this.messageResults.shift();
     if (!result) {
       throw new Error('Missing fake session messages result.');
@@ -895,8 +915,17 @@ export class FakeRemoteChatCommandClient implements RemoteChatCommandClient {
     return result;
   }
 
-  async sendMessage(sessionId: string, text: string, agentType?: string): Promise<string> {
+  resolveNextMessages(result: SessionMessagesResult): void {
+    const resolve = this.messageResolvers.shift();
+    if (!resolve) {
+      throw new Error('Missing deferred message request.');
+    }
+    resolve(result);
+  }
+
+  async sendMessage(sessionId: string, text: string, agentType?: string, turnId?: string): Promise<string> {
     this.sendRequests.push(`text:${sessionId}:${text}:${agentType || ''}`);
+    this.sendTurnIds.push(turnId || '');
     if (this.shouldFailSend) {
       throw new Error('Expected send failure.');
     }
@@ -907,11 +936,39 @@ export class FakeRemoteChatCommandClient implements RemoteChatCommandClient {
     sessionId: string,
     text: string,
     agentType: string,
-    imageContexts: RemoteImageContext[]
+    imageContexts: RemoteImageContext[],
+    turnId?: string
   ): Promise<string> {
     this.sendRequests.push(`images:${sessionId}:${text}:${agentType}:${imageContexts.length}`);
+    this.sendTurnIds.push(turnId || '');
     if (this.shouldFailSend) {
       throw new Error('Expected send failure.');
+    }
+    return this.turnId;
+  }
+
+  async steerTurn(
+    sessionId: string,
+    turnId: string,
+    text: string,
+    displayContent: string,
+    imageContexts: RemoteImageContext[]
+  ): Promise<SteerTurnResult> {
+    this.steerRequests.push(`${sessionId}:${turnId}:${text}:${displayContent}:${imageContexts.length}`);
+    if (this.shouldFailSend) {
+      throw new Error('Expected steer failure.');
+    }
+    return {
+      sessionId,
+      turnId,
+      steeringId: 'steering-1'
+    };
+  }
+
+  async buildPlan(sessionId: string, planFilePath: string, planName: string, agentType: string): Promise<string> {
+    this.buildPlanRequests.push(`${sessionId}:${planFilePath}:${planName}:${agentType}`);
+    if (this.shouldFailSend) {
+      throw new Error('Expected plan build failure.');
     }
     return this.turnId;
   }

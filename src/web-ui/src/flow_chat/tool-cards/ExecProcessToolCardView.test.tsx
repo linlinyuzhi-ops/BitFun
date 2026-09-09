@@ -33,24 +33,6 @@ vi.mock('react-i18next', async () => {
   };
 });
 
-vi.mock('../../component-library', () => ({
-  DotMatrixLoader: () => <span data-testid="dot-matrix-loader" />,
-  ToolProcessingDots: () => <span data-testid="tool-processing-dots" />,
-  IconButton: ({
-    children,
-    tooltip,
-    ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { tooltip?: React.ReactNode }) => (
-    <button
-      type="button"
-      title={typeof tooltip === 'string' ? tooltip : undefined}
-      {...props}
-    >
-      {children}
-    </button>
-  ),
-}));
-
 vi.mock('@/tools/terminal/components/LazyTerminalOutputRenderer', () => ({
   LazyTerminalOutputRenderer: React.forwardRef<
     { getVisibleText: () => string },
@@ -156,13 +138,43 @@ describe('ExecProcessToolCardView', () => {
     expect(container.textContent).not.toContain('Receiving parameters...');
   });
 
-  it('shows waiting confirmation instead of receiving params while confirmation is pending', () => {
+  it('treats a non-zero exit code as command result data, not an execution failure', () => {
+    const nonZeroExitModel: ExecProcessCardModel = {
+      ...model,
+      resultOutput: 'npm ERR! test failed',
+      exitCode: 2,
+      wallTimeSeconds: 1.25,
+    };
+
     act(() => {
+      root.render(
+        <ExecProcessToolCardView
+          toolItem={toolItem('completed')}
+          model={nonZeroExitModel}
+        />,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLElement>('[data-openbitfun-part="surface"][data-openbitfun-attention="prominent"]')
+        ?.click();
+    });
+
+    const exitCodeItem = Array.from(
+      container.querySelectorAll('[data-openbitfun-part="footer"] > span'),
+    ).find((item) => item.textContent?.includes('Exit code: 2'));
+    expect(exitCodeItem?.getAttribute('data-tone')).toBe('neutral');
+    expect(container.querySelector('.duration-text--completed-error')).toBeNull();
+    expect(container.querySelector('.duration-text--completed-success')).not.toBeNull();
+  });
+
+  it('shows waiting confirmation instead of receiving params while confirmation is pending', () => {    act(() => {
       root.render(<ExecProcessToolCardView toolItem={toolItem('pending_confirmation', true)} model={model} />);
     });
 
-    expect(container.querySelector('.base-tool-card')).not.toBeNull();
-    expect(container.querySelector('.compact-tool-card')).toBeNull();
+    expect(container.querySelector('[data-openbitfun-part="surface"][data-openbitfun-attention="prominent"]')).not.toBeNull();
+    expect(container.querySelector('[data-openbitfun-part="surface"][data-openbitfun-attention="ambient"]')).toBeNull();
     expect(container.textContent).toContain('Waiting for confirmation');
     expect(container.textContent).not.toContain('Receiving parameters...');
     expect(container.querySelector('.exec-process-output-frame')).not.toBeNull();
@@ -186,8 +198,8 @@ describe('ExecProcessToolCardView', () => {
       );
     });
 
-    expect(container.querySelector('.base-tool-card')).not.toBeNull();
-    expect(container.querySelector('.compact-tool-card')).toBeNull();
+    expect(container.querySelector('[data-openbitfun-part="surface"][data-openbitfun-attention="prominent"]')).not.toBeNull();
+    expect(container.querySelector('[data-openbitfun-part="surface"][data-openbitfun-attention="ambient"]')).toBeNull();
 
     act(() => {
       root.render(
@@ -199,8 +211,8 @@ describe('ExecProcessToolCardView', () => {
       );
     });
 
-    expect(container.querySelector('.base-tool-card')).not.toBeNull();
-    expect(container.querySelector('.compact-tool-card')).toBeNull();
+    expect(container.querySelector('[data-openbitfun-part="surface"][data-openbitfun-attention="prominent"]')).not.toBeNull();
+    expect(container.querySelector('[data-openbitfun-part="surface"][data-openbitfun-attention="ambient"]')).toBeNull();
     expect(container.textContent).toContain('All tests passed');
     expect(container.querySelector('.terminal-xterm-output')?.getAttribute('data-max-rows')).toBe('4');
 
@@ -318,22 +330,22 @@ describe('ExecProcessToolCardView', () => {
     act(() => {
       vi.advanceTimersByTime(799);
     });
-    expect(container.querySelector('.base-tool-card.expanded')).not.toBeNull();
+    expect(container.querySelector('[data-openbitfun-part="surface"][data-openbitfun-attention="prominent"][data-openbitfun-state~="expanded"]')).not.toBeNull();
 
     act(() => {
       vi.advanceTimersByTime(1);
     });
-    expect(container.querySelector('.base-tool-card.expanded')).toBeNull();
-    expect(container.querySelector('.terminal-result-container')).not.toBeNull();
+    expect(container.querySelector('[data-openbitfun-part="surface"][data-openbitfun-attention="prominent"][data-openbitfun-state~="expanded"]')).toBeNull();
+    expect(container.querySelector('[data-openbitfun-component="command-tool-card"] [data-openbitfun-part="details"]')).not.toBeNull();
 
     act(() => {
       vi.advanceTimersByTime(299);
     });
-    expect(container.querySelector('.terminal-result-container')).not.toBeNull();
+    expect(container.querySelector('[data-openbitfun-component="command-tool-card"] [data-openbitfun-part="details"]')).not.toBeNull();
 
     act(() => {
       vi.advanceTimersByTime(1);
     });
-    expect(container.querySelector('.terminal-result-container')).toBeNull();
+    expect(container.querySelector('[data-openbitfun-component="command-tool-card"] [data-openbitfun-part="details"]')).toBeNull();
   });
 });

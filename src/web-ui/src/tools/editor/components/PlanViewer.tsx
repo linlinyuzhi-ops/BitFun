@@ -1,12 +1,13 @@
 /** Optimized viewer/editor for `.plan.md` files (frontmatter + markdown body). */
 
+import { OverflowText, Button, Icon, IconButton, Input, Tooltip } from '@openbitfun/ui';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Circle, ArrowRight, Check, XCircle, Loader2, CheckCircle, AlertCircle, FileText, Pencil, X, ChevronDown, Trash2, Plus } from 'lucide-react';
+import { Loader2, AlertCircle, FileText } from 'lucide-react';
 import yaml from 'yaml';
 import { MEditor } from '../meditor';
 import type { EditorInstance } from '../meditor';
 import { createLogger } from '@/shared/utils/logger';
-import { CubeLoading, Button, Tooltip } from '@/component-library';
+import { LoadingState } from '@openbitfun/ui';
 import { useI18n } from '@/infrastructure/i18n';
 import { workspaceAPI } from '@/infrastructure/api/service-api/WorkspaceAPI';
 import { flowChatManager } from '@/flow_chat/services/FlowChatManager';
@@ -14,6 +15,7 @@ import { fileSystemService } from '@/tools/file-system/services/FileSystemServic
 import { planBuildStateService } from '@/shared/services/PlanBuildStateService';
 import { globalEventBus } from '@/infrastructure/event-bus';
 import { basenamePath, dirnameAbsolutePath } from '@/shared/utils/pathUtils';
+import { useOptionalCurrentWorkspace } from '@/infrastructure/contexts/WorkspaceContext';
 import './PlanViewer.scss';
 
 const log = createLogger('PlanViewer');
@@ -26,7 +28,6 @@ interface PlanTodo {
   id: string;
   content: string;
   status?: string;
-  dependencies?: string[];
 }
 
 interface PlanData {
@@ -58,13 +59,21 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
   jumpToColumn: _jumpToColumn,
 }) => {
   const { t } = useI18n('tools');
+  const { workspace: currentWorkspace } = useOptionalCurrentWorkspace();
+  const effectiveWorkspacePath = workspacePath ?? currentWorkspace?.rootPath ?? '';
+  const effectiveRemoteConnectionId = currentWorkspace?.connectionId;
+  const planFileRef = useMemo(() => ({
+    planFilePath: filePath,
+    workspacePath: effectiveWorkspacePath,
+    remoteConnectionId: effectiveRemoteConnectionId,
+  }), [effectiveRemoteConnectionId, effectiveWorkspacePath, filePath]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [planData, setPlanData] = useState<PlanData | null>(null);
   const [planContent, setPlanContent] = useState<string>('');
   // Initialize build state from the shared service to survive unmounts.
   const [isBuildStarted, setIsBuildStarted] = useState(() => {
-    return filePath ? planBuildStateService.isBuildActive(filePath) : false;
+    return filePath ? planBuildStateService.isBuildActive(planFileRef) : false;
   });
   const [isContentDirty, setIsContentDirty] = useState(false);
   // Edit mode: display raw yaml frontmatter
@@ -122,7 +131,7 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
       return;
     }
 
-    if (planBuildStateService.isFileWriting(filePath)) {
+    if (planBuildStateService.isFileWriting(planFileRef)) {
       return;
     }
 
@@ -130,7 +139,11 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
     setError(null);
 
     try {
-      const content = await workspaceAPI.readFileContent(filePath);
+      const content = await workspaceAPI.readFileContent(
+        filePath,
+        undefined,
+        effectiveRemoteConnectionId,
+      );
 
       const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
       if (frontmatterMatch) {
@@ -174,7 +187,7 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
         setLoading(false);
       }
     }
-  }, [filePath, t]);
+  }, [effectiveRemoteConnectionId, filePath, planFileRef, t]);
 
   useEffect(() => {
     loadFileContent();
@@ -218,9 +231,9 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
     if (!filePath) return;
 
     // Sync initial state (in case filePath just became available).
-    setIsBuildStarted(planBuildStateService.isBuildActive(filePath));
+    setIsBuildStarted(planBuildStateService.isBuildActive(planFileRef));
 
-    const unsubscribe = planBuildStateService.subscribe(filePath, (event) => {
+    const unsubscribe = planBuildStateService.subscribe(planFileRef, (event) => {
       setIsBuildStarted(event.isBuilding);
 
       if (event.updatedTodos) {
@@ -236,7 +249,7 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
     });
 
     return unsubscribe;
-  }, [filePath]);
+  }, [filePath, planFileRef]);
 
   const remainingTodos = useMemo(() => {
     if (!planData?.todos) return 0;
@@ -279,7 +292,12 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
         fullContent = planContent;
       }
 
-      await workspaceAPI.writeFileContent(workspacePath || '', filePath, fullContent);
+      await workspaceAPI.writeFileContent(
+        effectiveWorkspacePath,
+        filePath,
+        fullContent,
+        effectiveRemoteConnectionId,
+      );
       editorRef.current?.markSaved?.();
       yamlEditorRef.current?.markSaved?.();
       setIsContentDirty(false);
@@ -302,7 +320,7 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
     } catch (err) {
       log.error('Failed to save file', err);
     }
-  }, [planContent, yamlContent, filePath, workspacePath, hasUnsavedChanges]);
+  }, [effectiveRemoteConnectionId, effectiveWorkspacePath, planContent, yamlContent, filePath, hasUnsavedChanges]);
 
   const handleContentChange = useCallback((newContent: string) => {
     setPlanContent(newContent);
@@ -415,7 +433,12 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
       const fullContent = nextYamlContent
         ? `---\n${nextYamlContent}\n---\n\n${planContent}`
         : planContent;
-      await workspaceAPI.writeFileContent(workspacePath || '', filePath, fullContent);
+      await workspaceAPI.writeFileContent(
+        effectiveWorkspacePath,
+        filePath,
+        fullContent,
+        effectiveRemoteConnectionId,
+      );
       setPlanData(prev => (prev ? { ...prev, todos: nextTodos } : prev));
       setYamlContent(nextYamlContent);
       setOriginalYamlContent(nextYamlContent);
@@ -424,7 +447,7 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
     } catch (err) {
       log.error('Failed to save todo edit', err);
     }
-  }, [filePath, planContent, planData, workspacePath, yamlContent]);
+  }, [effectiveRemoteConnectionId, effectiveWorkspacePath, filePath, planContent, planData, yamlContent]);
 
   const saveInlineTodoEdit = useCallback(async () => {
     if (!planData?.todos?.length) return;
@@ -531,77 +554,78 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
     return (
       <div
         className={panelClassName}
-        data-bf-component="plan-viewer"
-        data-bf-part="editorPanel"
-        data-bf-state={isInline && isTodosExpanded ? 'expanded' : undefined}
+        data-openbitfun-component="plan-viewer"
+        data-openbitfun-part="editorPanel"
+        data-openbitfun-state={isInline && isTodosExpanded ? 'expanded' : undefined}
       >
         <div className={toolbarClassName}>
           {isYamlEditingInPanel ? (
-            <Tooltip content={t('editor.planViewer.toggleYamlEditOff')} placement="top">
-              <button
+            <Tooltip content={t('editor.planViewer.toggleYamlEditOff')}>
+              <IconButton
                 type="button"
-                className="edit-btn"
+                size="sm"
                 onClick={closeYamlEditor}
-              >
-                <X size={14} />
-              </button>
+                aria-label={t('editor.planViewer.toggleYamlEditOff')}
+                icon={<Icon name="xmark" size="lg" />}
+              />
             </Tooltip>
           ) : isPanelEditing ? (
             <>
-              <Tooltip content={t('editor.common.add')} placement="top">
-                <button
+              <Tooltip content={t('editor.common.add')}>
+                <IconButton
                   type="button"
-                  className="edit-btn"
+                  size="sm"
                   onClick={addTodo}
-                >
-                  <Plus size={14} />
-                </button>
+                  aria-label={t('editor.common.add')}
+                  icon={<Icon name="plus" size="lg" />}
+                />
               </Tooltip>
-              <Tooltip content={t('editor.common.save')} placement="top">
-                <button
+              <Tooltip content={t('editor.common.save')}>
+                <IconButton
                   type="button"
-                  className="edit-btn edit-btn--confirm"
+                  size="sm"
+                  variant="primary"
                   onClick={saveEdit}
-                >
-                  <Check size={14} />
-                </button>
+                  aria-label={t('editor.common.save')}
+                  icon={<Icon name="check-line" size="lg" />}
+                />
               </Tooltip>
-              <Tooltip content={t('editor.common.cancel')} placement="top">
-                <button
+              <Tooltip content={t('editor.common.cancel')}>
+                <IconButton
                   type="button"
-                  className="edit-btn"
+                  size="sm"
                   onClick={cancelEdit}
-                >
-                  <X size={14} />
-                </button>
+                  aria-label={t('editor.common.cancel')}
+                  icon={<Icon name="xmark" size="lg" />}
+                />
               </Tooltip>
             </>
           ) : (
             <>
-              <Tooltip content={t('editor.planViewer.toggleYamlEditOn')} placement="top">
-                <button
+              <Tooltip content={t('editor.planViewer.toggleYamlEditOn')}>
+                <IconButton
                   type="button"
-                  className="edit-btn"
+                  size="sm"
                   onClick={() => openYamlEditor(placement)}
-                >
-                  <FileText size={14} />
-                </button>
+                  aria-label={t('editor.planViewer.toggleYamlEditOn')}
+                  icon={<FileText />}
+                />
               </Tooltip>
-              <Tooltip content={t('editor.common.edit')} placement="top">
-                <button
+              <Tooltip content={t('editor.common.edit')}>
+                <IconButton
                   type="button"
-                  className="edit-btn"
+                  size="sm"
                   onClick={startEdit}
-                >
-                  <Pencil size={14} />
-                </button>
+                  aria-label={t('editor.common.edit')}
+                  icon={<Icon name="edit" size="lg" />}
+                />
               </Tooltip>
             </>
           )}
         </div>
 
         {isYamlEditingInPanel ? (
-          <div className="yaml-editor-section" data-bf-component="plan-viewer" data-bf-part="editor">
+          <div className="yaml-editor-section" data-openbitfun-component="plan-viewer" data-openbitfun-part="editor">
             <div className="yaml-editor-content">
               <MEditor
                 ref={yamlEditorRef}
@@ -619,37 +643,38 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
             </div>
           </div>
         ) : (
-          <div className="todos-list" data-bf-component="plan-viewer" data-bf-part="todos">
+          <div className="todos-list" data-openbitfun-component="plan-viewer" data-openbitfun-part="todos">
             {panelTodos.map((todo, index) => (
               <div
                 key={todo.id || index}
                 className={`todo-item status-${todo.status || 'pending'}`}
-                data-bf-component="plan-viewer"
-                data-bf-part="todo"
+                data-openbitfun-component="plan-viewer"
+                data-openbitfun-part="todo"
               >
                 {getTodoIcon(todo.status)}
                 {isPanelEditing ? (
                   <>
-                    <input
-                      className="todo-content-input"
+                    <Input
+                      className="todo-content-input-field"
                       value={panelDrafts[todo.id || String(index)] ?? todo.content}
-                      onChange={(e) => {
+                      onValueChange={(value) => {
                         const key = todo.id || String(index);
                         if (isInline) {
-                          setInlineTodoDrafts(prev => ({ ...prev, [key]: e.target.value }));
+                          setInlineTodoDrafts(prev => ({ ...prev, [key]: value }));
                         } else {
-                          setTrailingTodoDrafts(prev => ({ ...prev, [key]: e.target.value }));
+                          setTrailingTodoDrafts(prev => ({ ...prev, [key]: value }));
                         }
                       }}
                     />
-                    <Tooltip content={t('editor.common.delete')} placement="top">
-                      <button
+                    <Tooltip content={t('editor.common.delete')}>
+                      <IconButton
                         type="button"
-                        className="todo-delete-btn"
+                        size="sm"
+                        tone="danger"
                         onClick={() => deleteTodo(todo.id || String(index))}
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                        aria-label={t('editor.common.delete')}
+                        icon={<Icon name="delete" size="lg" />}
+                      />
                     </Tooltip>
                   </>
                 ) : (
@@ -691,59 +716,63 @@ const PlanViewer: React.FC<PlanViewerProps> = ({
 
   // Build button click handler
   const handleBuild = useCallback(async () => {
-    if (!filePath || buildStatus !== 'build' || !planData) return;
+    if (!filePath || buildStatus !== 'build' || !planData || hasUnsavedChanges) return;
 
     try {
-      // Register build in shared service (notifies all subscribers including CreatePlanDisplay).
+      const sessionId = flowChatManager.getCurrentSession()?.sessionId;
+      if (!sessionId) {
+        throw new Error('No active session');
+      }
+      // Register build in shared service (notifies all PlanDisplay and PlanViewer subscribers).
       const todoIds = planData.todos.map(t => t.id);
-      planBuildStateService.startBuild(filePath, todoIds);
+      const turnId = planBuildStateService.startBuild({
+        sessionId,
+        planFilePath: filePath,
+        todoIds,
+        workspacePath: effectiveWorkspacePath,
+        remoteConnectionId: effectiveRemoteConnectionId,
+      });
+      if (!turnId) return;
 
-      // Process todos, keep only id, content, and status
-      const simpleTodos = planData.todos.map(t => ({
-        id: t.id,
-        content: t.content,
-        status: t.status,
-      }));
+      const message = `Implement the plan at \`${filePath}\`.
 
-      const message = `Implement the plan as specified, it is attached for your reference. Do NOT edit the plan file itself. To-do's from the plan have already been created. Do not create them again. Mark them as in_progress as you work, starting with the first one. Don't stop until you have completed all the to-dos.
-
-<attached_file path="${filePath}">
-<plan>
-${planContent}
-</plan>
-<todos>
-${JSON.stringify(simpleTodos, null, 2)}
-</todos>
-</attached_file>`;
+Read the plan file before making changes and treat it as the source of truth. Do not edit the plan file directly. Track progress with TodoWrite using the existing todo IDs from the plan frontmatter; do not rename or invent IDs. Start with the first pending todo and continue until all todos are completed.`;
 
       const displayMessage = t('editor.planViewer.buildPlanTitle', { name: planData.name });
-      await flowChatManager.sendMessage(message, undefined, displayMessage, 'agentic', 'agentic');
+      await flowChatManager.sendMessage(
+        message,
+        sessionId,
+        displayMessage,
+        undefined,
+        undefined,
+        { turnId },
+      );
     } catch (err) {
       log.error('Build failed', err);
-      planBuildStateService.cancelBuild(filePath);
+      planBuildStateService.cancelBuild(planFileRef);
     }
-  }, [filePath, buildStatus, planData, planContent, t]);
+  }, [filePath, planFileRef, buildStatus, effectiveRemoteConnectionId, effectiveWorkspacePath, hasUnsavedChanges, planData, t]);
 
   // Get todo status icon
   function getTodoIcon(status?: string) {
     switch (status) {
       case 'completed':
-        return <Check size={14} className="todo-icon todo-icon--completed" />;
+        return <Icon name="check-line" size="sm" className="todo-icon todo-icon--completed" />;
       case 'in_progress':
-        return <ArrowRight size={14} className="todo-icon todo-icon--in-progress" />;
+        return <Icon name="arrow-right" size="sm" className="todo-icon todo-icon--in-progress" />;
       case 'cancelled':
-        return <XCircle size={14} className="todo-icon todo-icon--cancelled" />;
+        return <Icon name="xmark" size="sm" className="todo-icon todo-icon--cancelled" />;
       case 'pending':
       default:
-        return <Circle size={14} className="todo-icon todo-icon--pending" />;
+        return <Icon name="unselected" size="sm" className="todo-icon todo-icon--pending" />;
     }
   }
 
   // Render loading state
   if (loading) {
     return (
-      <div className="bitfun-plan-viewer bitfun-plan-viewer--loading" data-bf-component="plan-viewer" data-bf-part="loading" data-bf-state="loading">
-        <CubeLoading size="medium" text={t('editor.planViewer.loadingPlan')} />
+      <div className="openbitfun-plan-viewer openbitfun-plan-viewer--loading" data-openbitfun-component="plan-viewer" data-openbitfun-part="loading" data-openbitfun-state="loading">
+        <LoadingState size="md">{t('editor.planViewer.loadingPlan')}</LoadingState>
       </div>
     );
   }
@@ -751,11 +780,11 @@ ${JSON.stringify(simpleTodos, null, 2)}
   // Render error state
   if (error) {
     return (
-      <div className="bitfun-plan-viewer bitfun-plan-viewer--error" data-bf-component="plan-viewer" data-bf-part="error" data-bf-state="error">
+      <div className="openbitfun-plan-viewer openbitfun-plan-viewer--error" data-openbitfun-component="plan-viewer" data-openbitfun-part="error" data-openbitfun-state="error">
         <div className="error-content">
           <AlertCircle className="error-icon" />
           <p>{error}</p>
-          <Button variant="secondary" size="small" onClick={loadFileContent}>
+          <Button variant="outline" size="sm" onClick={loadFileContent}>
             {t('editor.common.retry')}
           </Button>
         </div>
@@ -765,57 +794,58 @@ ${JSON.stringify(simpleTodos, null, 2)}
 
   return (
     <div
-      className="bitfun-plan-viewer"
-      data-bf-component="plan-viewer"
-      data-bf-part="root"
-      data-bf-state={hasTodos && isTodosExpanded ? 'expanded' : undefined}
+      className="openbitfun-plan-viewer"
+      data-openbitfun-component="plan-viewer"
+      data-openbitfun-part="root"
+      data-openbitfun-state={hasTodos && isTodosExpanded ? 'expanded' : undefined}
     >
-      <div
+      <div data-overflow-trigger
         className={`plan-viewer-header ${hasTodos ? 'plan-viewer-header--collapsible' : ''}`}
-        data-bf-component="plan-viewer"
-        data-bf-part="header"
+        data-openbitfun-component="plan-viewer"
+        data-openbitfun-part="header"
         onClick={() => {
           if (hasTodos && !isEditingYaml) {
             setIsTodosExpanded(!isTodosExpanded);
           }
         }}
       >
-        <div className="header-left" data-bf-component="plan-viewer" data-bf-part="headerMain">
+        <div className="header-left" data-openbitfun-component="plan-viewer" data-openbitfun-part="headerMain">
           {hasTodos && (
             <span
               className={`header-expand-indicator ${isTodosExpanded ? 'header-expand-indicator--expanded' : ''} ${isEditingYaml ? 'header-expand-indicator--disabled' : ''}`}
             >
-              <ChevronDown size={14} />
+              <Icon name="chevron-down" size="sm" />
             </span>
           )}
           <FileText size={16} className="file-icon" />
-          <span className="file-name">{displayFileName}</span>
+          <OverflowText className="file-name">{displayFileName}</OverflowText>
           {hasUnsavedChanges && <span className="unsaved-indicator">{t('editor.planViewer.unsaved')}</span>}
         </div>
-        <div className="header-right" onClick={(e) => e.stopPropagation()} data-bf-component="plan-viewer" data-bf-part="headerActions">
+        <div className="header-right" onClick={(e) => e.stopPropagation()} data-openbitfun-component="plan-viewer" data-openbitfun-part="headerActions">
           {hasTodos && (
             <>
               <span className="todos-count">{t('editor.planViewer.remainingTodos', { count: remainingTodos })}</span>
 
-              <button
-                className={`build-btn build-btn--${buildStatus}`}
+              <Button
+                type="button"
+                variant="fill"
+                size="sm"
+                leadingIcon={
+                  buildStatus === 'building'
+                    ? <Loader2 size={14} className="animate-spin" />
+                    : buildStatus === 'built'
+                      ? <Icon name="check-circle" size="sm" />
+                      : undefined
+                }
                 onClick={handleBuild}
-                disabled={buildStatus !== 'build'}
+                disabled={buildStatus !== 'build' || hasUnsavedChanges}
               >
-                {buildStatus === 'building' ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" />
-                    <span>{t('editor.planViewer.building')}</span>
-                  </>
-                ) : buildStatus === 'built' ? (
-                  <>
-                    <CheckCircle size={14} />
-                    <span>{t('editor.planViewer.built')}</span>
-                  </>
-                ) : (
-                  <span>{t('editor.planViewer.build')}</span>
-                )}
-              </button>
+                {buildStatus === 'building'
+                  ? t('editor.planViewer.building')
+                  : buildStatus === 'built'
+                    ? t('editor.planViewer.built')
+                    : t('editor.planViewer.build')}
+              </Button>
             </>
           )}
         </div>
@@ -823,8 +853,8 @@ ${JSON.stringify(simpleTodos, null, 2)}
 
       {hasTodos && (yamlEditorPlacement === 'inline' || isTodosExpanded) && renderSharedTodoPanel('inline')}
 
-      <div className="plan-viewer-content" data-bf-component="plan-viewer" data-bf-part="content">
-        <div className="plan-markdown" data-bf-component="plan-viewer" data-bf-part="markdown">
+      <div className="plan-viewer-content" data-openbitfun-component="plan-viewer" data-openbitfun-part="content">
+        <div className="plan-markdown" data-openbitfun-component="plan-viewer" data-openbitfun-part="markdown">
           <MEditor
             ref={editorRef}
             value={planContent}

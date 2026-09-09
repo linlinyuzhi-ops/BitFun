@@ -8,8 +8,9 @@
 
 import React, { useRef } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Tooltip } from '@/component-library';
+
 import type { NavItem as NavItemConfig } from '../types';
+import { OverflowText, Icon, Tooltip } from '@openbitfun/ui';
 
 interface NavItemProps {
   item: NavItemConfig;
@@ -46,7 +47,7 @@ const NavItem: React.FC<NavItemProps> = ({
   renderActions,
   onClick,
 }) => {
-  const { Icon } = item;
+  const { Icon: ItemGlyph } = item;
   const badgeRef = useRef<HTMLSpanElement>(null);
 
   const handleBadgeClick = (e: React.MouseEvent) => {
@@ -62,10 +63,10 @@ const NavItem: React.FC<NavItemProps> = ({
   };
 
   return (
-    <button
+    <button data-overflow-trigger
       type="button"
       className={[
-        'bitfun-nav-panel__item',
+        'openbitfun-nav-panel__item',
         isActive && 'is-active',
       ]
         .filter(Boolean)
@@ -73,49 +74,49 @@ const NavItem: React.FC<NavItemProps> = ({
       onClick={onClick}
       title={tooltipContent ?? displayLabel}
     >
-      <span className="bitfun-nav-panel__item-icon" aria-hidden="true">
-        <Icon size={15} />
+      <span className="openbitfun-nav-panel__item-icon" aria-hidden="true">
+        <Icon glyph={ItemGlyph} size="sm" />
       </span>
-      <span className="bitfun-nav-panel__item-label">{displayLabel}</span>
+      <OverflowText className="openbitfun-nav-panel__item-label">{displayLabel}</OverflowText>
 
       {badge && (
-        <span
+        <OverflowText data-overflow-trigger
           ref={badgeRef}
-          className={`bitfun-nav-panel__item-badge ${onBadgeClick ? 'bitfun-nav-panel__item-badge--clickable' : ''}`}
+          className={`openbitfun-nav-panel__item-badge ${onBadgeClick ? 'openbitfun-nav-panel__item-badge--clickable' : ''}`}
           onClick={handleBadgeClick}
           title={badge}
         >
           {badge}
-        </span>
+        </OverflowText>
       )}
 
       {renderActions ? (
-        <span className="bitfun-nav-panel__item-actions-custom" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
+        <span className="openbitfun-nav-panel__item-actions-custom" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
           {renderActions()}
         </span>
       ) : ActionIcon && onActionClick && (
         actionTitle ? (
           <Tooltip content={actionTitle} placement="right" followCursor>
             <span
-              className="bitfun-nav-panel__item-action"
+              className="openbitfun-nav-panel__item-action"
               onClick={handleActionClick}
               onMouseDown={e => e.stopPropagation()}
               role="button"
               tabIndex={-1}
               aria-label={actionTitle}
             >
-              <ActionIcon size={13} />
+              <Icon glyph={ActionIcon} size="xs" />
             </span>
           </Tooltip>
         ) : (
           <span
-            className="bitfun-nav-panel__item-action"
+            className="openbitfun-nav-panel__item-action"
             onClick={handleActionClick}
             onMouseDown={e => e.stopPropagation()}
             role="button"
             tabIndex={-1}
           >
-            <ActionIcon size={13} />
+            <Icon glyph={ActionIcon} size="xs" />
           </span>
         )
       )}

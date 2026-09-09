@@ -7,6 +7,8 @@ import { useAgentsStore } from './agentsStore';
 import { isLocallyManageableSubagent } from './agentVisibility';
 
 const useAgentsListMock = vi.hoisted(() => vi.fn());
+const notificationInfoMock = vi.hoisted(() => vi.fn());
+const notificationSuccessMock = vi.hoisted(() => vi.fn());
 
 vi.mock('react-i18next', () => ({
   initReactI18next: {
@@ -15,6 +17,12 @@ vi.mock('react-i18next', () => ({
   },
   useTranslation: () => ({
     t: (_key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? _key,
+  }),
+}));
+
+vi.mock('@/infrastructure/i18n/hooks/useI18n', () => ({
+  useI18n: () => ({
+    t: (key: string) => key,
   }),
 }));
 
@@ -80,17 +88,21 @@ vi.mock('./components/ToolGroupPicker', () => ({
   ),
 }));
 
-vi.mock('@/component-library', () => ({
-  Badge: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
+vi.mock('@openbitfun/ui', async importOriginal => ({
+  ...await importOriginal<typeof import('@openbitfun/ui')>(),
   Button: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
     <button type="button" onClick={onClick}>{children}</button>
   ),
   IconButton: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
     <button type="button" onClick={onClick}>{children}</button>
   ),
-  Search: () => <input readOnly />,
   Select: () => <div />,
   Switch: () => <input type="checkbox" readOnly />,
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+vi.mock('@/infrastructure/confirm-dialog', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/infrastructure/confirm-dialog')>(),
   confirmDanger: vi.fn(async () => false),
 }));
 
@@ -150,10 +162,10 @@ vi.mock('@/infrastructure/config/services/ConfigManager', () => ({
 
 vi.mock('@/shared/notification-system', () => ({
   useNotification: () => ({
-    success: vi.fn(),
+    success: notificationSuccessMock,
     error: vi.fn(),
     warning: vi.fn(),
-    info: vi.fn(),
+    info: notificationInfoMock,
   }),
 }));
 
@@ -215,6 +227,8 @@ describeWithJsdom('AgentsScene', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 
     useAgentsStore.getState().openHome();
+    notificationInfoMock.mockReset();
+    notificationSuccessMock.mockReset();
     mockAgentsList();
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -240,7 +254,7 @@ describeWithJsdom('AgentsScene', () => {
     });
 
     expect(container.querySelector('[data-testid="create-agent-page"]')).toBeTruthy();
-    expect(container.querySelector('.bitfun-agents-scene--page')).toBeTruthy();
+    expect(container.querySelector('.openbitfun-agents-scene--page')).toBeTruthy();
   }, 10_000);
 
   it('keeps agent subpages stretched across the active scene viewport', () => {
@@ -254,7 +268,7 @@ describeWithJsdom('AgentsScene', () => {
     expect(stylesheet).toContain('min-width: 0;');
   });
 
-  it('uses the shared responsive gallery grid and lets agent cards fill each track', () => {
+  it('uses one compact responsive catalog without overview category navigation', () => {
     const sceneSource = readFileSync(
       fileURLToPath(new URL('./AgentsScene.tsx', import.meta.url)),
       'utf8',
@@ -267,12 +281,84 @@ describeWithJsdom('AgentsScene', () => {
       fileURLToPath(new URL('./components/_AgentSurfaceCard.scss', import.meta.url)),
       'utf8',
     );
+    const coreCardStyles = readFileSync(
+      fileURLToPath(new URL('./components/CoreAgentCard.scss', import.meta.url)),
+      'utf8',
+    );
+    const agentCardSource = readFileSync(
+      fileURLToPath(new URL('./components/AgentCard.tsx', import.meta.url)),
+      'utf8',
+    );
+    const coreCardSource = readFileSync(
+      fileURLToPath(new URL('./components/CoreAgentCard.tsx', import.meta.url)),
+      'utf8',
+    );
 
-    expect(sceneSource.match(/<GalleryGrid\b[^>]*\bminCardWidth=\{360\}[^>]*>/g)).toHaveLength(2);
+    expect(sceneSource.match(/<GalleryGrid\b[^>]*\bminCardWidth=\{300\}[^>]*>/g)).toHaveLength(1);
+    expect(sceneSource).toContain('catalogAgents.map');
+    expect(sceneSource).not.toContain('gallery-anchor-bar');
+    expect(sceneSource).not.toContain('agents-core-zone');
     expect(agentCardStyles).toMatch(/\.agent-card \{\s+width: 100%;\s+min-width: 0;/);
     expect(coreCardSurfaceStyles).toMatch(/width: 100%;\s+min-width: 0;/);
+    expect(agentCardStyles).toContain('height: 148px;');
+    expect(coreCardSurfaceStyles).toContain('height: 148px;');
+    expect(agentCardStyles).toContain('border-radius: var(--openbitfun-layout-field-group-radius);');
+    expect(coreCardSurfaceStyles).toContain('border-radius: var(--openbitfun-layout-field-group-radius);');
+    expect(agentCardStyles).toContain('background: var(--openbitfun-color-surface-tertiary);');
+    expect(coreCardSurfaceStyles).toContain('background: var(--openbitfun-color-surface-tertiary);');
+    expect(agentCardStyles).not.toContain('box-shadow: var(--openbitfun-shadow-xs);');
+    expect(coreCardSurfaceStyles).not.toContain('box-shadow: var(--openbitfun-shadow-xs);');
+    expect(agentCardStyles).toContain('grid-template-columns: 56px minmax(0, 1fr);');
+    expect(coreCardStyles).toContain('grid-template-columns: 56px minmax(0, 1fr);');
+    expect(agentCardStyles).toContain('inset-block: 12px;');
+    expect(coreCardStyles).toContain('inset-block: 12px;');
+    expect(agentCardStyles).toContain('@container agent-card (max-width: 330px)');
+    expect(coreCardStyles).toContain('@container core-agent-card (max-width: 330px)');
+    expect(agentCardSource).toContain('agent-card__icon-area');
+    expect(agentCardSource).toContain('agent-card__dot-field');
+    expect(agentCardSource).toContain("t('agentCard.metrics.collaboration')");
+    expect(coreCardSource).toContain("t('agentCard.status.connected')");
+    expect(coreCardSource).toContain('core-agent-card__status');
+    expect(coreCardSource).toContain('core-agent-card__dot-field');
+    expect(agentCardSource).not.toContain('CAPABILITY_ACCENT');
+    expect(agentCardSource).not.toContain('--agent-card-gradient');
+    expect(coreCardSource).not.toContain('getAlphaColor');
+    expect(coreCardSource).not.toContain('--core-card-gradient');
+    expect(coreCardStyles).toMatch(/&__status \{[\s\S]*?color: var\(--openbitfun-color-content-primary\);[\s\S]*?\.core-agent-card__status-icon \{[\s\S]*?color: var\(--openbitfun-color-status-success-content\);/);
+    expect(coreCardSurfaceStyles).not.toContain('$gradient');
+    expect(coreCardSurfaceStyles).toContain('@mixin agent-icon-dot-field()');
+    expect(coreCardSurfaceStyles).not.toContain('background-size: 7px 7px;');
+    expect(coreCardSurfaceStyles).toContain('display: none;');
     expect(agentCardStyles).not.toContain('width: 360px;');
     expect(coreCardSurfaceStyles).not.toContain('width: 360px;');
+  });
+
+  it('presents four Harness strategies as descriptive content between task and result', async () => {
+    const { default: AgentsScene } = await import('./AgentsScene');
+
+    await act(async () => {
+      root.render(<AgentsScene />);
+    });
+
+    const presentation = container.querySelector('.openbitfun-agents-scene__harness-presentation');
+    expect(presentation?.getAttribute('aria-label')).toBe('harnessZone.flowCaption');
+    expect(presentation?.querySelectorAll('[data-openbitfun-component="harness-profile-step"]')).toHaveLength(4);
+    expect(Array.from(presentation?.querySelectorAll('.openbitfun-agents-scene__harness-endpoint') ?? [])
+      .map(node => node.textContent)).toEqual(['harnessZone.task', 'harnessZone.result']);
+
+    for (const id of ['minimal', 'balanced', 'ultimate', 'creative']) {
+      const profile = container.querySelector<HTMLElement>(`[data-testid="agents-harness-${id}"]`);
+      expect(profile?.dataset.openbitfunProfile).toBe(id);
+      expect(profile?.textContent).toContain(`harnessZone.profiles.${id}.name`);
+      expect(profile?.textContent).toContain(`harnessZone.profiles.${id}.purpose`);
+      expect(profile?.tagName).toBe('DIV');
+      expect(profile?.dataset.openbitfunState).toBeUndefined();
+    }
+    expect(presentation?.querySelector('button, [role="button"], [tabindex]')).toBeNull();
+    expect(presentation?.textContent).not.toMatch(/harnessZone\.(connected|comingSoon)/);
+
+    expect(notificationInfoMock).not.toHaveBeenCalled();
+    expect(notificationSuccessMock).not.toHaveBeenCalled();
   });
 
   it('shows skill grouping and editing for a custom subagent with the Skill tool', async () => {
@@ -309,8 +395,11 @@ describeWithJsdom('AgentsScene', () => {
         ?.click();
     });
 
-    const skillsTab = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-      .find((tab) => tab.textContent?.includes('agentsOverview.skills'));
+    expect(container.querySelector('[data-testid="agent-detail-configuration"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="agent-detail-overview"]')).toBeNull();
+    expect(container.querySelector('.agent-card__detail-view-tabs')).toBeNull();
+
+    const skillsTab = container.querySelector<HTMLButtonElement>('[data-detail-section="skills"]');
     expect(skillsTab).toBeTruthy();
 
     await act(async () => {
@@ -372,6 +461,10 @@ describeWithJsdom('AgentsScene', () => {
 
     await act(async () => {
       card?.click();
+    });
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-detail-section="tools"]')?.click();
     });
 
     const summary = container.querySelector('[data-testid="agent-detail-tool-summary"]');

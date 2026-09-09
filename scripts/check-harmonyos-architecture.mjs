@@ -45,6 +45,11 @@ const services = filesUnder(path.join(etsRoot, 'services'));
 const components = allPages.filter((file) => file.includes(`${path.sep}pages${path.sep}components${path.sep}`));
 const viewmodels = allPages.filter((file) => file.includes(`${path.sep}pages${path.sep}viewmodel${path.sep}`));
 const stateFiles = allPages.filter((file) => file.includes(`${path.sep}pages${path.sep}state${path.sep}`));
+const forbiddenComponentPlatformImports = new Set([
+  '@kit.AbilityKit',
+  '@kit.IMEKit',
+  '@kit.ScanKit'
+]);
 
 const serviceToPages = services
   .filter((file) => imports(file).some((spec) => spec === 'pages' || spec.startsWith('pages/')))
@@ -58,6 +63,30 @@ const viewmodelToComponents = viewmodels
 const stateToComponents = stateFiles
   .filter((file) => imports(file).some((spec) => spec === 'pages/components' || spec.startsWith('pages/components/')))
   .map(relative);
+const componentToRawPlatformServices = components
+  .filter((file) => imports(file).some((spec) => forbiddenComponentPlatformImports.has(spec)))
+  .map(relative);
+const hardcodedTextFontSizes = components.flatMap((file) => {
+  const source = fs.readFileSync(file, 'utf8');
+  const builderMatcher = /\b(SymbolGlyph|Text|Button|TextInput|TextArea|Search|Span|RichEditor)\s*\(/g;
+  const builders = [...source.matchAll(builderMatcher)];
+  return [...source.matchAll(/\.fontSize\((\d+(?:\.\d+)?)\)/g)].flatMap((match) => {
+    const builder = builders.filter((candidate) => candidate.index < match.index).at(-1);
+    if (builder?.[1] === 'SymbolGlyph') {
+      return [];
+    }
+    const line = source.slice(0, match.index).split('\n').length;
+    return [`${relative(file)}:${line}:${match[1]}`];
+  });
+});
+const indirectHardcodedTypography = components.flatMap((file) => {
+  const source = fs.readFileSync(file, 'utf8');
+  return [...source.matchAll(/this\.InlineText\([^;]*?,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,/gs)]
+    .map((match) => {
+      const line = source.slice(0, match.index).split('\n').length;
+      return `${relative(file)}:${line}:${match[1]}/${match[2]}`;
+    });
+});
 const v1Components = allPages
   .filter((file) => /^\s*@Component\s*$/m.test(fs.readFileSync(file, 'utf8')))
   .map(relative);
@@ -97,13 +126,17 @@ const appRootRuntimeSource = fs.readFileSync(appRootRuntimeFile, 'utf8');
 const requiredPresentationFiles = [
   'components/AppRootOverlaySurfaces.ets',
   'components/ChatMessageChrome.ets',
+  'components/RemoteSessionRow.ets',
   'components/ConnectManualPairingOverlay.ets',
   'components/ConversationHeader.ets',
   'components/ConversationRouteSurface.ets',
   'components/ToolInteractionPanels.ets',
   'components/WideConversationHost.ets',
+  'components/platform/InlineQrScanner.ets',
   'components/remote/RemoteSurfaceHost.ets',
   'policy/ConversationHeaderPolicy.ets',
+  'policy/ChatMessageStructurePolicy.ets',
+  'policy/ToolStatusPresentationPolicy.ets',
   'viewmodel/ConversationRuntime.ets',
   'viewmodel/RemoteTranscriptController.ets',
   'viewmodel/RemoteCreateFlowController.ets',
@@ -270,6 +303,9 @@ const expected = {
   componentToViewmodel: [],
   viewmodelToComponents: [],
   stateToComponents: [],
+  componentToRawPlatformServices: [],
+  hardcodedTextFontSizes: [],
+  indirectHardcodedTypography: [],
   v1Components: [],
   positionalActionConstructors: [],
   duplicatedConversationTraceFields: [],
@@ -283,7 +319,18 @@ const expected = {
   extractedRemoteConnectionForwards: [],
   appRootRuntimeStateGetters: [],
   extractedOwnerForwards: [],
-  missingPresentationFiles: []
+  missingPresentationFiles: [],
+  hiddenLocalConversationSections: [],
+  eagerChatTimeline: [],
+  missingTimelineReuse: [],
+  snapshottedTimelineRepeatItem: [],
+  snapshottedMessageBuilderInput: [],
+  missingObservableTimelineRows: [],
+  wideConversationViewContract: [],
+  duplicateSheetGeometry: [],
+  synchronousArgon2Declaration: [],
+  synchronousNativeArgon2: [],
+  misplacedPresentationPolicies: []
 };
 
 function sameSet(actual, wanted) {
@@ -295,6 +342,9 @@ const actual = {
   componentToViewmodel,
   viewmodelToComponents,
   stateToComponents,
+  componentToRawPlatformServices,
+  hardcodedTextFontSizes,
+  indirectHardcodedTypography,
   v1Components,
   positionalActionConstructors,
   duplicatedConversationTraceFields,
@@ -308,7 +358,18 @@ const actual = {
   extractedRemoteConnectionForwards,
   appRootRuntimeStateGetters,
   extractedOwnerForwards,
-  missingPresentationFiles
+  missingPresentationFiles,
+  hiddenLocalConversationSections,
+  eagerChatTimeline,
+  missingTimelineReuse,
+  snapshottedTimelineRepeatItem,
+  snapshottedMessageBuilderInput,
+  missingObservableTimelineRows,
+  wideConversationViewContract,
+  duplicateSheetGeometry,
+  synchronousArgon2Declaration,
+  synchronousNativeArgon2,
+  misplacedPresentationPolicies
 };
 let failed = false;
 for (const [name, wanted] of Object.entries(expected)) {

@@ -12,6 +12,7 @@ import {
 import { GeneralChatPageState } from '../state/GeneralChatPageState';
 import { DeviceDirectoryState } from '../state/DeviceDirectoryState';
 import { RemotePageState } from '../state/RemotePageState';
+import { REMOTE_CAPABILITY_HARNESS_PROFILES_V1 } from '../../model/RemoteModels';
 import { AppSidebar } from './AppSidebar';
 import { ConnectView } from './ConnectView';
 import { RemoteControlSettingsSheet } from './RemoteControlSettingsSheet';
@@ -152,8 +153,20 @@ export struct AppSettingsSurface {
         selectedGeneralChatModelId: this.generalPageState.conversation.selectedModelId,
         accountUsername: this.remotePageState.accountUsername,
         authenticatedUserId: this.remotePageState.accountUserId,
+        fallbackUserId: this.remotePageState.userId,
+        desktopName: this.remotePageState.desktopName,
+        desktopId: this.remotePageState.desktopId,
         deviceId: this.deviceId,
+        controlTargetType: this.remotePageState.controlTargetType,
+        controlTargetDeviceId: this.remotePageState.controlTargetDeviceId,
+        connectionState: this.remotePageState.connectionState,
         onOpenAccount: this.actions.onSettings.openAccount,
+        onDisconnect: this.actions.onSettings.disconnect,
+        onClearPairing: this.actions.onSettings.clearPairing,
+        onReconnect: this.actions.onSettings.reconnect,
+        cloudLogout: this.actions.onSettings.cloudLogout,
+        cloudListDevices: this.actions.onSettings.cloudListDevices,
+        cloudSelectDevice: this.actions.onSettings.cloudSelectDevice,
         onTestGeneralChatConfig: this.actions.onSettings.testGeneral,
         onSaveGeneralChatConfig: this.actions.onSettings.saveGeneral,
         onSelectGeneralChatModel: this.actions.onSettings.selectGeneralModel,

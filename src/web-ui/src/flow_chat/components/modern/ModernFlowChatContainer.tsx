@@ -7,7 +7,6 @@ import React, { useMemo, useCallback, useRef, useEffect, useLayoutEffect, useSta
 import { useTranslation } from 'react-i18next';
 import { useShortcut } from '@/infrastructure/hooks/useShortcut';
 import { FlowChatManager } from '@/flow_chat/services/FlowChatManager';
-import { useSessionModeStore } from '@/app/stores/sessionModeStore';
 import {
   VirtualMessageList,
   type FlowChatTurnNavigationStatus,
@@ -21,6 +20,7 @@ import {
 } from './FlowChatHeader';
 import type { SessionTreeSelection } from './SessionTreePopover';
 import { FlowChatTurnRail, type FlowChatTurnRailItem } from './FlowChatTurnRail';
+import { composerPresentationToTurnRailPreview, parseComposerPresentation } from '../../utils/composerPresentation';
 import { BackgroundCommandInputDialog } from '../background-command/BackgroundCommandInputDialog';
 import { WelcomePanel } from '../WelcomePanel';
 import { HistorySessionPlaceholder } from './HistorySessionPlaceholder';
@@ -44,12 +44,7 @@ import {
   useVisibleTurnInfo,
   type VisibleTurnInfo,
 } from '../../store/modernFlowChatStore';
-import type {
-  FlowChatConfig,
-  DialogTurn,
-  Session,
-  SessionHistoryPresentation,
-} from '../../types/flow-chat';
+import type { Session, SessionHistoryPresentation } from '../../types/flow-chat';
 import type { SessionHistoryWindowDirection } from '../../store/FlowChatStore';
 import {
   FLOWCHAT_MESSAGE_SUBMITTED_EVENT,
@@ -64,8 +59,7 @@ import {
 import {
   useBackgroundSubagentActivityStore,
 } from '../../store/backgroundSubagentActivityStore';
-import { PresenceBoundary, type LineRange } from '@/component-library';
-import { isChatPopupActive, subscribeChatPopupChange } from '../chatPopupState';
+import { type LineRange } from '@/shared/editor/LineRange';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
 import { flowChatSessionConfigForCurrentWorkspace } from '@/app/utils/projectSessionWorkspace';
 import { createLogger } from '@/shared/utils/logger';
@@ -74,7 +68,6 @@ import { createBackgroundCommandOutputTab, createReviewPlatformPullRequestDetail
 import { isAcpFlowSession } from '../../utils/acpSession';
 import { flowChatStore } from '../../store/FlowChatStore';
 import { openBtwSessionInAuxPane } from '../../services/btwSessionPane';
-import { resolveThreadGoalHeaderTitle } from '../../utils/threadGoalDisplay';
 import { hasActiveSessionLineageDescendants } from '../../utils/sessionLineage';
 import {
   findDialogTurn,
@@ -93,6 +86,7 @@ import {
   getHistorySessionOpenTransitionSnapshot,
   hasRenderableSessionContent,
   HISTORY_SESSION_OPEN_INTENT_EVENT,
+  subscribeHistorySessionOpenTransition,
   type HistorySessionOpenIntentDetail,
 } from '../../services/sessionOpenIntent';
 import {
@@ -109,7 +103,6 @@ import {
   type RenderedTranscriptRange,
 } from './flowChatLiveTailWindow';
 import './ModernFlowChatContainer.scss';
-import { PermissionRequestPanel } from './PermissionRequestPanel';
 import { pendingPermissionToolCallIdsForSession } from './permissionRequestRouting';
 import { usePermissionRequests } from './usePermissionRequests';
 import {
@@ -127,17 +120,18 @@ const log = createLogger('ModernFlowChatContainer');
 
 interface ModernFlowChatContainerProps {
   className?: string;
-  config?: Partial<FlowChatConfig>;
   isViewportActive?: boolean;
-  permissionPanelAboveChatInput?: boolean;
+  /** Whether the host-owned session right panel is open. */
+  isRightPanelOpen?: boolean;
+  /** Toggle the host-owned session right panel. */
+  onToggleRightPanel?: () => void;
   /** Host-owned replacement for the ordinary new-session WelcomePanel. */
   emptyState?: React.ReactNode;
 
-  // Callbacks compatible with the legacy version.
+  // Host-owned file, tab, and visualization actions.
   onFileViewRequest?: (filePath: string, fileName: string, lineRange?: LineRange) => void;
   onTabOpen?: (tabInfo: any, sessionId?: string, panelType?: string) => void;
   onOpenVisualization?: (type: string, data: any) => void;
-  onSwitchToChatPanel?: () => void;
 }
 
 interface FlowChatTurnSummary {
@@ -203,7 +197,7 @@ const LATEST_TURN_AUTO_PIN_MAX_ATTEMPTS = 8;
 const HISTORY_INITIAL_CONTENT_PAINT_MAX_ATTEMPTS = 30;
 const HISTORY_LOADING_LAYER_STALL_WARN_MS = 800;
 const TURN_PIN_RETRY_MAX_ATTEMPTS = 120;
-const MOCK_BACKGROUND_COMMANDS_STORAGE_KEY = 'bitfun.flowChat.mockBackgroundCommands';
+const MOCK_BACKGROUND_COMMANDS_STORAGE_KEY = 'openbitfun.flowChat.mockBackgroundCommands';
 
 const MOCK_BACKGROUND_COMMANDS: BackgroundCommandSummary[] = [
   {
@@ -291,14 +285,13 @@ function backgroundCommandSummaryFromActivity(activity: BackgroundCommandActivit
 
 export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = ({
   className = '',
-  config,
   isViewportActive = true,
-  permissionPanelAboveChatInput = false,
+  isRightPanelOpen = false,
+  onToggleRightPanel,
   emptyState,
   onFileViewRequest,
   onTabOpen,
   onOpenVisualization,
-  onSwitchToChatPanel,
 }) => {
   const { t } = useTranslation('flow-chat');
   const canonicalVirtualItems = useVirtualItems();
@@ -500,17 +493,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
   const [queuedTurnNavigation, setQueuedTurnNavigation] = useState<QueuedTurnNavigation | null>(null);
   const [pendingHistoryOpenSession, setPendingHistoryOpenSession] = useState<HistorySessionOpenIntentDetail | null>(null);
   const [searchOpenRequest, setSearchOpenRequest] = useState(0);
-  // Track whether a slash-command or @-mention popup is open in ChatInput.
-  // When a popup is active, the global Escape shortcut is disabled so the
-  // popup can be closed with Escape instead of cancelling the current task.
-  const [chatPopupActive, setChatPopupActive] = useState(() => isChatPopupActive());
   const backgroundCommandActivities = useBackgroundCommandActivityStore(state => state.activities);
-
-  useEffect(() => {
-    return subscribeChatPopupChange(() => {
-      setChatPopupActive(isChatPopupActive());
-    });
-  }, []);
   const [stoppingBackgroundCommandIds, setStoppingBackgroundCommandIds] = useState<Set<string>>(() => new Set());
   const [backgroundCommandInputTarget, setBackgroundCommandInputTarget] = useState<FlowChatHeaderCommandSummary | null>(null);
   const [isSendingBackgroundCommandInput, setIsSendingBackgroundCommandInput] = useState(false);
@@ -647,6 +630,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
   const { handleToolConfirm, handleToolReject } = useFlowChatToolActions();
 
   const { handleFileViewRequest } = useFlowChatFileActions({
+    sessionId: activeSession?.sessionId,
     workspacePath,
     onFileViewRequest,
   });
@@ -858,6 +842,13 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     };
   }, []);
 
+  useEffect(() => subscribeHistorySessionOpenTransition(() => {
+    const transition = getHistorySessionOpenTransitionSnapshot();
+    setPendingHistoryOpenSession(current => (
+      current && transition?.sessionId !== current.sessionId ? null : current
+    ));
+  }), []);
+
   useEffect(() => {
     if (!pendingHistoryOpenSession) {
       return;
@@ -939,7 +930,6 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     onTabOpen,
     onHttpLinkClick: handleHttpLinkClick,
     onOpenVisualization,
-    onSwitchToChatPanel,
     onToolConfirm: handleToolConfirm,
     onToolReject: handleToolReject,
     sessionId: activeSessionId,
@@ -948,14 +938,6 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     isHistoricalSession: activeSessionIsHistorical,
     contextRestoreState: activeSessionContextRestoreState,
     allowUserMessageRollback,
-    config: {
-      enableMarkdown: true,
-      autoScroll: true,
-      showTimestamps: false,
-      maxHistoryRounds: 50,
-      enableVirtualScroll: true,
-      ...config,
-    },
     onExploreGroupToggle: handleExploreGroupToggle,
     onExpandGroup: handleExpandGroup,
     onExpandAllInTurn: handleExpandAllInTurn,
@@ -965,7 +947,6 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     onTabOpen,
     handleHttpLinkClick,
     onOpenVisualization,
-    onSwitchToChatPanel,
     handleToolConfirm,
     handleToolReject,
     activeSessionId,
@@ -974,7 +955,6 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     activeSessionIsHistorical,
     activeSessionContextRestoreState,
     allowUserMessageRollback,
-    config,
     handleExploreGroupToggle,
     handleExpandGroup,
     handleExpandAllInTurn,
@@ -994,19 +974,6 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     searchMatchIndices,
     searchCurrentMatchVirtualIndex,
   ]);
-
-  const resolveLocalCommandHeaderTitle = useCallback((metadata: DialogTurn['userMessage']['metadata']) => {
-    if (metadata?.localCommandKind === 'usage_report') {
-      return t('usage.title');
-    }
-    const threadGoalTitle = resolveThreadGoalHeaderTitle(
-      metadata as Record<string, unknown> | undefined
-    );
-    if (threadGoalTitle) {
-      return threadGoalTitle;
-    }
-    return null;
-  }, [t]);
 
   const turnSummaries = useMemo<FlowChatTurnSummary[]>(() => {
     if (!activeSession) {
@@ -1070,11 +1037,17 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       ...(historyView?.loadedRanges.flatMap(range => range.turns) ?? []),
     ];
     const dialogTurnById = new Map(loadedTurns.map(turn => [turn.id, turn]));
-    const loadedByStorageIndex = new Map<number, { turnId: string; content: string }>();
-    const loadedByOrdinal = new Map<number, { turnId: string; content: string }>();
+    const loadedByStorageIndex = new Map<number, { turnId: string; content: string; capsulePreview?: FlowChatTurnRailItem['capsulePreview'] }>();
+    const loadedByOrdinal = new Map<number, { turnId: string; content: string; capsulePreview?: FlowChatTurnRailItem['capsulePreview'] }>();
     for (const range of historyView?.loadedRanges ?? []) {
       range.turns.forEach((turn, index) => {
-        const loaded = { turnId: turn.id, content: turn.userMessage?.content ?? '' };
+        const loaded = {
+          turnId: turn.id,
+          content: turn.userMessage?.content ?? '',
+          capsulePreview: composerPresentationToTurnRailPreview(
+            parseComposerPresentation(turn.userMessage?.metadata?.composerPresentation),
+          ),
+        };
         loadedByOrdinal.set(range.startOrdinal + index, loaded);
         const storageTurnIndex = turn.storageTurnIndex ?? turn.backendTurnIndex;
         if (typeof storageTurnIndex === 'number') {
@@ -1083,9 +1056,13 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       });
     }
     for (const summary of absoluteRenderedTurnSummaries) {
+      const dialogTurn = dialogTurnById.get(summary.turnId);
       const loaded = {
         turnId: summary.turnId,
-        content: dialogTurnById.get(summary.turnId)?.userMessage?.content ?? '',
+        content: dialogTurn?.userMessage?.content ?? '',
+        capsulePreview: composerPresentationToTurnRailPreview(
+          parseComposerPresentation(dialogTurn?.userMessage?.metadata?.composerPresentation),
+        ),
       };
       loadedByOrdinal.set(Math.max(0, summary.turnIndex - 1), loaded);
       if (typeof summary.storageTurnIndex === 'number') {
@@ -1108,6 +1085,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
         ?? (catalogEntry?.turnId && catalogDialogTurn ? {
           turnId: catalogEntry.turnId,
           content: catalogDialogTurn.userMessage?.content ?? '',
+          capsulePreview: composerPresentationToTurnRailPreview(
+            parseComposerPresentation(catalogDialogTurn.userMessage?.metadata?.composerPresentation),
+          ),
         } : undefined)
         ?? loadedByOrdinal.get(ordinal);
       const turnId = loaded?.turnId ?? catalogEntry?.turnId ?? null;
@@ -1120,6 +1100,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
         ordinal,
         turnIndex: ordinal + 1,
         content: loaded?.content ?? catalogEntry?.preview ?? null,
+        capsulePreview: loaded?.capsulePreview ?? catalogEntry?.capsulePreview,
       };
     });
 
@@ -1135,6 +1116,9 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
         ordinal: Math.max(0, summary.turnIndex - 1),
         turnIndex: summary.turnIndex,
         content: dialogTurnById.get(summary.turnId)?.userMessage?.content ?? '',
+        capsulePreview: composerPresentationToTurnRailPreview(
+          parseComposerPresentation(dialogTurnById.get(summary.turnId)?.userMessage?.metadata?.composerPresentation),
+        ),
       });
     }
 
@@ -1292,19 +1276,6 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       turnRailItems.flatMap(turn => turn.turnId ? [turn.turnId] : []),
     );
   }, [turnRailItems]);
-
-  const currentHeaderMessage = useMemo(() => {
-    const turnId = effectiveVisibleTurnInfo?.turnId;
-    if (!turnId) {
-      return effectiveVisibleTurnInfo?.userMessage ?? '';
-    }
-    const turn = renderedTurns.find(item => item.id === turnId);
-    const localCommandTitle = resolveLocalCommandHeaderTitle(turn?.userMessage?.metadata);
-    if (localCommandTitle) {
-      return localCommandTitle;
-    }
-    return effectiveVisibleTurnInfo?.userMessage ?? '';
-  }, [effectiveVisibleTurnInfo?.turnId, effectiveVisibleTurnInfo?.userMessage, renderedTurns, resolveLocalCommandHeaderTitle]);
 
   const requestTurnNavigation = useCallback((turnId: string): FlowChatTurnNavigationStatus => {
     if (!isViewportActive) {
@@ -2405,7 +2376,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       parentSessionId: selection.parentSessionId,
       workspacePath: selection.workspacePath || activeSession.workspacePath,
       sessionKind: 'subagent',
-      sessionTitle: selection.title,
+      sessionTitle: selection.displayTitle,
       agentType: selection.agentType,
       parentToolCallId: selection.parentToolCallId,
       subagentType: selection.subagentType,
@@ -2554,21 +2525,11 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
   }, [handleStopBackgroundCommand, headerBackgroundCommands]);
 
   useShortcut(
-    'chat.stopGeneration',
-    { key: 'Escape', scope: 'chat', allowInInput: true },
-    () => {
-      void FlowChatManager.getInstance().cancelCurrentTask();
-    },
-    { priority: 20, enabled: !chatPopupActive, description: 'keyboard.shortcuts.chat.stopGeneration' }
-  );
-
-  useShortcut(
     'chat.newSession',
     { key: 'N', ctrl: true, scope: 'chat' },
     () => {
       void (async () => {
         try {
-          useSessionModeStore.getState().setMode('code');
           await FlowChatManager.getInstance().createChatSession(
             flowChatSessionConfigForCurrentWorkspace(activeWorkspace),
             'agentic',
@@ -2619,19 +2580,14 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
         data-shortcut-scope="chat"
         data-testid="flowchat-container"
         data-session-id={activeSession?.sessionId ?? ''}
-        data-bf-component="modern-flow-chat"
-        data-bf-part="root"
+        data-openbitfun-component="modern-flow-chat"
+        data-openbitfun-part="root"
       >
         <FlowChatHeader
-          currentTurn={effectiveVisibleTurnInfo?.turnIndex ?? 0}
-          totalTurns={effectiveVisibleTurnInfo?.totalTurns ?? 0}
-          currentUserMessage={currentHeaderMessage}
           visible={virtualItems.length > 0}
           sessionId={activeSession?.sessionId}
-          onJumpToCurrentTurn={() => {
-            const turnId = effectiveVisibleTurnInfo?.turnId;
-            if (turnId) navigateToTurn(turnId);
-          }}
+          isRightPanelOpen={isRightPanelOpen}
+          onToggleRightPanel={onToggleRightPanel}
           searchQuery={searchQuery}
           onSearchChange={handleSearchChange}
           searchMatchCount={searchMatches.length}
@@ -2657,25 +2613,11 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
           onSend={handleSendBackgroundCommandInput}
         />
 
-        <PresenceBoundary active={activePermissionPanelSnapshot != null}>
-          {renderedPermissionPanelSnapshot ? (
-            <PermissionRequestPanel
-              key={`${renderedPermissionPanelSnapshot.batch.sessionId}:${renderedPermissionPanelSnapshot.batch.roundId}`}
-              requests={renderedPermissionPanelSnapshot.batch.requests}
-              totalPendingCount={renderedPermissionPanelSnapshot.totalPendingCount}
-              aboveChatInput={renderedPermissionPanelSnapshot.aboveChatInput}
-              visible={activePermissionPanelSnapshot != null}
-              onRespond={renderedPermissionPanelSnapshot.onRespond}
-              onRespondBatch={renderedPermissionPanelSnapshot.onRespondBatch}
-            />
-          ) : null}
-        </PresenceBoundary>
-
         <div
           className="modern-flowchat-container__messages"
           data-testid="flowchat-messages"
-          data-bf-component="modern-flow-chat"
-          data-bf-part="messages"
+          data-openbitfun-component="modern-flow-chat"
+          data-openbitfun-part="messages"
           data-active-session-id={activeSession?.sessionId ?? ''}
           data-history-state={historyState ?? 'none'}
           data-context-restore-state={activeSession?.contextRestoreState ?? 'none'}
@@ -2756,8 +2698,8 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
                 className="modern-flowchat-container__history-overlay"
                 role="status"
                 aria-label={t('historyState.loadingTitle')}
-                data-bf-component="modern-flow-chat"
-                data-bf-part="historyOverlay"
+                data-openbitfun-component="modern-flow-chat"
+                data-openbitfun-part="historyOverlay"
               >
                 <HistorySessionPlaceholder
                   state={historyState === 'metadata-only' ? 'metadata-only' : 'hydrating'}
@@ -2767,15 +2709,15 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
             {showHistoryOpenIntentOverlay && (
               <div
                 className="modern-flowchat-container__history-open-intent-shield"
-                data-bf-component="modern-flow-chat"
-                data-bf-part="historyOpenIntent"
+                data-openbitfun-component="modern-flow-chat"
+                data-openbitfun-part="historyOpenIntent"
                 role="status"
                 aria-label={t('historyState.loadingTitle')}
               >
                 <span
                   className="modern-flowchat-container__history-open-intent-spinner"
-                  data-bf-component="modern-flow-chat"
-                  data-bf-part="historyOpenIntentSpinner"
+                  data-openbitfun-component="modern-flow-chat"
+                  data-openbitfun-part="historyOpenIntentSpinner"
                   aria-hidden="true"
                 />
               </div>

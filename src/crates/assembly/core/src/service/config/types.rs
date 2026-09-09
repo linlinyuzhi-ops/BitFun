@@ -1,8 +1,6 @@
-//! Unified configuration system type definitions
-//!
-//! Defines all configuration-related types shared between backend and frontend.
+//! Shared persisted configuration records and live provider interface.
 
-use crate::util::errors::*;
+use crate::util::errors::OpenBitFunResult;
 use async_trait::async_trait;
 use bitfun_core_types::WorktreeSettings;
 pub use bitfun_core_types::{ReasoningConfig, ReasoningPreset, ReasoningPresetAction};
@@ -1712,7 +1710,7 @@ pub trait ConfigProvider: Send + Sync {
     fn get_default_config(&self) -> serde_json::Value;
 
     /// Validates configuration.
-    async fn validate_config(&self, config: &serde_json::Value) -> BitFunResult<Vec<String>>;
+    async fn validate_config(&self, config: &serde_json::Value) -> OpenBitFunResult<Vec<String>>;
 
     /// Called when configuration changes.
     async fn on_config_changed(

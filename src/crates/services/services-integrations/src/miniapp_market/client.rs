@@ -2,9 +2,10 @@ use super::credentials::{
     clear_market_credentials, load_market_credentials, save_market_credentials,
     StoredMarketCredentials,
 };
-use bitfun_product_domains::miniapp::market::{
+use openbitfun_product_domains::miniapp::market::{
     CursorPage, MarketListingDetail, MarketListingSummary, MarketSort, MarketSubmission,
-    MarketSubmissionDraftRequest, MarketUserSummary, MARKET_PACKAGE_CONTENT_TYPE,
+    MarketSubmissionDraftRequest, MarketUserSummary, ReviewDecisionRequest,
+    MARKET_PACKAGE_CONTENT_TYPE,
 };
 use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use serde::de::DeserializeOwned;
@@ -121,7 +122,7 @@ pub struct MarketClient {
 
 impl MarketClient {
     pub async fn from_environment() -> Result<Self, MarketClientError> {
-        let base_url = std::env::var("BITFUN_MINIAPP_MARKET_API_URL")
+        let base_url = std::env::var("OPENBITFUN_MINIAPP_MARKET_API_URL")
             .unwrap_or_else(|_| DEFAULT_MARKET_API_URL.to_string());
         Self::new(base_url).await
     }
@@ -140,8 +141,8 @@ impl MarketClient {
                 "The MiniApp market API must use HTTPS.",
             ));
         }
-        let client = reqwest::Client::builder()
-            .user_agent(format!("BitFun-Desktop/{}", env!("CARGO_PKG_VERSION")))
+        let client = crate::reqwest_client_builder()
+            .user_agent(format!("OpenBitFun-Desktop/{}", env!("CARGO_PKG_VERSION")))
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| local_error("market_client_init_failed", error.to_string()))?;
@@ -383,6 +384,20 @@ impl MarketClient {
             ))))
             .await?;
         self.json(request).await
+    }
+
+    pub async fn review_submission(
+        &mut self,
+        submission_id: &str,
+        decision: &ReviewDecisionRequest,
+    ) -> Result<MarketSubmission, MarketClientError> {
+        let request = self
+            .authorized(self.client.post(self.url(&format!(
+                "/admin/submissions/{}/decision",
+                urlencoding::encode(submission_id)
+            ))))
+            .await?;
+        self.json(request.json(decision)).await
     }
 
     pub async fn logout(&mut self) -> Result<(), MarketClientError> {

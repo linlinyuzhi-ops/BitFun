@@ -1,17 +1,29 @@
 /**
  * About dialog component.
- * Shows app version and license info.
- * Uses component library Modal.
+ * Shows product identity, build metadata, license, app-update status, and the
+ * persistent GitHub repository entry point.
  */
 
+import {
+  Alert,
+  Button,
+  FieldGroup,
+  FieldRow,
+  Icon,
+  IconButton,
+  StatusPill,
+  Tooltip,
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogTitle,
+} from '@openbitfun/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '@/infrastructure/i18n';
-import { Tooltip, Modal, Button, Alert } from '@/component-library';
-import { Copy, Check, Download, CheckCircle2 } from 'lucide-react';
 import {
-  getAboutInfo,
+  formatBuildDate,
   formatDisplayedVersion,
-  formatBuildDate
+  getAboutInfo,
 } from '@/shared/utils/version';
 import { createLogger } from '@/shared/utils/logger';
 import { systemAPI } from '@/infrastructure/api';
@@ -20,9 +32,11 @@ import { canCheckForAppUpdates, isTauriRuntime } from '@/infrastructure/update/t
 import { UpdateAvailableDialog } from '@/infrastructure/update/UpdateAvailableDialog';
 import { useUpdateInstallStore } from '@/infrastructure/update/updateInstallStore';
 import { formatUpdateInstallError } from '@/infrastructure/update/updateErrorMessage';
+import { AboutBrandMark } from './AboutBrandMark';
 import './AboutDialog.scss';
 
 const log = createLogger('AboutDialog');
+const GITHUB_REPOSITORY_URL = 'https://github.com/GCWing/OpenBitFun';
 
 interface AboutDialogProps {
   /** Whether visible */
@@ -33,7 +47,7 @@ interface AboutDialogProps {
 
 export const AboutDialog: React.FC<AboutDialogProps> = ({
   isOpen,
-  onClose
+  onClose,
 }) => {
   const { t } = useI18n('common');
   const [copiedItem, setCopiedItem] = useState<string | null>(null);
@@ -47,6 +61,9 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({
   const updateProgress = useUpdateInstallStore(state => state.progress);
   const updateError = useUpdateInstallStore(state => state.error);
   const startUpdateInstall = useUpdateInstallStore(state => state.startInstall);
+  const requestInstall = useUpdateInstallStore(state => state.requestInstall);
+  const updateVersion = useUpdateInstallStore(state => state.version);
+  const updateInitialized = useUpdateInstallStore(state => state.initialized);
 
   const aboutInfo = getAboutInfo();
   const { version, license } = aboutInfo;
@@ -56,12 +73,28 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({
     version,
     nativeVersion,
     nativeRuntime,
-    import.meta.env.DEV
+    import.meta.env.DEV,
   );
   const updateProgressPercent =
     updateProgress.total != null && updateProgress.total > 0
       ? Math.min(100, Math.round((updateProgress.downloaded / updateProgress.total) * 100))
       : null;
+  const licenseName = license.type === 'MIT' ? 'MIT License' : license.type;
+  const licenseCopyright = license.text?.startsWith(`${licenseName} - `)
+    ? license.text.slice(`${licenseName} - `.length)
+    : license.text;
+  const legalCopyright = licenseCopyright
+    ? `${licenseCopyright.replace(/\.$/, '')}. ${t('about.allRightsReserved')}`
+    : t('about.copyright');
+
+  let releaseLabel = t('about.stableBuild');
+  if (displayedVersion.endsWith('-dev')) {
+    releaseLabel = t('about.developmentBuild');
+  } else if (version.releaseChannel === 'beta') {
+    releaseLabel = t('about.betaBuild');
+  } else if (version.releaseChannel === 'nightly') {
+    releaseLabel = t('about.nightlyBuild');
+  }
 
   useEffect(() => {
     if (isOpen) {
@@ -72,6 +105,7 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({
 
   useEffect(() => {
     if (!isOpen || !nativeRuntime) return;
+    if (canCheckForAppUpdates()) void useUpdateInstallStore.getState().initialize();
     let active = true;
     void systemAPI.getAppVersion()
       .then(currentVersion => {
@@ -86,9 +120,8 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({
   }, [isOpen, nativeRuntime]);
 
   const handleCheckForUpdates = useCallback(async () => {
-    if (!canCheckForAppUpdates()) {
-      return;
-    }
+    if (!canCheckForAppUpdates()) return;
+
     setManualCheckStatus('idle');
     setManualCheckErrorMessage(null);
     setManualCheckBusy(true);
@@ -100,15 +133,21 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({
         setManualData(res);
         setManualOpen(true);
       }
-    } catch (e) {
-      log.error('check_for_updates failed', e);
-      const msg = e instanceof Error ? e.message : String(e);
-      setManualCheckErrorMessage(formatUpdateInstallError(msg, t));
+    } catch (error) {
+      log.error('check_for_updates failed', error);
+      const message = error instanceof Error ? error.message : String(error);
+      setManualCheckErrorMessage(formatUpdateInstallError(message, t));
       setManualCheckStatus('error');
     } finally {
       setManualCheckBusy(false);
     }
   }, [t]);
+
+  const handleGithubStar = useCallback(() => {
+    systemAPI.openExternal(GITHUB_REPOSITORY_URL).catch(error => {
+      log.error('Failed to open the GitHub repository', { url: GITHUB_REPOSITORY_URL, error });
+    });
+  }, []);
 
   const onManualLater = useCallback(() => {
     setManualOpen(false);
@@ -121,224 +160,337 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({
     void startUpdateInstall();
   }, [startUpdateInstall]);
 
-  const onRestart = useCallback(async () => {
-    try {
-      await systemAPI.restartApp();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      useUpdateInstallStore.setState({ status: 'error', error: msg });
-    }
-  }, []);
+  const onRestart = useCallback(() => {
+    onClose();
+    requestInstall();
+  }, [onClose, requestInstall]);
 
   const copyToClipboard = async (text: string, itemId: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedItem(itemId);
-      setTimeout(() => setCopiedItem(null), 2000);
-    } catch (err) {
-      log.error('Failed to copy to clipboard', err);
+      window.setTimeout(() => setCopiedItem(null), 2000);
+    } catch (error) {
+      log.error('Failed to copy to clipboard', error);
     }
   };
 
+  const updateState = `${manualCheckBusy ? 'checking' : ''} ${manualCheckStatus} ${updateStatus}`.trim();
+  const updateBusy = !updateInitialized || manualCheckBusy || updateStatus === 'downloading' || updateStatus === 'ready' || updateStatus === 'installing';
+
   return (
     <>
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={t('header.about')}
-      showCloseButton={true}
-      size="medium"
-    >
-      <div
-        className="bitfun-about-dialog__content"
-        data-bf-component="about-dialog"
-        data-bf-part="root"
+      <Dialog
+        open={isOpen}
+        onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}
+        size="xl"
+        className="openbitfun-about-dialog"
+        aria-label={t('about.dialogTitle')}
+        data-testid="about-dialog-modal"
       >
-        {/* Hero section - product info */}
-        <div className="bitfun-about-dialog__hero" data-bf-component="about-dialog" data-bf-part="hero">
-          <h1 className="bitfun-about-dialog__title" data-bf-component="about-dialog" data-bf-part="title">{version.name}</h1>
-          <div className="bitfun-about-dialog__version-badge" data-bf-component="about-dialog" data-bf-part="version">
-            {t('about.version', { version: displayedVersion })}
-          </div>
-          <div className="bitfun-about-dialog__divider" data-bf-component="about-dialog" data-bf-part="decoration" />
-          <div className="bitfun-about-dialog__dots" data-bf-component="about-dialog" data-bf-part="decoration">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-        </div>
-
-        {/* Scrollable area */}
-        <div className="bitfun-about-dialog__scrollable" data-bf-component="about-dialog" data-bf-part="content">
-          {updateChecksAvailable ? (
-            <div
-              className="bitfun-about-dialog__update-card"
-              data-bf-component="about-dialog"
-              data-bf-part="updateCard"
-              data-bf-state={`${manualCheckBusy ? 'checking' : ''} ${manualCheckStatus} ${updateStatus}`.trim()}
-            >
-              <div className="bitfun-about-dialog__update-card-top" data-bf-component="about-dialog" data-bf-part="updateHeader">
-                <div className="bitfun-about-dialog__update-card-main">
-                  <div className="bitfun-about-dialog__update-card-head">
-                    <div className="bitfun-about-dialog__update-card-icon" aria-hidden>
-                      <Download size={18} strokeWidth={2} />
-                    </div>
-                    <div className="bitfun-about-dialog__update-card-meta">
-                      <div className="bitfun-about-dialog__update-card-title">
-                        {t('about.updateSectionTitle')}
-                      </div>
-                      <p className="bitfun-about-dialog__update-card-hint">
-                        {t('about.updateSectionHint')}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="bitfun-about-dialog__update-card-feedback" data-bf-component="about-dialog" data-bf-part="updateFeedback">
-                    {manualCheckStatus === 'latest' ? (
-                      <div
-                        className="bitfun-about-dialog__update-status bitfun-about-dialog__update-status--success"
-                        role="status"
-                      >
-                        <CheckCircle2 size={14} aria-hidden />
-                        <span>{t('update.noUpdate')}</span>
-                      </div>
-                    ) : null}
-                    {manualCheckStatus === 'error' && manualCheckErrorMessage ? (
-                      <Alert
-                        type="error"
-                        message={manualCheckErrorMessage}
-                        showIcon
-                        className="bitfun-about-dialog__update-alert"
-                      />
-                    ) : null}
-                  </div>
+        <DialogClose className="openbitfun-about-dialog__close" />
+        <DialogBody className="openbitfun-about-dialog__modal-content" inset="none">
+          <div
+            className="openbitfun-about-dialog__content"
+            data-openbitfun-component="about-dialog"
+            data-openbitfun-part="root"
+          >
+            <div className="openbitfun-about-dialog__body">
+              <div
+                className="openbitfun-about-dialog__brand"
+                data-openbitfun-component="about-dialog"
+                data-openbitfun-part="hero"
+                aria-hidden="true"
+              >
+                <div className="openbitfun-about-dialog__artwork">
+                  <AboutBrandMark active={isOpen} />
                 </div>
-                <div className="bitfun-about-dialog__update-card-actions" data-bf-component="about-dialog" data-bf-part="updateActions">
-                  <Button
-                    variant="secondary"
-                    size="small"
-                    isLoading={manualCheckBusy}
-                    disabled={updateStatus === 'downloading' || updateStatus === 'installed'}
-                    onClick={() => void handleCheckForUpdates()}
-                  >
-                    {!manualCheckBusy ? (
-                      <Check size={14} className="bitfun-about-dialog__update-btn-icon" aria-hidden />
-                    ) : null}
-                    {manualCheckBusy ? t('update.checking') : t('update.checkForUpdates')}
-                  </Button>
-                </div>
+                <p className="openbitfun-about-dialog__brand-statement">
+                  {t('about.brandStatement')}
+                </p>
               </div>
-              {updateStatus === 'downloading' ? (
-                <div className="bitfun-about-dialog__download-status" role="status">
+
+              <section
+                className="openbitfun-about-dialog__metadata"
+                data-openbitfun-component="about-dialog"
+                data-openbitfun-part="content"
+                aria-label={t('about.details')}
+              >
+                <header className="openbitfun-about-dialog__brand-copy">
+                  <DialogTitle
+                    className="openbitfun-about-dialog__title"
+                    data-openbitfun-component="about-dialog"
+                    data-openbitfun-part="title"
+                  >
+                    {version.name}
+                  </DialogTitle>
+                  <p className="openbitfun-about-dialog__tagline">{t('about.tagline')}</p>
+                </header>
+
+                <FieldGroup className="openbitfun-about-dialog__details" appearance="plain" dividers={false}>
+                  <FieldRow padding="none">
+                    <dl className="openbitfun-about-dialog__info-row" data-openbitfun-component="about-dialog" data-openbitfun-part="infoRow">
+                      <dt className="openbitfun-about-dialog__info-label" data-openbitfun-component="about-dialog" data-openbitfun-part="infoLabel">
+                        <span>{t('about.versionLabel')}</span>
+                      </dt>
+                      <dd className="openbitfun-about-dialog__info-value-group">
+                        <span
+                          className="openbitfun-about-dialog__info-value"
+                          data-openbitfun-component="about-dialog"
+                          data-openbitfun-part="infoValue"
+                          data-testid="about-version-value"
+                        >
+                          {displayedVersion}
+                        </span>
+                        <span
+                          className="openbitfun-about-dialog__channel-badge"
+                          data-openbitfun-component="about-dialog"
+                          data-openbitfun-part="channelBadge"
+                        >
+                          <StatusPill tone="neutral">{releaseLabel}</StatusPill>
+                        </span>
+                      </dd>
+                    </dl>
+                  </FieldRow>
+
+                  <FieldRow padding="none">
+                    <dl className="openbitfun-about-dialog__info-row" data-openbitfun-component="about-dialog" data-openbitfun-part="infoRow">
+                      <dt className="openbitfun-about-dialog__info-label" data-openbitfun-component="about-dialog" data-openbitfun-part="infoLabel">
+                        <span>{t('about.buildDate')}</span>
+                      </dt>
+                      <dd className="openbitfun-about-dialog__info-value-group">
+                        <span className="openbitfun-about-dialog__info-value" data-openbitfun-component="about-dialog" data-openbitfun-part="infoValue">
+                          {formatBuildDate(version.buildDate)}
+                        </span>
+                      </dd>
+                    </dl>
+                  </FieldRow>
+
+                  <FieldRow padding="none">
+                    <dl className="openbitfun-about-dialog__info-row" data-openbitfun-component="about-dialog" data-openbitfun-part="infoRow">
+                      <dt className="openbitfun-about-dialog__info-label" data-openbitfun-component="about-dialog" data-openbitfun-part="infoLabel">
+                        <span>{t('about.commit')}</span>
+                      </dt>
+                      <dd className="openbitfun-about-dialog__info-value-group">
+                        <span
+                          className="openbitfun-about-dialog__info-value openbitfun-about-dialog__info-value--mono"
+                          data-openbitfun-component="about-dialog"
+                          data-openbitfun-part="infoValue"
+                        >
+                          {version.gitCommit ?? t('about.notAvailable')}
+                        </span>
+                        {version.gitCommit ? (
+                          <span
+                            className="openbitfun-about-dialog__copy-action"
+                            data-openbitfun-component="about-dialog"
+                            data-openbitfun-part="copyButton"
+                          >
+                            <Tooltip content={t('about.copy')}>
+                              <IconButton
+                                size="xs"
+                                variant="quiet"
+                                icon={<Icon name={copiedItem === 'commit' ? 'check-line' : 'duplicate'} size="sm" />}
+                                onClick={() => void copyToClipboard(version.gitCommit ?? '', 'commit')}
+                                aria-label={t('about.copyCommit')}
+                              />
+                            </Tooltip>
+                          </span>
+                        ) : null}
+                      </dd>
+                    </dl>
+                  </FieldRow>
+
+                  <FieldRow padding="none">
+                    <dl className="openbitfun-about-dialog__info-row" data-openbitfun-component="about-dialog" data-openbitfun-part="infoRow">
+                      <dt className="openbitfun-about-dialog__info-label" data-openbitfun-component="about-dialog" data-openbitfun-part="infoLabel">
+                        <span>{t('about.branch')}</span>
+                      </dt>
+                      <dd className="openbitfun-about-dialog__info-value-group">
+                        <span
+                          className="openbitfun-about-dialog__info-value"
+                          data-openbitfun-component="about-dialog"
+                          data-openbitfun-part="infoValue"
+                          data-testid="about-branch-value"
+                          title={version.gitBranch}
+                        >
+                          {version.gitBranch ?? t('about.notAvailable')}
+                        </span>
+                      </dd>
+                    </dl>
+                  </FieldRow>
+
+                  <FieldRow padding="none">
+                    <dl className="openbitfun-about-dialog__info-row" data-openbitfun-component="about-dialog" data-openbitfun-part="infoRow">
+                      <dt className="openbitfun-about-dialog__info-label" data-openbitfun-component="about-dialog" data-openbitfun-part="infoLabel">
+                        <span>{t('about.license')}</span>
+                      </dt>
+                      <dd className="openbitfun-about-dialog__info-value-group">
+                        <span
+                          className="openbitfun-about-dialog__info-value"
+                          data-openbitfun-component="about-dialog"
+                          data-openbitfun-part="license"
+                          data-testid="about-license-value"
+                        >
+                          {licenseName}
+                        </span>
+                      </dd>
+                    </dl>
+                  </FieldRow>
+                </FieldGroup>
+
+                {updateChecksAvailable ? (
                   <div
-                    className="bitfun-about-dialog__download-bar"
-                    data-bf-component="about-dialog"
-                    data-bf-part="progress"
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={updateProgressPercent ?? undefined}
-                    aria-label={t('update.downloadingTitle')}
+                    className="openbitfun-about-dialog__update-card"
+                    data-openbitfun-component="about-dialog"
+                    data-openbitfun-part="updateCard"
+                    data-openbitfun-state={updateState}
                   >
                     <div
-                      data-bf-component="about-dialog"
-                      data-bf-part="progressFill"
-                      className={
-                        updateProgressPercent != null
-                          ? 'bitfun-about-dialog__download-fill'
-                          : 'bitfun-about-dialog__download-fill bitfun-about-dialog__download-fill--indeterminate'
-                      }
-                      style={
-                        updateProgressPercent != null
-                          ? { width: `${updateProgressPercent}%` }
-                          : undefined
-                      }
-                    />
+                      className="openbitfun-about-dialog__update-card-actions"
+                      data-openbitfun-component="about-dialog"
+                      data-openbitfun-part="updateActions"
+                    >
+                      {manualCheckStatus === 'latest' && updateStatus === 'idle' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          leadingIcon={<Icon name="check-circle" size="sm" aria-hidden="true" />}
+                          onClick={() => void handleCheckForUpdates()}
+                          data-testid="about-check-updates"
+                        >
+                          {t('update.noUpdate')}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          leadingIcon={<Icon name="refresh" size="sm" aria-hidden="true" />}
+                          loading={manualCheckBusy}
+                          disabled={updateBusy}
+                          onClick={() => void handleCheckForUpdates()}
+                          data-testid="about-check-updates"
+                        >
+                          {manualCheckBusy ? t('update.checking') : t('update.checkForUpdates')}
+                        </Button>
+                      )}
+                    </div>
+
+                    <div
+                      className="openbitfun-about-dialog__update-feedback"
+                      data-openbitfun-component="about-dialog"
+                      data-openbitfun-part="updateFeedback"
+                    >
+                      {manualCheckStatus === 'error' && manualCheckErrorMessage ? (
+                        <Alert
+                          tone="error"
+                          message={manualCheckErrorMessage}
+                          showIcon
+                          className="openbitfun-about-dialog__update-alert"
+                        />
+                      ) : null}
+                      {updateStatus === 'downloading' ? (
+                        <div className="openbitfun-about-dialog__download-status" role="status">
+                          <div
+                            className="openbitfun-about-dialog__download-bar"
+                            data-openbitfun-component="about-dialog"
+                            data-openbitfun-part="progress"
+                            role="progressbar"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={updateProgressPercent ?? undefined}
+                            aria-label={t('update.downloadingTitle')}
+                          >
+                            <div
+                              data-openbitfun-component="about-dialog"
+                              data-openbitfun-part="progressFill"
+                              className={updateProgressPercent != null
+                                ? 'openbitfun-about-dialog__download-fill'
+                                : 'openbitfun-about-dialog__download-fill openbitfun-about-dialog__download-fill--indeterminate'}
+                              style={updateProgressPercent != null
+                                ? { width: `${updateProgressPercent}%` }
+                                : undefined}
+                            />
+                          </div>
+                          <div className="openbitfun-about-dialog__download-meta">
+                            <span>{t('update.backgroundDownloading')}</span>
+                            <span>
+                              {updateProgressPercent != null
+                                ? t('update.progressPercent', { percent: String(updateProgressPercent) })
+                                : t('update.progressUnknown')}
+                            </span>
+                          </div>
+                          <p className="openbitfun-about-dialog__download-hint">
+                            {t('update.backgroundDownloadHint')}
+                          </p>
+                        </div>
+                      ) : null}
+                      {updateStatus === 'ready' || updateStatus === 'installing' ? (
+                        <div className="openbitfun-about-dialog__update-installed">
+                          <div className="openbitfun-about-dialog__update-status openbitfun-about-dialog__update-status--success">
+                            <Icon name="check-circle" size="sm" className="openbitfun-about-dialog__update-status-icon" aria-hidden="true" />
+                            <span>{t('update.readyVersion', { version: updateVersion ?? '' })}</span>
+                          </div>
+                          <Button variant="fill" size="sm" disabled={updateStatus === 'installing'} onClick={onRestart}>
+                            {t(updateStatus === 'installing' ? 'update.installing' : 'update.installAndRestart')}
+                          </Button>
+                        </div>
+                      ) : null}
+                      {updateStatus === 'error' && updateError ? (
+                        <Alert
+                          tone="error"
+                          message={formatUpdateInstallError(updateError, t)}
+                          showIcon
+                          className="openbitfun-about-dialog__update-alert"
+                        />
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="bitfun-about-dialog__download-meta">
-                    <span>{t('update.backgroundDownloading')}</span>
-                    <span>
-                      {updateProgressPercent != null
-                        ? t('update.progressPercent', { percent: String(updateProgressPercent) })
-                        : t('update.progressUnknown')}
-                    </span>
-                  </div>
-                  <p className="bitfun-about-dialog__download-hint">
-                    {t('update.backgroundDownloadHint')}
+                ) : null}
+              </section>
+            </div>
+
+            <footer
+              className="openbitfun-about-dialog__footer"
+              data-openbitfun-component="about-dialog"
+              data-openbitfun-part="footer"
+            >
+              <div
+                className="openbitfun-about-dialog__star-callout"
+                data-openbitfun-component="about-dialog"
+                data-openbitfun-part="starCallout"
+                role="group"
+                aria-labelledby="openbitfun-about-star-title"
+              >
+                <div className="openbitfun-about-dialog__star-copy">
+                  <h3 id="openbitfun-about-star-title" className="openbitfun-about-dialog__star-title">
+                    {t('about.githubStarTitle')}
+                  </h3>
+                  <p className="openbitfun-about-dialog__star-description">
+                    {t('about.githubStarDescription')}
                   </p>
                 </div>
-              ) : null}
-              {updateStatus === 'installed' ? (
-                <div className="bitfun-about-dialog__update-installed">
-                  <div className="bitfun-about-dialog__update-status bitfun-about-dialog__update-status--success">
-                    <CheckCircle2 size={14} aria-hidden />
-                    <span>{t('update.installedMessage')}</span>
-                  </div>
-                  <Button variant="primary" size="small" onClick={onRestart}>
-                    {t('update.restartNow')}
-                  </Button>
-                </div>
-              ) : null}
-              {updateStatus === 'error' && updateError ? (
-                <Alert
-                  type="error"
-                  message={formatUpdateInstallError(updateError, t)}
-                  showIcon
-                  className="bitfun-about-dialog__update-alert"
-                />
-              ) : null}
-            </div>
-          ) : !nativeRuntime ? (
-            <p className="bitfun-about-dialog__update-hint">{t('update.desktopOnly')}</p>
-          ) : null}
-          <div className="bitfun-about-dialog__info-section">
-            <div className="bitfun-about-dialog__info-card" data-bf-component="about-dialog" data-bf-part="infoCard">
-              <div className="bitfun-about-dialog__info-row" data-bf-component="about-dialog" data-bf-part="infoRow">
-                <span className="bitfun-about-dialog__info-label" data-bf-component="about-dialog" data-bf-part="infoLabel">{t('about.buildDate')}</span>
-                <span className="bitfun-about-dialog__info-value" data-bf-component="about-dialog" data-bf-part="infoValue">
-                  {formatBuildDate(version.buildDate)}
-                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="openbitfun-about-dialog__star-button"
+                  leadingIcon={<Icon name="star" size="sm" aria-hidden="true" />}
+                  onClick={handleGithubStar}
+                  data-testid="about-github-star"
+                >
+                  {t('about.githubStarAction')}
+                </Button>
               </div>
-
-              {version.gitCommit && (
-                <div className="bitfun-about-dialog__info-row" data-bf-component="about-dialog" data-bf-part="infoRow">
-                  <span className="bitfun-about-dialog__info-label" data-bf-component="about-dialog" data-bf-part="infoLabel">{t('about.commit')}</span>
-                  <div className="bitfun-about-dialog__info-value-group">
-                    <span className="bitfun-about-dialog__info-value bitfun-about-dialog__info-value--mono" data-bf-component="about-dialog" data-bf-part="infoValue">
-                      {version.gitCommit}
-                    </span>
-                    <Tooltip content={t('about.copy')}>
-                      <button
-                        className="bitfun-about-dialog__copy-btn"
-                        data-bf-component="about-dialog"
-                        data-bf-part="copyButton"
-                        onClick={() => copyToClipboard(version.gitCommit || '', 'commit')}
-                      >
-                        {copiedItem === 'commit' ? <Check size={12} /> : <Copy size={12} />}
-                      </button>
-                    </Tooltip>
-                  </div>
-                </div>
-              )}
-
-              {version.gitBranch && (
-                <div className="bitfun-about-dialog__info-row" data-bf-component="about-dialog" data-bf-part="infoRow">
-                  <span className="bitfun-about-dialog__info-label" data-bf-component="about-dialog" data-bf-part="infoLabel">{t('about.branch')}</span>
-                  <span className="bitfun-about-dialog__info-value" data-bf-component="about-dialog" data-bf-part="infoValue">{version.gitBranch}</span>
-                </div>
-              )}
-            </div>
+              <p
+                className="openbitfun-about-dialog__copyright"
+                data-openbitfun-component="about-dialog"
+                data-openbitfun-part="copyright"
+              >
+                {legalCopyright}
+              </p>
+            </footer>
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="bitfun-about-dialog__footer" data-bf-component="about-dialog" data-bf-part="footer">
-          <p className="bitfun-about-dialog__license" data-bf-component="about-dialog" data-bf-part="license">{license.text}</p>
-          <p className="bitfun-about-dialog__copyright" data-bf-component="about-dialog" data-bf-part="copyright">
-            {t('about.copyright')}
-          </p>
-        </div>
-      </div>
-    </Modal>
+        </DialogBody>
+      </Dialog>
 
       <UpdateAvailableDialog
         isOpen={manualOpen}

@@ -2,7 +2,7 @@
 # Line-ending policy.
 #
 # Git for Windows defaults to `core.autocrlf=true`, which rewrites every text
-# file to CRLF on checkout. Two BitFun paths break silently when that happens:
+# file to CRLF on checkout. Two OpenBitFun paths break silently when that happens:
 #
 #   1. `src/apps/relay-server/*.sh` is embedded into the Desktop binary with
 #      `include_str!` and uploaded verbatim to the relay host. A CR turns each
@@ -16,6 +16,7 @@
 # reads LF fine and pinning them would churn every non-Windows working tree.
 #**
 
+/.gitattributes     text eol=lf
 *.sh                text eol=lf
 *.bash              text eol=lf
 *.rs                text eol=lf
@@ -23,11 +24,32 @@
 *.mjs               text eol=lf
 *.cjs               text eol=lf
 
+# Generated frontend/mobile contracts compare exact file contents. Keep both
+# their source fragments and generated outputs stable on every checkout so a
+# Windows or hosted runner cannot report newline-only generated drift.
+MiniApp/Demo/git-graph/source/** text eol=lf
+src/crates/assembly/core/builtin_skills/miniapp-dev/references/examples/demo-git-graph/source/** text eol=lf
+src/apps/mobile/**/*.json text eol=lf
+src/apps/mobile/**/*.js text eol=lf
+src/apps/mobile/**/*.ets text eol=lf
+src/apps/mobile/**/*.kt text eol=lf
+src/apps/mobile/**/*.swift text eol=lf
+
+# The Product Operation Registry embeds and compares this generated JSON byte for byte.
+src/crates/contracts/product-domains/src/generated/remote-surface-registry.json text eol=lf
+
 # models.dev provenance hashes exact redistributed bytes. Keep these assets
 # stable across checkout platforms so the offline release check is reproducible.
 src/crates/services/services-integrations/assets/models-dev.json text eol=lf
 src/crates/services/services-integrations/assets/models-dev.LICENSE.txt text eol=lf
 src/crates/services/services-integrations/assets/models-dev.provenance.json text eol=lf
+
+# The Gradle wrapper is an extensionless POSIX shell script, so the `*.sh` rule
+# above does not cover it. Its `.bat` sibling is the mirror case: cmd.exe needs
+# CRLF. The wrapper jar is binary and must never be filtered.
+gradlew             text eol=lf
+gradlew.bat         text eol=crlf
+*.jar               binary
 
 Dockerfile          text eol=lf
 Dockerfile.*        text eol=lf

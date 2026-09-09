@@ -4,6 +4,7 @@ import {
   createChatSession,
   deleteChatSession,
   ensureBackendSession,
+  forkChatSession,
   hydrateSessionHistoryForDetail,
   pendingHistoryLoadKey,
   preloadHistoricalSessionForOpen,
@@ -18,8 +19,10 @@ import {
   LOCAL_SURFACE_ID,
 } from '@/infrastructure/peer-device/deviceSurface';
 import {
+  clearHistorySessionOpenTransition,
   clearRecentHistorySessionOpenIntent,
   dispatchHistorySessionOpenIntent,
+  getHistorySessionOpenTransitionSnapshot,
 } from '../sessionOpenIntent';
 import type { Session } from '../../types/flow-chat';
 import type { ReviewTeamRunManifest } from '@/shared/services/reviewTeamService';
@@ -40,6 +43,7 @@ const configManagerMocks = vi.hoisted(() => ({
 
 const sessionApiMocks = vi.hoisted(() => ({
   archiveSession: vi.fn(),
+  forkSession: vi.fn(),
   loadSessionMetadata: vi.fn(),
 }));
 
@@ -141,7 +145,7 @@ function createSession(overrides: Partial<Session> = {}): Session {
     historyState: 'metadata-only',
     todos: [],
     mode: 'agentic',
-    workspacePath: 'D:/workspace/BitFun',
+    workspacePath: 'D:/workspace/OpenBitFun',
     sessionKind: 'normal',
     parentSessionId: undefined,
     parentToolCallId: undefined,
@@ -531,6 +535,52 @@ describe('createChatSession', () => {
   });
 });
 
+describe('forkChatSession', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('keeps the source SSH identity through fork creation and history restore', async () => {
+    const source = createSession({
+      sessionId: 'remote-source',
+      workspacePath: '/workspace/repo',
+      remoteConnectionId: 'ssh-source',
+      remoteSshHost: 'source-host',
+    });
+    const other = createSession({
+      sessionId: 'other-host-session',
+      workspacePath: '/workspace/repo',
+      remoteConnectionId: 'ssh-other',
+      remoteSshHost: 'other-host',
+    });
+    const { context, flowChatStore } = createContext(source, {
+      additionalSessions: [other],
+      activeSessionId: other.sessionId,
+    });
+    sessionApiMocks.forkSession.mockResolvedValueOnce({
+      sessionId: 'remote-fork',
+      sessionName: 'Remote fork',
+      agentType: 'agentic',
+    });
+
+    await expect(forkChatSession(context, source.sessionId, 'turn-1'))
+      .resolves.toBe('remote-fork');
+
+    expect(sessionApiMocks.forkSession).toHaveBeenCalledWith(
+      'remote-source', 'turn-1', '/workspace/repo', 'ssh-source', 'source-host',
+    );
+    expect(flowChatStore.getState().sessions.get('remote-fork')).toMatchObject({
+      workspacePath: '/workspace/repo',
+      remoteConnectionId: 'ssh-source',
+      remoteSshHost: 'source-host',
+    });
+    expect(flowChatStore.loadSessionHistory).toHaveBeenCalledWith(
+      'remote-fork', '/workspace/repo', undefined, 'ssh-source', 'source-host',
+      { deferFullHistoryUntilActive: true },
+    );
+  });
+});
+
 describe('reloadSessionTitle', () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -578,6 +628,7 @@ describe('SessionModule historical session coordination', () => {
   afterEach(async () => {
     await vi.runOnlyPendingTimersAsync();
     clearRecentHistorySessionOpenIntent();
+    clearHistorySessionOpenTransition();
     vi.useRealTimers();
     vi.clearAllMocks();
   });
@@ -663,7 +714,7 @@ describe('SessionModule historical session coordination', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(persistenceMocks.touchSessionActivity).toHaveBeenCalledWith(
       'history-1',
-      'D:/workspace/BitFun',
+      'D:/workspace/OpenBitFun',
       undefined,
       undefined,
     );
@@ -723,7 +774,7 @@ describe('SessionModule historical session coordination', () => {
     expect(persistenceMocks.touchSessionActivity).toHaveBeenCalledTimes(1);
     expect(persistenceMocks.touchSessionActivity).toHaveBeenCalledWith(
       'history-2',
-      'D:/workspace/BitFun',
+      'D:/workspace/OpenBitFun',
       undefined,
       undefined,
     );
@@ -819,7 +870,7 @@ describe('SessionModule historical session coordination', () => {
     expect(flowChatStore.loadSessionHistory).toHaveBeenCalledTimes(1);
     expect(flowChatStore.loadSessionHistory).toHaveBeenCalledWith(
       'history-1',
-      'D:/workspace/BitFun',
+      'D:/workspace/OpenBitFun',
       undefined,
       undefined,
       undefined,
@@ -879,14 +930,14 @@ describe('SessionModule historical session coordination', () => {
     }));
 
     await hydrateSessionHistoryForDetail(context, 'history-1', {
-      workspacePath: 'D:/workspace/BitFun',
+      workspacePath: 'D:/workspace/OpenBitFun',
       remoteConnectionId: 'remote-current',
       remoteSshHost: 'host-current',
     });
 
     expect(flowChatStore.loadSessionHistory).toHaveBeenCalledWith(
       'history-1',
-      'D:/workspace/BitFun',
+      'D:/workspace/OpenBitFun',
       undefined,
       'remote-current',
       'host-current',
@@ -904,7 +955,7 @@ describe('SessionModule historical session coordination', () => {
 
     const weakHydrate = hydrateSessionHistoryForDetail(context, 'history-1');
     const strongHydrate = hydrateSessionHistoryForDetail(context, 'history-1', {
-      workspacePath: 'D:/workspace/BitFun',
+      workspacePath: 'D:/workspace/OpenBitFun',
       remoteConnectionId: 'remote-current',
       remoteSshHost: 'host-current',
     });
@@ -914,7 +965,7 @@ describe('SessionModule historical session coordination', () => {
     expect(flowChatStore.loadSessionHistory).toHaveBeenCalledTimes(1);
     expect(flowChatStore.loadSessionHistory).toHaveBeenCalledWith(
       'history-1',
-      'D:/workspace/BitFun',
+      'D:/workspace/OpenBitFun',
       undefined,
       'remote-current',
       'host-current',
@@ -945,7 +996,7 @@ describe('SessionModule historical session coordination', () => {
     expect(flowChatStore.loadSessionHistory).toHaveBeenNthCalledWith(
       2,
       'history-1',
-      'D:/workspace/BitFun',
+      'D:/workspace/OpenBitFun',
       undefined,
       undefined,
       undefined,
@@ -1156,6 +1207,30 @@ describe('SessionModule historical session coordination', () => {
     expect(persistenceMocks.cleanupSaveState).toHaveBeenCalledWith(context, 'active-1');
   });
 
+  it.each([
+    ['deleting', deleteChatSession],
+    ['archiving', archiveChatSession],
+  ] as const)('cancels a speculative history-open transition when %s its target', async (_action, removeSession) => {
+    const historicalSession = createSession({
+      sessionId: 'history-delete',
+      isHistorical: true,
+      historyState: 'metadata-only',
+      dialogTurns: [],
+    });
+    const { context } = createContext(historicalSession, {
+      activeSessionId: null,
+    });
+
+    dispatchHistorySessionOpenIntent(historicalSession.sessionId, 'Saved session');
+    expect(getHistorySessionOpenTransitionSnapshot()).toMatchObject({
+      sessionId: historicalSession.sessionId,
+    });
+
+    await removeSession(context, historicalSession.sessionId);
+
+    expect(getHistorySessionOpenTransitionSnapshot()).toBeNull();
+  });
+
   it('tombstones a deleted dispatch projection instead of deleting a local session', async () => {
     const session = createSession({
       sessionId: 'dispatch-session',
@@ -1291,7 +1366,7 @@ describe('SessionModule historical session coordination', () => {
 
     expect(sessionApiMocks.archiveSession).toHaveBeenCalledWith(
       'active-1',
-      'D:/workspace/BitFun',
+      'D:/workspace/OpenBitFun',
       undefined,
       undefined,
     );
@@ -1483,7 +1558,7 @@ describe('SessionModule historical session coordination', () => {
     expect(agentApiMocks.createSession).not.toHaveBeenCalled();
   });
 
-  it('does not recreate a session that another BitFun instance is writing', async () => {
+  it('does not recreate a session that another OpenBitFun instance is writing', async () => {
     const { context } = createContext(createSession({
       isHistorical: false,
       historyState: 'ready',

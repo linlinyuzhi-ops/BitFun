@@ -32,9 +32,9 @@ const mocks = vi.hoisted(() => ({
   provisionTarget: vi.fn(),
   getFreshConfig: vi.fn(),
   resolveRevision: vi.fn(),
-  modalOnClose: null as (() => void) | null,
-  modalLifecycleProps: null as {
-    closeOnOverlayClick?: boolean;
+  dialogOnOpenChange: null as ((open: boolean) => void) | null,
+  dialogLifecycleProps: null as {
+    closeOnPointerOutside?: boolean;
     showCloseButton?: boolean;
   } | null,
 }));
@@ -63,8 +63,40 @@ vi.mock('@/infrastructure/api/service-api/GitAPI', () => ({
   gitAPI: { resolveRevision: mocks.resolveRevision },
 }));
 
-vi.mock('@/component-library', () => ({
+vi.mock('@openbitfun/ui', async (importOriginal) => ({
+  Disclosure: (await importOriginal<typeof import('@openbitfun/ui')>()).Disclosure,
   Alert: ({ message }: { message: string }) => <div role="alert">{message}</div>,
+  Icon: ({ name, ...props }: { name: string } & React.HTMLAttributes<HTMLSpanElement>) => <span data-icon={name} {...props} />,
+  ScrollArea: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  Input: ({ onChange, onValueChange, ...props }: React.InputHTMLAttributes<HTMLInputElement> & {
+    onValueChange?: (value: string) => void;
+  }) => (
+    <input
+      {...props}
+      onChange={(event) => {
+        onChange?.(event);
+        onValueChange?.(event.currentTarget.value);
+      }}
+    />
+  ),
+  Checkbox: ({ description, label, onChange, onCheckedChange, ...props }: React.InputHTMLAttributes<HTMLInputElement> & {
+    description?: React.ReactNode;
+    label?: React.ReactNode;
+    onCheckedChange?: (checked: boolean) => void;
+  }) => (
+    <label>
+      <input
+        {...props}
+        type="checkbox"
+        onChange={(event) => {
+          onChange?.(event);
+          onCheckedChange?.(event.currentTarget.checked);
+        }}
+      />
+      <span>{label}</span>
+      <small>{description}</small>
+    </label>
+  ),
   Button: ({
     children,
     disabled,
@@ -77,46 +109,33 @@ vi.mock('@/component-library', () => ({
       {children}
     </button>
   ),
-  Input: ({
-    disabled,
-    onChange,
-    onKeyDown,
-    placeholder,
-    value,
-  }: {
-    disabled?: boolean;
-    onChange?: React.ChangeEventHandler<HTMLInputElement>;
-    onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
-    placeholder?: string;
-    value?: string;
-  }) => (
-    <input
-      disabled={disabled}
-      onChange={onChange}
-      onKeyDown={onKeyDown}
-      placeholder={placeholder}
-      value={value}
-    />
-  ),
-  Modal: ({
+  Dialog: ({
     children,
-    closeOnOverlayClick,
-    isOpen,
-    onClose,
-    showCloseButton,
+    closeOnPointerOutside,
+    onOpenChange,
+    open,
   }: React.PropsWithChildren<{
-    closeOnOverlayClick?: boolean;
-    isOpen: boolean;
-    onClose: () => void;
-    showCloseButton?: boolean;
+    closeOnPointerOutside?: boolean;
+    onOpenChange: (open: boolean) => void;
+    open: boolean;
   }>) => {
-    mocks.modalOnClose = onClose;
-    mocks.modalLifecycleProps = {
-      closeOnOverlayClick,
-      showCloseButton,
+    mocks.dialogOnOpenChange = onOpenChange;
+    mocks.dialogLifecycleProps = {
+      closeOnPointerOutside,
+      showCloseButton: false,
     };
-    return isOpen ? <div>{children}</div> : null;
+    return open ? <div role="dialog">{children}</div> : null;
   },
+  DialogBody: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  DialogClose: (props: React.ButtonHTMLAttributes<HTMLButtonElement>) => {
+    if (mocks.dialogLifecycleProps) mocks.dialogLifecycleProps.showCloseButton = true;
+    return <button type="button" {...props} />;
+  },
+  DialogHeader: ({ children }: React.PropsWithChildren) => <header>{children}</header>,
+  DialogHeading: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  DialogTitle: ({ children }: React.PropsWithChildren) => <h2>{children}</h2>,
+  DialogDescription: ({ children }: React.PropsWithChildren) => <p>{children}</p>,
+  DialogFooter: ({ children }: React.PropsWithChildren) => <footer>{children}</footer>,
 }));
 
 function createDeferred<T>() {
@@ -135,8 +154,8 @@ describe('DispatchInstallDialog target preparation', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.modalOnClose = null;
-    mocks.modalLifecycleProps = null;
+    mocks.dialogOnOpenChange = null;
+    mocks.dialogLifecycleProps = null;
     mocks.probeTarget.mockResolvedValue({
       cliInstalled: false,
       os: 'linux',
@@ -145,7 +164,7 @@ describe('DispatchInstallDialog target preparation', () => {
       release: {
         version: '1.2.3',
         target: 'x86_64-unknown-linux-gnu',
-        url: 'https://example.test/bitfun',
+        url: 'https://example.test/openbitfun',
         sha256: 'abc123',
       },
     });
@@ -153,7 +172,7 @@ describe('DispatchInstallDialog target preparation', () => {
       scriptPath: '/tmp/install.sh',
       version: '1.2.3',
       target: 'x86_64-unknown-linux-gnu',
-      url: 'https://example.test/bitfun',
+      url: 'https://example.test/openbitfun',
       sha256: 'abc123',
     });
     mocks.installCliPoll.mockResolvedValue({
@@ -193,6 +212,8 @@ describe('DispatchInstallDialog target preparation', () => {
           arch: 'x86_64',
           installSupported: false,
           protocol: {
+            productId: 'openbitfun',
+            dataNamespace: 'openbitfun',
             protocolVersion: DISPATCH_PROTOCOL_VERSION,
             cliVersion: '1.2.3',
             os: 'linux',
@@ -210,7 +231,7 @@ describe('DispatchInstallDialog target preparation', () => {
           release: {
             version: '1.2.3',
             target: 'x86_64-unknown-linux-gnu',
-            url: 'https://example.test/bitfun',
+            url: 'https://example.test/openbitfun',
             sha256: 'abc123',
           },
         });
@@ -237,10 +258,10 @@ describe('DispatchInstallDialog target preparation', () => {
     expect(container.textContent).toContain('dispatch.oneClickDeploy');
     expect(container.textContent).toContain('1.2.3');
     expect(container.textContent).toContain('abc123');
-    expect(container.querySelector('details')?.open).toBe(false);
+    expect(container.querySelector('[data-openbitfun-component="disclosure"] button[aria-expanded]')?.getAttribute('aria-expanded')).toBe('false');
     expect(container.textContent).not.toContain('dispatch.installAutomaticDescription');
-    expect(mocks.modalLifecycleProps).toEqual({
-      closeOnOverlayClick: true,
+    expect(mocks.dialogLifecycleProps).toEqual({
+      closeOnPointerOutside: true,
       showCloseButton: true,
     });
     const includeUncommitted = container.querySelector<HTMLInputElement>('input[type="checkbox"]');
@@ -301,6 +322,8 @@ describe('DispatchInstallDialog target preparation', () => {
           arch: 'x86_64',
           installSupported: false,
           protocol: {
+            productId: 'openbitfun',
+            dataNamespace: 'openbitfun',
             protocolVersion: DISPATCH_PROTOCOL_VERSION,
             cliVersion: '1.2.3',
             os: 'linux',
@@ -318,7 +341,7 @@ describe('DispatchInstallDialog target preparation', () => {
           release: {
             version: '1.2.3',
             target: 'x86_64-unknown-linux-gnu',
-            url: 'https://example.test/bitfun',
+            url: 'https://example.test/openbitfun',
             sha256: 'abc123',
           },
         });
@@ -412,6 +435,8 @@ describe('DispatchInstallDialog target preparation', () => {
       arch: 'x86_64',
       installSupported: false,
       protocol: {
+        productId: 'openbitfun',
+        dataNamespace: 'openbitfun',
         protocolVersion: DISPATCH_PROTOCOL_VERSION,
         cliVersion: '1.2.3',
         os: 'linux',
@@ -469,7 +494,7 @@ describe('DispatchInstallDialog target preparation', () => {
   it('never offers to compile on the target and explains why it cannot be prepared', async () => {
     // A target no published binary fits. Preparing it is not something this
     // controller can do, so the dialog says so instead of offering to build
-    // BitFun on someone else's machine.
+    // OpenBitFun on someone else's machine.
     mocks.probeTarget.mockResolvedValue({
       cliInstalled: false,
       os: 'linux',
@@ -512,6 +537,8 @@ describe('DispatchInstallDialog target preparation', () => {
       arch: 'x86_64',
       installSupported: false,
       protocol: {
+        productId: 'openbitfun',
+        dataNamespace: 'openbitfun',
         protocolVersion: DISPATCH_PROTOCOL_VERSION,
         cliVersion: '1.2.3',
         os: 'linux',
@@ -592,6 +619,8 @@ describe('DispatchInstallDialog target preparation', () => {
       arch: 'x86_64',
       installSupported: false,
       protocol: {
+        productId: 'openbitfun',
+        dataNamespace: 'openbitfun',
         protocolVersion: DISPATCH_PROTOCOL_VERSION,
         cliVersion: '1.2.3',
         os: 'linux',
@@ -651,6 +680,8 @@ describe('DispatchInstallDialog target preparation', () => {
       arch: 'x86_64',
       installSupported: false,
       protocol: {
+        productId: 'openbitfun',
+        dataNamespace: 'openbitfun',
         protocolVersion: DISPATCH_PROTOCOL_VERSION,
         cliVersion: '1.2.3',
         os: 'linux',
@@ -695,6 +726,8 @@ describe('DispatchInstallDialog target preparation', () => {
       arch: 'x86_64',
       installSupported: false,
       protocol: {
+        productId: 'openbitfun',
+        dataNamespace: 'openbitfun',
         protocolVersion: DISPATCH_PROTOCOL_VERSION,
         cliVersion: '1.2.3',
         os: 'linux',

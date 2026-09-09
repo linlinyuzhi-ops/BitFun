@@ -1,8 +1,8 @@
 //! Compatibility re-export for skill availability resolution.
 //!
-//! The provider-neutral owner lives in `bitfun-agent-runtime`.
+//! The provider-neutral owner lives in `openbitfun-agent-runtime`.
 
-pub use bitfun_agent_runtime::skills::{
+pub use openbitfun_agent_runtime::skills::{
     normalize_user_mode_skill_overrides, resolve_skill_default_enabled_for_mode,
     resolve_skill_state_for_mode, ModeSkillState,
 };
@@ -18,14 +18,15 @@ mod tests {
 
     fn builtin_skill(dir_name: &str) -> SkillInfo {
         SkillInfo {
-            key: format!("user::bitfun-system::{}", dir_name),
+            key: format!("user::openbitfun-system::{}", dir_name),
             name: dir_name.to_string(),
             description: String::new(),
             path: format!("/tmp/{}", dir_name),
             level: SkillLocation::User,
-            source_slot: "bitfun-system".to_string(),
-            source_id: "bitfun".to_string(),
-            source_label: "BitFun".to_string(),
+            source_slot: "openbitfun-system".to_string(),
+            source_id: "openbitfun".to_string(),
+            source_label: "OpenBitFun".to_string(),
+            installation_source: None,
             dir_name: dir_name.to_string(),
             is_builtin: true,
             group_key: None,
@@ -39,14 +40,15 @@ mod tests {
 
     fn custom_user_skill(dir_name: &str) -> SkillInfo {
         SkillInfo {
-            key: format!("user::bitfun::{}", dir_name),
+            key: format!("user::openbitfun::{}", dir_name),
             name: dir_name.to_string(),
             description: String::new(),
             path: format!("/tmp/{}", dir_name),
             level: SkillLocation::User,
-            source_slot: "bitfun".to_string(),
-            source_id: "bitfun".to_string(),
-            source_label: "BitFun".to_string(),
+            source_slot: "openbitfun".to_string(),
+            source_id: "openbitfun".to_string(),
+            source_label: "OpenBitFun".to_string(),
+            installation_source: None,
             dir_name: dir_name.to_string(),
             is_builtin: false,
             group_key: None,
@@ -67,8 +69,8 @@ mod tests {
             &presentation,
             "agentic"
         ));
-        // agent-browser is opt-in everywhere: ControlHub's browser domain is
-        // the default browser-automation path.
+        // Agentic and Cowork use ControlHub's browser domain by default, so
+        // agent-browser remains opt-in for those modes.
         assert!(!resolve_skill_default_enabled_for_mode(&browser, "agentic"));
         assert!(resolve_skill_default_enabled_for_mode(
             &presentation,
@@ -109,6 +111,28 @@ mod tests {
         overrides.enabled_skills.push(presentation.key.clone());
         let enabled_state =
             resolve_skill_state_for_mode(&presentation, "agentic", &overrides, &disabled_project);
+        assert!(enabled_state.effective_enabled);
+        assert_eq!(
+            enabled_state.reason,
+            ModeSkillStateReason::EnabledByUserOverride
+        );
+    }
+
+    #[test]
+    fn canvas_skill_can_be_explicitly_enabled() {
+        let canvas = builtin_skill("openbitfun-canvas");
+        let mut overrides = UserModeSkillOverrides::default();
+        let disabled_project = HashSet::new();
+
+        let default_state =
+            resolve_skill_state_for_mode(&canvas, "agentic", &overrides, &disabled_project);
+        assert!(!default_state.default_enabled);
+        assert!(!default_state.effective_enabled);
+
+        overrides.enabled_skills.push(canvas.key.clone());
+        let enabled_state =
+            resolve_skill_state_for_mode(&canvas, "agentic", &overrides, &disabled_project);
+        assert!(!enabled_state.default_enabled);
         assert!(enabled_state.effective_enabled);
         assert_eq!(
             enabled_state.reason,

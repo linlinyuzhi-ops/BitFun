@@ -30,6 +30,18 @@ afterEach(() => {
 });
 
 describe('PendingQueueModule', () => {
+  it('persists local queues only under the canonical surface-scoped key', () => {
+    const sessionId = testSession();
+    pendingQueueManager.enqueue({ sessionId, content: 'local draft' });
+
+    const canonicalKey = `openbitfun.flowChat.pendingQueue.v1.${encodeURIComponent(JSON.stringify([
+      LOCAL_SURFACE_ID,
+      sessionId,
+    ]))}`;
+    expect(window.localStorage.getItem(canonicalKey)).not.toBeNull();
+    expect(window.localStorage.getItem(`flowChat.pendingQueue.${sessionId}`)).toBeNull();
+  });
+
   it('promotes an existing item for explicit drain without rebuilding or losing its payload', () => {
     const sessionId = testSession();
     pendingQueueManager.enqueue({ sessionId, content: 'first' });
@@ -40,6 +52,17 @@ describe('PendingQueueModule', () => {
       agentType: 'agentic',
       imageContexts: [{ id: 'image-1' }],
       imageDisplayData: [{ id: 'image-1', name: 'clip.png' }],
+      composerDraft: {
+        value: 'Second original draft',
+        contexts: [{
+          id: 'file-1',
+          type: 'file',
+          timestamp: 1,
+          filePath: '/workspace/file.ts',
+          fileName: 'file.ts',
+        }],
+        pendingLargePastes: { 'paste-1': 'large paste content' },
+      },
       userMessageMetadata: { sessionReferences: [{ sessionId: 'source' }] },
       retryCount: 2,
       initialStatus: 'failed',
@@ -52,6 +75,7 @@ describe('PendingQueueModule', () => {
       agentType: target.agentType,
       imageContexts: structuredClone(target.imageContexts),
       imageDisplayData: structuredClone(target.imageDisplayData),
+      composerDraft: structuredClone(target.composerDraft),
       userMessageMetadata: structuredClone(target.userMessageMetadata),
       timestamp: target.timestamp,
     };

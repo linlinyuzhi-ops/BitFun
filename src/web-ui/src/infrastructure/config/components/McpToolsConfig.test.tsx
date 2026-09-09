@@ -12,8 +12,12 @@ const loadJsonConfigMock = vi.hoisted(() => vi.fn());
 const saveJsonConfigMock = vi.hoisted(() => vi.fn());
 const initializeServersMock = vi.hoisted(() => vi.fn());
 const startServerMock = vi.hoisted(() => vi.fn());
+const startRemoteOAuthMock = vi.hoisted(() => vi.fn());
+const getRemoteOAuthSessionMock = vi.hoisted(() => vi.fn());
+const cancelRemoteOAuthMock = vi.hoisted(() => vi.fn());
 const deleteServerMock = vi.hoisted(() => vi.fn());
 const confirmDangerMock = vi.hoisted(() => vi.fn());
+const openExternalMock = vi.hoisted(() => vi.fn());
 const notificationMocks = vi.hoisted(() => ({
   success: vi.fn(),
   warning: vi.fn(),
@@ -37,8 +41,10 @@ vi.mock('@/infrastructure/runtime', () => ({
 vi.mock('@/shared/notification-system', () => ({
   useNotification: () => notificationMocks,
 }));
-vi.mock('@/component-library', async () => {
-  const actual = await vi.importActual<typeof import('@/component-library')>('@/component-library');
+vi.mock('@/infrastructure/confirm-dialog', async () => {
+  const actual = await vi.importActual<typeof import('@/infrastructure/confirm-dialog')>(
+    '@/infrastructure/confirm-dialog',
+  );
   return { ...actual, confirmDanger: confirmDangerMock };
 });
 vi.mock('../../api/service-api/MCPAPI', () => ({
@@ -48,10 +54,15 @@ vi.mock('../../api/service-api/MCPAPI', () => ({
     saveMCPJsonConfig: saveJsonConfigMock,
     initializeServers: initializeServersMock,
     startServer: startServerMock,
+    startRemoteOAuth: startRemoteOAuthMock,
+    getRemoteOAuthSession: getRemoteOAuthSessionMock,
+    cancelRemoteOAuth: cancelRemoteOAuthMock,
     deleteServer: deleteServerMock,
   },
 }));
-vi.mock('../../api/service-api/SystemAPI', () => ({ systemAPI: {} }));
+vi.mock('../../api/service-api/SystemAPI', () => ({
+  systemAPI: { openExternal: openExternalMock },
+}));
 vi.mock('./ExternalMcpOverview', () => ({
   default: () => <div data-testid="external-mcp-overview" />,
 }));
@@ -71,9 +82,19 @@ describe('McpToolsConfig remote behavior', () => {
       jsonConfig: '{"mcpServers":{}}',
       fingerprint: 'sha256:test',
     });
-    saveJsonConfigMock.mockReset().mockResolvedValue(undefined);
+    saveJsonConfigMock.mockReset().mockResolvedValue({ runtimeApplied: true });
     initializeServersMock.mockReset().mockResolvedValue(undefined);
     startServerMock.mockReset().mockResolvedValue(undefined);
+    startRemoteOAuthMock.mockReset().mockResolvedValue({
+      serverId: 'notion',
+      status: 'awaitingBrowser',
+      authorizationUrl: 'https://mcp.notion.test/authorize',
+      redirectUri: 'http://127.0.0.1:31337/callback',
+      message: 'Authorization started',
+    });
+    getRemoteOAuthSessionMock.mockReset().mockResolvedValue(null);
+    cancelRemoteOAuthMock.mockReset().mockResolvedValue(undefined);
+    openExternalMock.mockReset().mockResolvedValue(undefined);
     deleteServerMock.mockReset().mockResolvedValue(undefined);
     confirmDangerMock.mockReset().mockResolvedValue(true);
     notificationMocks.success.mockReset();
@@ -189,7 +210,7 @@ describe('McpToolsConfig remote behavior', () => {
     await act(async () => openEditor.click());
 
     expect(container.textContent).toContain('jsonEditor.loadFailed');
-    expect(container.querySelector('.bitfun-mcp-tools__json-textarea')).toBeNull();
+    expect(container.querySelector('.openbitfun-mcp-tools__json-textarea')).toBeNull();
     expect(container.textContent).not.toContain('example-server');
 
     const retry = container.querySelector('[aria-label="actions.refresh"]') as HTMLButtonElement;
@@ -200,7 +221,7 @@ describe('McpToolsConfig remote behavior', () => {
     });
     expect(loadJsonConfigMock).toHaveBeenCalledTimes(2);
     expect(container.textContent).not.toContain('jsonEditor.loadFailed');
-    expect(container.querySelector('.bitfun-mcp-tools__json-textarea')).not.toBeNull();
+    expect(container.querySelector('.openbitfun-mcp-tools__json-textarea')).not.toBeNull();
   });
 
   it('saves the JSON editor against the fingerprint that was loaded with it', async () => {
@@ -213,6 +234,18 @@ describe('McpToolsConfig remote behavior', () => {
     await act(async () => {
       (container.querySelector('[aria-label="actions.jsonConfig"]') as HTMLButtonElement).click();
     });
+    const textarea = container.querySelector(
+      '.openbitfun-mcp-tools__json-textarea textarea',
+    ) as HTMLTextAreaElement;
+    const editedJson = '{\n  "mcpServers": {}\n}';
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        'value',
+      )?.set;
+      setValue?.call(textarea, editedJson);
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
     const saveButton = Array.from(container.querySelectorAll('button')).find(
       (button) => button.textContent === 'actions.saveConfig',
     );
@@ -222,10 +255,95 @@ describe('McpToolsConfig remote behavior', () => {
       await Promise.resolve();
     });
 
-    expect(saveJsonConfigMock).toHaveBeenCalledWith('{"mcpServers":{}}', 'sha256:test');
+    expect(saveJsonConfigMock).toHaveBeenCalledWith(editedJson, 'sha256:test');
+    expect(initializeServersMock).not.toHaveBeenCalled();
   });
 
-  it('does not notify or reload after a pending start loses desktop capability', async () => {
+  it('clears a persisted draft and reloads its fingerprint when runtime application fails', async () => {
+    peerState.active = false;
+    saveJsonConfigMock.mockResolvedValue({ runtimeApplied: false });
+    await act(async () => { root.render(<McpToolsConfig />); });
+    await act(async () => {
+      (container.querySelector('[data-testid="mcp-json-toggle"]') as HTMLButtonElement).click();
+    });
+    const editedJson = '{"mcpServers":{"offline":{"url":"http://127.0.0.1:9999/mcp"}}}';
+    await act(async () => {
+      const textarea = container.querySelector('textarea')!;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, editedJson);
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    loadJsonConfigMock.mockResolvedValue({ jsonConfig: editedJson, fingerprint: 'sha256:saved' });
+    await act(async () => {
+      (container.querySelector('[data-testid="mcp-json-save"]') as HTMLButtonElement).click();
+    });
+    expect(notificationMocks.error).not.toHaveBeenCalled();
+    expect(notificationMocks.success).not.toHaveBeenCalled();
+    expect(notificationMocks.warning).toHaveBeenCalledWith('messages.partialStartFailed', expect.anything());
+    expect(loadJsonConfigMock).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('textarea')).toBeNull();
+    await act(async () => {
+      (container.querySelector('[data-testid="mcp-json-toggle"]') as HTMLButtonElement).click();
+    });
+    expect(container.querySelector('textarea')!.value).toBe(editedJson);
+    expect((container.querySelector('[data-testid="mcp-json-save"]') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => {
+      const textarea = container.querySelector('textarea')!;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, editedJson + '\n');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      (container.querySelector('[data-testid="mcp-json-save"]') as HTMLButtonElement).click();
+    });
+    expect(saveJsonConfigMock).toHaveBeenLastCalledWith(editedJson + '\n', 'sha256:saved');
+  });
+
+  it('retains the editor and draft when persistence fails', async () => {
+    peerState.active = false;
+    saveJsonConfigMock.mockRejectedValue(new Error('Failed to save config: permission denied'));
+    await act(async () => { root.render(<McpToolsConfig />); });
+    await act(async () => {
+      (container.querySelector('[data-testid="mcp-json-toggle"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      const textarea = container.querySelector('textarea')!;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, '{"mcpServers":{}}\n');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      (container.querySelector('[data-testid="mcp-json-save"]') as HTMLButtonElement).click();
+    });
+    expect(notificationMocks.error).toHaveBeenCalled();
+    expect(notificationMocks.warning).not.toHaveBeenCalled();
+    expect(notificationMocks.success).not.toHaveBeenCalled();
+    expect(container.querySelector('textarea')!.value).toBe('{"mcpServers":{}}\n');
+    expect(loadJsonConfigMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers start rather than stop for an uninitialized server', async () => {
+    getServersMock.mockResolvedValueOnce([{
+      id: 'local-test',
+      name: 'Local test server',
+      status: 'Uninitialized',
+      serverType: 'local',
+      transport: 'stdio',
+      enabled: true,
+      autoStart: false,
+      commandAvailable: true,
+      startSupported: true,
+    }]);
+    peerState.active = false;
+
+    await act(async () => {
+      root.render(<McpToolsConfig />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[aria-label="actions.start"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="actions.stop"]')).toBeNull();
+  });
+
+  it('coalesces repeated clicks while a start is pending and ignores completion after capability loss', async () => {
     let resolveStart: (() => void) | undefined;
     startServerMock.mockReturnValueOnce(new Promise<void>((resolve) => {
       resolveStart = resolve;
@@ -255,8 +373,11 @@ describe('McpToolsConfig remote behavior', () => {
     expect(startButton).toBeDefined();
     await act(async () => {
       startButton?.click();
+      startButton?.click();
       await Promise.resolve();
     });
+    expect(startServerMock).toHaveBeenCalledTimes(1);
+    expect((startButton as HTMLButtonElement).disabled).toBe(true);
     peerState.active = true;
     await act(async () => {
       root.render(<McpToolsConfig />);
@@ -270,6 +391,80 @@ describe('McpToolsConfig remote behavior', () => {
     expect(notificationMocks.success).not.toHaveBeenCalled();
     expect(notificationMocks.error).not.toHaveBeenCalled();
     expect(getServersMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts OAuth directly for an unauthorized remote server without reporting a start failure', async () => {
+    getServersMock.mockResolvedValueOnce([{
+      id: 'notion',
+      name: 'Notion',
+      status: 'Uninitialized',
+      serverType: 'Remote',
+      transport: 'streamable-http',
+      enabled: true,
+      autoStart: false,
+      authConfigured: false,
+      oauthEnabled: true,
+      startSupported: true,
+    }]);
+    peerState.active = false;
+
+    await act(async () => {
+      root.render(<McpToolsConfig />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const startButton = container.querySelector<HTMLButtonElement>('[data-testid="mcp-server-start"]');
+    await act(async () => {
+      startButton?.click();
+      startButton?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(startServerMock).not.toHaveBeenCalled();
+    expect(startRemoteOAuthMock).toHaveBeenCalledTimes(1);
+    expect(startRemoteOAuthMock).toHaveBeenCalledWith({ serverId: 'notion' });
+    expect(openExternalMock).toHaveBeenCalledWith('https://mcp.notion.test/authorize');
+    expect(getRemoteOAuthSessionMock).not.toHaveBeenCalled();
+    expect(notificationMocks.error).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-openbitfun-part="authEditor"]')).not.toBeNull();
+  });
+
+  it('reauthorizes after an auth handshake challenge without reporting a start failure', async () => {
+    startServerMock.mockRejectedValueOnce(new Error(
+      'Handshake failed: Auth required, when send initialize request',
+    ));
+    getServersMock.mockResolvedValueOnce([{
+      id: 'notion',
+      name: 'Notion',
+      status: 'NeedsAuth',
+      serverType: 'Remote',
+      transport: 'streamable-http',
+      enabled: true,
+      autoStart: false,
+      authConfigured: true,
+      oauthEnabled: true,
+      startSupported: true,
+    }]);
+    peerState.active = false;
+
+    await act(async () => {
+      root.render(<McpToolsConfig />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const startButton = container.querySelector<HTMLButtonElement>('[data-testid="mcp-server-start"]');
+    await act(async () => {
+      startButton?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(startServerMock).toHaveBeenCalledWith('notion');
+    expect(startRemoteOAuthMock).toHaveBeenCalledWith({ serverId: 'notion' });
+    expect(notificationMocks.error).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-openbitfun-part="authEditor"]')).not.toBeNull();
   });
 
   it('deletes a server after confirmation and reloads the list', async () => {

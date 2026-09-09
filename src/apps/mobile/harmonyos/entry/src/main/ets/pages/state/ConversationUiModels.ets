@@ -13,6 +13,12 @@ import {
   RemoteToolStatusResponse
 } from '../../model/RemoteModels';
 
+export interface ConversationUiPlanTool {
+  file_path: string;
+  name: string;
+  overview?: string;
+}
+
 export interface ConversationUiSession {
   sessionId: string;
   title: string;
@@ -60,14 +66,18 @@ export interface ConversationUiToolStatus {
   result_preview?: string;
   error_preview?: string;
   exit_code?: number;
+  plan?: ConversationUiPlanTool;
 }
 
 export interface ConversationUiMessageItem {
   type?: string;
+  steering_id?: string;
+  round_index?: number;
   content?: string;
   tool?: ConversationUiToolStatus;
   is_subagent?: boolean;
   subItems?: ConversationUiMessageItem[];
+  images?: ConversationUiImage[];
 }
 
 export interface ConversationUiImage {
@@ -92,11 +102,46 @@ export interface ConversationUiMessage {
   renderVersion?: number;
   turnId?: string;
   detail?: string;
+  error?: string;
   timestamp?: string;
   thinking?: string;
   tools?: ConversationUiToolStatus[];
   items?: ConversationUiMessageItem[];
   images?: ConversationUiImage[];
+}
+
+/** Stable observable projection consumed by retained/reused message rows. */
+@ObservedV2
+export class ObservableConversationUiMessage implements ConversationUiMessage {
+  @Trace id: string = '';
+  @Trace role: string = 'assistant';
+  @Trace text: string = '';
+  @Trace status: string = '';
+  @Trace renderVersion: number | undefined = undefined;
+  @Trace turnId: string | undefined = undefined;
+  @Trace detail: string | undefined = undefined;
+  @Trace error: string | undefined = undefined;
+  @Trace timestamp: string | undefined = undefined;
+  @Trace thinking: string | undefined = undefined;
+  @Trace tools: ConversationUiToolStatus[] | undefined = undefined;
+  @Trace items: ConversationUiMessageItem[] | undefined = undefined;
+  @Trace images: ConversationUiImage[] | undefined = undefined;
+
+  updateFrom(source: ConversationUiMessage): void {
+    this.id = source.id;
+    this.role = source.role;
+    this.text = source.text;
+    this.status = source.status;
+    this.renderVersion = source.renderVersion;
+    this.turnId = source.turnId;
+    this.detail = source.detail;
+    this.error = source.error;
+    this.timestamp = source.timestamp;
+    this.thinking = source.thinking;
+    this.tools = source.tools;
+    this.items = source.items;
+    this.images = source.images;
+  }
 }
 
 export interface ConversationUiQuestionAnswer {
@@ -172,17 +217,25 @@ export function toConversationUiToolStatus(source: RemoteToolStatusResponse): Co
     tool_output: source.tool_output,
     result_preview: source.result_preview,
     error_preview: source.error_preview,
-    exit_code: source.exit_code
+    exit_code: source.exit_code,
+    plan: source.plan ? {
+      file_path: source.plan.file_path,
+      name: source.plan.name,
+      overview: source.plan.overview
+    } : undefined
   };
 }
 
 export function toConversationUiMessageItem(source: ChatMessageItemResponse): ConversationUiMessageItem {
   return {
     type: source.type,
+    steering_id: source.steering_id,
+    round_index: source.round_index,
     content: source.content,
     tool: source.tool ? toConversationUiToolStatus(source.tool) : undefined,
     is_subagent: source.is_subagent,
-    subItems: source.subItems ? source.subItems.map((item: ChatMessageItemResponse) => toConversationUiMessageItem(item)) : undefined
+    subItems: source.subItems ? source.subItems.map((item: ChatMessageItemResponse) => toConversationUiMessageItem(item)) : undefined,
+    images: source.images ? source.images.map((image: ImageAttachment) => toConversationUiImage(image)) : undefined
   };
 }
 
@@ -199,6 +252,7 @@ export function toConversationUiMessage(source: ChatMessage): ConversationUiMess
     renderVersion: source.renderVersion,
     turnId: source.turnId,
     detail: source.detail,
+    error: source.error,
     timestamp: source.timestamp,
     thinking: source.thinking,
     tools: source.tools ? source.tools.map((tool: RemoteToolStatusResponse) => toConversationUiToolStatus(tool)) : undefined,

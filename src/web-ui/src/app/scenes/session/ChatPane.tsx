@@ -10,7 +10,7 @@ import { ModernFlowChatContainer as FlowChatContainer } from '../../../flow_chat
 import { ChatInput } from '../../../flow_chat/components/ChatInput';
 import type { ChatInputRegistration } from '../../../flow_chat/components/chatInputRegistration';
 import { useCanvasStore } from '../../components/panels/content-canvas/stores/canvasStore';
-import type { LineRange } from '@/component-library';
+import { type LineRange } from '@/shared/editor/LineRange';
 import path from 'path-browserify';
 import { createLogger } from '@/shared/utils/logger';
 import { hasNonFileUriScheme } from '@/shared/utils/pathUtils';
@@ -30,6 +30,10 @@ interface ChatPaneProps {
   workspacePath?: string;
   isDragging?: boolean;
   showChatInput?: boolean;
+  /** Whether the host-owned session right panel is open. */
+  isRightPanelOpen?: boolean;
+  /** Toggle the host-owned session right panel. */
+  onToggleRightPanel?: () => void;
   /** Optional host-owned replacement for the empty-session welcome surface. */
   emptyState?: React.ReactNode;
   /**
@@ -46,6 +50,8 @@ const ChatPaneInner: React.FC<ChatPaneProps> = ({
   workspacePath,
   isDragging: _isDragging = false,
   showChatInput = false,
+  isRightPanelOpen = false,
+  onToggleRightPanel,
   emptyState,
   chatInputRegistration,
 }) => {
@@ -150,33 +156,27 @@ const ChatPaneInner: React.FC<ChatPaneProps> = ({
   }, [addPanelTab]);
 
   return (
-    <div data-bf-component="chat-pane" data-bf-part="root"
-      className="bitfun-chat-pane__content"
+    <div data-openbitfun-component="chat-pane" data-openbitfun-part="root"
+      className="openbitfun-chat-pane__content"
       data-shortcut-scope="chat"
       data-fullscreen={isFullscreen}
       data-testid="chat-pane"
     >
       <FlowChatContainer
-        className="bitfun-chat-pane__chat-container"
+        className="openbitfun-chat-pane__chat-container"
         isViewportActive={isSceneActive}
-        permissionPanelAboveChatInput={showChatInput}
+        isRightPanelOpen={isRightPanelOpen}
+        onToggleRightPanel={onToggleRightPanel}
         emptyState={emptyState}
         onOpenVisualization={(type, data) => {
           log.info('Opening visualization', { type, data });
         }}
         onFileViewRequest={handleFileViewRequest}
         onTabOpen={handleTabOpen}
-        onSwitchToChatPanel={() => {}}
-        config={{
-          enableMarkdown: true,
-          autoScroll: true,
-          showTimestamps: false
-        }}
       />
       {showChatInput && (
         <ChatInput
           isSceneActive={isSceneActive}
-          onSendMessage={(_message: string) => {}}
           registration={chatInputRegistration}
         />
       )}

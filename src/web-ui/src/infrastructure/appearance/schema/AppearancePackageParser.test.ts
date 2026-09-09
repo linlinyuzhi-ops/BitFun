@@ -1,7 +1,10 @@
 import JSZip from 'jszip';
 import { describe, expect, it } from 'vitest';
 import { createDefaultAppearanceRegistry } from '../registry/defaultAppearanceRegistry';
-import type { AppearancePackage } from '../types';
+import {
+  APPEARANCE_SCHEMA_VERSION,
+  type AppearancePackage,
+} from '../types';
 import { AppearancePackageParser } from './AppearancePackageParser';
 
 function pngHeader(width: number, height: number): Uint8Array {
@@ -23,8 +26,8 @@ function webmHeader(): Uint8Array {
 
 function manifest(): AppearancePackage {
   return {
-    schema: 'bitfun.appearance',
-    schemaVersion: 1,
+    schema: 'openbitfun.appearance',
+    schemaVersion: APPEARANCE_SCHEMA_VERSION,
     id: 'test.archive',
     name: 'Archive',
     version: '1.0.0',
@@ -37,9 +40,19 @@ function manifest(): AppearancePackage {
       },
     },
     components: {
-      card: {
+      'gallery-layout': {
         parts: {
           root: { base: { backgroundImage: { kind: 'asset', assetId: 'background' } } },
+        },
+      },
+    },
+    renderers: {
+      'theme-tokens': {
+        version: 1,
+        settings: {
+          tokens: {
+            '--openbitfun-color-surface-canvas': '#101820',
+          },
         },
       },
     },
@@ -66,7 +79,37 @@ describe('AppearancePackageParser', () => {
       width: 320,
       height: 180,
     });
-    expect(stored.archive.byteLength).toBe(source.byteLength);
+    expect(stored.archiveSchemaVersion).toBe(APPEARANCE_SCHEMA_VERSION);
+    expect(stored.manifest).toMatchObject({
+      schemaVersion: APPEARANCE_SCHEMA_VERSION,
+      renderers: {
+        'theme-tokens': {
+          version: 1,
+          settings: {
+            tokens: {
+              '--openbitfun-color-surface-canvas': '#101820',
+            },
+          },
+        },
+      },
+    });
+
+    const canonicalZip = await JSZip.loadAsync(stored.archive);
+    const canonicalManifest = JSON.parse(
+      await canonicalZip.file('appearance.json')!.async('string'),
+    ) as AppearancePackage;
+    expect(canonicalManifest).toEqual(stored.manifest);
+    expect(canonicalManifest.schemaVersion).toBe(APPEARANCE_SCHEMA_VERSION);
+  });
+
+  it('rejects a noncanonical schema instead of upgrading it during import', async () => {
+    const unsupported = {
+      ...manifest(),
+      schemaVersion: 1,
+    };
+
+    await expect(parser.parse(await archive(unsupported)))
+      .rejects.toThrow(`Schema version must be ${APPEARANCE_SCHEMA_VERSION}`);
   });
 
   it('rejects undeclared files before storage', async () => {
@@ -78,7 +121,7 @@ describe('AppearancePackageParser', () => {
 
   it('rejects unknown schemas', async () => {
     const unsupported = { ...manifest(), schema: 'example.unknown' };
-    await expect(parser.parse(await archive(unsupported))).rejects.toThrow('Schema must be bitfun.appearance');
+    await expect(parser.parse(await archive(unsupported))).rejects.toThrow('Schema must be openbitfun.appearance');
   });
 
   it('imports validated background video metadata and its poster', async () => {

@@ -2,17 +2,13 @@ import React, { Suspense, lazy, useMemo, useEffect } from 'react';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
 import { WorkspaceKind } from '@/shared/types';
-import { DotMatrixLoader } from '@/component-library';
+import { Spinner } from '@openbitfun/ui';
 import { useMyAgentStore } from '../my-agent/myAgentStore';
 import './AssistantScene.scss';
 
 const ProfileScene = lazy(() => import('../profile/ProfileScene'));
 
-interface AssistantSceneProps {
-  workspacePath?: string;
-}
-
-const AssistantScene: React.FC<AssistantSceneProps> = ({ workspacePath }) => {
+const AssistantScene: React.FC = () => {
   const { t } = useI18n('common');
   const selectedAssistantWorkspaceId = useMyAgentStore((s) => s.selectedAssistantWorkspaceId);
   const setSelectedAssistantWorkspaceId = useMyAgentStore((s) => s.setSelectedAssistantWorkspaceId);
@@ -72,24 +68,23 @@ const AssistantScene: React.FC<AssistantSceneProps> = ({ workspacePath }) => {
   ]);
 
   return (
-    <div className="bitfun-assistant-scene" data-bf-scene="assistant" data-bf-part="root">
+    <div className="openbitfun-assistant-scene" data-openbitfun-scene="assistant" data-openbitfun-part="root">
       <Suspense
         fallback={(
           <div
-            className="bitfun-assistant-scene__loading"
-            data-bf-scene="assistant"
-            data-bf-part="loading"
+            className="openbitfun-assistant-scene__loading"
+            data-openbitfun-scene="assistant"
+            data-openbitfun-part="loading"
             role="status"
             aria-busy="true"
             aria-label={t('loading.scenes')}
           >
-            <DotMatrixLoader size="medium" />
+            <Spinner size="md" />
           </div>
         )}
       >
         <ProfileScene
           key={resolvedAssistantWorkspace?.id ?? 'default-assistant-workspace'}
-          workspacePath={resolvedAssistantWorkspace?.rootPath ?? workspacePath}
         />
       </Suspense>
     </div>

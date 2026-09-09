@@ -11,7 +11,6 @@ export interface AppRootPresentationActions {
   readonly onCompactLayoutEntered: () => void;
   readonly onLayoutModeChanged: (wideLayout: boolean) => void;
   readonly onRemoteHome: RemoteHomePresentationActions;
-  readonly onRemoteCreate: RemoteCreatePresentationActions;
   readonly onSidebar: SidebarPresentationActions;
   readonly onSettings: SettingsPresentationActions;
   readonly onConnect: ConnectPresentationActions;
@@ -24,18 +23,6 @@ export interface FilePreviewPresentationActions {
   readonly refresh: () => void;
   readonly download: (path: string) => void;
   readonly openLink: (reference: string, label: string) => void;
-}
-
-export interface RemoteCreatePresentationActions {
-  readonly back: () => void;
-  readonly toggleDevices: () => void;
-  readonly toggleWorkspaces: () => void;
-  readonly selectDevice: (device: CloudAccountDevice) => void;
-  readonly selectWorkspace: (path: string) => void;
-  readonly draftChanged: (value: string) => void;
-  readonly voiceInput: () => void;
-  readonly selectModel: (modelId: string) => void;
-  readonly send: () => void;
 }
 
 export interface RemoteHomePresentationActions {
@@ -88,6 +75,7 @@ export interface SettingsPresentationActions {
   readonly close: () => void;
   readonly addConnection: () => void;
   readonly disconnect: () => void;
+  readonly clearPairing: () => void;
   readonly reconnect: () => void;
   readonly openAccount: () => void;
   readonly cloudLogin: (relayUrl: string, username: string, password: string) => Promise<string>;
@@ -143,7 +131,8 @@ export function emptyAppRootPresentationActions(): AppRootPresentationActions {
       openSession: () => {}, archive: () => {}, exportSession: () => {}, deleteSession: () => {}
     },
     onSettings: {
-      close: () => {}, addConnection: () => {}, disconnect: () => {}, reconnect: () => {}, openAccount: () => {},
+      close: () => {}, addConnection: () => {}, disconnect: () => {}, clearPairing: () => {},
+      reconnect: () => {}, openAccount: () => {},
       cloudLogin: async () => '', cloudLogout: async () => {},
       cloudListDevices: async () => [], cloudSelectDevice: async () => {},
       getPermissionMode: async () => 'ask',

@@ -1,7 +1,19 @@
+import { OverflowText,
+  Avatar,
+  Button,
+  Icon,
+  Menu,
+  MenuItem,
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogHeader,
+  DialogHeading,
+  DialogTitle,
+} from '@openbitfun/ui';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Github, Loader2, LogOut } from 'lucide-react';
-import { Avatar, Button, Modal } from '@/component-library';
+import { Github, Loader2, LogOut } from 'lucide-react';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { useI18n } from '@/infrastructure/i18n';
 import {
@@ -10,6 +22,7 @@ import {
   useMarketAccount,
 } from '@/infrastructure/market-account';
 import { useNotification } from '@/shared/notification-system';
+import { isImeOwnedKeyboardEvent } from '@/shared/utils/ime';
 import {
   calculateMarketAccountMenuPosition,
   type MarketAccountMenuPosition,
@@ -96,7 +109,7 @@ export function MarketAccountControls({
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || isImeOwnedKeyboardEvent(event)) return;
       setMenuOpen(false);
       menuTriggerRef.current?.focus();
     };
@@ -157,34 +170,32 @@ export function MarketAccountControls({
   return (
     <div
       className={['market-account-controls', className].filter(Boolean).join(' ')}
-      data-bf-component="market-account-controls"
-      data-bf-part="root"
-      data-bf-state={account.status}
+      data-openbitfun-component="market-account-controls"
+      data-openbitfun-part="root"
+      data-openbitfun-state={account.status}
     >
       {account.me ? (
         <div className="market-account-controls__menu-root" ref={menuRef}>
-          <button
+          <button data-overflow-trigger
             ref={menuTriggerRef}
             type="button"
             className="market-account-controls__identity-trigger"
-            data-bf-component="market-account-controls"
-            data-bf-part="identityTrigger"
+            data-openbitfun-component="market-account-controls"
+            data-openbitfun-part="identityTrigger"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label={t('market.account.menuLabel', { login: account.me.user.login })}
             onClick={() => setMenuOpen(open => !open)}
           >
-            <Avatar size={22} src={account.me.user.avatarUrl} alt={account.me.user.login} />
-            <span>@{account.me.user.login}</span>
-            <ChevronDown size={13} aria-hidden="true" />
+            <Avatar size="sm" src={account.me.user.avatarUrl} alt={account.me.user.login} />
+            <OverflowText className="market-account-controls__identity-name">@{account.me.user.login}</OverflowText>
+            <Icon name="chevron-down" size="xs" aria-hidden="true" />
           </button>
           {menuOpen && createPortal(
-            <div
+            <Menu
               ref={menuPanelRef}
               className="market-account-controls__menu"
-              role="menu"
-              data-bf-component="market-account-controls"
-              data-bf-part="menu"
+              aria-label={t('market.account.menuLabel', { login: account.me.user.login })}
               style={{
                 top: `${menuPosition?.top ?? 0}px`,
                 left: `${menuPosition?.left ?? 0}px`,
@@ -193,34 +204,29 @@ export function MarketAccountControls({
             >
               <div
                 className="market-account-controls__profile"
-                data-bf-component="market-account-controls"
-                data-bf-part="profile"
+                data-openbitfun-component="market-account-controls"
+                data-openbitfun-part="profile"
               >
-                <Avatar size={30} src={account.me.user.avatarUrl} alt={account.me.user.login} />
+                <Avatar size="md" src={account.me.user.avatarUrl} alt={account.me.user.login} />
                 <div>
-                  <strong>@{account.me.user.login}</strong>
-                  <span>{t('market.account.githubAccount')}</span>
+                  <strong><OverflowText>@{account.me.user.login}</OverflowText></strong>
+                  <OverflowText>{t('market.account.githubAccount')}</OverflowText>
                 </div>
               </div>
-              <button
-                type="button"
-                role="menuitem"
-                className="market-account-controls__menu-item"
-                data-bf-component="market-account-controls"
-                data-bf-part="menuItem"
+              <MenuItem
+                leading={<LogOut size={14} aria-hidden="true" />}
                 onClick={() => void signOut()}
               >
-                <LogOut size={14} aria-hidden="true" />
                 {t('market.signOut')}
-              </button>
-            </div>,
+              </MenuItem>
+            </Menu>,
             getAppearanceOverlayHost(),
           )}
         </div>
       ) : (
         <Button
-          size="small"
-          variant="secondary"
+          size="sm"
+          variant="outline"
           disabled={!account.resolved || account.status === 'authorizing'}
           onClick={() => setLoginOpen(true)}
         >
@@ -231,19 +237,24 @@ export function MarketAccountControls({
         </Button>
       )}
 
-      <Modal
-        isOpen={loginOpen && !account.me}
-        onClose={closeLogin}
-        title={t('market.account.dialogTitle')}
-        size="small"
-        contentInset
-        closeOnOverlayClick={account.status !== 'authorizing'}
-        testId="market-account-login-dialog"
+      <Dialog
+        open={loginOpen && !account.me}
+        onOpenChange={(nextOpen) => { if (!nextOpen) closeLogin(); }}
+        size="sm"
+        closeOnPointerOutside={account.status !== 'authorizing'}
+        data-testid="market-account-login-dialog"
       >
+        <DialogHeader>
+          <DialogHeading>
+            <DialogTitle>{t('market.account.dialogTitle')}</DialogTitle>
+          </DialogHeading>
+          <DialogClose />
+        </DialogHeader>
+        <DialogBody>
         <div
           className="market-account-login"
-          data-bf-component="market-account-controls"
-          data-bf-part="login"
+          data-openbitfun-component="market-account-controls"
+          data-openbitfun-part="login"
         >
           <div className="market-account-login__mark" aria-hidden="true">
             <Github size={28} />
@@ -256,8 +267,8 @@ export function MarketAccountControls({
             <div
               className="market-account-login__waiting"
               role="status"
-              data-bf-component="market-account-controls"
-              data-bf-part="waiting"
+              data-openbitfun-component="market-account-controls"
+              data-openbitfun-part="waiting"
             >
               <Loader2 size={16} className="market-account-controls__spinner" />
               <span>{t('market.account.waiting')}</span>
@@ -267,22 +278,22 @@ export function MarketAccountControls({
             <p
               className="market-account-login__error"
               role="alert"
-              data-bf-component="market-account-controls"
-              data-bf-part="error"
+              data-openbitfun-component="market-account-controls"
+              data-openbitfun-part="error"
             >
               {errorText}
             </p>
           )}
           <div
             className="market-account-login__actions"
-            data-bf-component="market-account-controls"
-            data-bf-part="actions"
+            data-openbitfun-component="market-account-controls"
+            data-openbitfun-part="actions"
           >
-            <Button variant="ghost" onClick={closeLogin}>
+            <Button variant="outline" onClick={closeLogin}>
               {t('market.account.cancel')}
             </Button>
             <Button
-              variant="primary"
+              variant="fill"
               disabled={account.status === 'authorizing'}
               onClick={() => void signIn()}
             >
@@ -295,7 +306,8 @@ export function MarketAccountControls({
             </Button>
           </div>
         </div>
-      </Modal>
+              </DialogBody>
+      </Dialog>
     </div>
   );
 }

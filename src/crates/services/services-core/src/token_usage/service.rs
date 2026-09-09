@@ -33,19 +33,25 @@ struct RecordsBatch {
 
 impl TokenUsageService {
     pub async fn new(base_dir: PathBuf) -> Result<Self, String> {
-        let service = Self {
-            base_dir,
-            model_stats: Arc::new(RwLock::new(HashMap::new())),
-            session_cache: Arc::new(RwLock::new(HashMap::new())),
-            record_batches: Arc::new(Mutex::new(HashMap::new())),
-            usage_lifecycle: Arc::new(RwLock::new(())),
-        };
+        let service = Self::for_queries(base_dir);
 
         service.init_storage().await?;
         service.load_model_stats().await?;
 
         info!("Token usage service initialized");
         Ok(service)
+    }
+
+    /// Read persisted records without initializing directories or repairing
+    /// aggregate statistics. Runtime writers must use `new` instead.
+    pub fn for_queries(base_dir: PathBuf) -> Self {
+        Self {
+            base_dir,
+            model_stats: Arc::new(RwLock::new(HashMap::new())),
+            session_cache: Arc::new(RwLock::new(HashMap::new())),
+            record_batches: Arc::new(Mutex::new(HashMap::new())),
+            usage_lifecycle: Arc::new(RwLock::new(())),
+        }
     }
 
     pub fn base_dir(&self) -> &Path {
@@ -800,7 +806,12 @@ mod tests {
             .await
             .expect("unrelated record");
 
-        let records = service
+        // A separate short-lived query process has no runtime subscriber or
+        // in-memory usage cache. Aggregate corruption must not trigger repair.
+        let stats_path = dir.path().join(MODEL_STATS_FILE);
+        std::fs::write(&stats_path, "unreadable legacy aggregate").unwrap();
+        let reader = TokenUsageService::for_queries(dir.path().to_path_buf());
+        let records = reader
             .query_records_for_sessions(
                 TokenUsageQuery {
                     model_id: None,
@@ -818,6 +829,115 @@ mod tests {
 
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].session_id, "parent-session");
+        assert_eq!(
+            std::fs::read_to_string(&stats_path).unwrap(),
+            "unreadable legacy aggregate"
+        );
+        assert!(!stats_path.with_extension("json.bak").exists());
+    }
+
+    #[cfg(feature = "token-usage-statistics")]
+    #[test]
+    fn today_uses_the_requested_local_calendar() {
+        let now = Utc.with_ymd_and_hms(2026, 8, 16, 1, 30, 0).unwrap();
+        let bounds = time_bounds_at(&TimeRange::Today, chrono_tz::Asia::Shanghai, now)
+            .expect("today bounds")
+            .expect("bounded range");
+
+        assert_eq!(
+            bounds.0,
+            Utc.with_ymd_and_hms(2026, 8, 15, 16, 0, 0).unwrap()
+        );
+        assert_eq!(bounds.1, now);
+    }
+
+    #[cfg(not(feature = "token-usage-statistics"))]
+    #[test]
+    fn local_storage_only_keeps_utc_calendar_ranges() {
+        let now = Utc.with_ymd_and_hms(2026, 8, 16, 1, 30, 0).unwrap();
+        let bounds = time_bounds_utc_at(&TimeRange::Today, now)
+            .expect("today bounds")
+            .expect("bounded range");
+
+        assert_eq!(
+            bounds.0,
+            Utc.with_ymd_and_hms(2026, 8, 16, 0, 0, 0).unwrap()
+        );
+        assert_eq!(bounds.1, now);
+    }
+
+    #[tokio::test]
+    async fn query_records_filters_boundary_day_records_by_timestamp() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let service = TokenUsageService::new(dir.path().to_path_buf())
+            .await
+            .expect("token usage service");
+        let start = Utc.with_ymd_and_hms(2026, 8, 16, 10, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2026, 8, 17, 10, 0, 0).unwrap();
+
+        for (date, records) in [
+            (
+                "2026-08-16",
+                vec![
+                    record_at("before", start - Duration::seconds(1)),
+                    record_at("start", start),
+                ],
+            ),
+            (
+                "2026-08-17",
+                vec![
+                    record_at("inside", end - Duration::seconds(1)),
+                    record_at("end", end),
+                ],
+            ),
+        ] {
+            let path = service.get_records_path_for_key(date);
+            fs::write(
+                path,
+                serde_json::to_string(&RecordsBatch { records }).expect("serialize batch"),
+            )
+            .await
+            .expect("write record batch");
+        }
+
+        let records = service
+            .query_records(TokenUsageQuery {
+                model_id: None,
+                session_id: None,
+                time_range: TimeRange::Custom { start, end },
+                time_zone: None,
+                limit: None,
+                offset: None,
+                include_subagent: true,
+            })
+            .await
+            .expect("query records");
+
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.turn_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["start", "inside"]
+        );
+    }
+
+    fn record_at(turn_id: &str, timestamp: DateTime<Utc>) -> TokenUsageRecord {
+        TokenUsageRecord {
+            model_config_id: "config".to_string(),
+            effective_model_name: "model".to_string(),
+            session_id: "session".to_string(),
+            turn_id: turn_id.to_string(),
+            timestamp,
+            input_tokens: 1,
+            output_tokens: 1,
+            cached_tokens: 0,
+            cached_tokens_available: false,
+            cache_write_tokens: 0,
+            total_tokens: 2,
+            token_details: None,
+            is_subagent: false,
+        }
     }
 
     #[cfg(feature = "token-usage-statistics")]

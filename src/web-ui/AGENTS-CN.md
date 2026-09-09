@@ -25,15 +25,16 @@
 
 Peer Device Mode（同账号远程完整客户端）的边界见 `docs/architecture/peer-device-mode.md`。
 前端不变量见 `src/infrastructure/peer-device/README.md`。不要重新引入内嵌会话/聊天壳；
-应从设备列表（Remote Connect 的「我的 BitFun」组）进入 peer mode。
+应从设备列表（Remote Connect 的「我的 OpenBitFun」组）进入 peer mode。
 
-一键部署 Relay：`src/features/relay-deploy/`（见其 README）。Remote Connect「我的 BitFun」
+一键部署 Relay：`src/features/relay-deploy/`（见其 README）。Remote Connect「我的 OpenBitFun」
 登录表单与 Self-Hosted 入口必须打开 `RelayDeployWizard`，不要改成外链 README。
 
 ## 本模块规则
 
 - 不要在 UI 组件里直接调用 Tauri API；应通过 adapter / infrastructure 层访问
-- 新增前端基础设施前，先复用已有的 theme、i18n、component-library 和 Zustand stores
+- 新增前端基础设施前，先复用 `@openbitfun/ui`、设计令牌、theme、i18n 和 Zustand stores
+- 单行标签优先使用设计系统 `OverflowText`，避免自行添加省略号样式或裁剪字符串。纯文字默认渐隐截断并在悬停、聚焦时跑马灯展示；搜索高亮等纯文本富内容显式设置 `behavior="marquee"`，图标和操作按钮放在文字槽外。所属控件设置 `data-overflow-trigger`；标准组件已内置溢出处理。多行、触屏与可编辑内容保留适合自身的布局。
 - 主题与颜色 Token 改动遵循 `docs/architecture/theme-token-optimization.md`。审计失败应通过复用 Token、
   收敛冗余值或增加最小 owner contract 修复，不得仅为通过检查提高 baseline 或测试期望；跨形态改动运行
   `pnpm run theme:color-audit:all`。
@@ -64,8 +65,9 @@ pnpm run build:web                     # 构建相关改动或复现 CI
 pnpm run i18n:audit
 pnpm run i18n:generate && pnpm run i18n:contract:test && pnpm run i18n:audit
 pnpm run type-check:web && pnpm --dir src/web-ui run test:run src/infrastructure/i18n/core/I18nService.test.ts
-pnpm run type-check:web
+pnpm run check:web
 ```
 
 以上依次用于 locale 资源、locale contract/shared terms、i18n runtime/namespace loading 和普通 Web UI 代码。
-完整 lint、build 与大范围测试由 CI 兜底，除非本地改动确实需要复现。
+`check:web` 会执行类型检查，以及 CI 使用的 Appearance contract、主题颜色和主题视觉治理门禁，确保渲染 DOM
+或样式回归能在本地发现。完整 lint、build 与大范围测试由 CI 兜底，除非本地改动确实需要复现。

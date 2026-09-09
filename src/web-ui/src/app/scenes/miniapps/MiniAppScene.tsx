@@ -2,15 +2,16 @@
  * MiniAppScene — standalone scene tab for a single MiniApp.
  * Mounts MiniAppRunner; close via SceneBar × (does not stop worker).
  */
+import { OverflowText, Button, Icon, IconButton, Tooltip } from '@openbitfun/ui';
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Loader2, AlertTriangle, CheckCircle2, X } from 'lucide-react';
+import { Loader2, AlertTriangle } from 'lucide-react';
 import { miniAppAPI } from '@/infrastructure/api/service-api/MiniAppAPI';
 import { api } from '@/infrastructure/api/service-api/ApiClient';
 import type { MiniApp, MiniAppDraft } from '@/infrastructure/api/service-api/MiniAppAPI';
 import { useAppearance } from '@/infrastructure/appearance';
 import { useCurrentWorkspace } from '@/infrastructure/contexts/WorkspaceContext';
 import { createLogger } from '@/shared/utils/logger';
-import { IconButton, Button } from '@/component-library';
+
 import { useSceneManager } from '@/app/hooks/useSceneManager';
 import type { SceneTabId } from '@/app/components/SceneBar/types';
 import { useMiniAppStore } from './miniAppStore';
@@ -36,8 +37,6 @@ interface MiniAppSceneProps {
 }
 
 const MiniAppScene: React.FC<MiniAppSceneProps> = ({ appId }) => {
-  const openApp = useMiniAppStore((state) => state.openApp);
-  const closeApp = useMiniAppStore((state) => state.closeApp);
   const markCustomizationActive = useMiniAppStore((state) => state.markCustomizationActive);
   const markCustomizationIdle = useMiniAppStore((state) => state.markCustomizationIdle);
   const { current: appearance } = useAppearance();
@@ -59,12 +58,8 @@ const MiniAppScene: React.FC<MiniAppSceneProps> = ({ appId }) => {
   } | null>(null);
 
   useEffect(() => {
-    openApp(appId);
-    return () => {
-      closeApp(appId);
-      markCustomizationIdle(appId);
-    };
-  }, [appId, openApp, closeApp, markCustomizationIdle]);
+    return () => markCustomizationIdle(appId);
+  }, [appId, markCustomizationIdle]);
 
   useEffect(() => {
     setCustomizePreview(null);
@@ -155,16 +150,17 @@ const MiniAppScene: React.FC<MiniAppSceneProps> = ({ appId }) => {
   return (
     <div
       className="miniapp-scene"
-      data-bf-scene="miniapp"
-      data-bf-part="root"
-      data-bf-state={customizeOpen ? 'customizing' : undefined}
+      data-miniapp-id={appId}
+      data-openbitfun-scene="miniapp"
+      data-openbitfun-part="root"
+      data-openbitfun-state={customizeOpen ? 'customizing' : undefined}
     >
-      <div className="miniapp-scene__header" data-bf-scene="miniapp" data-bf-part="header">
+      <div className="miniapp-scene__header" data-openbitfun-scene="miniapp" data-openbitfun-part="header">
         <div className="miniapp-scene__header-center">
           {app ? (
-            <span className="miniapp-scene__title">{appName}</span>
+            <OverflowText className="miniapp-scene__title">{appName}</OverflowText>
           ) : (
-            <span className="miniapp-scene__title miniapp-scene__title--loading">Mini App</span>
+            <OverflowText className="miniapp-scene__title miniapp-scene__title--loading">Mini App</OverflowText>
           )}
         </div>
         <div className="miniapp-scene__header-actions">
@@ -172,42 +168,39 @@ const MiniAppScene: React.FC<MiniAppSceneProps> = ({ appId }) => {
             disabled={!app || loading}
             onOpen={handleOpenCustomize}
           />
-          <IconButton
-            variant="ghost"
-            size="small"
-            onClick={handleReload}
-            disabled={loading}
-            tooltip={t('scene.reload')}
-          >
-            {loading ? (
-              <Loader2 size={14} className="miniapp-scene__spinning" />
-            ) : (
-              <RefreshCw size={14} />
-            )}
-          </IconButton>
+          <Tooltip content={t('scene.reload')} disabled={loading}>
+            <IconButton
+              size="sm"
+              onClick={handleReload}
+              disabled={loading}
+              loading={loading}
+              aria-label={t('scene.reload')}
+              icon={<Icon name="refresh" size="lg" />}
+            />
+          </Tooltip>
         </div>
       </div>
       <div className={[
         'miniapp-scene__content',
         customizeOpen && app && 'miniapp-scene__content--customizing',
-      ].filter(Boolean).join(' ')} data-bf-scene="miniapp" data-bf-part="content">
+      ].filter(Boolean).join(' ')} data-openbitfun-scene="miniapp" data-openbitfun-part="content">
         {loading && !app && (
-          <div className="miniapp-scene__loading" data-bf-scene="miniapp" data-bf-part="loading">
+          <div className="miniapp-scene__loading" data-openbitfun-scene="miniapp" data-openbitfun-part="loading">
             <Loader2 size={28} className="miniapp-scene__spinning" strokeWidth={1.5} />
             <span>{t('scene.loading')}</span>
           </div>
         )}
         {error && !app && (
-          <div className="miniapp-scene__error" data-bf-scene="miniapp" data-bf-part="error">
+          <div className="miniapp-scene__error" data-openbitfun-scene="miniapp" data-openbitfun-part="error">
             <AlertTriangle size={32} strokeWidth={1.5} />
             <p>{t('scene.loadFailed', { error })}</p>
-            <Button variant="secondary" size="small" onClick={() => void load(appId)}>
+            <Button variant="outline" size="sm" onClick={() => void load(appId)}>
               {t('scene.retry')}
             </Button>
           </div>
         )}
         {app && (
-          <div className="miniapp-scene__runner-shell" data-bf-scene="miniapp" data-bf-part="runner">
+          <div className="miniapp-scene__runner-shell" data-openbitfun-scene="miniapp" data-openbitfun-part="runner">
             {loading && (
               <div className="miniapp-scene__refresh-overlay" role="status" aria-live="polite">
                 <Loader2 size={20} className="miniapp-scene__spinning" strokeWidth={1.5} />
@@ -219,21 +212,20 @@ const MiniAppScene: React.FC<MiniAppSceneProps> = ({ appId }) => {
               strictRuntime={strictRuntime}
             />
             {customizePreview && (
-              <div className="miniapp-scene__preview-stage" role="region" aria-label={t('customize.previewTitle')} data-bf-scene="miniapp" data-bf-part="preview">
+              <div className="miniapp-scene__preview-stage" role="region" aria-label={t('customize.previewTitle')} data-openbitfun-scene="miniapp" data-openbitfun-part="preview">
                 <div className="miniapp-scene__preview-stage-header">
                   <div>
                     <span>{t('customize.previewTitle')}</span>
                     <small>{t('customize.previewHint')}</small>
                   </div>
-                  <IconButton
-                    variant="ghost"
-                    size="small"
-                    onClick={() => setCustomizePreview(null)}
-                    tooltip={t('customize.hidePreview')}
-                    aria-label={t('customize.hidePreview')}
-                  >
-                    <X size={14} />
-                  </IconButton>
+                  <Tooltip content={t('customize.hidePreview')}>
+                    <IconButton
+                      size="sm"
+                      onClick={() => setCustomizePreview(null)}
+                      aria-label={t('customize.hidePreview')}
+                      icon={<Icon name="xmark" size="lg" />}
+                    />
+                  </Tooltip>
                 </div>
                 <div className="miniapp-scene__preview-stage-body">
                   <MiniAppDraftPreview
@@ -247,8 +239,8 @@ const MiniAppScene: React.FC<MiniAppSceneProps> = ({ appId }) => {
           </div>
         )}
         {customizeNotice && (
-          <div className="miniapp-scene__customize-notice" role="status" data-bf-scene="miniapp" data-bf-part="notice">
-            <CheckCircle2 size={16} />
+          <div className="miniapp-scene__customize-notice" role="status" data-openbitfun-scene="miniapp" data-openbitfun-part="notice">
+            <Icon name="check-circle" size="md" />
             <span>{customizeNotice}</span>
           </div>
         )}

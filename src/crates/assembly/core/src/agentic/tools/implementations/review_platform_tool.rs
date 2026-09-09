@@ -8,12 +8,12 @@ use crate::agentic::tools::framework::{
 };
 use crate::service::review_platform::{
     ReviewPlatformApprovalRequest, ReviewPlatformCreatePullRequestRequest,
-    ReviewPlatformDetailSection, ReviewPlatformError, ReviewPlatformKind, ReviewPlatformRemote,
-    ReviewPlatformReplyToThreadRequest, ReviewPlatformRequestChangesRequest,
+    ReviewPlatformDetailSection, ReviewPlatformError, ReviewPlatformKind, ReviewPlatformListState,
+    ReviewPlatformRemote, ReviewPlatformReplyToThreadRequest, ReviewPlatformRequestChangesRequest,
     ReviewPlatformResolveThreadRequest, ReviewPlatformService, ReviewPlatformSubmitReviewRequest,
     ReviewSubmitEvent,
 };
-use crate::util::errors::{BitFunError, BitFunResult};
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -54,7 +54,7 @@ impl ReviewPlatformTool {
         Self
     }
 
-    fn repository_path(input: &Value, context: &ToolUseContext) -> BitFunResult<String> {
+    fn repository_path(input: &Value, context: &ToolUseContext) -> OpenBitFunResult<String> {
         let requested = input
             .get("repository_path")
             .and_then(Value::as_str)
@@ -69,17 +69,17 @@ impl ReviewPlatformTool {
             .workspace
             .as_ref()
             .map(|workspace| workspace.root_path_string())
-            .ok_or_else(|| BitFunError::tool("repository_path is required".to_string()))
+            .ok_or_else(|| OpenBitFunError::tool("repository_path is required".to_string()))
     }
 
-    fn string_field(input: &Value, key: &str) -> BitFunResult<String> {
+    fn string_field(input: &Value, key: &str) -> OpenBitFunResult<String> {
         input
             .get(key)
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
-            .ok_or_else(|| BitFunError::tool(format!("{} is required", key)))
+            .ok_or_else(|| OpenBitFunError::tool(format!("{} is required", key)))
     }
 
     fn optional_string_field(input: &Value, key: &str) -> Option<String> {
@@ -91,7 +91,7 @@ impl ReviewPlatformTool {
             .map(str::to_string)
     }
 
-    fn submit_event(input: &Value) -> BitFunResult<ReviewSubmitEvent> {
+    fn submit_event(input: &Value) -> OpenBitFunResult<ReviewSubmitEvent> {
         match input
             .get("event")
             .and_then(Value::as_str)
@@ -100,14 +100,14 @@ impl ReviewPlatformTool {
             "comment" => Ok(ReviewSubmitEvent::Comment),
             "approve" => Ok(ReviewSubmitEvent::Approve),
             "request_changes" => Ok(ReviewSubmitEvent::RequestChanges),
-            other => Err(BitFunError::tool(format!(
+            other => Err(OpenBitFunError::tool(format!(
                 "Unsupported review event: {}",
                 other
             ))),
         }
     }
 
-    fn detail_section(input: &Value) -> BitFunResult<ReviewPlatformDetailSection> {
+    fn detail_section(input: &Value) -> OpenBitFunResult<ReviewPlatformDetailSection> {
         match input
             .get("section")
             .and_then(Value::as_str)
@@ -118,23 +118,33 @@ impl ReviewPlatformTool {
             "files" => Ok(ReviewPlatformDetailSection::Files),
             "commits" => Ok(ReviewPlatformDetailSection::Commits),
             "reviews" => Ok(ReviewPlatformDetailSection::Reviews),
-            other => Err(BitFunError::tool(format!(
+            other => Err(OpenBitFunError::tool(format!(
                 "Unsupported pull request detail section: {}",
                 other
             ))),
         }
     }
 
-    fn platform_kind(input: &Value) -> BitFunResult<ReviewPlatformKind> {
+    fn platform_kind(input: &Value) -> OpenBitFunResult<ReviewPlatformKind> {
         match Self::string_field(input, "platform")?.as_str() {
             "github" => Ok(ReviewPlatformKind::Github),
             "gitlab" => Ok(ReviewPlatformKind::Gitlab),
             "gitcode" => Ok(ReviewPlatformKind::Gitcode),
+            "gitee" => Ok(ReviewPlatformKind::Gitee),
             "unknown" => Ok(ReviewPlatformKind::Unknown),
-            other => Err(BitFunError::tool(format!(
+            other => Err(OpenBitFunError::tool(format!(
                 "Unsupported review platform kind: {}",
                 other
             ))),
+        }
+    }
+
+    fn list_state(input: &Value) -> OpenBitFunResult<ReviewPlatformListState> {
+        match input.get("state") {
+            None | Some(Value::Null) => Ok(ReviewPlatformListState::All),
+            Some(state) => serde_json::from_value(state.clone()).map_err(|error| {
+                OpenBitFunError::tool(format!("Invalid pull request state filter: {error}"))
+            }),
         }
     }
 
@@ -142,17 +152,17 @@ impl ReviewPlatformTool {
         action: &str,
         repository_path: &str,
         input: &Value,
-    ) -> BitFunResult<Result<String, Value>> {
+    ) -> OpenBitFunResult<Result<String, Value>> {
         if let Some(remote_id) = Self::optional_string_field(input, "remote_id") {
             return Ok(Ok(remote_id));
         }
 
         let remotes = ReviewPlatformService::discover_remotes(repository_path)
             .await
-            .map_err(|error| BitFunError::tool(error.to_string()))?;
+            .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
         let supported = canonical_supported_remotes(&remotes);
         match supported.as_slice() {
-            [] => Err(BitFunError::tool(
+            [] => Err(OpenBitFunError::tool(
                 "No supported review platform remote found".to_string(),
             )),
             [remote] => Ok(Ok(remote.id.clone())),
@@ -237,12 +247,12 @@ impl Tool for ReviewPlatformTool {
         "ReviewPlatform"
     }
 
-    async fn description(&self) -> BitFunResult<String> {
+    async fn description(&self) -> OpenBitFunResult<String> {
         Ok(r#"Read and operate on hosted pull requests / merge requests.
 
-Use this for remote review-platform operations such as discovering remotes, loading the workspace PR snapshot, counting pull requests, listing pull requests, opening full or paginated pull request detail, loading CI logs, creating a pull request, replying to review threads, submitting a comment review, approving, revoking approval, requesting changes, or resolving a review thread. Use the Git tool for local repository state and branch/commit/push operations.
+Use this for remote review-platform operations such as discovering remotes, loading the workspace PR snapshot, counting pull requests, listing pull requests, opening full or paginated pull request detail, loading CI logs, creating a pull request, replying to review threads, submitting a comment review, approving, revoking approval, requesting changes, or resolving a review thread. Use ExecCommand for local repository state and branch/commit/push operations.
 
-GitHub authentication is owned by the local `gh` CLI and must never use token actions. Authentication-token actions are only for GitLab and GitCode when the user explicitly provides a token or asks to clear a stored token. Never guess or expose token values.
+GitHub authentication is owned by the local `gh` CLI and must never use token actions. Authentication-token actions are only for GitLab, GitCode, and Gitee when the user explicitly provides a token or asks to clear a stored token. Never guess or expose token values.
 
 When returning pull request results to the user, include the provider web URL so the chat UI can open the pull request detail panel naturally."#.to_string())
     }
@@ -301,6 +311,11 @@ When returning pull request results to the user, include the provider web URL so
                     "type": "integer",
                     "description": "Page size for list_pull_requests, get_workspace_snapshot, or get_pull_request_detail_page."
                 },
+                "state": {
+                    "type": "string",
+                    "enum": ["all", "open", "draft", "merged", "closed"],
+                    "description": "Repository-wide PR state filter for list_pull_requests, count_pull_requests, or get_workspace_snapshot; defaults to all. Only use filters advertised in capabilities.supportedPullRequestStates."
+                },
                 "section": {
                     "type": "string",
                     "enum": ["overview", "ci", "files", "commits", "reviews"],
@@ -316,8 +331,8 @@ When returning pull request results to the user, include the provider web URL so
                 },
                 "platform": {
                     "type": "string",
-                    "enum": ["github", "gitlab", "gitcode", "unknown"],
-                    "description": "GitLab or GitCode platform kind for update_auth_token or clear_auth_token. GitHub uses local gh authentication."
+                    "enum": ["github", "gitlab", "gitcode", "gitee", "unknown"],
+                    "description": "GitLab, GitCode, or Gitee platform kind for update_auth_token or clear_auth_token. GitHub uses local gh authentication."
                 },
                 "host": {
                     "type": "string",
@@ -325,7 +340,7 @@ When returning pull request results to the user, include the provider web URL so
                 },
                 "token": {
                     "type": "string",
-                    "description": "GitLab or GitCode personal access token for update_auth_token. Only provide this when the user explicitly asks to store that token. Never provide a GitHub token."
+                    "description": "GitLab, GitCode, or Gitee personal access token for update_auth_token. Only provide this when the user explicitly asks to store that token. Never provide a GitHub token."
                 },
                 "title": {
                     "type": "string",
@@ -728,7 +743,7 @@ When returning pull request results to the user, include the provider web URL so
         &self,
         input: &Value,
         context: &ToolUseContext,
-    ) -> BitFunResult<Vec<ToolResult>> {
+    ) -> OpenBitFunResult<Vec<ToolResult>> {
         let action = Self::string_field(input, "action")?;
         let repository_path = match action.as_str() {
             ACTION_UPDATE_AUTH_TOKEN | ACTION_CLEAR_AUTH_TOKEN => {
@@ -765,7 +780,7 @@ When returning pull request results to the user, include the provider web URL so
             ACTION_LIST_REMOTES => {
                 let remotes = ReviewPlatformService::discover_remotes(&repository_path)
                     .await
-                    .map_err(|error| BitFunError::tool(error.to_string()))?;
+                    .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 json!({
                     "action": action,
                     "repositoryPath": repository_path,
@@ -782,14 +797,15 @@ When returning pull request results to the user, include the provider web URL so
                     .and_then(Value::as_u64)
                     .map(|value| value as u32);
                 let remote_id = Self::optional_string_field(input, "remote_id");
-                let snapshot = ReviewPlatformService::workspace_snapshot(
+                let snapshot = ReviewPlatformService::workspace_snapshot_with_state(
                     &repository_path,
                     remote_id.as_deref(),
                     page,
                     per_page,
+                    Self::list_state(input)?,
                 )
                 .await
-                .map_err(|error| BitFunError::tool(error.to_string()))?;
+                .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 let status = if snapshot.auth_challenge.is_some() {
                     "needs_auth"
                 } else {
@@ -820,14 +836,15 @@ When returning pull request results to the user, include the provider web URL so
                 let remote_id = resolved_remote_id
                     .clone()
                     .expect("remote-bound action should resolve a remote");
-                let snapshot = ReviewPlatformService::workspace_snapshot(
+                let snapshot = ReviewPlatformService::workspace_snapshot_with_state(
                     &repository_path,
                     Some(remote_id.as_str()),
                     Some(1),
                     Some(1),
+                    Self::list_state(input)?,
                 )
                 .await
-                .map_err(|error| BitFunError::tool(error.to_string()))?;
+                .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 if snapshot.auth_challenge.is_some() {
                     json!({
                         "action": action,
@@ -864,14 +881,15 @@ When returning pull request results to the user, include the provider web URL so
                 let remote_id = resolved_remote_id
                     .clone()
                     .expect("remote-bound action should resolve a remote");
-                let snapshot = ReviewPlatformService::workspace_snapshot(
+                let snapshot = ReviewPlatformService::workspace_snapshot_with_state(
                     &repository_path,
                     Some(remote_id.as_str()),
                     page,
                     per_page,
+                    Self::list_state(input)?,
                 )
                 .await
-                .map_err(|error| BitFunError::tool(error.to_string()))?;
+                .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 if snapshot.auth_challenge.is_some() {
                     json!({
                         "action": action,
@@ -927,7 +945,7 @@ When returning pull request results to the user, include the provider web URL so
                         ) {
                             result
                         } else {
-                            return Err(BitFunError::tool(error.to_string()));
+                            return Err(OpenBitFunError::tool(error.to_string()));
                         }
                     }
                 }
@@ -985,7 +1003,7 @@ When returning pull request results to the user, include the provider web URL so
                         ) {
                             result
                         } else {
-                            return Err(BitFunError::tool(error.to_string()));
+                            return Err(OpenBitFunError::tool(error.to_string()));
                         }
                     }
                 }
@@ -1025,7 +1043,7 @@ When returning pull request results to the user, include the provider web URL so
                         ) {
                             result
                         } else {
-                            return Err(BitFunError::tool(error.to_string()));
+                            return Err(OpenBitFunError::tool(error.to_string()));
                         }
                     }
                 }
@@ -1045,7 +1063,7 @@ When returning pull request results to the user, include the provider web URL so
                 };
                 let result = ReviewPlatformService::create_pull_request(request)
                     .await
-                    .map_err(|error| BitFunError::tool(error.to_string()))?;
+                    .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 json!({ "action": action, "result": result })
             }
             ACTION_REPLY => {
@@ -1061,7 +1079,7 @@ When returning pull request results to the user, include the provider web URL so
                 };
                 let result = ReviewPlatformService::reply_to_thread(request)
                     .await
-                    .map_err(|error| BitFunError::tool(error.to_string()))?;
+                    .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 json!({ "action": action, "result": result })
             }
             ACTION_SUBMIT_REVIEW => {
@@ -1077,7 +1095,7 @@ When returning pull request results to the user, include the provider web URL so
                 };
                 let result = ReviewPlatformService::submit_review(request)
                     .await
-                    .map_err(|error| BitFunError::tool(error.to_string()))?;
+                    .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 json!({ "action": action, "result": result })
             }
             ACTION_APPROVE => {
@@ -1092,7 +1110,7 @@ When returning pull request results to the user, include the provider web URL so
                 };
                 let result = ReviewPlatformService::approve_pull_request(request)
                     .await
-                    .map_err(|error| BitFunError::tool(error.to_string()))?;
+                    .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 json!({ "action": action, "result": result })
             }
             ACTION_REVOKE_APPROVAL => {
@@ -1107,7 +1125,7 @@ When returning pull request results to the user, include the provider web URL so
                 };
                 let result = ReviewPlatformService::revoke_approval(request)
                     .await
-                    .map_err(|error| BitFunError::tool(error.to_string()))?;
+                    .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 json!({ "action": action, "result": result })
             }
             ACTION_REQUEST_CHANGES => {
@@ -1122,7 +1140,7 @@ When returning pull request results to the user, include the provider web URL so
                 };
                 let result = ReviewPlatformService::request_changes(request)
                     .await
-                    .map_err(|error| BitFunError::tool(error.to_string()))?;
+                    .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 json!({ "action": action, "result": result })
             }
             ACTION_RESOLVE => {
@@ -1141,7 +1159,7 @@ When returning pull request results to the user, include the provider web URL so
                 };
                 let result = ReviewPlatformService::resolve_thread(request)
                     .await
-                    .map_err(|error| BitFunError::tool(error.to_string()))?;
+                    .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 json!({ "action": action, "result": result })
             }
             ACTION_UPDATE_AUTH_TOKEN => {
@@ -1150,7 +1168,7 @@ When returning pull request results to the user, include the provider web URL so
                 let token = Self::string_field(input, "token")?;
                 ReviewPlatformService::update_auth_token(platform, &host, &token)
                     .await
-                    .map_err(|error| BitFunError::tool(error.to_string()))?;
+                    .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 json!({
                     "action": action,
                     "repositoryPath": repository_path,
@@ -1164,7 +1182,7 @@ When returning pull request results to the user, include the provider web URL so
                 let host = Self::string_field(input, "host")?;
                 ReviewPlatformService::clear_auth_token(platform, &host)
                     .await
-                    .map_err(|error| BitFunError::tool(error.to_string()))?;
+                    .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
                 json!({
                     "action": action,
                     "repositoryPath": repository_path,
@@ -1173,7 +1191,12 @@ When returning pull request results to the user, include the provider web URL so
                     "status": "ok",
                 })
             }
-            _ => return Err(BitFunError::tool(format!("Unsupported action: {}", action))),
+            _ => {
+                return Err(OpenBitFunError::tool(format!(
+                    "Unsupported action: {}",
+                    action
+                )))
+            }
         };
 
         let result_for_assistant = self.render_result_for_assistant(&data);
@@ -1216,7 +1239,8 @@ fn canonical_supported_remotes(remotes: &[ReviewPlatformRemote]) -> Vec<&ReviewP
             ReviewPlatformKind::Github => 0,
             ReviewPlatformKind::Gitlab => 1,
             ReviewPlatformKind::Gitcode => 2,
-            ReviewPlatformKind::Unknown => 3,
+            ReviewPlatformKind::Gitee => 3,
+            ReviewPlatformKind::Unknown => 4,
         };
         let normalized_host = remote.host.trim().to_ascii_lowercase();
         let normalized_project = remote.project_path.trim_matches('/').to_ascii_lowercase();
@@ -1266,6 +1290,26 @@ fn remote_selection_result(
 mod tests {
     use super::*;
 
+    #[test]
+    fn gitee_uses_the_existing_write_permission_and_concurrency_boundary() {
+        let tool = ReviewPlatformTool::new();
+        assert_eq!(
+            ReviewPlatformTool::platform_kind(&json!({"platform":"gitee"})).unwrap(),
+            ReviewPlatformKind::Gitee
+        );
+        assert!(!tool.is_readonly());
+        for action in [
+            ACTION_CREATE,
+            ACTION_SUBMIT_REVIEW,
+            ACTION_APPROVE,
+            ACTION_REVOKE_APPROVAL,
+            ACTION_UPDATE_AUTH_TOKEN,
+        ] {
+            assert!(!tool.is_concurrency_safe(Some(&json!({"action":action,"platform":"gitee"}))));
+        }
+        assert!(tool.is_concurrency_safe(Some(&json!({"action":ACTION_LIST,"platform":"gitee"}))));
+    }
+
     fn github_remote(id: &str, name: &str, project_path: &str) -> ReviewPlatformRemote {
         serde_json::from_value(json!({
             "id": id,
@@ -1288,8 +1332,8 @@ mod tests {
     #[test]
     fn canonical_remotes_collapse_origin_and_upstream_aliases_for_the_same_repository() {
         let remotes = vec![
-            github_remote("upstream-id", "upstream", "GCWing/BitFun"),
-            github_remote("origin-id", "origin", "gcwing/bitfun"),
+            github_remote("upstream-id", "upstream", "GCWing/OpenBitFun"),
+            github_remote("origin-id", "origin", "gcwing/openbitfun"),
         ];
 
         let supported = canonical_supported_remotes(&remotes);
@@ -1301,12 +1345,12 @@ mod tests {
     #[test]
     fn different_provider_repositories_return_typed_remote_selection() {
         let remotes = vec![
-            github_remote("origin-id", "origin", "limityan/BitFun"),
-            github_remote("upstream-id", "upstream", "GCWing/BitFun"),
+            github_remote("origin-id", "origin", "limityan/OpenBitFun"),
+            github_remote("upstream-id", "upstream", "GCWing/OpenBitFun"),
         ];
         let supported = canonical_supported_remotes(&remotes);
 
-        let selection = remote_selection_result(ACTION_GET, "D:/workspace/BitFun", &supported);
+        let selection = remote_selection_result(ACTION_GET, "D:/workspace/OpenBitFun", &supported);
 
         assert_eq!(selection["status"], "needs_remote_selection");
         assert_eq!(selection["action"], ACTION_GET);

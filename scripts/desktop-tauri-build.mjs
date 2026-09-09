@@ -13,11 +13,14 @@ import {
   statSync,
   writeFileSync,
 } from 'fs';
-import { ensureFlashgrepBinary } from './prepare-flashgrep-resource.mjs';
 import { extractProductConfigArg } from './product-customization/cli.mjs';
 import { productBuildEnvironment } from './product-customization/projections.mjs';
 import { resolveProductDefinition } from './product-customization/resolver.mjs';
 import { resolveReleaseChannel } from './release-channel.mjs';
+import {
+  WEB_FONT_PROFILE_ENV,
+  fontProfileForDesktopTarget,
+} from './web-font-profile.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -43,15 +46,15 @@ async function main() {
   const resolution = resolveProductDefinition({ rootDir: ROOT, productConfig, member: 'desktop' });
   Object.assign(process.env, productBuildEnvironment(resolution));
   console.log(`[product] ${resolution.assembly.member} ${resolution.assembly.assemblyDigest}`);
-  const releaseChannel = resolveReleaseChannel(process.env.BITFUN_RELEASE_CHANNEL);
+  const fontProfile = configureDesktopWebFontProfile(forward);
+  console.log(`[font-profile] ${fontProfile}`);
+  const releaseChannel = resolveReleaseChannel(process.env.OPENBITFUN_RELEASE_CHANNEL);
   console.log(`[release] channel=${releaseChannel.channel}`);
 
   const desktopDir = join(ROOT, 'src', 'apps', 'desktop');
-  const flashgrepBinary = prepareMacOSFlashgrepForSigning(
-    ensureFlashgrepBinary(),
-    desktopDir,
-  );
-  process.env.FLASHGREP_DAEMON_BIN = flashgrepBinary;
+  preparePluginHost();
+  // Flashgrep distribution is temporarily suspended.
+  const flashgrepBinary = null;
   // Tauri CLI reads CI and rejects numeric "1" (common in CI providers).
   process.env.CI = 'true';
   if (process.platform === 'darwin' && requestsDmgBundle(forward)) {
@@ -68,14 +71,23 @@ async function main() {
   });
   const tauriBin = join(ROOT, 'node_modules', '.bin', 'tauri');
   const tauriArgs = ['build', '--config', tauriConfig, ...forward];
-  const buildStartedAtMs = Date.now();
+  let attemptStartedAtMs = Date.now();
   let r = runTauriBuild(tauriBin, tauriArgs, desktopDir);
 
-  if (!r.error && shouldRetryMacDmgBuild(r, forward, desktopDir, buildStartedAtMs)) {
+  const maxMacDmgBuildAttempts = 3;
+  for (
+    let attempt = 1;
+    attempt < maxMacDmgBuildAttempts
+      && !r.error
+      && shouldRetryMacDmgBuild(r, forward, desktopDir, attemptStartedAtMs);
+    attempt += 1
+  ) {
+    const retryDelaySeconds = attempt * 10;
     console.warn(
-      '[tauri-build] DMG bundling failed after the macOS app bundle was created; retrying once in 10 seconds.'
+      `[tauri-build] DMG bundling failed after the macOS app bundle was refreshed; retrying build attempt ${attempt + 1}/${maxMacDmgBuildAttempts} in ${retryDelaySeconds} seconds.`
     );
-    await new Promise((resolveRetry) => setTimeout(resolveRetry, 10_000));
+    await new Promise((resolveRetry) => setTimeout(resolveRetry, retryDelaySeconds * 1_000));
+    attemptStartedAtMs = Date.now();
     r = runTauriBuild(tauriBin, tauriArgs, desktopDir);
   }
 
@@ -98,7 +110,44 @@ async function main() {
     console.warn(`[target-gc] skipped: ${error.message || String(error)}`);
   }
 
+  if (r.status === 0 && forward.includes('--no-bundle')) {
+    console.warn(
+      '[tauri-build] No bundle was produced. The raw desktop executable depends on its adjacent frontend, mobile-web, and resources directories and must not be distributed by itself.'
+    );
+  }
+
   process.exit(r.status ?? 1);
+}
+
+function rustHostTargetTriple() {
+  const result = spawnSync('rustc', ['-vV'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    shell: false,
+    windowsHide: true,
+  });
+  if (result.error || result.status !== 0) {
+    const detail = result.error?.message || result.stderr || `exit status ${result.status}`;
+    throw new Error(`Could not determine the Rust host target: ${detail}`);
+  }
+  const host = String(result.stdout).match(/^host:\s*(\S+)$/m)?.[1];
+  if (!host) throw new Error('rustc -vV did not report a host target triple.');
+  return host;
+}
+
+function preparePluginHost() {
+  const result = spawnSync('pnpm', ['run', 'plugin-host:prepare'], {
+    cwd: ROOT,
+    env: process.env,
+    stdio: 'inherit',
+    shell: true,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(`OpenCode extension Host preparation failed with exit code ${result.status}`);
+  }
 }
 
 function runTauriBuild(tauriBin, args, desktopDir) {
@@ -145,13 +194,28 @@ export function shouldRetryMacDmgBuild(
     'macos'
   );
 
+  const freshAfterMs = buildStartedAtMs - 1_000;
   try {
-    return readdirSync(bundleDir, { withFileTypes: true }).some(
-      (entry) =>
-        entry.isDirectory() &&
-        entry.name.endsWith('.app') &&
-        statSync(join(bundleDir, entry.name)).mtimeMs >= buildStartedAtMs - 1_000
-    );
+    return readdirSync(bundleDir, { withFileTypes: true }).some((entry) => {
+      if (!entry.isDirectory() || !entry.name.endsWith('.app')) {
+        return false;
+      }
+
+      const appDir = join(bundleDir, entry.name);
+      if (statSync(appDir).mtimeMs >= freshAfterMs) {
+        return true;
+      }
+
+      // The Rust cache can restore an existing app directory without changing
+      // its own mtime. Tauri still refreshes the executable inside it before
+      // codesigning, so use that file as the reliable bundling boundary.
+      const executableDir = join(appDir, 'Contents', 'MacOS');
+      return readdirSync(executableDir, { withFileTypes: true }).some(
+        (executable) =>
+          executable.isFile()
+          && statSync(join(executableDir, executable.name)).mtimeMs >= freshAfterMs
+      );
+    });
   } catch {
     return false;
   }
@@ -173,6 +237,18 @@ function optionValue(args, option) {
     }
   }
   return undefined;
+}
+
+export function configureDesktopWebFontProfile(
+  args,
+  { env = process.env, platform = process.platform } = {},
+) {
+  const profile = fontProfileForDesktopTarget({
+    target: optionValue(args, '--target'),
+    platform,
+  });
+  env[WEB_FONT_PROFILE_ENV] = profile;
+  return profile;
 }
 
 export function prepareMacOSFlashgrepForSigning(
@@ -234,29 +310,30 @@ export function prepareTauriConfig(
   // packaging injects it here; frontend:build-all (beforeBuildCommand)
   // compiles the profile before Tauri copies resources.
   injectDshProfileResource(config);
+  injectExternalFrontendResource(config);
 
   const release = releaseChannel
-    ?? resolveReleaseChannel(process.env.BITFUN_RELEASE_CHANNEL);
+    ?? resolveReleaseChannel(process.env.OPENBITFUN_RELEASE_CHANNEL);
   const primaryEndpoint =
     process.env.TAURI_UPDATER_ENDPOINT || release.primaryUpdaterEndpoint;
   const fallbackEndpoint =
     process.env.TAURI_UPDATER_FALLBACK_ENDPOINT || release.fallbackUpdaterEndpoint;
-  process.env.BITFUN_RELEASE_CHANNEL = release.channel;
-  process.env.BITFUN_UPDATER_PRIMARY_ENDPOINT = primaryEndpoint;
-  process.env.BITFUN_UPDATER_FALLBACK_ENDPOINT = fallbackEndpoint;
+  process.env.OPENBITFUN_RELEASE_CHANNEL = release.channel;
+  process.env.OPENBITFUN_UPDATER_PRIMARY_ENDPOINT = primaryEndpoint;
+  process.env.OPENBITFUN_UPDATER_FALLBACK_ENDPOINT = fallbackEndpoint;
 
   const enabled = ['1', 'true', 'yes'].includes(
-    String(process.env.BITFUN_ENABLE_UPDATER_ARTIFACTS || '').toLowerCase()
+    String(process.env.OPENBITFUN_ENABLE_UPDATER_ARTIFACTS || '').toLowerCase()
   );
 
   if (enabled) {
     const pubkey = process.env.TAURI_UPDATER_PUBKEY;
     if (!pubkey) {
-      console.error('BITFUN_ENABLE_UPDATER_ARTIFACTS is set, but TAURI_UPDATER_PUBKEY is missing.');
+      console.error('OPENBITFUN_ENABLE_UPDATER_ARTIFACTS is set, but TAURI_UPDATER_PUBKEY is missing.');
       process.exit(1);
     }
     if (!process.env.TAURI_SIGNING_PRIVATE_KEY) {
-      console.error('BITFUN_ENABLE_UPDATER_ARTIFACTS is set, but TAURI_SIGNING_PRIVATE_KEY is missing.');
+      console.error('OPENBITFUN_ENABLE_UPDATER_ARTIFACTS is set, but TAURI_SIGNING_PRIVATE_KEY is missing.');
       process.exit(1);
     }
 
@@ -296,10 +373,21 @@ export function prepareTauriConfig(
 
 const DSH_PROFILE_RESOURCE_SOURCE = '../../../packages/dsh-acp/dist-profile';
 const DSH_PROFILE_RESOURCE_TARGET = 'resources/dsh-profile';
+const EXTERNAL_FRONTEND_RESOURCE_SOURCE = '../../../dist';
+const EXTERNAL_FRONTEND_RESOURCE_TARGET = 'frontend/dist';
 
 function injectDshProfileResource(config) {
   const resources = { ...(config.bundle?.resources || {}) };
   resources[DSH_PROFILE_RESOURCE_SOURCE] = DSH_PROFILE_RESOURCE_TARGET;
+  config.bundle = {
+    ...(config.bundle || {}),
+    resources,
+  };
+}
+
+function injectExternalFrontendResource(config) {
+  const resources = { ...(config.bundle?.resources || {}) };
+  resources[EXTERNAL_FRONTEND_RESOURCE_SOURCE] = EXTERNAL_FRONTEND_RESOURCE_TARGET;
   config.bundle = {
     ...(config.bundle || {}),
     resources,
@@ -321,6 +409,7 @@ function injectTargetFlashgrepResource(config, desktopDir, flashgrepBinary) {
 }
 
 function bundledFlashgrepResources(primaryBinary) {
+  if (!primaryBinary) return [];
   const binaries = [primaryBinary];
 
   if (process.platform === 'win32') {

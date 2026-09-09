@@ -1,10 +1,7 @@
-import { RecentWorkspaceEntry, RemoteSession, SessionSummary } from '../../model/RemoteModels';
+import { RemoteSession, SessionSummary } from '../../model/RemoteModels';
 import { CloudAccountDevice } from '../../services/CloudAccountClient';
 import { RemoteI18n } from '../../i18n/RemoteI18n';
 import { RemoteLogger } from '../../services/RemoteLogger';
-import { RemoteUiState } from '../../services/RemoteUiState';
-import { AppRoute } from '../navigation/AppRouteContract';
-import { RemoteCreateSessionState } from '../state/RemoteCreateSessionState';
 import { RemotePageState } from '../state/RemotePageState';
 import {
   RemoteConversationDependencies,
@@ -13,19 +10,16 @@ import {
   routeRemoteSessionInPlace
 } from './ConversationRuntime';
 
+/** Creates and opens remote sessions without an intermediate creation page. */
 export class RemoteCreateFlowController {
   private readonly remote: RemotePageState;
-  private readonly remoteCreate: RemoteCreateSessionState;
   private readonly remoteRuntime?: RemoteConversationDependencies;
-  private remoteCreateWorkspaceLoadVersion: number = 0;
 
   constructor(
     remote: RemotePageState,
-    remoteCreate: RemoteCreateSessionState,
     remoteRuntime: RemoteConversationDependencies | undefined
   ) {
     this.remote = remote;
-    this.remoteCreate = remoteCreate;
     this.remoteRuntime = remoteRuntime;
   }
 
@@ -52,141 +46,27 @@ export class RemoteCreateFlowController {
     );
   }
 
-  openRemoteCreateSession(): void {
-    const runtime = requireRemoteRuntime(this.remoteRuntime);
-    if (!runtime.connection.ensureAvailable()) {
+  async ensureRemoteControlTarget(deviceId?: string): Promise<void> {
+    const target = (deviceId || '').trim();
+    if (target.length === 0) {
       return;
     }
-    const deviceId = this.remote.controlTargetDeviceId || this.remote.desktopId;
-    const deviceName = this.remote.controlTargetDeviceName || this.remote.desktopName;
-    this.remoteCreate.prepare(deviceId, deviceName, this.remote.selectedModelId);
-    if (deviceId.length > 0) {
-      this.remoteCreate.setDevices([{
-        deviceId,
-        deviceName: deviceName || deviceId,
-        online: true
-      }]);
-    }
-    this.remoteCreate.setWorkspaces(this.remote.recentWorkspaces);
-    runtime.appShell.pushRoute(AppRoute.RemoteCreate);
-    this.loadRemoteCreateChoices();
-    this.loadRemoteCreateModelCatalog();
-  }
-
-  closeRemoteCreateSession(): void {
     const runtime = requireRemoteRuntime(this.remoteRuntime);
-    this.remoteCreateWorkspaceLoadVersion += 1;
-    runtime.hooks.stopVoiceInput();
-    this.remoteCreate.closeMenu();
-    runtime.appShell.popRoute(AppRoute.RemoteHome);
-  }
-
-  async loadRemoteCreateChoices(): Promise<void> {
-    await Promise.all([
-      this.loadRemoteCreateDevices(),
-      this.loadRemoteCreateWorkspaces()
-    ]);
-  }
-
-  async loadRemoteCreateModelCatalog(): Promise<void> {
-    const runtime = requireRemoteRuntime(this.remoteRuntime);
-    if (this.remote.modelCatalog.models.length > 0) {
+    const activeId = this.remote.controlTargetDeviceId || this.remote.desktopId;
+    if (target === activeId && this.remote.connectionState === 'connected') {
       return;
     }
+    this.remote.setStatusText(RemoteI18n.t('remote.settings.deviceConnecting'));
     try {
-      const catalog = await runtime.sessionManager.getModelCatalog();
-      const selectedModelId = RemoteUiState.selectedModelIdForCatalog(catalog, this.remote.selectedModelId);
-      this.remote.setModelCatalog(catalog, selectedModelId);
-      this.remoteCreate.setSelectedModelId(selectedModelId);
-    } catch (_err) {
-      // Model selection remains hidden when the remote does not expose a catalog.
-    }
-  }
-
-  async loadRemoteCreateDevices(): Promise<void> {
-    const runtime = requireRemoteRuntime(this.remoteRuntime);
-    this.remoteCreate.isLoadingDevices = this.remoteCreate.devices.length === 0;
-    try {
-      const phoneDeviceId = runtime.connection.getDeviceId();
-      const accountDevices = await runtime.settings.listCloudAccountDevices();
-      const devices = accountDevices.filter((device: CloudAccountDevice): boolean =>
-        device.online && device.deviceId !== phoneDeviceId
-      );
-      const currentId = this.remoteCreate.selectedDeviceId;
-      if (currentId.length > 0 &&
-        !devices.some((device: CloudAccountDevice): boolean => device.deviceId === currentId)) {
-        devices.unshift({
-          deviceId: currentId,
-          deviceName: this.remoteCreate.selectedDeviceName || currentId,
-          online: true
-        });
+      let device = runtime.settings.knownAccountDevice(target);
+      if (!device) {
+        device = (await runtime.settings.listCloudAccountDevices())
+          .find((item: CloudAccountDevice): boolean => item.deviceId === target);
       }
-      this.remoteCreate.setDevices(devices);
-    } catch (_err) {
-      const currentId = this.remoteCreate.selectedDeviceId;
-      if (currentId.length > 0) {
-        this.remoteCreate.setDevices([{
-          deviceId: currentId,
-          deviceName: this.remoteCreate.selectedDeviceName || currentId,
-          online: true
-        }]);
-      } else {
-        this.remoteCreate.setDevices([]);
+      if (!device) {
+        throw new Error(RemoteI18n.t('remote.settings.deviceUnavailable'));
       }
-      this.remoteCreate.errorText = RemoteI18n.t('remote.create.deviceLoadFailed');
-    }
-  }
-
-  async loadRemoteCreateWorkspaces(): Promise<void> {
-    const runtime = requireRemoteRuntime(this.remoteRuntime);
-    const loadVersion = ++this.remoteCreateWorkspaceLoadVersion;
-    const deviceId = this.remoteCreate.selectedDeviceId;
-    this.remoteCreate.isLoadingWorkspaces = this.remoteCreate.workspaces.length === 0;
-    try {
-      const workspaces = await runtime.workspace.recentWorkspaces();
-      if (loadVersion !== this.remoteCreateWorkspaceLoadVersion ||
-        deviceId !== this.remoteCreate.selectedDeviceId) {
-        return;
-      }
-      this.remoteCreate.setWorkspaces(workspaces);
-    } catch (_err) {
-      if (loadVersion !== this.remoteCreateWorkspaceLoadVersion ||
-        deviceId !== this.remoteCreate.selectedDeviceId) {
-        return;
-      }
-      this.remoteCreate.setWorkspaces([]);
-      this.remoteCreate.errorText = RemoteI18n.t('remote.create.workspaceLoadFailed');
-    }
-  }
-
-  toggleRemoteCreateDevices(): void {
-    this.remoteCreate.toggleMenu('devices');
-    if (this.remoteCreate.openMenu === 'devices' && this.remoteCreate.devices.length === 0) {
-      this.loadRemoteCreateDevices();
-    }
-  }
-
-  toggleRemoteCreateWorkspaces(): void {
-    this.remoteCreate.toggleMenu('workspaces');
-    if (this.remoteCreate.openMenu === 'workspaces' && this.remoteCreate.workspaces.length === 0) {
-      this.loadRemoteCreateWorkspaces();
-    }
-  }
-
-  async selectRemoteCreateDevice(device: CloudAccountDevice): Promise<void> {
-    const runtime = requireRemoteRuntime(this.remoteRuntime);
-    if (device.deviceId === this.remoteCreate.selectedDeviceId) {
-      this.remoteCreate.closeMenu();
-      return;
-    }
-    const draft = this.remoteCreate.draft;
-    this.remoteCreate.closeMenu();
-    this.remoteCreate.isLoadingWorkspaces = true;
-    try {
       await runtime.settings.selectCloudAccountDevice(device, false);
-      this.remoteCreate.selectDevice(device);
-      this.remoteCreate.setDraft(draft);
-      await this.loadRemoteCreateWorkspaces();
     } catch (err) {
       this.remoteCreate.isLoadingWorkspaces = false;
       this.remoteCreate.errorText = err instanceof Error ? err.message :
@@ -356,4 +236,3 @@ export class RemoteCreateFlowController {
     this.navigateCreated(sessionId);
   }
 }
-

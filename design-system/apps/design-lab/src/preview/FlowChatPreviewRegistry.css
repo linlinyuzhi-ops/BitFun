@@ -1,0 +1,191 @@
+.flow-chat-tool-card-preview {
+  inline-size: 100%;
+  min-inline-size: 0;
+  text-align: start;
+}
+
+.flow-chat-composer-preview {
+  inline-size: 100%;
+  min-inline-size: 0;
+  text-align: start;
+}
+
+.flow-chat-composer-preview__context {
+  display: flex;
+  min-inline-size: 0;
+  inline-size: 100%;
+  align-items: center;
+  gap: var(--openbitfun-space-3);
+  overflow: hidden;
+  color: var(--openbitfun-color-content-secondary);
+  font-family:var(--openbitfun-type-body-md-font-family);
+  font-size: var(--openbitfun-type-support-font-size);
+  white-space: nowrap;
+}
+
+.flow-chat-composer-preview__context > span {
+  display: inline-flex;
+  min-inline-size: 0;
+  align-items: center;
+  gap: var(--openbitfun-space-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flow-chat-composer-preview__context svg {
+  inline-size: var(--openbitfun-font-size-base);
+  block-size: var(--openbitfun-font-size-base);
+  flex: 0 0 auto;
+}
+
+.flow-chat-composer-preview__permission {
+  margin-inline-start: auto;
+  padding: var(--openbitfun-space-1) var(--openbitfun-space-2);
+  border-radius: var(--openbitfun-radius-pill);
+  color: var(--openbitfun-color-status-success-content);
+  background: var(--openbitfun-color-status-success-surface);
+}
+
+.flow-chat-composer-preview textarea {
+  min-inline-size: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  resize: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--openbitfun-color-content-primary);
+  background: transparent;
+  font: inherit;
+  line-height: var(--openbitfun-type-body-md-line-height);
+}
+
+.flow-chat-composer-preview textarea::placeholder {
+  color: var(--openbitfun-color-content-muted);
+  opacity: 1;
+}
+
+.flow-chat-composer-preview [data-openbitfun-layout="compact"] textarea {
+  /* typography-audit: allow -- compact textarea uses the control track as its single-line box */
+  line-height: var(--openbitfun-control-chat-composer-compact-track-height);
+}
+
+.flow-chat-composer-preview__model {
+  display: inline-flex;
+  min-inline-size: 0;
+  block-size: var(--openbitfun-control-chat-composer-control-height);
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--openbitfun-color-action-neutral-content);
+  background: transparent;
+  cursor: pointer;
+}
+
+.flow-chat-composer-preview [data-openbitfun-layout="compact"]
+  .flow-chat-composer-preview__model {
+  block-size: 100%;
+}
+
+.flow-chat-composer-preview__model {
+  max-inline-size: 180px;
+  gap: var(--openbitfun-space-1);
+  padding-inline: var(--openbitfun-space-2);
+  border-radius: var(--openbitfun-radius-pill);
+  font-family:var(--openbitfun-type-body-md-font-family);
+  font-size: var(--openbitfun-type-body-sm-font-size);
+}
+
+.flow-chat-composer-preview__model > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-chat-composer-preview__model > small {
+  color: var(--openbitfun-color-content-muted);
+  font: inherit;
+}
+
+.flow-chat-composer-preview__model:hover:not(:disabled) {
+  background: var(--openbitfun-color-action-neutral-surface-hover);
+}
+
+.flow-chat-composer-preview__model:focus-visible {
+  outline: var(--openbitfun-focus-width) solid var(--openbitfun-color-focus-ring);
+  outline-offset: var(--openbitfun-focus-offset);
+}
+
+.flow-chat-tool-card-preview__command {
+  display: block;
+  overflow: hidden;
+  min-inline-size: 0;
+  color: inherit;
+  font-family: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-chat-tool-card-preview__details {
+  display: grid;
+  gap: var(--openbitfun-space-2);
+  min-inline-size: 0;
+}
+
+.flow-chat-tool-card-preview__details code {
+  overflow: hidden;
+  color: var(--openbitfun-color-content-primary);
+  font-family: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-chat-tool-card-preview__details span {
+  color: var(--openbitfun-color-content-muted);
+}
+
+.flow-chat-tool-card-preview__duration {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--openbitfun-space-1);
+  color: var(--openbitfun-color-content-muted);
+}
+
+.flow-chat-tool-card-preview__duration[data-status="completed"] {
+  color: var(--openbitfun-color-status-success-content);
+}
+
+.flow-chat-tool-card-preview__duration > svg {
+  inline-size: var(--openbitfun-font-size-sm);
+  block-size: var(--openbitfun-font-size-sm);
+}
+
+.flow-chat-tool-card-preview__output,
+.flow-chat-tool-card-preview__diff {
+  display: grid;
+  gap: var(--openbitfun-space-1);
+  margin: 0;
+  color: var(--openbitfun-color-content-secondary);
+  font-size: var(--openbitfun-type-body-sm-font-size);
+  line-height: var(--openbitfun-type-body-md-line-height);
+  white-space: pre-wrap;
+}
+
+.flow-chat-tool-card-preview__output {
+  font-family: inherit;
+}
+
+.flow-chat-tool-card-preview__diff {
+  font-family: var(--openbitfun-type-code-md-font-family);
+}
+
+.flow-chat-tool-card-preview__diff [data-change="added"] {
+  color: var(--openbitfun-color-code-change-added);
+}
+
+.flow-chat-tool-card-preview__diff [data-change="removed"] {
+  color: var(--openbitfun-color-code-change-removed);
+}

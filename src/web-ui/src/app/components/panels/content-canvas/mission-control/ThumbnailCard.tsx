@@ -4,12 +4,13 @@
  */
 
 import React, { useCallback, useMemo } from 'react';
-import { X, Pin, FileCode, FileText, Image, Terminal, GitBranch } from 'lucide-react';
+import { FileCode, FileText } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Tooltip } from '@/component-library';
+
 import type { CanvasTab, EditorGroupId } from '../types';
 import { isFileViewerType } from '../types';
 import './ThumbnailCard.scss';
+import { OverflowText, Icon, Tooltip } from '@openbitfun/ui';
 
 export interface ThumbnailCardProps {
   /** Tab data */
@@ -41,13 +42,13 @@ const getContentIcon = (type: string) => {
     return <FileText size={16} />;
   }
   if (type.includes('image')) {
-    return <Image size={16} />;
+    return <Icon name="image" size="md" />;
   }
   if (type === 'terminal') {
-    return <Terminal size={16} />;
+    return <Icon name="terminal" size="md" />;
   }
   if (type.includes('git')) {
-    return <GitBranch size={16} />;
+    return <Icon name="git" size="md" />;
   }
   return <FileCode size={16} />;
 };
@@ -139,8 +140,8 @@ export const ThumbnailCard: React.FC<ThumbnailCardProps> = ({
   const stateClass = tab.state === 'pinned' ? 'is-pinned' : tab.state === 'preview' ? 'is-preview' : '';
 
   return (
-    <div data-bf-component="canvas-thumbnail" data-bf-part="root" data-bf-group={groupId}
-      data-bf-state={[
+    <div data-overflow-trigger data-openbitfun-component="canvas-thumbnail" data-openbitfun-part="root" data-openbitfun-group={groupId}
+      data-openbitfun-state={[
         isActive && 'active',
         tab.isDirty && 'dirty',
         tab.fileDeletedFromDisk && 'deleted',
@@ -155,45 +156,45 @@ export const ThumbnailCard: React.FC<ThumbnailCardProps> = ({
       onDragEnd={onDragEnd}
     >
       {/* Header */}
-      <div data-bf-component="canvas-thumbnail" data-bf-part="header" className="canvas-thumbnail-card__header">
-        <div data-bf-component="canvas-thumbnail" data-bf-part="icon" className="canvas-thumbnail-card__icon">
+      <div data-openbitfun-component="canvas-thumbnail" data-openbitfun-part="header" className="canvas-thumbnail-card__header">
+        <div data-openbitfun-component="canvas-thumbnail" data-openbitfun-part="icon" className="canvas-thumbnail-card__icon">
           {getContentIcon(tab.content.type)}
         </div>
-        <div data-bf-component="canvas-thumbnail" data-bf-part="title" className="canvas-thumbnail-card__title">
-          {tab.state === 'pinned' && <Pin size={10} className="canvas-thumbnail-card__pin-icon" />}
-          <span className={tab.state === 'preview' ? 'is-preview' : ''}>
+        <div data-openbitfun-component="canvas-thumbnail" data-openbitfun-part="title" className="canvas-thumbnail-card__title">
+          {tab.state === 'pinned' && <Icon name="pin" size="2xs" className="canvas-thumbnail-card__pin-icon" />}
+          <OverflowText className={tab.state === 'preview' ? 'is-preview' : ''}>
             {titleWithDeleted}
-          </span>
-          {tab.isDirty && <span className="canvas-thumbnail-card__dirty">●</span>}
+          </OverflowText>
+          {tab.isDirty && <OverflowText className="canvas-thumbnail-card__dirty">●</OverflowText>}
         </div>
-        <div data-bf-component="canvas-thumbnail" data-bf-part="actions" className="canvas-thumbnail-card__actions">
+        <div data-openbitfun-component="canvas-thumbnail" data-openbitfun-part="actions" className="canvas-thumbnail-card__actions">
           <Tooltip content={tab.state === 'pinned' ? t('tabs.unpin') : t('tabs.pin')}>
             <button
-              data-bf-component="canvas-thumbnail"
-              data-bf-part="action"
+              data-openbitfun-component="canvas-thumbnail"
+              data-openbitfun-part="action"
               className={`canvas-thumbnail-card__action-btn ${tab.state === 'pinned' ? 'is-active' : ''}`}
               onClick={handlePin}
             >
-              <Pin size={12} />
+              <Icon name="pin" size="xs" />
             </button>
           </Tooltip>
           <Tooltip content={t('tabs.close')}>
             <button
-              data-bf-component="canvas-thumbnail"
-              data-bf-part="action"
+              data-openbitfun-component="canvas-thumbnail"
+              data-openbitfun-part="action"
               className="canvas-thumbnail-card__action-btn canvas-thumbnail-card__close-btn"
               onClick={handleClose}
             >
-              <X size={12} />
+              <Icon name="xmark" size="xs" />
             </button>
           </Tooltip>
         </div>
       </div>
 
       {/* Preview area */}
-      <div data-bf-component="canvas-thumbnail" data-bf-part="preview" className="canvas-thumbnail-card__preview">
+      <div data-openbitfun-component="canvas-thumbnail" data-openbitfun-part="preview" className="canvas-thumbnail-card__preview">
         {isFileType ? (
-          <pre data-bf-component="canvas-thumbnail" data-bf-part="code" className="canvas-thumbnail-card__code">
+          <pre data-openbitfun-component="canvas-thumbnail" data-openbitfun-part="code" className="canvas-thumbnail-card__code">
             {previewLines.map((line, index) => (
               <div key={index} className="canvas-thumbnail-card__code-line">
                 {line || ' '}
@@ -201,7 +202,7 @@ export const ThumbnailCard: React.FC<ThumbnailCardProps> = ({
             ))}
           </pre>
         ) : (
-          <div data-bf-component="canvas-thumbnail" data-bf-part="placeholder" className="canvas-thumbnail-card__placeholder">
+          <div data-openbitfun-component="canvas-thumbnail" data-openbitfun-part="placeholder" className="canvas-thumbnail-card__placeholder">
             {getContentIcon(tab.content.type)}
             <span>{tab.content.type}</span>
           </div>
@@ -210,8 +211,8 @@ export const ThumbnailCard: React.FC<ThumbnailCardProps> = ({
 
       {/* Group badge */}
       <div 
-        data-bf-component="canvas-thumbnail"
-        data-bf-part="groupBadge"
+        data-openbitfun-component="canvas-thumbnail"
+        data-openbitfun-part="groupBadge"
         className={`canvas-thumbnail-card__group-badge canvas-thumbnail-card__group-badge--${groupId}`}
       >
         {groupLabel}

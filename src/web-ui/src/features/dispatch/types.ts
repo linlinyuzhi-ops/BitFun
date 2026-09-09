@@ -80,6 +80,8 @@ export interface DispatchWorkspaceProbe {
 }
 
 export interface DispatchProtocolProbe {
+  productId: string;
+  dataNamespace: string;
   protocolVersion: number;
   cliVersion: string;
   os: string;
@@ -270,7 +272,8 @@ export interface OutboundDispatchRecord {
  * the only thing standing between a projection change and a transcript rendered
  * by rules that no longer exist.
  */
-export const DISPATCH_TRANSCRIPT_SCHEMA_VERSION = 4;
+// v5 persists title projection metadata; old caches replay title events once.
+export const DISPATCH_TRANSCRIPT_SCHEMA_VERSION = 5;
 
 /**
  * The controller's UI cache for one observer projection.
@@ -281,6 +284,8 @@ export const DISPATCH_TRANSCRIPT_SCHEMA_VERSION = 4;
  */
 export interface DispatchTranscriptCache {
   schemaVersion: number;
+  title?: string;
+  titleSource?: 'generated' | 'manual';
   jobId: string;
   sessionId: string;
   cursor: number;

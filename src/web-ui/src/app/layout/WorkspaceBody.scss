@@ -3,15 +3,17 @@
  * elevated scene surface on the right. Panel visibility is intentionally
  * immediate because it is commonly toggled from the keyboard.
  */
+@use '../styles/workspace-shell-surfaces' as shell-surfaces;
 
-@use '../../component-library/styles/tokens.scss' as *;
-
-$_nav-width: 240px;
+$_nav-width: 300px;
 $_nav-collapsed-width: 76px;
-$_workbench-gap: 6px;
+$_nav-bar-height: var(--openbitfun-layout-toolbar-md-height);
+$_resize-target-width: 6px;
 
-.bitfun-workspace-body {
+.openbitfun-workspace-body {
   --nav-width: #{$_nav-width};
+
+  @include shell-surfaces.sidebar-background;
 
   position: relative;
   isolation: isolate;
@@ -22,13 +24,14 @@ $_workbench-gap: 6px;
   height: 100%;
   max-height: 100%;
   overflow: hidden;
-  background: var(--bf-appearance-token-color-bg-primary);
-  color: var(--bf-appearance-token-color-text-primary);
-  padding: 0 $size-gap-2 $size-gap-2 $size-gap-2;
-  gap: $size-gap-2;
+  color: var(--openbitfun-color-content-primary);
+  padding: 0;
+  gap: 0;
 }
 
-.bitfun-workspace-body__nav-area {
+.openbitfun-workspace-body__nav-area {
+  @include shell-surfaces.sidebar-background;
+
   position: relative;
   z-index: 3;
   display: flex;
@@ -47,100 +50,127 @@ $_workbench-gap: 6px;
   }
 }
 
-.bitfun-workspace-body__collapsed-nav {
+.openbitfun-workspace-body__collapsed-nav {
   position: absolute;
   top: 0;
-  left: $_workbench-gap;
-  z-index: $z-dropdown;
+  left: 0;
+  z-index: var(--openbitfun-layer-dropdown);
   width: $_nav-collapsed-width;
-  height: 38px;
+  height: $_nav-bar-height;
 }
 
-.bitfun-workspace-body__nav-divider {
+.openbitfun-workspace-body__nav-divider {
   position: absolute;
   top: 0;
-  bottom: $_workbench-gap;
-  left: calc(#{$_workbench-gap} + var(--nav-width));
+  bottom: 0;
+  // Center the resize hit target on the navigation / scene boundary. The
+  // scene surface owns the visual feedback so the hit target stays invisible.
+  left: calc(var(--nav-width) - #{$_resize-target-width * 0.5});
   z-index: 10;
-  width: $_workbench-gap;
+  width: $_resize-target-width;
   cursor: ew-resize;
   background: transparent;
-
-  &::after {
-    content: '';
-    position: absolute;
-    inset: 38px auto 0 50%;
-    width: 1px;
-    border-radius: $size-radius-full;
-    background: var(--bf-appearance-token-border-subtle);
-    opacity: 0;
-    transform: translateX(-50%);
-    transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1);
-    pointer-events: none;
-  }
 }
 
-// Active resizing state — keep line visible while dragging
-.bitfun-is-resizing-nav .bitfun-workspace-body__nav-divider::after {
-  content: '';
-  opacity: 1;
-  width: 3px;
-  background: var(--bf-appearance-token-color-accent-500);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 50%, transparent);
-}
-
-.bitfun-is-resizing-nav .bitfun-workspace-body__nav-divider::after {
-  width: 2px;
-  opacity: 1;
-  background: var(--bf-appearance-token-color-accent-500);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--bf-appearance-token-color-accent-500) 36%, transparent);
-}
-
-.bitfun-workspace-body__scene-area {
+.openbitfun-workspace-body__scene-area {
   position: relative;
   z-index: 1;
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 0;
   min-width: 0;
   height: 100%;
-  overflow: hidden;
+  overflow: visible;
   background: transparent;
 }
 
+.openbitfun-workspace-body__scene-surface {
+  --_scene-surface-radius: var(--openbitfun-layout-split-view-content-panel-radius);
+
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 var(--openbitfun-space-4);
+  overflow: hidden;
+  border-radius: var(--_scene-surface-radius) 0 0 var(--_scene-surface-radius);
+  background: var(--openbitfun-color-surface-scene);
+  box-shadow: -4px 0 12px -6px color-mix(in srgb, var(--openbitfun-color-content-muted) 8%, transparent);
+
+  :root[data-openbitfun-appearance-mode='dark'] & {
+    box-shadow: -5px 0 16px -7px color-mix(in srgb, var(--openbitfun-color-content-on-light) 30%, transparent);
+  }
+
+  // Resize feedback follows only the rounded boundary shared with navigation.
+  // Matching the marker width to the radius leaves no horizontal top/bottom
+  // runs, so this paints one continuous curve-edge-curve rather than a box.
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: var(--openbitfun-layer-decoration);
+    box-sizing: border-box;
+    width: var(--_scene-surface-radius);
+    border: 1px solid transparent;
+    border-right: 0;
+    border-radius: var(--_scene-surface-radius) 0 0 var(--_scene-surface-radius);
+    opacity: 0;
+    transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1);
+    pointer-events: none;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .openbitfun-workspace-body__nav-divider:hover ~ .openbitfun-workspace-body__scene-area {
+    .openbitfun-workspace-body__scene-surface::after {
+      border-color: var(--openbitfun-color-border-subtle);
+      opacity: 1;
+    }
+  }
+}
+
+.openbitfun-is-resizing-nav .openbitfun-workspace-body__scene-surface::after {
+  border-color: var(--openbitfun-color-border-default);
+  opacity: 1;
+}
+
 // The compact toolbar remains reachable when the navigation panel is hidden.
-.bitfun-workspace-body__nav-area.is-collapsed + .bitfun-workspace-body__scene-area {
-  .bitfun-scene-bar {
-    padding-left: calc(#{$_nav-collapsed-width} + #{$size-gap-1});
+.openbitfun-workspace-body__nav-area.is-collapsed + .openbitfun-workspace-body__scene-area {
+  .openbitfun-workspace-body__scene-surface .openbitfun-scene-top-bar {
+    padding-left: calc(#{$_nav-collapsed-width} + var(--openbitfun-space-1));
   }
 }
 
-.bitfun-app-layout--macos .bitfun-workspace-body__collapsed-nav {
-  left: calc(#{$_workbench-gap} + 72px);
+.openbitfun-app-layout--macos .openbitfun-workspace-body__collapsed-nav {
+  left: 72px;
 }
 
-.bitfun-app-layout--macos .bitfun-workspace-body__nav-area.is-collapsed + .bitfun-workspace-body__scene-area {
-  .bitfun-scene-bar {
-    padding-left: calc(#{$_nav-collapsed-width} + #{$size-gap-1} + 72px);
+.openbitfun-app-layout--macos .openbitfun-workspace-body__nav-area.is-collapsed + .openbitfun-workspace-body__scene-area {
+  .openbitfun-workspace-body__scene-surface .openbitfun-scene-top-bar {
+    padding-left: calc(#{$_nav-collapsed-width} + var(--openbitfun-space-1) + 72px);
   }
 }
 
-.bitfun-workspace-body__nav-area.is-collapsed .bitfun-nav-bar--macos .bitfun-nav-bar__logo-menu {
+.openbitfun-workspace-body__nav-area.is-collapsed .openbitfun-nav-bar--macos .openbitfun-nav-bar__logo-menu {
   display: none;
 }
 
-.bitfun-workspace-body__nav-panel {
+.openbitfun-workspace-body__nav-panel {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
 }
 
-.bitfun-is-dragging-nav-collapse,
-.bitfun-is-dragging-nav-collapse * {
+.openbitfun-is-dragging-nav-collapse,
+.openbitfun-is-dragging-nav-collapse * {
   cursor: ew-resize !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bitfun-workspace-body__nav-divider::after {
+  .openbitfun-workspace-body__scene-surface::after {
     transition: none;
   }
 }

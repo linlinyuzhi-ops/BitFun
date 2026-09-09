@@ -1,12 +1,12 @@
 use super::*;
 
 impl TaskTool {
-    pub(super) fn context_mode_from_input(input: &Value) -> BitFunResult<SubagentContextMode> {
+    pub(super) fn context_mode_from_input(input: &Value) -> OpenBitFunResult<SubagentContextMode> {
         match input.get("fork_context") {
             None | Some(Value::Null) => Ok(SubagentContextMode::Fresh),
             Some(value) => {
                 let fork_context = value.as_bool().ok_or_else(|| {
-                    BitFunError::tool("fork_context must be a boolean".to_string())
+                    OpenBitFunError::tool("fork_context must be a boolean".to_string())
                 })?;
                 Ok(if fork_context {
                     SubagentContextMode::Fork
@@ -27,6 +27,13 @@ impl TaskTool {
     }
 
     pub(super) fn validate_prompt_size(input: &Value) -> Option<ValidationResult> {
+        Self::validate_prompt_size_for_tool(input, "Task")
+    }
+
+    pub(super) fn validate_prompt_size_for_tool(
+        input: &Value,
+        tool_name: &str,
+    ) -> Option<ValidationResult> {
         let prompt = input.get("prompt").and_then(Value::as_str)?;
         let line_count = prompt.lines().count();
         let byte_count = prompt.len();
@@ -36,12 +43,21 @@ impl TaskTool {
             return None;
         }
 
-        Some(ValidationResult {
-            result: true,
-            message: Some(format!(
+        let message = if tool_name == "Task" {
+            format!(
                 "Large Task prompt: {} lines, {} bytes. This is allowed when necessary, but prefer staged delegation: split large work into multiple Task calls with clear ownership, and pass file paths, symbols, constraints, and exact questions instead of large pasted context.",
                 line_count, byte_count
-            )),
+            )
+        } else {
+            format!(
+                "Large {tool_name} prompt: {} lines, {} bytes. This is allowed when necessary, but prefer staged delegation: split large work into smaller agent turns with clear ownership, and pass file paths, symbols, constraints, and exact questions instead of large pasted context.",
+                line_count, byte_count
+            )
+        };
+
+        Some(ValidationResult {
+            result: true,
+            message: Some(message),
             error_code: None,
             meta: Some(json!({
                 "large_task_prompt": true,
@@ -73,13 +89,13 @@ impl TaskTool {
             || input.get("retry_coverage").is_some()
     }
 
-    pub(super) fn ensure_delegation_allowed(context: &ToolUseContext) -> BitFunResult<()> {
+    pub(super) fn ensure_delegation_allowed(context: &ToolUseContext) -> OpenBitFunResult<()> {
         let delegation_policy = context.delegation_policy();
         if delegation_policy.allow_subagent_spawn {
             return Ok(());
         }
 
-        Err(BitFunError::tool(
+        Err(OpenBitFunError::tool(
             "Recursive subagent delegation is blocked. Use direct tools instead.".to_string(),
         ))
     }

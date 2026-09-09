@@ -21,16 +21,24 @@ vi.mock('react-i18next', async () => {
   };
 });
 
-vi.mock('../../component-library', () => ({
+vi.mock('@openbitfun/ui', async () => ({
+  ...await vi.importActual<typeof import('@openbitfun/ui')>('@openbitfun/ui'),
+  Icon: ({ name }: { name: string }) => <span data-openbitfun-component="icon" data-openbitfun-name={name} />,
   Tooltip: ({ content, children }: { content: React.ReactNode; children: React.ReactElement }) => (
     <>
       {children}
       {content}
     </>
   ),
-  IconButton: ({ children, tooltip: _tooltip, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { tooltip?: string }) => (
-    <button type="button" {...props}>{children}</button>
-  ),
+  IconButton: ({
+    children,
+    icon,
+    tooltip: _tooltip,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    icon?: React.ReactNode;
+    tooltip?: string;
+  }) => <button type="button" {...props}>{icon ?? children}</button>,
 }));
 
 describe('CopyableTextPreview', () => {

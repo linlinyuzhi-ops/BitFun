@@ -7,11 +7,16 @@ use super::manager::{
     WorkspaceManager, WorkspaceManagerConfig, WorkspaceManagerStatistics, WorkspaceOpenOptions,
     WorkspaceStatus, WorkspaceSummary, WorkspaceType,
 };
+use super::manager::{WorkspaceIdentityRuntimeExt, WorkspaceInfoRuntimeExt};
+use super::persistence::{
+    unsupported_workspace_persistence, validate_workspace_persistence_data,
+    WorkspacePersistenceData, WORKSPACE_PERSISTENCE_FORMAT_VERSION,
+};
 use super::WorktreeTopologyFreshness;
 use crate::infrastructure::storage::{PersistenceService, StorageOptions};
 use crate::infrastructure::{try_get_path_manager_arc, PathManager};
 use crate::service::bootstrap::{
-    ensure_workspace_gitignore_ignores_bitfun, initialize_workspace_persona_files,
+    ensure_workspace_gitignore_ignores_openbitfun, initialize_workspace_persona_files,
 };
 #[cfg(feature = "git")]
 use crate::service::git::{GitError, GitWorktreeInfo};
@@ -23,11 +28,12 @@ use crate::service::workspace_runtime::{
     try_get_workspace_runtime_service_arc, WorkspaceRuntimeService,
 };
 use crate::util::errors::*;
-use bitfun_services_core::workspace_identity::{
+use log::{info, warn};
+use openbitfun_core_types::product_identity::product_id;
+use openbitfun_services_core::workspace_identity::{
     canonicalize_local_workspace_root, local_workspace_roots_equal,
     normalize_remote_workspace_path, remote_workspace_stable_id,
 };
-use log::{info, warn};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -61,7 +67,7 @@ pub struct WorkspaceCreateOptions {
     pub tags: Vec<String>,
     /// See [`crate::service::workspace::manager::WorkspaceOpenOptions::remote_connection_id`].
     pub remote_connection_id: Option<String>,
-    /// SSH `host` from connection config; used for `~/.bitfun/remote_ssh/...` and stable remote ids.
+    /// SSH `host` from connection config; used for `~/.openbitfun/remote_ssh/...` and stable remote ids.
     pub remote_ssh_host: Option<String>,
     /// Deterministic id for [`WorkspaceKind::Remote`] (host + remote path hash).
     pub stable_workspace_id: Option<String>,
@@ -118,21 +124,21 @@ struct AssistantWorkspaceDescriptor {
 }
 
 impl WorkspaceService {
-    fn normalize_workspace_name(name: String) -> BitFunResult<String> {
+    fn normalize_workspace_name(name: String) -> OpenBitFunResult<String> {
         let name = name.trim();
 
         if name.is_empty() {
-            return Err(BitFunError::service("Workspace name cannot be empty"));
+            return Err(OpenBitFunError::service("Workspace name cannot be empty"));
         }
 
         if name.chars().any(char::is_control) {
-            return Err(BitFunError::service(
+            return Err(OpenBitFunError::service(
                 "Workspace name cannot contain control characters",
             ));
         }
 
         if name.chars().count() > MAX_WORKSPACE_NAME_CHARS {
-            return Err(BitFunError::service(format!(
+            return Err(OpenBitFunError::service(format!(
                 "Workspace name cannot exceed {MAX_WORKSPACE_NAME_CHARS} characters"
             )));
         }
@@ -183,9 +189,10 @@ impl WorkspaceService {
             return;
         }
 
-        if let Err(e) = ensure_workspace_gitignore_ignores_bitfun(&workspace.root_path).await {
+        if let Err(e) = ensure_workspace_gitignore_ignores_openbitfun(&workspace.root_path).await {
             warn!(
-                "Failed to ensure workspace .gitignore ignores .bitfun: workspace_path={} trigger={} error={}",
+                "Failed to ensure workspace .gitignore ignores {}: workspace_path={} trigger={} error={}",
+                openbitfun_core_types::product_identity::hidden_data_directory(),
                 workspace.root_path.display(),
                 trigger,
                 e
@@ -240,13 +247,13 @@ impl WorkspaceService {
     }
 
     /// Creates a new workspace service.
-    pub async fn new() -> BitFunResult<Self> {
+    pub async fn new() -> OpenBitFunResult<Self> {
         let config = WorkspaceManagerConfig::default();
         Self::with_config(config).await
     }
 
     /// Creates a workspace service with a custom configuration.
-    pub async fn with_config(config: WorkspaceManagerConfig) -> BitFunResult<Self> {
+    pub async fn with_config(config: WorkspaceManagerConfig) -> OpenBitFunResult<Self> {
         let path_manager = try_get_path_manager_arc()?;
         let runtime_service = try_get_workspace_runtime_service_arc()?;
 
@@ -256,7 +263,7 @@ impl WorkspaceService {
             PersistenceService::new_user_level(path_manager.clone())
                 .await
                 .map_err(|e| {
-                    BitFunError::service(format!("Failed to create persistence service: {}", e))
+                    OpenBitFunError::service(format!("Failed to create persistence service: {}", e))
                 })?,
         );
 
@@ -270,16 +277,7 @@ impl WorkspaceService {
             runtime_service,
         };
 
-        if let Err(e) = service.load_workspace_history_only().await {
-            warn!("Failed to load workspace history on startup: {}", e);
-        }
-
-        if let Err(e) = service.remap_legacy_assistant_workspace_records().await {
-            warn!(
-                "Failed to remap legacy assistant workspace records on startup: {}",
-                e
-            );
-        }
+        service.load_workspace_history_only().await?;
 
         if let Err(e) = service.ensure_assistant_workspaces().await {
             warn!("Failed to ensure assistant workspaces on startup: {}", e);
@@ -325,7 +323,7 @@ impl WorkspaceService {
     }
 
     /// Opens a workspace.
-    pub async fn open_workspace(&self, path: PathBuf) -> BitFunResult<WorkspaceInfo> {
+    pub async fn open_workspace(&self, path: PathBuf) -> OpenBitFunResult<WorkspaceInfo> {
         self.open_workspace_with_options(path, WorkspaceCreateOptions::default())
             .await
     }
@@ -342,7 +340,7 @@ impl WorkspaceService {
         path: PathBuf,
         preferred_connection_id: Option<&str>,
         preferred_ssh_host: Option<&str>,
-    ) -> BitFunResult<WorkspaceInfo> {
+    ) -> OpenBitFunResult<WorkspaceInfo> {
         let path_str = path.to_string_lossy().to_string();
         let known = self
             .find_known_remote_workspace_for_path(
@@ -359,7 +357,7 @@ impl WorkspaceService {
         &self,
         path: PathBuf,
         known_remote: Option<WorkspaceInfo>,
-    ) -> BitFunResult<WorkspaceInfo> {
+    ) -> OpenBitFunResult<WorkspaceInfo> {
         let path_str = path.to_string_lossy().to_string();
         if let Some(known) = known_remote {
             return self.open_known_remote_workspace(&known).await;
@@ -369,10 +367,10 @@ impl WorkspaceService {
             Err(error) => {
                 let message = error.to_string();
                 if message.contains("Workspace path does not exist") {
-                    Err(BitFunError::service(format!(
+                    Err(OpenBitFunError::service(format!(
                         "Workspace path does not exist locally and is not a known remote SSH \
                          workspace: {path_str}. Open it once from the desktop SSH remote UI so \
-                         BitFun can remember the connection, then try again."
+                         OpenBitFun can remember the connection, then try again."
                     )))
                 } else {
                     Err(error)
@@ -386,11 +384,11 @@ impl WorkspaceService {
         &self,
         path: PathBuf,
         options: WorkspaceCreateOptions,
-    ) -> BitFunResult<WorkspaceInfo> {
+    ) -> OpenBitFunResult<WorkspaceInfo> {
         let options = self.normalize_workspace_options_for_path(&path, options);
         #[cfg(not(feature = "remote-workspace"))]
         if options.workspace_kind == WorkspaceKind::Remote {
-            return Err(BitFunError::service(
+            return Err(OpenBitFunError::service(
                 "Remote workspace support is not compiled into this product profile",
             ));
         }
@@ -487,9 +485,9 @@ impl WorkspaceService {
     async fn open_known_remote_workspace(
         &self,
         known: &WorkspaceInfo,
-    ) -> BitFunResult<WorkspaceInfo> {
+    ) -> OpenBitFunResult<WorkspaceInfo> {
         let connection_id = known.remote_ssh_connection_id().ok_or_else(|| {
-            BitFunError::service(format!(
+            OpenBitFunError::service(format!(
                 "Remote workspace is missing connectionId metadata: {}",
                 known.id
             ))
@@ -501,7 +499,7 @@ impl WorkspaceService {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| {
-                BitFunError::service(format!(
+                OpenBitFunError::service(format!(
                     "Remote workspace is missing sshHost metadata: {}",
                     known.id
                 ))
@@ -591,7 +589,7 @@ impl WorkspaceService {
         path: PathBuf,
         options: WorkspaceCreateOptions,
         mode: WorkspaceActivityMode,
-    ) -> BitFunResult<WorkspaceInfo> {
+    ) -> OpenBitFunResult<WorkspaceInfo> {
         let mut options = self.normalize_workspace_options_for_path(&path, options);
         options.auto_set_current = false;
         let refresh_worktree = match mode {
@@ -659,7 +657,7 @@ impl WorkspaceService {
     }
 
     /// Quickly opens a workspace (using default options).
-    pub async fn quick_open(&self, path: &str) -> BitFunResult<WorkspaceInfo> {
+    pub async fn quick_open(&self, path: &str) -> OpenBitFunResult<WorkspaceInfo> {
         let path_buf = PathBuf::from(path);
         self.open_workspace(path_buf).await
     }
@@ -669,10 +667,10 @@ impl WorkspaceService {
         &self,
         path: PathBuf,
         options: WorkspaceCreateOptions,
-    ) -> BitFunResult<WorkspaceInfo> {
+    ) -> OpenBitFunResult<WorkspaceInfo> {
         if !path.exists() {
             tokio::fs::create_dir_all(&path).await.map_err(|e| {
-                BitFunError::service(format!("Failed to create workspace directory: {}", e))
+                OpenBitFunError::service(format!("Failed to create workspace directory: {}", e))
             })?;
         }
 
@@ -702,7 +700,7 @@ impl WorkspaceService {
     pub async fn create_assistant_workspace(
         &self,
         assistant_id: Option<String>,
-    ) -> BitFunResult<WorkspaceInfo> {
+    ) -> OpenBitFunResult<WorkspaceInfo> {
         let assistant_id = match assistant_id {
             Some(id) if !id.trim().is_empty() => id.trim().to_string(),
             _ => self.generate_assistant_workspace_id().await?,
@@ -722,7 +720,7 @@ impl WorkspaceService {
 
         if !path.exists() {
             fs::create_dir_all(&path).await.map_err(|e| {
-                BitFunError::service(format!(
+                OpenBitFunError::service(format!(
                     "Failed to create assistant workspace directory '{}': {}",
                     path.display(),
                     e
@@ -746,7 +744,7 @@ impl WorkspaceService {
     }
 
     /// Closes the current workspace.
-    pub async fn close_current_workspace(&self) -> BitFunResult<()> {
+    pub async fn close_current_workspace(&self) -> OpenBitFunResult<()> {
         let result = {
             let mut manager = self.manager.write().await;
             manager.close_current_workspace()
@@ -762,7 +760,7 @@ impl WorkspaceService {
     }
 
     /// Closes the specified workspace.
-    pub async fn close_workspace(&self, workspace_id: &str) -> BitFunResult<()> {
+    pub async fn close_workspace(&self, workspace_id: &str) -> OpenBitFunResult<()> {
         let result = {
             let mut manager = self.manager.write().await;
             manager.close_workspace(workspace_id)
@@ -778,7 +776,7 @@ impl WorkspaceService {
     }
 
     /// Sets the active workspace from the opened workspace list.
-    pub async fn set_active_workspace(&self, workspace_id: &str) -> BitFunResult<()> {
+    pub async fn set_active_workspace(&self, workspace_id: &str) -> OpenBitFunResult<()> {
         let result = {
             let mut manager = self.manager.write().await;
             manager.set_active_workspace(workspace_id)
@@ -804,14 +802,17 @@ impl WorkspaceService {
     }
 
     /// Reorders the opened workspaces without changing active or recent state.
-    pub async fn reorder_opened_workspaces(&self, workspace_ids: Vec<String>) -> BitFunResult<()> {
+    pub async fn reorder_opened_workspaces(
+        &self,
+        workspace_ids: Vec<String>,
+    ) -> OpenBitFunResult<()> {
         let current_ids = {
             let manager = self.manager.read().await;
             manager.get_opened_workspace_ids().clone()
         };
 
         if workspace_ids.len() != current_ids.len() {
-            return Err(BitFunError::service(format!(
+            return Err(OpenBitFunError::service(format!(
                 "Opened workspace count mismatch: expected {}, got {}",
                 current_ids.len(),
                 workspace_ids.len()
@@ -820,14 +821,14 @@ impl WorkspaceService {
 
         let requested_ids = workspace_ids.iter().cloned().collect::<HashSet<_>>();
         if requested_ids.len() != workspace_ids.len() {
-            return Err(BitFunError::service(
+            return Err(OpenBitFunError::service(
                 "Opened workspace order contains duplicate ids".to_string(),
             ));
         }
 
         let current_id_set = current_ids.iter().cloned().collect::<HashSet<_>>();
         if requested_ids != current_id_set {
-            return Err(BitFunError::service(
+            return Err(OpenBitFunError::service(
                 "Opened workspace order must contain exactly the currently opened workspace ids"
                     .to_string(),
             ));
@@ -848,7 +849,7 @@ impl WorkspaceService {
     }
 
     /// Switches to the specified workspace.
-    pub async fn switch_to_workspace(&self, workspace_id: &str) -> BitFunResult<()> {
+    pub async fn switch_to_workspace(&self, workspace_id: &str) -> OpenBitFunResult<()> {
         self.set_active_workspace(workspace_id).await
     }
 
@@ -908,7 +909,7 @@ impl WorkspaceService {
     /// `metadata["sshHost"]` for a remote workspace matching `connection_id` and normalized remote root.
     ///
     /// Used when session APIs receive `remote_connection_id` but the client omitted `remote_ssh_host`:
-    /// session files live under `~/.bitfun/remote_ssh/{sshHost}/...`, not the legacy per-connection tree.
+    /// session files live under `~/.openbitfun/remote_ssh/{sshHost}/...`, not the legacy per-connection tree.
     /// This reads only persisted workspace records (no filesystem guessing, no DNS).
     pub async fn remote_ssh_host_for_remote_workspace(
         &self,
@@ -965,14 +966,14 @@ impl WorkspaceService {
     pub async fn set_primary_assistant_workspace(
         &self,
         workspace_id: &str,
-    ) -> BitFunResult<WorkspaceInfo> {
+    ) -> OpenBitFunResult<WorkspaceInfo> {
         let (workspace, previous_key) = {
             let mut manager = self.manager.write().await;
             let workspace = manager
                 .get_workspace(workspace_id)
                 .cloned()
                 .ok_or_else(|| {
-                    BitFunError::service(format!("Workspace not found: {}", workspace_id))
+                    OpenBitFunError::service(format!("Workspace not found: {}", workspace_id))
                 })?;
             let previous_key = manager.set_primary_assistant_workspace(workspace_id)?;
             (workspace, previous_key)
@@ -1057,7 +1058,7 @@ impl WorkspaceService {
     }
 
     /// Drops a workspace from recent lists only (workspace record and open state unchanged).
-    pub async fn remove_workspace_from_recent(&self, workspace_id: &str) -> BitFunResult<()> {
+    pub async fn remove_workspace_from_recent(&self, workspace_id: &str) -> OpenBitFunResult<()> {
         let changed = {
             let mut manager = self.manager.write().await;
             manager.remove_from_recent_workspaces_only(workspace_id)
@@ -1107,7 +1108,7 @@ impl WorkspaceService {
     pub async fn batch_remove_workspaces(
         &self,
         workspace_ids: Vec<String>,
-    ) -> BitFunResult<BatchRemoveResult> {
+    ) -> OpenBitFunResult<BatchRemoveResult> {
         let mut result = BatchRemoveResult {
             successful: Vec::new(),
             failed: Vec::new(),
@@ -1125,13 +1126,13 @@ impl WorkspaceService {
     }
 
     /// Rescans a workspace.
-    pub async fn rescan_workspace(&self, workspace_id: &str) -> BitFunResult<WorkspaceInfo> {
+    pub async fn rescan_workspace(&self, workspace_id: &str) -> OpenBitFunResult<WorkspaceInfo> {
         let workspace_path = {
             let manager = self.manager.read().await;
             if let Some(workspace) = manager.get_workspace(workspace_id) {
                 workspace.root_path.clone()
             } else {
-                return Err(BitFunError::service(format!(
+                return Err(OpenBitFunError::service(format!(
                     "Workspace not found: {}",
                     workspace_id
                 )));
@@ -1143,7 +1144,7 @@ impl WorkspaceService {
             manager.get_workspace(workspace_id).cloned()
         };
         let Some(existing_workspace) = existing_workspace else {
-            return Err(BitFunError::service(format!(
+            return Err(OpenBitFunError::service(format!(
                 "Workspace not found: {}",
                 workspace_id
             )));
@@ -1201,12 +1202,14 @@ impl WorkspaceService {
     pub async fn refresh_workspace_identity(
         &self,
         workspace_id: &str,
-    ) -> BitFunResult<Option<WorkspaceIdentityChangedEvent>> {
+    ) -> OpenBitFunResult<Option<WorkspaceIdentityChangedEvent>> {
         let workspace = {
             let manager = self.manager.read().await;
             manager.get_workspace(workspace_id).cloned()
         }
-        .ok_or_else(|| BitFunError::service(format!("Workspace not found: {}", workspace_id)))?;
+        .ok_or_else(|| {
+            OpenBitFunError::service(format!("Workspace not found: {}", workspace_id))
+        })?;
 
         if workspace.workspace_kind != WorkspaceKind::Assistant {
             return Ok(None);
@@ -1246,7 +1249,7 @@ impl WorkspaceService {
                 .get_workspaces_mut()
                 .get_mut(workspace_id)
                 .ok_or_else(|| {
-                    BitFunError::service(format!("Workspace not found: {}", workspace_id))
+                    OpenBitFunError::service(format!("Workspace not found: {}", workspace_id))
                 })?;
 
             workspace.identity = updated_identity.clone();
@@ -1274,7 +1277,7 @@ impl WorkspaceService {
         &self,
         workspace_id: &str,
         updates: WorkspaceInfoUpdates,
-    ) -> BitFunResult<WorkspaceInfo> {
+    ) -> OpenBitFunResult<WorkspaceInfo> {
         let WorkspaceInfoUpdates {
             name,
             description,
@@ -1294,7 +1297,7 @@ impl WorkspaceService {
                 .get(workspace_id)
                 .cloned()
                 .ok_or_else(|| {
-                    BitFunError::service(format!("Workspace not found: {}", workspace_id))
+                    OpenBitFunError::service(format!("Workspace not found: {}", workspace_id))
                 })?
         };
 
@@ -1312,7 +1315,7 @@ impl WorkspaceService {
                 .get_workspaces_mut()
                 .get_mut(workspace_id)
                 .ok_or_else(|| {
-                    BitFunError::service(format!("Workspace not found: {}", workspace_id))
+                    OpenBitFunError::service(format!("Workspace not found: {}", workspace_id))
                 })?;
 
             if let Some(name) = normalized_name {
@@ -1344,7 +1347,7 @@ impl WorkspaceService {
         &self,
         workspace: &WorkspaceInfo,
         related_paths: Vec<RelatedPath>,
-    ) -> BitFunResult<Vec<RelatedPath>> {
+    ) -> OpenBitFunResult<Vec<RelatedPath>> {
         let mut normalized = Vec::with_capacity(related_paths.len());
         let mut seen_paths = HashSet::new();
 
@@ -1354,20 +1357,20 @@ impl WorkspaceService {
                 let connection_id = workspace
                     .remote_ssh_connection_id()
                     .ok_or_else(|| {
-                        BitFunError::service(format!(
+                        OpenBitFunError::service(format!(
                             "Remote workspace is missing connectionId metadata: {}",
                             workspace.id
                         ))
                     })?
                     .to_string();
                 let remote_manager = get_remote_workspace_manager().ok_or_else(|| {
-                    BitFunError::service(
+                    OpenBitFunError::service(
                         "Remote workspace manager is unavailable for related path validation"
                             .to_string(),
                     )
                 })?;
                 let file_service = remote_manager.get_file_service().await.ok_or_else(|| {
-                    BitFunError::service(
+                    OpenBitFunError::service(
                         "Remote file service is unavailable for related path validation"
                             .to_string(),
                     )
@@ -1378,7 +1381,7 @@ impl WorkspaceService {
                         Self::normalize_related_path_description(related_path.description);
                     let path = normalize_remote_workspace_path(related_path.path.trim());
                     if path.is_empty() {
-                        return Err(BitFunError::service(
+                        return Err(OpenBitFunError::service(
                             "Related directory path cannot be empty".to_string(),
                         ));
                     }
@@ -1390,13 +1393,13 @@ impl WorkspaceService {
                         .exists(&connection_id, &path)
                         .await
                         .map_err(|error| {
-                            BitFunError::service(format!(
+                            OpenBitFunError::service(format!(
                                 "Failed to validate remote related directory '{}': {}",
                                 path, error
                             ))
                         })?
                     {
-                        return Err(BitFunError::service(format!(
+                        return Err(OpenBitFunError::service(format!(
                             "Remote related directory does not exist: {}",
                             path
                         )));
@@ -1406,13 +1409,13 @@ impl WorkspaceService {
                         .is_dir(&connection_id, &path)
                         .await
                         .map_err(|error| {
-                            BitFunError::service(format!(
+                            OpenBitFunError::service(format!(
                                 "Failed to inspect remote related directory '{}': {}",
                                 path, error
                             ))
                         })?
                     {
-                        return Err(BitFunError::service(format!(
+                        return Err(OpenBitFunError::service(format!(
                             "Remote related path is not a directory: {}",
                             path
                         )));
@@ -1423,7 +1426,7 @@ impl WorkspaceService {
             }
             #[cfg(not(feature = "remote-workspace"))]
             WorkspaceKind::Remote => {
-                return Err(BitFunError::service(
+                return Err(OpenBitFunError::service(
                     "Remote workspace related paths require the remote-workspace feature",
                 ));
             }
@@ -1433,7 +1436,7 @@ impl WorkspaceService {
                         Self::normalize_related_path_description(related_path.description);
                     let raw_path = related_path.path.trim();
                     if raw_path.is_empty() {
-                        return Err(BitFunError::service(
+                        return Err(OpenBitFunError::service(
                             "Related directory path cannot be empty".to_string(),
                         ));
                     }
@@ -1441,12 +1444,12 @@ impl WorkspaceService {
                     let path_buf = PathBuf::from(raw_path);
                     let (canonical_path, normalized_key) =
                         canonicalize_local_workspace_root(&path_buf)
-                            .map_err(BitFunError::service)?;
+                            .map_err(OpenBitFunError::service)?;
 
                     let metadata = tokio::fs::metadata(&canonical_path)
                         .await
                         .map_err(|error| {
-                            BitFunError::service(format!(
+                            OpenBitFunError::service(format!(
                                 "Failed to inspect related directory '{}': {}",
                                 canonical_path.display(),
                                 error
@@ -1454,7 +1457,7 @@ impl WorkspaceService {
                         })?;
 
                     if !metadata.is_dir() {
-                        return Err(BitFunError::service(format!(
+                        return Err(OpenBitFunError::service(format!(
                             "Related path is not a directory: {}",
                             canonical_path.display()
                         )));
@@ -1490,7 +1493,7 @@ impl WorkspaceService {
     pub async fn batch_import_workspaces(
         &self,
         paths: Vec<String>,
-    ) -> BitFunResult<BatchImportResult> {
+    ) -> OpenBitFunResult<BatchImportResult> {
         let mut result = BatchImportResult {
             successful: Vec::new(),
             failed: Vec::new(),
@@ -1543,7 +1546,7 @@ impl WorkspaceService {
     }
 
     /// Cleans up invalid workspaces.
-    pub async fn cleanup_invalid_workspaces(&self) -> BitFunResult<usize> {
+    pub async fn cleanup_invalid_workspaces(&self) -> OpenBitFunResult<usize> {
         let removed_count = {
             let mut manager = self.manager.write().await;
             manager.cleanup_invalid_workspaces().await
@@ -1571,7 +1574,7 @@ impl WorkspaceService {
     }
 
     /// Runs a health check.
-    pub async fn health_check(&self) -> BitFunResult<WorkspaceHealthStatus> {
+    pub async fn health_check(&self) -> OpenBitFunResult<WorkspaceHealthStatus> {
         let stats = self.get_statistics().await;
 
         let mut warnings = Vec::new();
@@ -1618,7 +1621,7 @@ impl WorkspaceService {
     }
 
     /// Exports workspace configuration.
-    pub async fn export_workspaces(&self) -> BitFunResult<WorkspaceExport> {
+    pub async fn export_workspaces(&self) -> OpenBitFunResult<WorkspaceExport> {
         let manager = self.manager.read().await;
         let workspaces: Vec<WorkspaceInfo> = manager.get_workspaces().values().cloned().collect();
         let current_workspace_id = manager.get_current_workspace().map(|w| w.id.clone());
@@ -1648,7 +1651,7 @@ impl WorkspaceService {
         &self,
         export: WorkspaceExport,
         overwrite: bool,
-    ) -> BitFunResult<WorkspaceImportResult> {
+    ) -> OpenBitFunResult<WorkspaceImportResult> {
         let imported_primary_key = export.primary_assistant_key.clone();
         let mut result = WorkspaceImportResult {
             imported_workspaces: 0,
@@ -1731,10 +1734,12 @@ impl WorkspaceService {
     }
 
     /// Saves workspace data locally.
-    async fn save_workspace_data(&self) -> BitFunResult<()> {
+    async fn save_workspace_data(&self) -> OpenBitFunResult<()> {
         let manager = self.manager.read().await;
 
         let workspace_data = WorkspacePersistenceData {
+            format_version: WORKSPACE_PERSISTENCE_FORMAT_VERSION,
+            product_id: product_id().to_string(),
             workspaces: manager.get_workspaces().clone(),
             opened_workspace_ids: manager.get_opened_workspace_ids().clone(),
             current_workspace_id: manager.get_current_workspace().map(|w| w.id.clone()),
@@ -1747,156 +1752,48 @@ impl WorkspaceService {
         self.persistence
             .save_json("workspace_data", &workspace_data, StorageOptions::default())
             .await
-            .map_err(|e| BitFunError::service(format!("Failed to save workspace data: {}", e)))?;
-
-        Ok(())
-    }
-
-    /// Loads workspace data from local storage.
-    #[allow(dead_code)]
-    async fn load_workspace_data(&self) -> BitFunResult<()> {
-        let workspace_data: Option<WorkspacePersistenceData> = self
-            .persistence
-            .load_json("workspace_data")
-            .await
-            .map_err(|e| BitFunError::service(format!("Failed to load workspace data: {}", e)))?;
-
-        if let Some(data) = workspace_data {
-            let mut manager = self.manager.write().await;
-
-            *manager.get_workspaces_mut() = data.workspaces;
-            manager.set_opened_workspace_ids(data.opened_workspace_ids);
-            manager.set_recent_workspaces(data.recent_workspaces);
-            manager.set_recent_assistant_workspaces(data.recent_assistant_workspaces);
-            manager.set_primary_assistant_key(data.primary_assistant_key);
-            let id_remap = manager.migrate_local_workspace_ids_to_stable_storage();
-
-            if let Some(raw_current) = data.current_workspace_id {
-                let current_id = id_remap.get(&raw_current).cloned().unwrap_or(raw_current);
-                if let Some(workspace) = manager.get_workspaces().get(&current_id) {
-                    if workspace.is_valid().await {
-                        if let Err(e) = manager.set_current_workspace(current_id) {
-                            warn!("Failed to restore current workspace: {}", e);
-                        }
-                    } else {
-                        warn!("Current workspace path no longer valid, skipping restore");
-                    }
-                }
-            }
-
-            info!(
-                "Loaded {} workspaces from local storage",
-                manager.get_workspaces().len()
-            );
-        } else {
-            info!("No saved workspace data found, starting fresh");
-        }
+            .map_err(|e| {
+                OpenBitFunError::service(format!("Failed to save workspace data: {}", e))
+            })?;
 
         Ok(())
     }
 
     /// Loads workspace history only without restoring the current workspace (used on startup).
-    async fn load_workspace_history_only(&self) -> BitFunResult<()> {
+    async fn load_workspace_history_only(&self) -> OpenBitFunResult<()> {
         let workspace_data: Option<WorkspacePersistenceData> = self
             .persistence
             .load_json("workspace_data")
             .await
-            .map_err(|e| BitFunError::service(format!("Failed to load workspace data: {}", e)))?;
-
-        let mut workspaces_to_restore = Vec::new();
-        let mut should_persist_cleaned_history = false;
+            .map_err(|e| {
+                OpenBitFunError::service(format!("Failed to load workspace data: {}", e))
+            })?;
 
         if let Some(data) = workspace_data {
+            validate_workspace_persistence_data(&data, &self.path_manager.miniapps_dir())?;
+
             let mut manager = self.manager.write().await;
-
-            let mut workspaces = data.workspaces;
-            let original_workspace_count = workspaces.len();
-            // Filter out legacy remote workspaces that don't have the required metadata (sshHost and connectionId)
-            workspaces.retain(|_id, ws| {
-                if ws.workspace_kind == WorkspaceKind::Remote {
-                    // Check if this remote workspace has the required metadata
-                    let has_ssh_host = ws.metadata.get("sshHost").and_then(|v| v.as_str()).is_some_and(|s| !s.trim().is_empty());
-                    let has_connection_id = ws.metadata.get("connectionId").and_then(|v| v.as_str()).is_some_and(|s| !s.trim().is_empty());
-                    if !has_ssh_host || !has_connection_id {
-                        // Skip this legacy remote workspace
-                        info!("Skipping legacy remote workspace without required metadata: id={}, root_path={}", _id, ws.root_path.display());
-                        return false;
-                    }
-                }
-                true
-            });
-            if workspaces.len() != original_workspace_count {
-                should_persist_cleaned_history = true;
-            }
-
-            *manager.get_workspaces_mut() = workspaces;
-            // Also filter opened/recent lists to remove references to removed legacy workspaces
-            let filtered_opened_ids: Vec<String> = data
-                .opened_workspace_ids
-                .clone()
-                .into_iter()
-                .filter(|id| manager.get_workspaces().contains_key(id))
-                .collect();
-            if filtered_opened_ids != data.opened_workspace_ids {
-                should_persist_cleaned_history = true;
-            }
-            manager.set_opened_workspace_ids(filtered_opened_ids);
-
-            let filtered_recent: Vec<String> = data
-                .recent_workspaces
-                .clone()
-                .into_iter()
-                .filter(|id| {
-                    manager.get_workspaces().get(id).is_some_and(|workspace| {
-                        // Drop MiniApp-owned workspaces recorded before they were excluded.
-                        !self.is_miniapp_owned_path(&workspace.root_path)
-                    })
-                })
-                .collect();
-            if filtered_recent != data.recent_workspaces {
-                should_persist_cleaned_history = true;
-            }
-            manager.set_recent_workspaces(filtered_recent);
-
-            let filtered_recent_assistant: Vec<String> = data
-                .recent_assistant_workspaces
-                .clone()
-                .into_iter()
-                .filter(|id| manager.get_workspaces().contains_key(id))
-                .collect();
-            if filtered_recent_assistant != data.recent_assistant_workspaces {
-                should_persist_cleaned_history = true;
-            }
-            manager.set_recent_assistant_workspaces(filtered_recent_assistant);
+            *manager.get_workspaces_mut() = data.workspaces;
+            manager.set_opened_workspace_ids(data.opened_workspace_ids);
+            manager.set_recent_workspaces(data.recent_workspaces);
+            manager.set_recent_assistant_workspaces(data.recent_assistant_workspaces);
             manager.set_primary_assistant_key(data.primary_assistant_key);
 
-            let id_remap = manager.migrate_local_workspace_ids_to_stable_storage();
-            if !id_remap.is_empty() {
-                should_persist_cleaned_history = true;
-            }
-
-            let raw_current = data
-                .current_workspace_id
-                .or_else(|| data.opened_workspace_ids.first().cloned());
-
-            if let Some(raw) = raw_current {
-                let current_id = id_remap.get(&raw).cloned().unwrap_or(raw);
-                if manager.get_workspaces().contains_key(&current_id) {
-                    if let Err(e) = manager.set_current_workspace(current_id) {
-                        warn!("Failed to restore current workspace on startup: {}", e);
-                    }
+            if let Some(current_id) = data.current_workspace_id {
+                if let Err(e) = manager.set_current_workspace(current_id) {
+                    return Err(unsupported_workspace_persistence(format!(
+                        "current workspace could not be restored: {e}"
+                    )));
                 }
             }
 
-            workspaces_to_restore = Self::collect_startup_restored_workspaces(&manager);
+            let workspaces_to_restore = Self::collect_startup_restored_workspaces(&manager);
+            drop(manager);
+            self.prepare_startup_restored_workspaces(workspaces_to_restore)
+                .await;
+        } else {
+            info!("No saved workspace data found, starting fresh");
         }
-
-        if should_persist_cleaned_history {
-            self.save_workspace_data().await?;
-        }
-
-        self.prepare_startup_restored_workspaces(workspaces_to_restore)
-            .await;
 
         Ok(())
     }
@@ -1922,7 +1819,7 @@ impl WorkspaceService {
         }
     }
 
-    async fn generate_assistant_workspace_id(&self) -> BitFunResult<String> {
+    async fn generate_assistant_workspace_id(&self) -> OpenBitFunResult<String> {
         for _ in 0..32 {
             let assistant_id = uuid::Uuid::new_v4()
                 .simple()
@@ -1935,7 +1832,7 @@ impl WorkspaceService {
                 .assistant_workspace_dir(&assistant_id, None);
 
             if fs::try_exists(&path).await.map_err(|e| {
-                BitFunError::service(format!(
+                OpenBitFunError::service(format!(
                     "Failed to check assistant workspace path '{}': {}",
                     path.display(),
                     e
@@ -1949,7 +1846,7 @@ impl WorkspaceService {
             }
         }
 
-        Err(BitFunError::service(
+        Err(OpenBitFunError::service(
             "Failed to allocate a unique assistant workspace id".to_string(),
         ))
     }
@@ -1980,198 +1877,6 @@ impl WorkspaceService {
             assistant_id: Some(assistant_id.to_string()),
             display_name: Self::assistant_display_name(Some(assistant_id)),
         })
-    }
-
-    fn legacy_assistant_descriptor_from_path(
-        &self,
-        path: &Path,
-    ) -> Option<AssistantWorkspaceDescriptor> {
-        let default_workspace = self
-            .path_manager
-            .legacy_default_assistant_workspace_dir(None);
-        if path == default_workspace {
-            return Some(AssistantWorkspaceDescriptor {
-                path: path.to_path_buf(),
-                assistant_id: None,
-                display_name: Self::assistant_display_name(None),
-            });
-        }
-
-        let assistant_root = self.path_manager.legacy_assistant_workspace_base_dir(None);
-        if path.parent()? != assistant_root {
-            return None;
-        }
-
-        let file_name = path.file_name()?.to_string_lossy();
-        let assistant_id = file_name.strip_prefix("workspace-")?;
-        if assistant_id.trim().is_empty() {
-            return None;
-        }
-
-        Some(AssistantWorkspaceDescriptor {
-            path: path.to_path_buf(),
-            assistant_id: Some(assistant_id.to_string()),
-            display_name: Self::assistant_display_name(Some(assistant_id)),
-        })
-    }
-
-    async fn remap_legacy_assistant_workspace_records(&self) -> BitFunResult<()> {
-        let mut changed = false;
-        let mut manager = self.manager.write().await;
-
-        for workspace in manager.get_workspaces_mut().values_mut() {
-            let Some(descriptor) = self.legacy_assistant_descriptor_from_path(&workspace.root_path)
-            else {
-                continue;
-            };
-            let new_path = self
-                .path_manager
-                .resolve_assistant_workspace_dir(descriptor.assistant_id.as_deref(), None);
-
-            if workspace.root_path != new_path {
-                info!(
-                    "Remap legacy assistant workspace record: workspace_id={}, from={}, to={}",
-                    workspace.id,
-                    workspace.root_path.display(),
-                    new_path.display()
-                );
-                workspace.root_path = new_path;
-                changed = true;
-            }
-
-            if workspace.workspace_kind != WorkspaceKind::Assistant {
-                workspace.workspace_kind = WorkspaceKind::Assistant;
-                changed = true;
-            }
-
-            if workspace.assistant_id != descriptor.assistant_id {
-                workspace.assistant_id = descriptor.assistant_id.clone();
-                changed = true;
-            }
-        }
-
-        drop(manager);
-
-        if changed {
-            self.save_workspace_data().await?;
-        }
-
-        Ok(())
-    }
-
-    async fn migrate_legacy_assistant_workspaces(&self) -> BitFunResult<()> {
-        let assistant_root = self.path_manager.assistant_workspace_base_dir(None);
-        fs::create_dir_all(&assistant_root).await.map_err(|e| {
-            BitFunError::service(format!(
-                "Failed to create assistant workspace root '{}': {}",
-                assistant_root.display(),
-                e
-            ))
-        })?;
-
-        let legacy_root = self.path_manager.legacy_assistant_workspace_base_dir(None);
-        let default_legacy_workspace = self
-            .path_manager
-            .legacy_default_assistant_workspace_dir(None);
-        let default_workspace = self.path_manager.default_assistant_workspace_dir(None);
-
-        if fs::try_exists(&default_legacy_workspace)
-            .await
-            .map_err(|e| {
-                BitFunError::service(format!(
-                    "Failed to inspect legacy assistant workspace '{}': {}",
-                    default_legacy_workspace.display(),
-                    e
-                ))
-            })?
-            && !fs::try_exists(&default_workspace).await.map_err(|e| {
-                BitFunError::service(format!(
-                    "Failed to inspect assistant workspace '{}': {}",
-                    default_workspace.display(),
-                    e
-                ))
-            })?
-        {
-            fs::rename(&default_legacy_workspace, &default_workspace)
-                .await
-                .map_err(|e| {
-                    BitFunError::service(format!(
-                        "Failed to migrate assistant workspace '{}' to '{}': {}",
-                        default_legacy_workspace.display(),
-                        default_workspace.display(),
-                        e
-                    ))
-                })?;
-            info!(
-                "Migrated default assistant workspace: from={}, to={}",
-                default_legacy_workspace.display(),
-                default_workspace.display()
-            );
-        }
-
-        let mut entries = fs::read_dir(&legacy_root).await.map_err(|e| {
-            BitFunError::service(format!(
-                "Failed to read legacy assistant workspace root '{}': {}",
-                legacy_root.display(),
-                e
-            ))
-        })?;
-
-        while let Some(entry) = entries.next_entry().await.map_err(|e| {
-            BitFunError::service(format!(
-                "Failed to iterate legacy assistant workspace root '{}': {}",
-                legacy_root.display(),
-                e
-            ))
-        })? {
-            let file_type = entry.file_type().await.map_err(|e| {
-                BitFunError::service(format!(
-                    "Failed to inspect legacy assistant workspace entry '{}': {}",
-                    entry.path().display(),
-                    e
-                ))
-            })?;
-            if !file_type.is_dir() {
-                continue;
-            }
-
-            let file_name = entry.file_name().to_string_lossy().to_string();
-            let Some(assistant_id) = file_name.strip_prefix("workspace-") else {
-                continue;
-            };
-            if assistant_id.trim().is_empty() {
-                continue;
-            }
-
-            let target_path = self
-                .path_manager
-                .assistant_workspace_dir(assistant_id, None);
-            if fs::try_exists(&target_path).await.map_err(|e| {
-                BitFunError::service(format!(
-                    "Failed to inspect assistant workspace '{}': {}",
-                    target_path.display(),
-                    e
-                ))
-            })? {
-                continue;
-            }
-
-            fs::rename(entry.path(), &target_path).await.map_err(|e| {
-                BitFunError::service(format!(
-                    "Failed to migrate assistant workspace '{}' to '{}': {}",
-                    file_name,
-                    target_path.display(),
-                    e
-                ))
-            })?;
-            info!(
-                "Migrated named assistant workspace: assistant_id={}, to={}",
-                assistant_id,
-                target_path.display()
-            );
-        }
-
-        Ok(())
     }
 
     fn normalize_workspace_options_for_path(
@@ -2231,12 +1936,10 @@ impl WorkspaceService {
 
     async fn discover_assistant_workspaces(
         &self,
-    ) -> BitFunResult<Vec<AssistantWorkspaceDescriptor>> {
-        self.migrate_legacy_assistant_workspaces().await?;
-
+    ) -> OpenBitFunResult<Vec<AssistantWorkspaceDescriptor>> {
         let assistant_root = self.path_manager.assistant_workspace_base_dir(None);
         fs::create_dir_all(&assistant_root).await.map_err(|e| {
-            BitFunError::service(format!(
+            OpenBitFunError::service(format!(
                 "Failed to create assistant workspace root '{}': {}",
                 assistant_root.display(),
                 e
@@ -2246,7 +1949,7 @@ impl WorkspaceService {
         let default_workspace = self.path_manager.default_assistant_workspace_dir(None);
         let mut descriptors = Vec::new();
         if fs::try_exists(&default_workspace).await.map_err(|e| {
-            BitFunError::service(format!(
+            OpenBitFunError::service(format!(
                 "Failed to inspect default assistant workspace '{}': {}",
                 default_workspace.display(),
                 e
@@ -2260,7 +1963,7 @@ impl WorkspaceService {
         }
 
         let mut entries = fs::read_dir(&assistant_root).await.map_err(|e| {
-            BitFunError::service(format!(
+            OpenBitFunError::service(format!(
                 "Failed to read assistant workspace root '{}': {}",
                 assistant_root.display(),
                 e
@@ -2268,14 +1971,14 @@ impl WorkspaceService {
         })?;
 
         while let Some(entry) = entries.next_entry().await.map_err(|e| {
-            BitFunError::service(format!(
+            OpenBitFunError::service(format!(
                 "Failed to iterate assistant workspace root '{}': {}",
                 assistant_root.display(),
                 e
             ))
         })? {
             let file_type = entry.file_type().await.map_err(|e| {
-                BitFunError::service(format!(
+                OpenBitFunError::service(format!(
                     "Failed to inspect assistant workspace entry '{}': {}",
                     entry.path().display(),
                     e
@@ -2305,7 +2008,7 @@ impl WorkspaceService {
         // workspace must not cause it to reappear on the next launch.
         if descriptors.is_empty() {
             fs::create_dir_all(&default_workspace).await.map_err(|e| {
-                BitFunError::service(format!(
+                OpenBitFunError::service(format!(
                     "Failed to create default assistant workspace '{}': {}",
                     default_workspace.display(),
                     e
@@ -2329,7 +2032,7 @@ impl WorkspaceService {
         Ok(descriptors)
     }
 
-    async fn ensure_assistant_workspaces(&self) -> BitFunResult<()> {
+    async fn ensure_assistant_workspaces(&self) -> OpenBitFunResult<()> {
         let descriptors = self.discover_assistant_workspaces().await?;
         let has_current_workspace = self.get_current_workspace().await.is_some();
         let has_opened_remote = {
@@ -2384,7 +2087,7 @@ impl WorkspaceService {
     }
 
     /// Saves workspace data manually (public API).
-    pub async fn manual_save(&self) -> BitFunResult<()> {
+    pub async fn manual_save(&self) -> OpenBitFunResult<()> {
         self.save_workspace_data().await
     }
 
@@ -2394,11 +2097,13 @@ impl WorkspaceService {
     }
 
     /// Clears all persisted data.
-    pub async fn clear_persistent_data(&self) -> BitFunResult<()> {
+    pub async fn clear_persistent_data(&self) -> OpenBitFunResult<()> {
         self.persistence
             .delete("workspace_data")
             .await
-            .map_err(|e| BitFunError::service(format!("Failed to clear workspace data: {}", e)))?;
+            .map_err(|e| {
+                OpenBitFunError::service(format!("Failed to clear workspace data: {}", e))
+            })?;
 
         Ok(())
     }
@@ -2476,22 +2181,6 @@ pub struct WorkspaceQuickSummary {
     pub workspace_types: std::collections::HashMap<WorkspaceType, usize>,
 }
 
-/// Workspace persistence data.
-#[derive(Debug, Serialize, Deserialize)]
-struct WorkspacePersistenceData {
-    pub workspaces: std::collections::HashMap<String, WorkspaceInfo>,
-    #[serde(default)]
-    pub opened_workspace_ids: Vec<String>,
-    pub current_workspace_id: Option<String>,
-    #[serde(default)]
-    pub recent_workspaces: Vec<String>,
-    #[serde(default)]
-    pub recent_assistant_workspaces: Vec<String>,
-    #[serde(default)]
-    pub primary_assistant_key: Option<PrimaryAssistantKey>,
-    pub saved_at: chrono::DateTime<chrono::Utc>,
-}
-
 // ── Global workspace service singleton ──────────────────────────────
 
 static GLOBAL_WORKSPACE_SERVICE: std::sync::OnceLock<Arc<WorkspaceService>> =
@@ -2511,9 +2200,7 @@ pub fn get_global_workspace_service() -> Option<Arc<WorkspaceService>> {
 #[cfg(all(test, feature = "agent-runtime"))]
 mod tests {
     use super::*;
-    use crate::agentic::persistence::PersistenceManager;
     use crate::infrastructure::storage::StorageOptions;
-    use crate::service::session::SessionMetadata;
     use crate::service::workspace::WorkspaceWorktreeInfo;
     use std::collections::HashMap;
     use uuid::Uuid;
@@ -2525,8 +2212,10 @@ mod tests {
 
     impl TestEnvironment {
         fn new() -> Self {
-            let root = std::env::temp_dir()
-                .join(format!("bitfun-workspace-service-test-{}", Uuid::new_v4()));
+            let root = std::env::temp_dir().join(format!(
+                "openbitfun-workspace-service-test-{}",
+                Uuid::new_v4()
+            ));
             std::fs::create_dir_all(&root).expect("test root should be created");
 
             let path_manager = Arc::new(PathManager::with_user_root_for_tests(
@@ -2557,9 +2246,7 @@ mod tests {
     async fn ensure_workspace_gitignore_best_effort_skips_remote_workspaces() {
         let env = TestEnvironment::new();
         let service = build_test_workspace_service(env.path_manager.clone()).await;
-        let remote_workspace_root = env.create_workspace_dir("remote-workspace-shadow");
-        std::fs::write(remote_workspace_root.join(".gitignore"), "target/\n")
-            .expect("gitignore should be seeded");
+        let remote_workspace_root = PathBuf::from("/srv/openbitfun/remote-workspace-shadow");
 
         let remote_workspace = WorkspaceInfo::new(
             remote_workspace_root.clone(),
@@ -2567,7 +2254,6 @@ mod tests {
                 workspace_kind: WorkspaceKind::Remote,
                 remote_ssh_host: Some("example-host".to_string()),
                 remote_connection_id: Some("conn-1".to_string()),
-                stable_workspace_id: Some("remote-test".to_string()),
                 ..Default::default()
             },
         )
@@ -2577,10 +2263,6 @@ mod tests {
         service
             .ensure_workspace_gitignore_best_effort(&remote_workspace, "test")
             .await;
-
-        let gitignore = std::fs::read_to_string(remote_workspace_root.join(".gitignore"))
-            .expect("gitignore should be readable");
-        assert_eq!(gitignore, "target/\n");
     }
 
     #[tokio::test]
@@ -2659,8 +2341,6 @@ mod tests {
     async fn load_workspace_history_only_ensures_all_opened_local_workspaces() {
         let env = TestEnvironment::new();
         let service = build_test_workspace_service(env.path_manager.clone()).await;
-        let persistence_manager = PersistenceManager::new(env.path_manager.clone())
-            .expect("persistence manager should initialize");
 
         let first_workspace_root = env.create_workspace_dir("workspace-one");
         let second_workspace_root = env.create_workspace_dir("workspace-two");
@@ -2684,33 +2364,12 @@ mod tests {
         .await
         .expect("second workspace should initialize");
 
-        let legacy_session = SessionMetadata::new(
-            Uuid::new_v4().to_string(),
-            "Legacy Session".to_string(),
-            "agent".to_string(),
-            "model".to_string(),
-        );
-        persistence_manager
-            .save_session_metadata(&second_workspace_root, &legacy_session)
-            .await
-            .expect("legacy session metadata should save");
-
-        let second_runtime = persistence_manager
-            .runtime_service()
-            .context_for_local_workspace(&second_workspace_root);
-        let legacy_sessions_root = second_workspace_root.join(".bitfun").join("sessions");
-        std::fs::create_dir_all(&legacy_sessions_root)
-            .expect("legacy sessions root should be created");
-        std::fs::rename(
-            second_runtime.sessions_dir.join(&legacy_session.session_id),
-            legacy_sessions_root.join(&legacy_session.session_id),
-        )
-        .expect("session directory should move to legacy path");
-        let _ = std::fs::remove_dir_all(&second_runtime.runtime_root);
-
         let first_runtime = service
             .runtime_service
             .context_for_local_workspace(&first_workspace_root);
+        let second_runtime = service
+            .runtime_service
+            .context_for_local_workspace(&second_workspace_root);
         assert!(
             !first_runtime.runtime_root.exists(),
             "startup should begin without a runtime root for the first workspace"
@@ -2721,6 +2380,8 @@ mod tests {
         );
 
         let workspace_data = WorkspacePersistenceData {
+            format_version: WORKSPACE_PERSISTENCE_FORMAT_VERSION,
+            product_id: product_id().to_string(),
             workspaces: HashMap::from([
                 (first_workspace.id.clone(), first_workspace.clone()),
                 (second_workspace.id.clone(), second_workspace.clone()),
@@ -2754,25 +2415,129 @@ mod tests {
             "active workspace runtime should be ensured on startup"
         );
         assert!(
-            second_runtime
-                .sessions_dir
-                .join(&legacy_session.session_id)
-                .exists(),
-            "non-active opened workspace sessions should migrate into the shared runtime root"
+            second_runtime.runtime_root.exists(),
+            "non-active opened workspace runtime should also be ensured on startup"
         );
+    }
 
-        let restored_sessions = persistence_manager
-            .list_session_metadata(&second_workspace_root)
+    #[tokio::test]
+    async fn load_workspace_history_rejects_noncanonical_local_id_without_rewriting_file() {
+        let env = TestEnvironment::new();
+        let service = build_test_workspace_service(env.path_manager.clone()).await;
+        let workspace_root = env.create_workspace_dir("noncanonical-workspace-id");
+        let mut workspace = WorkspaceInfo::new(
+            workspace_root,
+            WorkspaceOpenOptions {
+                auto_set_current: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("workspace should initialize");
+        let noncanonical_id = Uuid::new_v4().to_string();
+        workspace.id = noncanonical_id.clone();
+
+        let workspace_data = WorkspacePersistenceData {
+            format_version: WORKSPACE_PERSISTENCE_FORMAT_VERSION,
+            product_id: product_id().to_string(),
+            workspaces: HashMap::from([(noncanonical_id.clone(), workspace)]),
+            opened_workspace_ids: vec![noncanonical_id.clone()],
+            current_workspace_id: Some(noncanonical_id.clone()),
+            recent_workspaces: vec![noncanonical_id],
+            recent_assistant_workspaces: Vec::new(),
+            primary_assistant_key: None,
+            saved_at: chrono::Utc::now(),
+        };
+        service
+            .persistence
+            .save_json("workspace_data", &workspace_data, StorageOptions::default())
             .await
-            .expect("restored workspace sessions should list successfully");
-        assert_eq!(restored_sessions.len(), 1);
-        assert_eq!(restored_sessions[0].session_id, legacy_session.session_id);
-        assert!(
-            !legacy_sessions_root
-                .join(&legacy_session.session_id)
-                .exists(),
-            "legacy session directory should be removed after startup migration"
+            .expect("noncanonical workspace fixture should save");
+        let persistence_path = service.persistence.base_dir().join("workspace_data.json");
+        let before = std::fs::read(&persistence_path).expect("fixture should be readable");
+
+        let error = service
+            .load_workspace_history_only()
+            .await
+            .expect_err("noncanonical workspace ids must require explicit migration");
+
+        assert!(error.to_string().contains("workspace id"));
+        assert!(error.to_string().contains("is not canonical"));
+        assert!(error.to_string().contains("left unchanged"));
+        assert_eq!(
+            std::fs::read(&persistence_path).expect("fixture should remain readable"),
+            before,
+            "unsupported workspace persistence must not be rewritten"
         );
+        assert!(service.list_workspace_infos().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn load_workspace_history_retains_canonical_missing_local_workspace() {
+        let env = TestEnvironment::new();
+        let service = build_test_workspace_service(env.path_manager.clone()).await;
+        let workspace_root = env.create_workspace_dir("temporarily-missing-workspace");
+        let workspace = WorkspaceInfo::new(
+            workspace_root.clone(),
+            WorkspaceOpenOptions {
+                auto_set_current: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("workspace should initialize");
+        std::fs::remove_dir_all(&workspace_root).expect("workspace root should be removed");
+
+        let workspace_data = WorkspacePersistenceData {
+            format_version: WORKSPACE_PERSISTENCE_FORMAT_VERSION,
+            product_id: product_id().to_string(),
+            workspaces: HashMap::from([(workspace.id.clone(), workspace.clone())]),
+            opened_workspace_ids: Vec::new(),
+            current_workspace_id: None,
+            recent_workspaces: vec![workspace.id.clone()],
+            recent_assistant_workspaces: Vec::new(),
+            primary_assistant_key: None,
+            saved_at: chrono::Utc::now(),
+        };
+        service
+            .persistence
+            .save_json("workspace_data", &workspace_data, StorageOptions::default())
+            .await
+            .expect("workspace history should save");
+
+        service
+            .load_workspace_history_only()
+            .await
+            .expect("missing current-format workspace history should remain readable");
+
+        assert_eq!(
+            service
+                .get_workspace(&workspace.id)
+                .await
+                .expect("missing workspace metadata should be retained")
+                .root_path,
+            workspace.root_path
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_workspace_rejects_noncanonical_supplied_id() {
+        let error = WorkspaceInfo::new(
+            PathBuf::from("/srv/openbitfun/project"),
+            WorkspaceOpenOptions {
+                workspace_kind: WorkspaceKind::Remote,
+                remote_ssh_host: Some("example-host".to_string()),
+                remote_connection_id: Some("conn-1".to_string()),
+                stable_workspace_id: Some("remote_noncanonical".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("remote workspace must use its host-and-path stable id");
+
+        assert!(error
+            .to_string()
+            .contains("does not match its sshHost and root path"));
     }
 
     #[tokio::test]
@@ -2890,7 +2655,7 @@ mod tests {
     async fn track_workspace_activity_assigns_stable_remote_workspace_id() {
         let env = TestEnvironment::new();
         let service = build_test_workspace_service(env.path_manager.clone()).await;
-        let remote_workspace_root = PathBuf::from("/srv/bitfun/project");
+        let remote_workspace_root = PathBuf::from("/srv/openbitfun/project");
 
         let tracked = service
             .track_workspace_activity(
@@ -2908,7 +2673,7 @@ mod tests {
 
         assert_eq!(
             tracked.id,
-            remote_workspace_stable_id("example-host", "/srv/bitfun/project")
+            remote_workspace_stable_id("example-host", "/srv/openbitfun/project")
         );
         assert_eq!(tracked.root_path, remote_workspace_root);
         assert!(service.get_opened_workspaces().await.is_empty());
@@ -2968,7 +2733,7 @@ mod tests {
 
         let error = service
             .open_workspace_resolving_known(
-                PathBuf::from("/bitfun-tests/unknown-remote-path"),
+                PathBuf::from("/openbitfun-tests/unknown-remote-path"),
                 None,
                 None,
             )

@@ -52,7 +52,7 @@ import { RemoteSessionListCache } from '../main/ets/services/RemoteSessionListCa
 import {
   ToolFileInputPayload,
   ToolFileReferenceResolver
-} from '../main/ets/services/ToolFileReferenceResolver';
+} from '../main/ets/pages/policy/ToolFileReferenceResolver';
 import {
   CodeSyntaxHighlightCache,
   CodeSyntaxHighlighter,
@@ -70,13 +70,13 @@ import {
   RemoteFileDownloadController,
   RemoteFileDownloadScheduler
 } from '../main/ets/services/RemoteFileDownloadController';
-import { FileReferenceKind, FileTargetResolver } from '../main/ets/services/FileTargetResolver';
+import { FileReferenceKind, FileTargetResolver } from '../main/ets/pages/policy/FileTargetResolver';
 import { FilePreviewPolicy } from '../main/ets/services/FilePreviewPolicy';
 import { FilePreviewErrorPolicy } from '../main/ets/services/FilePreviewErrorPolicy';
 import {
   MessageFileReferenceProjectionCache,
   MessageFileReferenceProjector
-} from '../main/ets/services/MessageFileReferenceProjector';
+} from '../main/ets/pages/policy/MessageFileReferenceProjector';
 import { RemoteFilePreviewController } from '../main/ets/pages/viewmodel/RemoteFilePreviewController';
 import { RemoteHeartbeatController, RemoteHeartbeatScheduler } from '../main/ets/services/RemoteHeartbeatController';
 import {
@@ -101,7 +101,7 @@ import { VoiceInputCallbacks, VoiceInputService } from '../main/ets/services/Voi
 import { AppShellState } from '../main/ets/pages/state/AppShellState';
 import { GeneralChatPageState } from '../main/ets/pages/state/GeneralChatPageState';
 import { RemotePageState } from '../main/ets/pages/state/RemotePageState';
-import { RemoteCreateSessionState } from '../main/ets/pages/state/RemoteCreateSessionState';
+import { RemoteSessionViewModel } from '../main/ets/pages/viewmodel/RemoteSessionViewModel';
 import { ConversationViewState } from '../main/ets/pages/state/ConversationViewState';
 import {
   FilePreviewPhase,
@@ -356,7 +356,7 @@ export default function remoteControllersUnitTest() {
 
   describe('FileTargetResolver', () => {
     it('resolves remote file references and line ranges', 0, () => {
-      const context = new FilePreviewTargetContext('session-1', '/workspace/BitFun', 4);
+      const context = new FilePreviewTargetContext('session-1', '/workspace/OpenBitFun', 4);
       const computer = FileTargetResolver.resolve('computer://src/main.rs#L42-L58', '', context);
       const relative = FileTargetResolver.resolve('README.md:12-18', 'Readme', context);
       const windows = FileTargetResolver.resolve('C:\\workspace\\main.cpp#L9', '', context);
@@ -375,7 +375,7 @@ export default function remoteControllersUnitTest() {
     });
 
     it('normalizes schemes, encoded paths, extensionless files and trailing punctuation', 0, () => {
-      const context = new FilePreviewTargetContext('session-1', '/workspace/BitFun', 4);
+      const context = new FilePreviewTargetContext('session-1', '/workspace/OpenBitFun', 4);
       const fileUrl = FileTargetResolver.resolve('file:///workspace/Makefile', '', context);
       const encoded = FileTargetResolver.resolve('computer://docs/My%20File.md),', '', context);
       const dockerfile = FileTargetResolver.resolve('/workspace/Dockerfile', '', context);
@@ -392,7 +392,7 @@ export default function remoteControllersUnitTest() {
     });
 
     it('classifies web, anchor and unsupported references without file targets', 0, () => {
-      const context = new FilePreviewTargetContext('session-1', '/workspace/BitFun', 1);
+      const context = new FilePreviewTargetContext('session-1', '/workspace/OpenBitFun', 1);
       expect(FileTargetResolver.resolve('https://example.com', '', context).kind)
         .assertEqual(FileReferenceKind.HttpUrl);
       expect(FileTargetResolver.resolve('http://example.com', '', context).kind)
@@ -467,7 +467,7 @@ export default function remoteControllersUnitTest() {
       const state = new FilePreviewState();
       const controller = new RemoteFilePreviewController(client, state, () => true, () => 3);
       const target = new FilePreviewTarget(
-        'computer://src/main.rs', 'src/main.rs', 'main.rs', 'session-1', '/workspace/BitFun', 3
+        'computer://src/main.rs', 'src/main.rs', 'main.rs', 'session-1', '/workspace/OpenBitFun', 3
       );
 
       await controller.open(target);
@@ -745,6 +745,8 @@ export default function remoteControllersUnitTest() {
       expect(creased.conversationPaneWidth).assertEqual(428);
       expect(creased.conversationPreviewGap).assertEqual(16);
       expect(creased.previewPaneWidth).assertEqual(484);
+      expect(creased.masterConversationGapIsCrease).assertTrue();
+      expect(creased.conversationPreviewGapIsCrease).assertTrue();
     });
 
     it('shrinks the flat master pane at the triple-pane threshold without narrowing content panes', 0, () => {
@@ -790,7 +792,7 @@ export default function remoteControllersUnitTest() {
       expect(layout.previewPaneWidth).assertEqual(1094);
     });
 
-    it('keeps tri-fold preview on a crease instead of splitting the full window in half', 0, () => {
+    it('keeps tri-fold preview on the right panel until the user expands it', 0, () => {
       const single = FilePreviewPlacementPolicy.resolveLayout(true, true, 1107, [
         new ConversationLayoutCrease(351, 44)
       ]);
@@ -798,15 +800,30 @@ export default function remoteControllersUnitTest() {
       expect(single.conversationPaneWidth).assertEqual(351);
       expect(single.conversationPreviewGap).assertEqual(44);
       expect(single.previewPaneWidth).assertEqual(712);
+      expect(single.conversationPreviewGapIsCrease).assertTrue();
 
       const dual = FilePreviewPlacementPolicy.resolveLayout(true, true, 1107, [
         new ConversationLayoutCrease(351, 44),
         new ConversationLayoutCrease(773, 44)
       ]);
-      expect(dual.placement).assertEqual(FilePreviewPlacement.WideFocusSplit);
-      expect(dual.conversationPaneWidth).assertEqual(773);
+      expect(dual.placement).assertEqual(FilePreviewPlacement.WideTriplePane);
+      expect(dual.masterPaneWidth).assertEqual(351);
+      expect(dual.masterConversationGap).assertEqual(44);
+      expect(dual.conversationPaneWidth).assertEqual(378);
       expect(dual.conversationPreviewGap).assertEqual(44);
       expect(dual.previewPaneWidth).assertEqual(290);
+      expect(dual.masterConversationGapIsCrease).assertTrue();
+      expect(dual.conversationPreviewGapIsCrease).assertTrue();
+
+      const expanded = FilePreviewPlacementPolicy.resolveLayout(true, true, 1107, [
+        new ConversationLayoutCrease(351, 44),
+        new ConversationLayoutCrease(773, 44)
+      ], FilePreviewPlacementPolicy.MIN_MASTER_WIDTH, true);
+      expect(expanded.placement).assertEqual(FilePreviewPlacement.WideMasterPreviewFocus);
+      expect(expanded.masterPaneWidth).assertEqual(351);
+      expect(expanded.masterConversationGap).assertEqual(44);
+      expect(expanded.conversationPaneWidth).assertEqual(0);
+      expect(expanded.previewPaneWidth).assertEqual(712);
     });
 
     it('falls back from crease-aligned focus when one side is too narrow', 0, () => {
@@ -817,55 +834,6 @@ export default function remoteControllersUnitTest() {
       expect(layout.conversationPaneWidth).assertEqual(449);
       expect(layout.conversationPreviewGap).assertEqual(1);
       expect(layout.previewPaneWidth).assertEqual(450);
-    });
-  });
-
-  describe('RemoteCreateSessionState', () => {
-    it('keeps selected device and workspace labels aligned with refreshed choices', 0, () => {
-      const state = new RemoteCreateSessionState();
-      state.prepare('desktop-b', 'stale device label');
-      state.selectWorkspace({
-        name: 'stale workspace label', path: '/workspace/BitFun', lastOpened: '', workspaceKind: 'normal'
-      });
-      state.setDevices([
-        { deviceId: 'desktop-a', deviceName: 'Desktop A', online: true },
-        { deviceId: 'desktop-b', deviceName: 'Desktop B', online: true }
-      ]);
-      state.setWorkspaces([
-        { name: 'BitFun', path: '/workspace/BitFun', lastOpened: '', workspaceKind: 'normal' },
-        { name: 'flashgrep', path: '/workspace/flashgrep', lastOpened: '', workspaceKind: 'normal' }
-      ]);
-
-      expect(state.selectedDeviceName).assertEqual('Desktop B');
-      expect(state.selectedWorkspaceName).assertEqual('BitFun');
-    });
-
-    it('freezes the selected creation target and pairs a workspace with the code agent', 0, () => {
-      const state = new RemoteCreateSessionState();
-      state.prepare('desktop-b', 'Desktop B');
-      state.setWorkspaces([{
-        name: 'BitFun', path: '/workspace/BitFun', lastOpened: '', workspaceKind: 'normal'
-      }]);
-      state.selectWorkspace({
-        name: 'BitFun', path: '/workspace/BitFun', lastOpened: '', workspaceKind: 'normal'
-      });
-
-      const context = state.submissionContext();
-
-      expect(context.deviceId).assertEqual('desktop-b');
-      expect(context.workspacePath).assertEqual('/workspace/BitFun');
-      expect(context.agentType).assertEqual('code');
-    });
-
-    it('keeps the chat option on the assistant agent so the desktop binds its assistant workspace', 0, () => {
-      const state = new RemoteCreateSessionState();
-      state.prepare('desktop-b', 'Desktop B');
-      state.selectWorkspace(undefined);
-
-      const context = state.submissionContext();
-
-      expect(context.workspacePath).assertEqual('');
-      expect(context.agentType).assertEqual('Claw');
     });
   });
 
@@ -898,12 +866,12 @@ export default function remoteControllersUnitTest() {
         fileSaver
       );
 
-      await controller.download('/workspace/BitFun/README.md', 'session-1', false, true);
+      await controller.download('/workspace/OpenBitFun/README.md', 'session-1', false, true);
 
-      expect(client.infoRequests[0]).assertEqual('/workspace/BitFun/README.md|session-1');
-      expect(client.readRequests[0]).assertEqual('/workspace/BitFun/README.md|session-1');
+      expect(client.infoRequests[0]).assertEqual('/workspace/OpenBitFun/README.md|session-1');
+      expect(client.readRequests[0]).assertEqual('/workspace/OpenBitFun/README.md|session-1');
       expect(fileSaver.savedNames[0]).assertEqual('README.md');
-      expect(status.downloadedFilePath).assertEqual('/workspace/BitFun/README.md');
+      expect(status.downloadedFilePath).assertEqual('/workspace/OpenBitFun/README.md');
       expect(status.fileDownloadStatus.indexOf('README.md') >= 0).assertTrue();
       expect(statusText).assertEqual(status.fileDownloadStatus);
       expect(busyEvents[0]).assertTrue();
@@ -913,7 +881,7 @@ export default function remoteControllersUnitTest() {
 
       scheduler.tick(1);
       expect(status.downloadingFilePath).assertEqual('');
-      expect(status.downloadedFilePath).assertEqual('/workspace/BitFun/README.md');
+      expect(status.downloadedFilePath).assertEqual('/workspace/OpenBitFun/README.md');
     });
 
     it('skips unavailable downloads before touching the client', 0, async () => {
@@ -937,9 +905,9 @@ export default function remoteControllersUnitTest() {
       );
 
       await controller.download('', 'session-1', false, true);
-      await controller.download('/workspace/BitFun/README.md', '', false, true);
-      await controller.download('/workspace/BitFun/README.md', 'session-1', true, true);
-      await controller.download('/workspace/BitFun/README.md', 'session-1', false, false);
+      await controller.download('/workspace/OpenBitFun/README.md', '', false, true);
+      await controller.download('/workspace/OpenBitFun/README.md', 'session-1', true, true);
+      await controller.download('/workspace/OpenBitFun/README.md', 'session-1', false, false);
 
       expect(client.infoRequests.length).assertEqual(0);
       expect(client.readRequests.length).assertEqual(0);
@@ -1409,6 +1377,109 @@ export default function remoteControllersUnitTest() {
     });
   });
 
+  describe('RemoteSessionViewModel', () => {
+    it('reconciles a created session with the workspace named by the response', 0, async () => {
+      const pageState = new RemotePageState();
+      pageState.workspacePath = '/current';
+      const sessionClient = new FakeRemoteSessionClient();
+      sessionClient.createdSession = {
+        sessionId: 'created-in-other',
+        title: 'Created in Other',
+        workspacePath: '/other',
+        agentType: 'code'
+      };
+      let busy = false;
+      const sessions = new RemoteSessionController(sessionClient, 8, {
+        onSessions: (_items: RemoteSession[], _hasMore: boolean) => {},
+        onActiveSession: (session: SessionSummary) => pageState.setActiveSession(session),
+        onStatusText: (_statusText: string) => {},
+        onBusy: (isBusy: boolean) => {
+          busy = isBusy;
+          pageState.setBusy(isBusy);
+        },
+        onLoading: (_isLoading: boolean) => {},
+        onSessionError: (_errorText: string) => {},
+        onReconnecting: () => {},
+        onConnected: () => {},
+        onConnectionFailed: (_err: Object) => {},
+        onStartHeartbeat: () => {}
+      });
+      const chat = new RemoteChatCommandController(new FakeRemoteChatCommandClient(), {
+        onMessagesLoaded: (_messages, _hasMoreMessages) => {},
+        onMessageCountKnown: (_pollVersion, _knownMessageCount) => {},
+        onTimelineReady: () => {},
+        onSendSucceeded: (_turnId, _pendingActiveId) => {},
+        onSendFailed: (_rawText, _images, _localMessageId, _pendingActiveId) => {},
+        onActiveSession: (_session) => {},
+        onSessionTitleChanged: (_sessionId, _title) => {},
+        onStatusText: (_statusText) => {},
+        onToast: (_message) => {},
+        onBusy: (_isBusy) => {},
+        onPollRequested: () => {}
+      }, inertRemoteChatCache());
+      const models = new RemoteModelController(
+        new FakeRemoteModelClient(),
+        new FakeRemoteModelPreferenceStore(),
+        (_catalog, _selectedModelId, _version) => {},
+        (_catalog, _selectedModelId, _version) => {},
+        (_statusText) => {},
+        (_isBusy) => {}
+      );
+      const files = new RemoteFileDownloadController(
+        new FakeRemoteFileDownloadClient(),
+        (_downloading, _downloaded, _status) => {},
+        () => {},
+        (_statusText) => {},
+        (_isBusy) => {},
+        2500,
+        new FakeRemoteFileDownloadScheduler(),
+        new FakeRemoteFileSaver()
+      );
+      const reconciled: SessionSummary[] = [];
+      const routedSessions: string[] = [];
+      const viewModel = new RemoteSessionViewModel(pageState, sessions, chat, models, files, {
+        remoteAvailable: (): boolean => true,
+        isConnected: (): boolean => true,
+        isBusy: (): boolean => busy,
+        onBusy: (isBusy: boolean): void => {
+          busy = isBusy;
+        },
+        onRouteChat: (_sessionId: string): void => {},
+        onRouteHome: (): void => {},
+        onStopPolling: (): void => {},
+        onStartPolling: (): void => {},
+        onNudgePolling: (): void => {},
+        onResetTimeline: (_sessionId: string): void => {},
+        onClearRemoteFiles: (): void => {},
+        onKnownStateReset: (): void => {},
+        onLoadActiveMessages: async (): Promise<void> => {},
+        onCreatedSession: async (session: SessionSummary): Promise<void> => {
+          reconciled.push(session);
+        },
+        onRefreshSessions: async (): Promise<void> => {},
+        onSelectWorkspace: async (_path: string): Promise<void> => {}
+      });
+
+      await viewModel.createSessionInWorkspace(
+        '/other',
+        'introduce this project',
+        'code',
+        (sessionId: string): void => {
+          routedSessions.push(sessionId);
+        },
+        '',
+        false
+      );
+
+      expect(reconciled.length).assertEqual(1);
+      expect(reconciled[0].sessionId).assertEqual('created-in-other');
+      expect(reconciled[0].workspacePath).assertEqual('/other');
+      expect(sessionClient.listRequests.length).assertEqual(0);
+      expect(routedSessions.length).assertEqual(1);
+      expect(routedSessions[0]).assertEqual('created-in-other');
+    });
+  });
+
   describe('RemoteSessionListCache', () => {
     it('restores the list of the device it last stored one for', 0, async () => {
       const store = new FakeRemoteSessionListStore();
@@ -1434,6 +1505,24 @@ export default function remoteControllersUnitTest() {
       const fromSecond = await second.load();
       expect(fromFirst.sessions[0].id).assertEqual('session-1');
       expect(fromSecond.sessions[0].id).assertEqual('session-2');
+    });
+
+    it('does not restore or persist ACP sessions', 0, async () => {
+      const store = new FakeRemoteSessionListStore();
+      const cache = await readyRemoteSessionListCache(store, 'desktop-a');
+      const acp = remoteSession('acp-session', 'ACP');
+      acp.agentType = 'acp:codex';
+      const native = remoteSession('native-session', 'Native');
+      await store.saveList('desktop-a', [acp, native], false);
+
+      const restored = await cache.restoreLast();
+      expect(restored.sessions.length).assertEqual(1);
+      expect(restored.sessions[0].id).assertEqual('native-session');
+
+      await cache.save([acp, native], false);
+      const saved = await store.loadList('desktop-a');
+      expect(saved.sessions.length).assertEqual(1);
+      expect(saved.sessions[0].id).assertEqual('native-session');
     });
 
     it('writes once for a list that has not changed', 0, async () => {
@@ -1486,6 +1575,69 @@ export default function remoteControllersUnitTest() {
   });
 
   describe('RemoteChatCommandController', () => {
+    it('coalesces rapid transcript misses to the latest selected session', 0, async () => {
+      const client = new FakeRemoteChatCommandClient();
+      const projection = new RemoteChatMessagesProjectionRecord();
+      let activeSessionId = 'session-1';
+      client.deferMessages = true;
+      const controller = new RemoteChatCommandController(client, {
+        onMessagesLoaded: (messages: ChatMessage[], hasMoreMessages: boolean) => {
+          projection.messages = messages;
+          projection.hasMoreMessages = hasMoreMessages;
+        },
+        onMessageCountKnown: (pollVersion: number, knownMessageCount: number) => {
+          projection.pollVersion = pollVersion;
+          projection.knownMessageCount = knownMessageCount;
+        },
+        onTimelineReady: () => {},
+        onSendSucceeded: (_turnId: string, _pendingActiveId: string) => {},
+        onSendFailed: (
+          _rawText: string,
+          _images: SelectedImageAttachment[],
+          _localMessageId: string,
+          _pendingActiveId: string
+        ) => {},
+        onActiveSession: (_session: SessionSummary) => {},
+        onSessionTitleChanged: (_sessionId: string, _title: string) => {},
+        onStatusText: (_statusText: string) => {},
+        onToast: (_message: string) => {},
+        onBusy: (_isBusy: boolean) => {},
+        onPollRequested: () => {}
+      }, inertRemoteChatCache());
+      const canApply = (sessionId: string): boolean => sessionId === activeSessionId;
+
+      const first = controller.loadMessages('session-1', canApply);
+      await Promise.resolve();
+      activeSessionId = 'session-2';
+      const middle = controller.loadMessages('session-2', canApply);
+      await Promise.resolve();
+      activeSessionId = 'session-3';
+      const latest = controller.loadMessages('session-3', canApply);
+      await Promise.resolve();
+
+      expect(client.messageRequests.length).assertEqual(1);
+      expect(client.messageRequests[0]).assertEqual('session-1');
+      client.resolveNextMessages({
+        messages: [chatMessage('message-1', 'assistant', 'Stale')],
+        hasMore: false
+      });
+      // The stale result is intentionally written to the cache before the
+      // latest waiter gets the transport slot.
+      await delay(0);
+
+      expect(client.messageRequests.length).assertEqual(2);
+      expect(client.messageRequests[1]).assertEqual('session-3');
+      client.resolveNextMessages({
+        messages: [chatMessage('message-3', 'assistant', 'Latest')],
+        hasMore: false
+      });
+      await Promise.all([first, middle, latest]);
+
+      expect(client.messageRequests.length).assertEqual(2);
+      expect(projection.messages.length).assertEqual(1);
+      expect(projection.messages[0].id).assertEqual('message-3');
+    });
+
     it('loads active messages and ignores stale route projections', 0, async () => {
       const client = new FakeRemoteChatCommandClient();
       const projection = new RemoteChatMessagesProjectionRecord();
@@ -1603,7 +1755,7 @@ export default function remoteControllersUnitTest() {
       hollow.thinking = '';
       hollow.tools = [];
       hollow.items = [];
-      await cache.sync('session-1', [
+      await cache.syncIncremental('session-1', [
         chatMessage('message-1', 'user', 'Hello'),
         hollow
       ]);
@@ -1732,12 +1884,12 @@ export default function remoteControllersUnitTest() {
       }, cache);
 
       await controller.loadMessages('session-1', (_sessionId: string) => true);
-      await cache.sync('session-1', [
+      await cache.syncIncremental('session-1', [
         chatMessage('message-1', 'user', 'Hello'),
         chatMessage('message-2', 'assistant', 'Hi')
       ]);
       // Nothing new arrived, so the second sync must not touch the store.
-      await cache.sync('session-1', [
+      await cache.syncIncremental('session-1', [
         chatMessage('message-1', 'user', 'Hello'),
         chatMessage('message-2', 'assistant', 'Hi')
       ]);
@@ -1747,14 +1899,44 @@ export default function remoteControllersUnitTest() {
       expect((await cache.load('session-1')).length).assertEqual(2);
     });
 
+    it('persists an authoritative body update when message ids and count stay unchanged', 0, async () => {
+      const store = new FakeRemoteChatCacheStore();
+      const cache = await readyRemoteChatCache(store);
+      const partialAssistant = chatMessage('message-2', 'assistant', '');
+      partialAssistant.status = 'done';
+      partialAssistant.thinking = 'Finished the work.';
+
+      await cache.syncIncremental('session-1', [
+        chatMessage('message-1', 'user', 'Open the PR'),
+        partialAssistant
+      ]);
+
+      const completedAssistant = chatMessage('message-2', 'assistant', 'PR created successfully.');
+      completedAssistant.status = 'done';
+      completedAssistant.thinking = 'Finished the work.';
+      await cache.replaceSnapshot('session-1', [
+        chatMessage('message-1', 'user', 'Open the PR'),
+        completedAssistant
+      ]);
+
+      // A fresh cache instance models an app restart: the completed body must
+      // come from RDB rather than from the in-memory resident transcript.
+      const restarted = await readyRemoteChatCache(store);
+      const restored = await restarted.load('session-1');
+      expect(store.replaceCount).assertEqual(2);
+      expect(restored.length).assertEqual(2);
+      expect(restored[1].id).assertEqual('message-2');
+      expect(restored[1].text).assertEqual('PR created successfully.');
+    });
+
     it('rewrites the cache when the stored prefix stops matching', 0, async () => {
       const store = new FakeRemoteChatCacheStore();
       const cache = await readyRemoteChatCache(store);
 
-      await cache.sync('session-1', [chatMessage('message-1', 'user', 'Hello')]);
+      await cache.syncIncremental('session-1', [chatMessage('message-1', 'user', 'Hello')]);
       // Same length, different first message: an append here would splice two
       // different transcripts together.
-      await cache.sync('session-1', [chatMessage('message-9', 'user', 'Rewritten')]);
+      await cache.syncIncremental('session-1', [chatMessage('message-9', 'user', 'Rewritten')]);
 
       const restored = await cache.load('session-1');
       expect(store.appendCount).assertEqual(0);
@@ -1767,8 +1949,8 @@ export default function remoteControllersUnitTest() {
       const store = new FakeRemoteChatCacheStore();
       const cache = await readyRemoteChatCache(store);
 
-      await cache.sync('session-1', [chatMessage('message-1', 'user', 'Hello')]);
-      await cache.sync('session-1', [
+      await cache.syncIncremental('session-1', [chatMessage('message-1', 'user', 'Hello')]);
+      await cache.syncIncremental('session-1', [
         chatMessage('message-1', 'user', 'Hello'),
         chatMessage('message-2', 'assistant', 'Hi')
       ]);
@@ -1784,7 +1966,7 @@ export default function remoteControllersUnitTest() {
 
       // One past the budget the prune above reported.
       for (let index = 0; index <= 20; index++) {
-        await cache.sync(`session-${index}`, [chatMessage(`message-${index}`, 'user', 'Hello')]);
+        await cache.syncIncremental(`session-${index}`, [chatMessage(`message-${index}`, 'user', 'Hello')]);
       }
 
       expect((await cache.load('session-0')).length).assertEqual(0);
@@ -1797,12 +1979,12 @@ export default function remoteControllersUnitTest() {
       const cache = await readyRemoteChatCache(store);
 
       for (let index = 0; index < 20; index++) {
-        await cache.sync(`session-${index}`, [chatMessage(`message-${index}`, 'user', 'Hello')]);
+        await cache.syncIncremental(`session-${index}`, [chatMessage(`message-${index}`, 'user', 'Hello')]);
       }
       // Reopening is what recency is supposed to be about: this read has to
       // outrank the nineteen sessions written after it.
       expect((await cache.load('session-0')).length).assertEqual(1);
-      await cache.sync('session-20', [chatMessage('message-20', 'user', 'Hello')]);
+      await cache.syncIncremental('session-20', [chatMessage('message-20', 'user', 'Hello')]);
 
       expect((await cache.load('session-0')).length).assertEqual(1);
       expect((await cache.load('session-1')).length).assertEqual(0);
@@ -1812,7 +1994,7 @@ export default function remoteControllersUnitTest() {
       const store = new FakeRemoteChatCacheStore();
       const cache = await readyRemoteChatCache(store);
 
-      await cache.sync('session-1', [chatMessage('message-1', 'user', 'Hello')]);
+      await cache.syncIncremental('session-1', [chatMessage('message-1', 'user', 'Hello')]);
       await cache.forget('session-1');
 
       expect((await cache.load('session-1')).length).assertEqual(0);
@@ -1918,8 +2100,8 @@ export default function remoteControllersUnitTest() {
         onMessagesLoaded: (_messages: ChatMessage[], _hasMoreMessages: boolean) => {},
         onMessageCountKnown: (_pollVersion: number, _knownMessageCount: number) => {},
         onTimelineReady: () => {},
-        onSendSucceeded: (turnId: string, pendingActiveId: string) => {
-          succeeded.push(`${turnId}:${pendingActiveId}`);
+        onSendSucceeded: (turnId: string, pendingActiveId: string, localMessageId: string) => {
+          succeeded.push(`${turnId}:${pendingActiveId}:${localMessageId}`);
         },
         onSendFailed: (
           rawText: string,
@@ -1971,12 +2153,59 @@ export default function remoteControllersUnitTest() {
 
       expect(client.sendRequests[0]).assertEqual('images:session-1:Describe image:code:1');
       expect(client.sendRequests[1]).assertEqual('text:session-1:Retry text:code');
-      expect(succeeded[0]).assertEqual('turn-1:pending-1');
+      expect(client.sendTurnIds[0]).assertEqual('local-1');
+      expect(client.sendTurnIds[1]).assertEqual('local-2');
+      expect(succeeded[0]).assertEqual('turn-1:pending-1:local-1');
       expect(failed[0]).assertEqual('Retry text:0:local-2:pending-2');
       expect(busyEvents[0]).assertTrue();
       expect(busyEvents[1]).assertFalse();
       expect(busyEvents[2]).assertTrue();
       expect(busyEvents[3]).assertFalse();
+    });
+
+    it('steers the active turn and projects the accepted steering identity', 0, async () => {
+      const client = new FakeRemoteChatCommandClient();
+      const accepted: string[] = [];
+      const controller = new RemoteChatCommandController(client, {
+        onMessagesLoaded: (_messages: ChatMessage[], _hasMoreMessages: boolean) => {},
+        onMessageCountKnown: (_pollVersion: number, _knownMessageCount: number) => {},
+        onTimelineReady: () => {},
+        onSendSucceeded: (_turnId: string, _pendingActiveId: string) => {},
+        onSteerSucceeded: (
+          steeringId: string,
+          turnId: string,
+          displayText: string,
+          images: SelectedImageAttachment[]
+        ) => accepted.push(`${steeringId}:${turnId}:${displayText}:${images.length}`),
+        onSendFailed: (
+          _rawText: string,
+          _images: SelectedImageAttachment[],
+          _localMessageId: string,
+          _pendingActiveId: string
+        ) => {},
+        onActiveSession: (_session: SessionSummary) => {},
+        onSessionTitleChanged: (_sessionId: string, _title: string) => {},
+        onStatusText: (_statusText: string) => {},
+        onToast: (_message: string) => {},
+        onBusy: (_isBusy: boolean) => {},
+        onPollRequested: () => {}
+      }, inertRemoteChatCache());
+
+      await controller.steerPreparedMessage(
+        'session-1',
+        'turn-1',
+        'Continue with this',
+        'Continue with this',
+        [selectedImage('image-1')],
+        [{ id: 'image-1', data_url: 'data:image/png;base64,AA==', mime_type: 'image/png' }],
+        false,
+        true
+      );
+
+      expect(client.steerRequests[0])
+        .assertEqual('session-1:turn-1:Continue with this:Continue with this:1');
+      expect(accepted[0]).assertEqual('steering-1:turn-1:Continue with this:1');
+      expect(client.sendRequests.length).assertEqual(0);
     });
 
     it('stops active tasks and reports guard states', 0, async () => {
@@ -2161,6 +2390,19 @@ export default function remoteControllersUnitTest() {
       expect(ConversationViewContract.shouldShowSuggestions(false, false, emptyItems)).assertFalse();
       expect(ConversationViewContract.visibleTimelineItems(emptyItems).length).assertEqual(0);
     });
+
+    it('keeps user rows when a legacy remote transcript ends in a hollow assistant', 0, () => {
+      const timelineItems = ChatTimelineProjector.project([
+        chatMessage('remote-user-1', 'user', 'Hello'),
+        chatMessage('remote-assistant-1', 'assistant', '')
+      ], [], RemoteUiState.emptyActiveTurn(), false);
+
+      const visibleItems = ConversationViewContract.visibleTimelineItems(timelineItems);
+
+      expect(visibleItems.length).assertEqual(1);
+      expect(visibleItems[0].type).assertEqual('user_message');
+      expect(visibleItems[0].message!.text).assertEqual('Hello');
+    });
   });
 
   describe('AppRouteContract', () => {
@@ -2294,7 +2536,7 @@ export default function remoteControllersUnitTest() {
       updatedAt: '',
       createdAt: '',
       messageCount: 3,
-      workspacePath: '/workspace/bitfun'
+      workspacePath: '/workspace/openbitfun'
     };
     const chatSession: RemoteSession = {
       id: 'chat-1',
@@ -2308,19 +2550,19 @@ export default function remoteControllersUnitTest() {
 
     it('combines query, workspace, agent and status filters', 0, () => {
       expect(ConversationSessionFilterPolicy.matches(
-        codeSession, 'layout', '', '/workspace/bitfun', 'code', 'idle', false
+        codeSession, 'layout', '', '/workspace/openbitfun', 'code', 'idle', false
       )).assertTrue();
       expect(ConversationSessionFilterPolicy.matches(
-        codeSession, 'notes', '', '/workspace/bitfun', 'code', 'idle', false
+        codeSession, 'notes', '', '/workspace/openbitfun', 'code', 'idle', false
       )).assertFalse();
       expect(ConversationSessionFilterPolicy.matches(
         codeSession, '', '', '/workspace/other', 'code', 'idle', false
       )).assertFalse();
       expect(ConversationSessionFilterPolicy.matches(
-        codeSession, '', '', '/workspace/bitfun/', 'code', 'idle', false
+        codeSession, '', '', '/workspace/openbitfun/', 'code', 'idle', false
       )).assertTrue();
       expect(ConversationSessionFilterPolicy.workspacePathsEqual(
-        '/workspace/bitfun/', '/workspace/bitfun'
+        '/workspace/openbitfun/', '/workspace/openbitfun'
       )).assertTrue();
       expect(ConversationSessionFilterPolicy.matches(
         chatSession, '', '/workspace/assistant', '', 'chat', 'active', true
@@ -2373,11 +2615,11 @@ export default function remoteControllersUnitTest() {
         sessions,
         query,
         sortMode: 'project',
-        workspaceName: 'BitFun',
-        workspacePath: '/workspace/bitfun',
+        workspaceName: 'OpenBitFun',
+        workspacePath: '/workspace/openbitfun',
         workspaceKind: 'normal',
         recentWorkspaces: [
-          { path: '/workspace/bitfun', name: 'BitFun', lastOpened: '', workspaceKind: 'normal' },
+          { path: '/workspace/openbitfun', name: 'OpenBitFun', lastOpened: '', workspaceKind: 'normal' },
           { path: '/workspace/notes', name: 'Notes', lastOpened: '', workspaceKind: 'assistant' }
         ],
         workspaceFilter: '',
@@ -2390,11 +2632,11 @@ export default function remoteControllersUnitTest() {
     };
 
     const all: RemoteSession[] = [
-      session('code-1', 'Fix layout', 'code', '/workspace/bitfun'),
-      session('code-2', 'Trailing slash', 'code', '/workspace/bitfun/'),
+      session('code-1', 'Fix layout', 'code', '/workspace/openbitfun'),
+      session('code-2', 'Trailing slash', 'code', '/workspace/openbitfun/'),
       session('chat-1', 'Product notes', 'claw', ''),
       session('chat-2', 'Assistant workspace', 'code', '/workspace/notes'),
-      session('gone-1', 'Archived', 'code', '/workspace/bitfun', 'archived')
+      session('gone-1', 'Archived', 'code', '/workspace/openbitfun', 'archived')
     ];
 
     it('does not invent a workspace group from a name without a path', 0, () => {
@@ -2426,10 +2668,10 @@ export default function remoteControllersUnitTest() {
       expect(projection.chats.map((item: RemoteSession) => item.id).join(',')).assertEqual('chat-1,chat-2');
       // A trailing slash is the same workspace, so both code sessions land in
       // the one bucket the sidebar renders under that project.
-      const bucket = SessionListProjector.sessionsForProject(projection, '/workspace/bitfun/');
+      const bucket = SessionListProjector.sessionsForProject(projection, '/workspace/openbitfun/');
       expect(bucket.map((item: RemoteSession) => item.id).join(',')).assertEqual('code-1,code-2');
       expect(projection.projects.map((item: RecentWorkspaceEntry) => item.path).join(','))
-        .assertEqual('/workspace/bitfun');
+        .assertEqual('/workspace/openbitfun');
       expect(projection.hasActiveFilter).assertFalse();
       expect(SessionListProjector.sessionsForProject(projection, '/nowhere').length).assertEqual(0);
     });
@@ -2454,7 +2696,7 @@ export default function remoteControllersUnitTest() {
       expect(cache.get(inputs(all, 'layout')) === first).assertFalse();
 
       const renamed = all.map((item: RemoteSession): RemoteSession => {
-        return item.id === 'code-1' ? session('code-1', 'Renamed', 'code', '/workspace/bitfun') : item;
+        return item.id === 'code-1' ? session('code-1', 'Renamed', 'code', '/workspace/openbitfun') : item;
       });
       const afterRename = cache.get(inputs(renamed));
       expect(afterRename === first).assertFalse();
@@ -2463,9 +2705,9 @@ export default function remoteControllersUnitTest() {
 
     it('buckets by day only when sorting by time', 0, () => {
       const now = new Date();
-      const recent = session('recent-1', 'Today', 'code', '/workspace/bitfun');
-      recent.updatedAt = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
-      const old = session('old-1', 'Older', 'code', '/workspace/bitfun');
+      const recent = session('recent-1', 'Today', 'code', '/workspace/openbitfun');
+      recent.updatedAt = now.toISOString();
+      const old = session('old-1', 'Older', 'code', '/workspace/openbitfun');
       old.updatedAt = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
       const byProject = SessionListProjector.project(inputs([recent, old]));
@@ -3106,6 +3348,8 @@ export default function remoteControllersUnitTest() {
     it('keeps completed active turn until final assistant message arrives', 0, async () => {
       const manager = new FakePollSessionManager();
       const snapshots: ChatSessionSnapshot[] = [];
+      const persistedAssistant = chatMessage('assistant-final-1', 'assistant', 'Final text');
+      persistedAssistant.turnId = 'turn-2';
       const controller = new ChatSessionController(manager, {
         onSnapshot: (snapshot: ChatSessionSnapshot) => {
           snapshots.push(snapshot);
@@ -3121,13 +3365,13 @@ export default function remoteControllersUnitTest() {
         title: 'Session',
         newMessages: [],
         totalMessageCount: 1,
-        activeTurn: chatMessage('active-turn-2', 'assistant', 'Final text', 'completed')
+        activeTurn: activeChatMessage('turn-2', 'Final text', 'completed')
       })];
       controller.start('session-1', {
         pollVersion: 1,
         knownMessageCount: 1,
         knownModelCatalogVersion: 0
-      }, chatMessage('active-turn-2', 'assistant', 'Final text', 'active'));
+      }, activeChatMessage('turn-2', 'Final text', 'active'));
       await delay(20);
 
       manager.results = [pollResult({
@@ -3145,9 +3389,7 @@ export default function remoteControllersUnitTest() {
         changed: true,
         sessionState: 'idle',
         title: 'Session',
-        newMessages: [
-          chatMessage('assistant-final-1', 'assistant', 'Final text')
-        ],
+        newMessages: [persistedAssistant],
         totalMessageCount: 2
       })];
       await controller.pollNow();
@@ -3155,8 +3397,81 @@ export default function remoteControllersUnitTest() {
 
       expect(snapshots.length).assertEqual(3);
       expect(snapshots[0].activeTurn ? snapshots[0].activeTurn.status : '').assertEqual('completed');
+      expect(snapshots[0].completedTurnId).assertEqual('');
       expect(snapshots[1].activeTurn ? snapshots[1].activeTurn.id : '').assertEqual('active-turn-2');
       expect(snapshots[2].activeTurn ? snapshots[2].activeTurn.id : '').assertEqual('');
+      expect(snapshots[2].completedTurnId).assertEqual('turn-2');
+    });
+
+    it('recognizes a durable final assistant from the full message snapshot', 0, async () => {
+      const manager = new FakePollSessionManager();
+      const snapshots: ChatSessionSnapshot[] = [];
+      const persistedAssistant = chatMessage('assistant-final-3', 'assistant', 'Final text');
+      persistedAssistant.turnId = 'turn-3';
+      manager.results = [pollResult({
+        version: 3,
+        changed: true,
+        sessionState: 'idle',
+        title: 'Session',
+        newMessages: [],
+        messageSnapshot: [persistedAssistant],
+        totalMessageCount: 2,
+        activeTurn: activeChatMessage('turn-3', 'Final text', 'completed')
+      })];
+      const controller = new ChatSessionController(manager, {
+        onSnapshot: (snapshot: ChatSessionSnapshot) => snapshots.push(snapshot),
+        onError: (_error: Object) => {},
+        canPoll: (_sessionId: string) => true
+      });
+
+      controller.start('session-3', {
+        pollVersion: 2,
+        knownMessageCount: 1,
+        knownModelCatalogVersion: 0
+      }, activeChatMessage('turn-3', 'Final text', 'active'));
+      await delay(20);
+      controller.stop(false);
+
+      expect(snapshots.length).assertEqual(1);
+      expect(snapshots[0].completedTurnId).assertEqual('turn-3');
+      expect(snapshots[0].messageSnapshot ? snapshots[0].messageSnapshot.length : 0).assertEqual(1);
+    });
+
+    it('recognizes persisted completion when running turn transitions directly to idle', 0, async () => {
+      const manager = new FakePollSessionManager();
+      const snapshots: ChatSessionSnapshot[] = [];
+      const persistedAssistant = chatMessage('turn-4-assistant', 'assistant', 'Final text');
+      persistedAssistant.turnId = 'turn-4';
+      manager.results = [pollResult({
+        version: 4,
+        changed: true,
+        sessionState: 'idle',
+        title: 'Session',
+        newMessages: [persistedAssistant],
+        messageSnapshot: [
+          chatMessage('turn-4-user', 'user', 'Question'),
+          persistedAssistant
+        ],
+        totalMessageCount: 2
+      })];
+      const controller = new ChatSessionController(manager, {
+        onSnapshot: (snapshot: ChatSessionSnapshot) => snapshots.push(snapshot),
+        onError: (_error: Object) => {},
+        canPoll: (_sessionId: string) => true
+      });
+
+      controller.start('session-4', {
+        pollVersion: 3,
+        knownMessageCount: 1,
+        knownModelCatalogVersion: 0
+      }, activeChatMessage('turn-4', '', 'active'));
+      await delay(20);
+      controller.stop(false);
+
+      expect(snapshots.length).assertEqual(1);
+      expect(snapshots[0].sessionState).assertEqual('idle');
+      expect(snapshots[0].activeTurn ? snapshots[0].activeTurn.id : '').assertEqual('');
+      expect(snapshots[0].completedTurnId).assertEqual('turn-4');
     });
 
     it('resyncs when a completed assistant message is updated during the settle window', 0, async () => {

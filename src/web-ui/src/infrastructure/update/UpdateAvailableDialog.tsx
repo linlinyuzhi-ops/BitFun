@@ -2,9 +2,19 @@
  * Dialog when a remote update is available (daily prompt or manual check).
  */
 
+import {
+  Button,
+  Icon,
+  ScrollArea,
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogHeader,
+  DialogHeading,
+  DialogTitle,
+} from '@openbitfun/ui';
 import React, { useRef } from 'react';
-import { Modal, Button } from '@/component-library';
-import { Download } from 'lucide-react';
+;
 import { useI18n } from '@/infrastructure/i18n';
 import type { CheckForUpdatesResponse } from '@/infrastructure/api/service-api/SystemAPI';
 import './UpdateAvailableDialog.scss';
@@ -42,98 +52,105 @@ export const UpdateAvailableDialog: React.FC<UpdateAvailableDialogProps> = ({
   const notes = displayData.releaseNotes?.trim();
 
   return (
-    <Modal
-      isOpen={modalOpen}
-      onClose={onLater}
-      title={t('update.availableTitle')}
-      showCloseButton={true}
-      size="medium"
-      contentInset
+    <Dialog
+      open={modalOpen}
+      onOpenChange={(nextOpen) => { if (!nextOpen) onLater(); }}
+      size="md"
     >
+      <DialogHeader>
+        <DialogHeading>
+          <DialogTitle>{t('update.availableTitle')}</DialogTitle>
+        </DialogHeading>
+        <DialogClose />
+      </DialogHeader>
+      <DialogBody>
       <div
-        className="bitfun-update-available"
-        data-bf-component="update"
-        data-bf-part="availableRoot"
-        data-bf-variant={variant}
+        className="openbitfun-update-available"
+        data-openbitfun-component="update"
+        data-openbitfun-part="availableRoot"
+        data-openbitfun-variant={variant}
       >
         <div
-          className="bitfun-update-available__lead"
-          data-bf-component="update"
-          data-bf-part="lead"
+          className="openbitfun-update-available__lead"
+          data-openbitfun-component="update"
+          data-openbitfun-part="lead"
         >
           <div
-            className="bitfun-update-available__lead-icon"
+            className="openbitfun-update-available__lead-icon"
             aria-hidden
-            data-bf-component="update"
-            data-bf-part="leadIcon"
+            data-openbitfun-component="update"
+            data-openbitfun-part="leadIcon"
           >
-            <Download size={18} strokeWidth={2} />
+            <Icon name="arrow-down" size="lg" />
           </div>
           <p
-            className="bitfun-update-available__subtitle"
-            data-bf-component="update"
-            data-bf-part="subtitle"
+            className="openbitfun-update-available__subtitle"
+            data-openbitfun-component="update"
+            data-openbitfun-part="subtitle"
           >{t('update.availableSubtitle')}</p>
         </div>
 
         <div
-          className="bitfun-update-available__versions bitfun-update-available__versions--card"
-          data-bf-component="update"
-          data-bf-part="versions"
+          className="openbitfun-update-available__versions openbitfun-update-available__versions--card"
+          data-openbitfun-component="update"
+          data-openbitfun-part="versions"
         >
           <div
-            className="bitfun-update-available__row"
-            data-bf-component="update"
-            data-bf-part="versionRow"
+            className="openbitfun-update-available__row"
+            data-openbitfun-component="update"
+            data-openbitfun-part="versionRow"
           >
-            <span className="bitfun-update-available__label" data-bf-component="update" data-bf-part="versionLabel">{t('update.currentVersion')}</span>
-            <span className="bitfun-update-available__value" data-bf-component="update" data-bf-part="versionValue">{displayData.currentVersion}</span>
+            <span className="openbitfun-update-available__label" data-openbitfun-component="update" data-openbitfun-part="versionLabel">{t('update.currentVersion')}</span>
+            <span className="openbitfun-update-available__value" data-openbitfun-component="update" data-openbitfun-part="versionValue">{displayData.currentVersion}</span>
           </div>
           <div
-            className="bitfun-update-available__row bitfun-update-available__row--highlight"
-            data-bf-component="update"
-            data-bf-part="versionRow"
-            data-bf-state="highlight"
+            className="openbitfun-update-available__row openbitfun-update-available__row--highlight"
+            data-openbitfun-component="update"
+            data-openbitfun-part="versionRow"
+            data-openbitfun-state="highlight"
           >
-            <span className="bitfun-update-available__label" data-bf-component="update" data-bf-part="versionLabel">{t('update.latestVersion')}</span>
-            <span className="bitfun-update-available__value" data-bf-component="update" data-bf-part="versionValue">{latest}</span>
+            <span className="openbitfun-update-available__label" data-openbitfun-component="update" data-openbitfun-part="versionLabel">{t('update.latestVersion')}</span>
+            <span className="openbitfun-update-available__value" data-openbitfun-component="update" data-openbitfun-part="versionValue">{latest}</span>
           </div>
         </div>
 
         {notes ? (
-          <div className="bitfun-update-available__notes" data-bf-component="update" data-bf-part="notes">
-            <div className="bitfun-update-available__notes-label" data-bf-component="update" data-bf-part="notesLabel">{t('update.releaseNotes')}</div>
-            <pre className="bitfun-update-available__notes-body" data-bf-component="update" data-bf-part="notesBody">{notes}</pre>
+          <div className="openbitfun-update-available__notes" data-openbitfun-component="update" data-openbitfun-part="notes">
+            <div className="openbitfun-update-available__notes-label" data-openbitfun-component="update" data-openbitfun-part="notesLabel">{t('update.releaseNotes')}</div>
+            <ScrollArea className="openbitfun-update-available__notes-body" data-openbitfun-component="update" data-openbitfun-part="notesBody">
+              <pre>{notes}</pre>
+            </ScrollArea>
           </div>
         ) : null}
 
-        <div className="bitfun-update-available__actions" data-bf-component="update" data-bf-part="actions">
+        <div className="openbitfun-update-available__actions" data-openbitfun-component="update" data-openbitfun-part="actions">
           {variant === 'daily' ? (
             <>
-              <Button variant="secondary" size="medium" onClick={onLater}>
+              <Button variant="outline" size="md" onClick={onLater}>
                 {t('update.later')}
               </Button>
               {onSkip ? (
-                <Button variant="ghost" size="medium" onClick={onSkip}>
+                <Button variant="outline" size="md" onClick={onSkip}>
                   {t('update.skipVersion')}
                 </Button>
               ) : null}
-              <Button variant="primary" size="medium" onClick={onInstall}>
+              <Button variant="fill" size="md" onClick={onInstall}>
                 {t('update.backgroundInstall')}
               </Button>
             </>
           ) : (
             <>
-              <Button variant="secondary" size="medium" onClick={onLater}>
+              <Button variant="outline" size="md" onClick={onLater}>
                 {t('update.cancel')}
               </Button>
-              <Button variant="primary" size="medium" onClick={onInstall}>
+              <Button variant="fill" size="md" onClick={onInstall}>
                 {t('update.backgroundInstall')}
               </Button>
             </>
           )}
         </div>
       </div>
-    </Modal>
+          </DialogBody>
+    </Dialog>
   );
 };

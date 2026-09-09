@@ -7,7 +7,7 @@ use crate::agentic::agents::{
     ReviewFixerAgent, ReviewJudgeAgent, ReviewWorkerAgent, TeamMode,
 };
 use crate::agentic::memories::MemoryPhase2Agent;
-use bitfun_agent_runtime::agents as runtime_agents;
+use openbitfun_agent_runtime::agents as runtime_agents;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -44,20 +44,21 @@ pub(crate) fn builtin_agent_specs_for_ids<'a>(
 
 fn builtin_agent_factory(id: &str) -> fn() -> Arc<dyn Agent> {
     match id {
+        "minimal" => || Arc::new(MinimalMode::new()),
         "agentic" => || Arc::new(AgenticMode::new()),
         "minimal" => || Arc::new(MinimalMode::new()),
         "Cowork" => || Arc::new(CoworkMode::new()),
-        "debug" => || Arc::new(DebugMode::new()),
-        "Multitask" => || Arc::new(MultitaskMode::new()),
-        "Plan" => || Arc::new(PlanMode::new()),
+        "Creative" => || Arc::new(CreativeMode::new()),
         "Claw" => || Arc::new(ClawMode::new()),
         "DeepResearch" => || Arc::new(DeepResearchMode::new()),
-        "Team" => || Arc::new(TeamMode::new()),
+        "Ultra" => || Arc::new(UltraMode::new()),
+        "SwarmPlanner" => || Arc::new(SwarmPlannerAgent::new()),
+        "SwarmWorker" => || Arc::new(SwarmWorkerAgent::new()),
+        "SwarmReviewer" => || Arc::new(SwarmReviewerAgent::new()),
         "ComputerUse" => || Arc::new(ComputerUseMode::new()),
         "Explore" => || Arc::new(ExploreAgent::new()),
         "GeneralPurpose" => || Arc::new(GeneralPurposeAgent::new()),
         "ResearchSpecialist" => || Arc::new(ResearchSpecialistAgent::new()),
-        "FileFinder" => || Arc::new(FileFinderAgent::new()),
         "ReviewWorker" => || Arc::new(ReviewWorkerAgent::new()),
         "ReviewJudge" => || Arc::new(ReviewJudgeAgent::new()),
         "ReviewFixer" => || Arc::new(ReviewFixerAgent::new()),

@@ -56,30 +56,27 @@ describe('handleAgentCompanionPetCommand', () => {
     getSettingsAsyncMock.mockReset();
     getSettingsAsyncMock.mockResolvedValue({
       enable_agent_companion: true,
-      agent_companion_display_mode: 'desktop',
     });
   });
 
   it('opens the companion personalization settings', async () => {
     await handleAgentCompanionPetCommand({ type: 'open-pet-settings' });
 
-    expect(openSettingsMock).toHaveBeenCalledWith('session-personalization');
+    expect(openSettingsMock).toHaveBeenCalledWith({ pageId: 'application.pet' });
     expect(invokeMock).toHaveBeenCalledWith('show_main_window');
   });
 
-  it('turns the companion off and keeps the display mode when the pet is closed', async () => {
+  it('turns the desktop companion off when the pet is closed', async () => {
     await handleAgentCompanionPetCommand({ type: 'close-desktop-pet' });
 
     expect(saveSettingsMock).toHaveBeenCalledWith({
       enable_agent_companion: false,
-      agent_companion_display_mode: 'desktop',
     });
   });
 
   it('does not rewrite settings when the companion is already off', async () => {
     getSettingsAsyncMock.mockResolvedValue({
       enable_agent_companion: false,
-      agent_companion_display_mode: 'desktop',
     });
 
     await handleAgentCompanionPetCommand({ type: 'close-desktop-pet' });

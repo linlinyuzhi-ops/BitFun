@@ -73,7 +73,7 @@ function getActiveRemoteWorkspaceForConnection(connectionId: string): RemoteWork
   };
 }
 
-/** Match opened `WorkspaceInfo` so list_sessions maps to ~/.bitfun/remote_ssh/... */
+/** Match opened `WorkspaceInfo` so list_sessions maps to ~/.openbitfun/remote_ssh/... */
 function sshHostForRemoteWorkspace(connectionId: string, remotePath: string): string | undefined {
   const norm = normalizeRemoteWorkspacePath(remotePath);
   const cid = connectionId.trim();
@@ -326,6 +326,7 @@ export const SSHRemoteProvider: React.FC<SSHRemoteProviderProps> = ({ children }
           defaultWorkspace: savedConn.defaultWorkspace,
           proxyJump: savedConn.proxyJump,
           container: savedConn.container,
+          wsl: savedConn.wsl,
           options: savedConn.options,
         };
 
@@ -557,7 +558,10 @@ export const SSHRemoteProvider: React.FC<SSHRemoteProviderProps> = ({ children }
           ? 'error'
           : 'connecting';
       }
-      setWorkspaceStatuses(prev => ({ ...prev, ...initialStatuses }));
+      // A background check is not a reconnect. Keep the last observed state
+      // while the probe is pending, including when session selection checks
+      // every opened workspace again.
+      setWorkspaceStatuses(prev => ({ ...initialStatuses, ...prev }));
 
       type ConnectedEntry = { workspace: RemoteWorkspace; connectionId: string };
       const results = await Promise.all(
@@ -616,6 +620,7 @@ export const SSHRemoteProvider: React.FC<SSHRemoteProviderProps> = ({ children }
             connectionId: workspace.connectionId,
             remotePath: workspace.remotePath,
           });
+          setWorkspaceStatuses(prev => ({ ...prev, [workspace.connectionId]: 'connecting' }));
           const result = await tryReconnectWithRetry(workspace);
 
           if (result !== false) {

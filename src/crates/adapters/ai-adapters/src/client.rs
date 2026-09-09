@@ -8,6 +8,7 @@ pub(crate) mod format;
 pub(crate) mod healthcheck;
 pub(crate) mod http;
 pub(crate) mod quirks;
+mod request_capacity;
 pub(crate) mod response_aggregator;
 pub(crate) mod sse;
 pub(crate) mod utils;
@@ -19,9 +20,9 @@ use crate::trace::{
 use crate::types::ProxyConfig;
 use crate::types::*;
 use anyhow::Result;
-use bitfun_core_types::errors::{AiProviderError, ErrorCategory};
 use format::ApiFormat;
 use log::warn;
+use openbitfun_core_types::errors::{AiProviderError, ErrorCategory};
 use reqwest::Client;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -61,6 +62,8 @@ pub struct AIClient {
     pub(crate) stream_options: StreamOptions,
     pub(crate) model_reasoning_preset: Option<ReasoningPresetDescriptor>,
     pub(crate) selected_reasoning_preset: Option<ReasoningPresetDescriptor>,
+    #[cfg(feature = "subscription-auth")]
+    subscription_provider: Option<crate::subscription_auth::SubscriptionProvider>,
 }
 
 impl AIClient {
@@ -94,6 +97,31 @@ impl AIClient {
             stream_options,
             model_reasoning_preset: None,
             selected_reasoning_preset: None,
+            #[cfg(feature = "subscription-auth")]
+            subscription_provider: None,
+        }
+    }
+
+    /// Enable provider policy only after resolving an explicit subscription login.
+    /// This runtime identity is not inferred from URLs or serialized in AIConfig.
+    #[cfg(feature = "subscription-auth")]
+    pub fn with_subscription_provider(
+        mut self,
+        provider: crate::subscription_auth::SubscriptionProvider,
+    ) -> Self {
+        self.subscription_provider = Some(provider);
+        self
+    }
+
+    /// Explicit subscription identity; ordinary API-key clients return None.
+    pub fn subscription_provider_key(&self) -> Option<&'static str> {
+        #[cfg(feature = "subscription-auth")]
+        {
+            self.subscription_provider.map(|provider| provider.key())
+        }
+        #[cfg(not(feature = "subscription-auth"))]
+        {
+            None
         }
     }
 
@@ -195,15 +223,9 @@ impl AIClient {
     /// Clone this client with a different max output token limit while
     /// reusing the HTTP client.
     pub fn with_max_tokens(&self, max_tokens: Option<u32>) -> Self {
-        let mut config = self.config.clone();
-        config.max_tokens = max_tokens;
-        Self {
-            client: self.client.clone(),
-            config,
-            stream_options: self.stream_options.clone(),
-            model_reasoning_preset: self.model_reasoning_preset.clone(),
-            selected_reasoning_preset: self.selected_reasoning_preset.clone(),
-        }
+        let mut cloned = self.clone();
+        cloned.config.max_tokens = max_tokens;
+        cloned
     }
 
     pub async fn send_message_stream(
@@ -365,6 +387,8 @@ impl AIClient {
         trace: Option<ModelExchangeTraceConfig>,
         max_attempts: usize,
     ) -> Result<GeminiResponse> {
+        let request_context =
+            crate::providers::shared::prepare_request_context(self, request_context);
         for attempt in 0..max_attempts {
             let stream_response = match self
                 .send_message_stream_with_extra_body_and_max_attempts(
@@ -634,6 +658,7 @@ fn gemini_response_to_trace(response: &GeminiResponse) -> ModelExchangeResponseT
 #[cfg(test)]
 mod tests {
     use super::{send_message_retry_delay_ms, AIClient};
+    use crate::providers::shared::GENERIC_REASONING_PROVIDER_ID;
     use crate::providers::{anthropic, gemini, gemini::GeminiMessageConverter, openai};
     use crate::types::{AIConfig, ModelRequestContext, ToolDefinition};
     use crate::types::{ReasoningPresetAction, ReasoningPresetDescriptor};
@@ -770,7 +795,7 @@ mod tests {
             label: id.to_string(),
             order: 0,
             actions,
-            source: bitfun_core_types::ReasoningPresetSource::ModelConfig,
+            source: openbitfun_core_types::ReasoningPresetSource::ModelConfig,
             execution_provider: None,
             execution_model: None,
         }
@@ -787,9 +812,24 @@ mod tests {
             label: id.to_string(),
             order: 0,
             actions,
-            source: bitfun_core_types::ReasoningPresetSource::ModelsDev,
+            source: openbitfun_core_types::ReasoningPresetSource::ModelsDev,
             execution_provider: Some(execution_provider.to_string()),
             execution_model: Some(execution_model.to_string()),
+        }
+    }
+
+    fn generic_reasoning_preset(
+        id: &str,
+        actions: Vec<ReasoningPresetAction>,
+    ) -> ReasoningPresetDescriptor {
+        ReasoningPresetDescriptor {
+            id: id.to_string(),
+            label: id.to_string(),
+            order: 0,
+            actions,
+            source: openbitfun_core_types::ReasoningPresetSource::AdapterFallback,
+            execution_provider: Some(GENERIC_REASONING_PROVIDER_ID.to_string()),
+            execution_model: Some("unlisted-model".to_string()),
         }
     }
 
@@ -818,6 +858,98 @@ mod tests {
 
         assert_eq!(body["reasoning"]["effort"], "high");
         assert_eq!(body["model"], "test-model");
+    }
+
+    #[test]
+    fn generic_openai_reasoning_defaults_compile_for_unlisted_models() {
+        let high =
+            make_test_client("openai", None).with_reasoning_preset(&generic_reasoning_preset(
+                "high",
+                vec![ReasoningPresetAction::Effort {
+                    value: "high".to_string(),
+                }],
+            ));
+        let high_body = openai::chat::build_request_body(
+            &high,
+            &high.config.request_url,
+            vec![json!({ "role": "user", "content": "hello" })],
+            None,
+            None,
+        );
+        assert_eq!(high_body["reasoning_effort"], "high");
+
+        for (enabled, expected) in [(true, "enabled"), (false, "disabled")] {
+            let client =
+                make_test_client("openai", None).with_reasoning_preset(&generic_reasoning_preset(
+                    if enabled { "on" } else { "off" },
+                    vec![ReasoningPresetAction::Toggle { enabled }],
+                ));
+            let body = openai::chat::build_request_body(
+                &client,
+                &client.config.request_url,
+                vec![json!({ "role": "user", "content": "hello" })],
+                None,
+                None,
+            );
+            assert_eq!(body["thinking"]["type"], expected);
+            assert!(body.get("reasoning_effort").is_none());
+        }
+    }
+
+    #[test]
+    fn generic_responses_toggle_uses_medium_and_none_defaults() {
+        for (enabled, expected) in [(true, "medium"), (false, "none")] {
+            let client = make_test_client("responses", None).with_reasoning_preset(
+                &generic_reasoning_preset(
+                    if enabled { "on" } else { "off" },
+                    vec![ReasoningPresetAction::Toggle { enabled }],
+                ),
+            );
+            let body = openai::responses::build_request_body(
+                &client,
+                None,
+                vec![json!({"role": "user", "content": "hello"})],
+                None,
+                None,
+            );
+            assert_eq!(body["reasoning"]["effort"], expected);
+        }
+    }
+
+    #[test]
+    fn generic_anthropic_and_gemini_reasoning_defaults_compile() {
+        let anthropic_client =
+            make_test_client("anthropic", None).with_reasoning_preset(&generic_reasoning_preset(
+                "low",
+                vec![ReasoningPresetAction::Effort {
+                    value: "low".to_string(),
+                }],
+            ));
+        let anthropic_body = anthropic::request::build_request_body(
+            &anthropic_client,
+            &anthropic_client.config.request_url,
+            None,
+            vec![json!({ "role": "user", "content": [{ "type": "text", "text": "hello" }] })],
+            None,
+            None,
+        );
+        assert_eq!(anthropic_body["thinking"]["type"], "adaptive");
+        assert_eq!(anthropic_body["output_config"]["effort"], "low");
+
+        let gemini_client = make_test_client("gemini", None).with_reasoning_preset(
+            &generic_reasoning_preset("on", vec![ReasoningPresetAction::Toggle { enabled: true }]),
+        );
+        let gemini_body = gemini::request::build_request_body(
+            &gemini_client,
+            None,
+            vec![json!({ "role": "user", "parts": [{ "text": "hello" }] })],
+            None,
+            None,
+        );
+        assert_eq!(
+            gemini_body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "MEDIUM"
+        );
     }
 
     #[test]
@@ -1175,7 +1307,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_chat_rejects_generic_toggle_for_an_unverified_endpoint() {
+    fn openai_chat_rejects_unmapped_model_config_toggle_for_an_unverified_endpoint() {
         let client = AIClient::new(AIConfig {
             name: "openai-compatible".to_string(),
             base_url: "https://example.com/v1".to_string(),

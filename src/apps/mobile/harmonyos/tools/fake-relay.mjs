@@ -149,47 +149,79 @@ let createdSession = {
   agent_type: 'code',
 };
 let currentWorkspace = {
-  path: '/workspace/BitFun',
-  name: 'BitFun',
+  path: '/workspace/OpenBitFun',
+  name: 'OpenBitFun',
   git_branch: 'main',
   workspace_kind: 'normal',
   assistant_id: undefined,
 };
 let activeTurn = false;
+// Whether /command answers at all. A test flips this to make the desktop go
+// quiet without the pairing being torn down — the exact situation the mobile
+// heartbeat exists for, and one a scenario chosen at startup cannot produce.
+let reachable = true;
 let pollCount = 0;
 let cancelled = false;
 let sentMessage = '';
 let sentImageCount = 0;
 let toolApproved = false;
+let previewDecisionAttempts = 0;
 let toolRejected = false;
 let toolCancelled = false;
 let questionAnswered = false;
 let selectedModelId = 'model-primary-preview';
+let selectedReasoningPreset = null;
 const deletedSessions = new Set();
 
 const assistants = [
   {
-    path: '/workspace/.bitfun/assistants/daily',
+    path: '/workspace/.openbitfun/assistants/daily',
     name: 'Daily Assistant',
     assistant_id: 'assistant-daily-preview',
   },
   {
-    path: '/workspace/.bitfun/assistants/research',
+    path: '/workspace/.openbitfun/assistants/research',
     name: 'Research Assistant',
     assistant_id: 'assistant-research-preview',
   },
 ];
 
+// A file whose extension the syntax highlighter recognises, so a preview can be
+// checked for a line-number gutter and coloured runs rather than only for text.
+// Every kind the lexer knows appears once: comment, keyword, type, call,
+// constant, string and number.
+const PREVIEW_SOURCE = [
+  '// openbitfun preview fixture',
+  'fn main() {',
+  '    let answer: Preview = 42;',
+  '    println!("hello");',
+  '    return true;',
+  '}',
+  '',
+].join('\n');
+
 const previewFiles = new Map([
-  ['README.md', Buffer.from('# BitFun Preview\n\nThis is a fake relay file download.\n', 'utf8')],
-  ['/workspace/BitFun/README.md', Buffer.from('# BitFun Preview\n\nThis is a fake relay file download.\n', 'utf8')],
+  ['README.md', Buffer.from('# OpenBitFun Preview\n\nThis is a fake relay file download.\n', 'utf8')],
+  ['/workspace/OpenBitFun/README.md', Buffer.from('# OpenBitFun Preview\n\nThis is a fake relay file download.\n', 'utf8')],
+  ['/workspace/OpenBitFun/IDENTITY.md', Buffer.from('# Identity\n\nOpenBitFun preview identity.\n', 'utf8')],
+  ['/workspace/OpenBitFun/USER.md', Buffer.from('# User\n\nOpenBitFun preview user.\n', 'utf8')],
+  ['/workspace/OpenBitFun/SOUL.md', Buffer.from('# Soul\n\nOpenBitFun preview soul.\n', 'utf8')],
+  ['src/preview.rs', Buffer.from(PREVIEW_SOURCE, 'utf8')],
+  ['/workspace/OpenBitFun/src/preview.rs', Buffer.from(PREVIEW_SOURCE, 'utf8')],
 ]);
 
 function isScenario(name) {
-  return SCENARIO === name;
+  return SCENARIO === name || (SCENARIO === 'mobile-ui-review' && ['model-selection', 'tool-pending-confirmation'].includes(name));
 }
 
 function assistantResponseContent() {
+  if (isScenario('file-attachments')) {
+    return [
+      '附件应当保留为正文中的可读文件名，并在正文下方形成独立的纵向卡片列表：',
+      '',
+      '[IDENTITY.md](computer:///workspace/OpenBitFun/IDENTITY.md)、[USER.md](computer:///workspace/OpenBitFun/USER.md) 和 [SOUL.md](computer:///workspace/OpenBitFun/SOUL.md)。',
+    ].join('\n');
+  }
   if (isScenario('long-markdown')) {
     return [
       '## 鸿蒙端聊天回归验证',
@@ -283,12 +315,12 @@ function assistantResponseItems(status = 'completed') {
 
 function activeTurnText() {
   if (isScenario('slow-active')) {
-    return 'BitFun 正在持续执行，用于验证运行态停止按钮。';
+    return 'OpenBitFun 正在持续执行，用于验证运行态停止按钮。';
   }
   if (isScenario('long-markdown')) {
     return '## 鸿蒙端聊天回归验证\n\n- 正在生成长 Markdown 响应...\n- active turn 应保持稳定。';
   }
-  return 'BitFun 正在执行...';
+  return 'OpenBitFun 正在执行...';
 }
 
 function currentModelCatalog() {
@@ -304,6 +336,13 @@ function currentModelCatalog() {
         context_window: 128000,
         enabled: true,
         capabilities: ['text_chat', 'code_specialized', 'function_calling'],
+        ...(isScenario('model-selection') ? { reasoning: {
+          status: 'known',
+          presets: [
+            { id: 'low', label: 'Low', order: 0 },
+            { id: 'high', label: 'High', order: 1 },
+          ],
+        } } : {}),
       },
       {
         id: 'model-fast-preview',
@@ -325,6 +364,15 @@ function currentModelCatalog() {
         enabled: true,
         capabilities: ['text_chat', 'image_understanding'],
       },
+      ...(SCENARIO === 'mobile-ui-review' ? Array.from({ length: 9 }, (_, index) => ({
+        id: `review-model-${index}`,
+        name: 'Preview provider with a long configuration label',
+        provider: index % 2 ? 'review-cloud' : 'review-local',
+        model_name: `Review model ${index + 1} with extended context and reasoning support`,
+        enabled: true,
+        capabilities: ['text_chat'],
+        context_window: 128000,
+      })) : []),
     ],
     default_models: {
       primary: 'model-primary-preview',
@@ -332,6 +380,10 @@ function currentModelCatalog() {
       image_understanding: 'model-vision-preview',
     },
     session_model_id: selectedModelId,
+    ...(isScenario('model-selection') ? {
+      reasoning_preset_selection_supported: true,
+      session_reasoning_preset: selectedReasoningPreset,
+    } : {}),
   };
 }
 
@@ -515,6 +567,28 @@ function activeTurnPayload(status = 'active') {
   };
 }
 
+/**
+ * The desktop treats a missing, empty or root `workspace_path` as "no workspace
+ * open" and refuses the command. Mirrored here so a client that forgets to send
+ * it fails against the simulator too, instead of only in the field.
+ * See `RemoteCommand::ListSessions` in `services-integrations/src/remote_connect.rs`.
+ */
+function hasWorkspacePath(command) {
+  const path = String(command.workspace_path || '').trim();
+  return path.length > 0 && path !== '/';
+}
+
+function isClawAgent(agentType) {
+  return String(agentType || '').trim().toLowerCase() === 'claw';
+}
+
+function noWorkspaceError() {
+  return {
+    resp: 'error',
+    message: 'No workspace is open on the remote device; select a recent workspace or create one first',
+  };
+}
+
 function responseFor(command) {
   switch (command.cmd) {
     case 'get_workspace_info':
@@ -538,14 +612,14 @@ function responseFor(command) {
             workspace_kind: currentWorkspace.workspace_kind,
           },
           {
-            path: '/workspace/BitFun_mobile',
-            name: 'BitFun_mobile',
+            path: '/workspace/OpenBitFun_mobile',
+            name: 'OpenBitFun_mobile',
             last_opened: new Date(Date.now() - 86_400_000).toISOString(),
             workspace_kind: 'normal',
           },
           {
-            path: '/workspace/BitFun-docs',
-            name: 'BitFun-docs',
+            path: '/workspace/OpenBitFun-docs',
+            name: 'OpenBitFun-docs',
             last_opened: new Date(Date.now() - 2 * 86_400_000).toISOString(),
             workspace_kind: 'normal',
           },
@@ -597,6 +671,9 @@ function responseFor(command) {
       }
     case 'list_sessions':
       {
+        if (!hasWorkspacePath(command)) {
+          return noWorkspaceError();
+        }
         const allSessions = currentSessionItems();
         const query = String(command.query || '').trim().toLowerCase();
         const agentType = String(command.agent_type || '').trim().toLowerCase();
@@ -615,6 +692,9 @@ function responseFor(command) {
         };
       }
     case 'create_session':
+      if (!isClawAgent(command.agent_type) && !hasWorkspacePath(command)) {
+        return noWorkspaceError();
+      }
       createdSession = {
         id: 'session-created-preview',
         title: command.session_name || (command.agent_type === 'cowork' ? 'Remote Cowork Session' : 'Remote Code Session'),
@@ -638,12 +718,24 @@ function responseFor(command) {
         resp: 'ok',
         catalog: currentModelCatalog(),
       };
+    case 'get_permission_mode':
+      return {
+        resp: 'ok',
+        mode: 'ask',
+      };
+    case 'set_permission_mode':
+      return {
+        resp: 'ok',
+        mode: command.mode || 'ask',
+      };
     case 'set_session_model':
       selectedModelId = command.model_id || selectedModelId;
+      if (isScenario('model-selection')) selectedReasoningPreset = command.reasoning_preset ?? null;
       return {
         resp: 'ok',
         session_id: command.session_id,
         model_id: selectedModelId,
+        ...(isScenario('model-selection') ? { reasoning_preset: selectedReasoningPreset } : {}),
       };
     case 'get_session_messages':
       if (command.before_message_id) {
@@ -776,6 +868,9 @@ function responseFor(command) {
         return response;
       }
     case 'confirm_tool':
+      if (SCENARIO === 'mobile-ui-review' && previewDecisionAttempts++ === 0) {
+        return { resp: 'error', message: 'Preview: decision submission failed; retry is available.' };
+      }
       toolApproved = true;
       activeTurn = false;
       return { resp: 'ok' };
@@ -855,21 +950,52 @@ function readBody(req) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    res.setHeader('access-control-allow-origin', '*');
+    res.setHeader('access-control-allow-headers', 'content-type');
+    res.setHeader('access-control-allow-methods', 'POST, OPTIONS');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     if (req.method !== 'POST') {
       res.writeHead(404);
       res.end();
       return;
     }
     const body = await readBody(req);
+    // POST {"reachable": false} to make the relay behave as it does when the
+    // desktop has gone: the room still exists, so pairing is untouched, but no
+    // command gets through. Test-only; nothing in either app calls it.
+    if (req.url === '/control/reachable') {
+      reachable = body.reachable !== false;
+      console.log(`control reachable=${reachable}`);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ resp: 'ok', reachable }));
+      return;
+    }
     if (req.url === `/api/rooms/${ROOM_ID}/pair`) {
       const mobilePublicKey = Buffer.from(body.public_key, 'base64');
       sharedKey = scalarMult(privateKey, mobilePublicKey);
-      const payload = encryptJson(sharedKey, { challenge: { nonce: 'preview-challenge' } });
+      // Shape must match PairingChallenge in
+      // src/crates/services/services-integrations/src/remote_connect/pairing.rs:
+      // a flat 32-char lowercase-hex string plus a unix-seconds timestamp. The
+      // desktop validates the echo against exactly that, so a stub that sends
+      // anything else only passes because nothing here checks it back.
+      const payload = encryptJson(sharedKey, {
+        challenge: crypto.randomBytes(16).toString('hex'),
+        timestamp: Math.floor(Date.now() / 1000),
+      });
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(payload));
       return;
     }
     if (req.url === `/api/rooms/${ROOM_ID}/command`) {
+      if (!reachable) {
+        res.writeHead(503);
+        res.end();
+        return;
+      }
       if (!sharedKey) throw new Error('Not paired');
       const command = decryptJson(sharedKey, body);
       console.log('command', command.cmd || 'pair_challenge', command.session_id || '', command.workspace_path || '');
@@ -892,6 +1018,9 @@ const server = http.createServer(async (req, res) => {
               has_more_sessions: currentSessionItems().length > 8,
             }
         : responseFor(command);
+      if (SCENARIO === 'mobile-ui-review' && ['confirm_tool', 'reject_tool'].includes(command.cmd)) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
       const payload = encryptJson(sharedKey, response);
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(payload));

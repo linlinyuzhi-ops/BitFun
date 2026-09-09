@@ -8,6 +8,9 @@ export const workbenchAppearanceDescriptor: AppearanceSurfaceDescriptor = {
     { id: 'navArea' },
     { id: 'navDivider' },
     { id: 'sceneArea' },
+    { id: 'sceneSurface' },
+    { id: 'topBar' },
+    { id: 'sceneActions' },
     { id: 'viewport' },
     { id: 'viewportClip' },
     { id: 'scene' },
@@ -17,7 +20,7 @@ export const workbenchAppearanceDescriptor: AppearanceSurfaceDescriptor = {
   facets: [
     {
       id: 'sceneId',
-      attribute: 'data-bf-scene-id',
+      attribute: 'data-openbitfun-scene-id',
       values: [
         'welcome',
         'session',
@@ -39,10 +42,10 @@ export const workbenchAppearanceDescriptor: AppearanceSurfaceDescriptor = {
     },
   ],
   states: [
-    { id: 'fullscreen', selector: { kind: 'self', suffix: '[data-bf-state~="fullscreen"]' } },
-    { id: 'toolbar', selector: { kind: 'self', suffix: '[data-bf-state~="toolbar"]' } },
-    { id: 'collapsed', selector: { kind: 'self', suffix: '[data-bf-state~="collapsed"]' } },
-    { id: 'active', selector: { kind: 'self', suffix: '[data-bf-state~="active"]' } },
-    { id: 'empty', selector: { kind: 'self', suffix: '[data-bf-state~="empty"]' } },
+    { id: 'fullscreen', selector: { kind: 'self', suffix: '[data-openbitfun-state~="fullscreen"]' } },
+    { id: 'toolbar', selector: { kind: 'self', suffix: '[data-openbitfun-state~="toolbar"]' } },
+    { id: 'collapsed', selector: { kind: 'self', suffix: '[data-openbitfun-state~="collapsed"]' } },
+    { id: 'active', selector: { kind: 'self', suffix: '[data-openbitfun-state~="active"]' } },
+    { id: 'empty', selector: { kind: 'self', suffix: '[data-openbitfun-state~="empty"]' } },
   ],
 };

@@ -21,11 +21,11 @@ use crate::service::config::types::{model_runtime_binding_fingerprint, AuthConfi
 #[cfg(feature = "subscription-auth")]
 use crate::service::config::types::{OpenCodePlan, SubscriptionProvider};
 use crate::service::config::{get_global_config_service, ConfigService};
-use crate::util::errors::{BitFunError, BitFunResult};
+use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use crate::util::types::AIConfig;
 use anyhow::{anyhow, Result};
-use bitfun_ai_adapters::resolve_required_model_selector;
 use log::{debug, info, warn};
+use openbitfun_ai_adapters::resolve_required_model_selector;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 
@@ -36,11 +36,13 @@ pub struct AIClientFactory {
 
 struct CachedAIClient {
     configuration_fingerprint: String,
-    default_reasoning_preset: Option<bitfun_core_types::ReasoningPresetDescriptor>,
+    default_reasoning_preset: Option<openbitfun_core_types::ReasoningPresetDescriptor>,
     client: Arc<AIClient>,
     /// Unix seconds when the resolved subscription credential expires.
     #[cfg(feature = "subscription-auth")]
     credential_expires_at: Option<i64>,
+    #[cfg(feature = "subscription-auth")]
+    credential_revision: Option<u64>,
 }
 
 /// Once a cached subscription credential is within this window of expiry, the
@@ -283,6 +285,14 @@ impl AIClientFactory {
         let default_reasoning_preset =
             resolve_default_reasoning_preset(&reasoning_projection).cloned();
 
+        #[cfg(feature = "subscription-auth")]
+        let credential_revision = match &model_config.auth {
+            AuthConfig::Subscription { provider, .. } => {
+                Some(subscription_auth::credential_revision(to_adapter_provider(*provider)).await?)
+            }
+            AuthConfig::ApiKey => None,
+        };
+
         {
             let cache = match self.client_cache.read() {
                 Ok(cache) => cache,
@@ -294,7 +304,12 @@ impl AIClientFactory {
                 }
             };
             if let Some(cached) = cache.get(&normalized_model_id) {
-                if cached.configuration_fingerprint == configuration_fingerprint
+                #[cfg(feature = "subscription-auth")]
+                let account_unchanged = cached.credential_revision == credential_revision;
+                #[cfg(not(feature = "subscription-auth"))]
+                let account_unchanged = true;
+                if account_unchanged
+                    && cached.configuration_fingerprint == configuration_fingerprint
                     && cached.default_reasoning_preset == default_reasoning_preset
                     && !subscription_credential_stale(&model_config.auth, cached)
                 {
@@ -323,7 +338,10 @@ impl AIClientFactory {
 
         let stream_options = build_stream_options_for_model(&global_config.ai, Some(&model_config));
         let client = apply_default_reasoning_preset(
-            AIClient::new_with_runtime_options(ai_config, proxy_config, stream_options),
+            apply_subscription_request_profile(
+                &model_config.auth,
+                AIClient::new_with_runtime_options(ai_config, proxy_config, stream_options),
+            ),
             &reasoning_projection,
         );
         let client = Arc::new(client);
@@ -346,6 +364,11 @@ impl AIClientFactory {
                     client: client.clone(),
                     #[cfg(feature = "subscription-auth")]
                     credential_expires_at,
+                    // Capture before resolution: a concurrent mutation or token
+                    // rotation conservatively causes another rebuild, never a
+                    // stale client stamped with a newer account's epoch.
+                    #[cfg(feature = "subscription-auth")]
+                    credential_revision,
                 },
             );
         }
@@ -364,7 +387,7 @@ static GLOBAL_AI_CLIENT_FACTORY: OnceLock<Arc<tokio::sync::RwLock<Option<Arc<AIC
 
 impl AIClientFactory {
     /// Initialize the global AIClientFactory singleton
-    pub async fn initialize_global() -> BitFunResult<()> {
+    pub async fn initialize_global() -> OpenBitFunResult<()> {
         if Self::is_global_initialized() {
             return Ok(());
         }
@@ -372,14 +395,14 @@ impl AIClientFactory {
         info!("Initializing global AIClientFactory...");
 
         let config_service = get_global_config_service().await.map_err(|e| {
-            BitFunError::service(format!("Failed to get global config service: {}", e))
+            OpenBitFunError::service(format!("Failed to get global config service: {}", e))
         })?;
 
         let factory = Arc::new(AIClientFactory::new(config_service));
         let wrapper = Arc::new(tokio::sync::RwLock::new(Some(factory)));
 
         GLOBAL_AI_CLIENT_FACTORY.set(wrapper).map_err(|_| {
-            BitFunError::service("Failed to initialize global AIClientFactory".to_string())
+            OpenBitFunError::service("Failed to initialize global AIClientFactory".to_string())
         })?;
 
         info!("Global AIClientFactory initialized");
@@ -387,9 +410,9 @@ impl AIClientFactory {
     }
 
     /// Get the global AIClientFactory instance
-    pub async fn get_global() -> BitFunResult<Arc<AIClientFactory>> {
+    pub async fn get_global() -> OpenBitFunResult<Arc<AIClientFactory>> {
         let wrapper = GLOBAL_AI_CLIENT_FACTORY.get().ok_or_else(|| {
-            BitFunError::service(
+            OpenBitFunError::service(
                 "Global AIClientFactory not initialized. Call initialize_global() first."
                     .to_string(),
             )
@@ -398,7 +421,7 @@ impl AIClientFactory {
         let guard = wrapper.read().await;
         guard
             .as_ref()
-            .ok_or_else(|| BitFunError::service("Global AIClientFactory is None".to_string()))
+            .ok_or_else(|| OpenBitFunError::service("Global AIClientFactory is None".to_string()))
             .map(Arc::clone)
     }
 
@@ -407,9 +430,9 @@ impl AIClientFactory {
     }
 
     /// Update the global AIClientFactory instance (used for config reload)
-    pub async fn update_global(new_factory: Arc<AIClientFactory>) -> BitFunResult<()> {
+    pub async fn update_global(new_factory: Arc<AIClientFactory>) -> OpenBitFunResult<()> {
         let wrapper = GLOBAL_AI_CLIENT_FACTORY.get().ok_or_else(|| {
-            BitFunError::service("Global AIClientFactory not initialized".to_string())
+            OpenBitFunError::service("Global AIClientFactory not initialized".to_string())
         })?;
 
         {
@@ -422,11 +445,11 @@ impl AIClientFactory {
     }
 }
 
-pub async fn get_global_ai_client_factory() -> BitFunResult<Arc<AIClientFactory>> {
+pub async fn get_global_ai_client_factory() -> OpenBitFunResult<Arc<AIClientFactory>> {
     AIClientFactory::get_global().await
 }
 
-pub async fn initialize_global_ai_client_factory() -> BitFunResult<()> {
+pub async fn initialize_global_ai_client_factory() -> OpenBitFunResult<()> {
     AIClientFactory::initialize_global().await
 }
 
@@ -436,6 +459,8 @@ fn to_adapter_provider(provider: SubscriptionProvider) -> AdapterProvider {
         SubscriptionProvider::Codex => AdapterProvider::Codex,
         SubscriptionProvider::Antigravity => AdapterProvider::Antigravity,
         SubscriptionProvider::Opencode => AdapterProvider::Opencode,
+        SubscriptionProvider::Grok => AdapterProvider::Grok,
+        SubscriptionProvider::Hermes => AdapterProvider::Hermes,
     }
 }
 
@@ -445,6 +470,17 @@ fn to_adapter_opencode_plan(plan: OpenCodePlan) -> AdapterOpenCodePlan {
         OpenCodePlan::Zen => AdapterOpenCodePlan::Zen,
         OpenCodePlan::Go => AdapterOpenCodePlan::Go,
     }
+}
+
+/// Attach request policy from explicit auth identity after credential resolution.
+pub fn apply_subscription_request_profile(auth: &AuthConfig, client: AIClient) -> AIClient {
+    #[cfg(feature = "subscription-auth")]
+    if let AuthConfig::Subscription { provider, .. } = auth {
+        return client.with_subscription_provider(to_adapter_provider(*provider));
+    }
+    #[cfg(not(feature = "subscription-auth"))]
+    let _ = auth;
+    client
 }
 
 /// Resolve a subscription `AuthConfig` and overlay it onto the runtime
@@ -479,7 +515,7 @@ pub async fn apply_subscription_auth(
 async fn apply_configured_auth(
     auth: &AuthConfig,
     ai_config: &mut AIConfig,
-    proxy_config: Option<bitfun_core_types::ProxyConfig>,
+    proxy_config: Option<openbitfun_core_types::ProxyConfig>,
     skip_ssl_verify: bool,
 ) -> Result<Option<i64>> {
     let options = SubscriptionHttpOptions::new(proxy_config, skip_ssl_verify);
@@ -490,7 +526,7 @@ async fn apply_configured_auth(
 async fn apply_configured_auth(
     auth: &AuthConfig,
     ai_config: &mut AIConfig,
-    _proxy_config: Option<bitfun_core_types::ProxyConfig>,
+    _proxy_config: Option<openbitfun_core_types::ProxyConfig>,
     _skip_ssl_verify: bool,
 ) -> Result<Option<i64>> {
     apply_subscription_auth(auth, ai_config).await
@@ -506,18 +542,30 @@ pub async fn apply_subscription_auth_with_options(
     let resolved = match auth {
         AuthConfig::ApiKey => return Ok(None),
         AuthConfig::Subscription { provider, plan } => {
+            let adapter_provider = to_adapter_provider(*provider);
+            if let Some(model) =
+                subscription_auth::runtime_model_override(adapter_provider, &ai_config.model)
+            {
+                ai_config.model = model.to_string();
+            }
             let resolved = match (*provider, *plan) {
-                (SubscriptionProvider::Opencode, Some(plan)) => {
-                    subscription_auth::resolve_opencode_with_options(
-                        to_adapter_opencode_plan(plan),
+                (SubscriptionProvider::Opencode, plan) => {
+                    subscription_auth::resolve_opencode_model_with_options(
+                        plan.map(to_adapter_opencode_plan),
                         &ai_config.format,
+                        &ai_config.model,
                         options,
                     )
                     .await
                 }
+                (SubscriptionProvider::Grok, None) => {
+                    subscription_auth::resolve_grok_with_options(&ai_config.model, options).await
+                }
+                (SubscriptionProvider::Hermes, None) => {
+                    subscription_auth::resolve_hermes_with_options(&ai_config.model, options).await
+                }
                 (_, None) => {
-                    subscription_auth::resolve_with_options(to_adapter_provider(*provider), options)
-                        .await
+                    subscription_auth::resolve_with_options(adapter_provider, options).await
                 }
                 (_, Some(plan)) => Err(anyhow!(
                     "OpenCode plan {plan:?} cannot be used with provider {provider:?}"
@@ -570,7 +618,7 @@ pub async fn apply_subscription_auth_with_options(
     Ok(resolved.expires_at)
 }
 
-/// List subscription accounts (Codex / Antigravity / OpenCode).
+/// List subscription accounts (Codex / Antigravity / OpenCode / xAI / Hermes).
 #[cfg(feature = "subscription-auth")]
 pub async fn list_subscription_accounts() -> Vec<subscription_auth::SubscriptionAccount> {
     subscription_auth::list_accounts().await
@@ -589,7 +637,7 @@ mod tests {
     };
     use crate::service::config::{ConfigManagerSettings, ConfigService};
     use crate::util::types::AIConfig;
-    use bitfun_ai_adapters::{
+    use openbitfun_ai_adapters::{
         classify_model_selector, resolve_required_model_selector, ModelSelectorKind,
     };
 
@@ -663,6 +711,11 @@ mod tests {
         assert_eq!(expires_at, None);
         assert_eq!(config.api_key, "unchanged");
         assert_eq!(config.base_url, "https://example.test");
+        let client = super::apply_subscription_request_profile(
+            &AuthConfig::ApiKey,
+            super::AIClient::new(config),
+        );
+        assert_eq!(client.subscription_provider_key(), None);
     }
 
     #[cfg(not(feature = "subscription-auth"))]
@@ -711,12 +764,12 @@ mod tests {
     #[test]
     fn concrete_reserved_model_ids_remain_exact_config_references() {
         let mut config = GlobalConfig::default();
-        config.ai.models = ["inherit", "primary", "fast", "auto", "default"]
+        config.ai.models = ["inherit", "primary", "fast", "default"]
             .into_iter()
             .map(|id| build_model(id, id, &format!("runtime-{id}")))
             .collect();
 
-        for id in ["inherit", "primary", "fast", "auto", "default"] {
+        for id in ["inherit", "primary", "fast", "default"] {
             assert_eq!(
                 config.ai.resolve_model_reference(id),
                 Some(id.to_string()),
@@ -740,8 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_model_selectors_normalize_to_primary_for_client_lookup() {
-        assert_eq!(classify_model_selector("auto"), ModelSelectorKind::Primary);
+    fn default_and_empty_selectors_normalize_to_primary_for_client_lookup() {
         assert_eq!(
             classify_model_selector(" default "),
             ModelSelectorKind::Primary

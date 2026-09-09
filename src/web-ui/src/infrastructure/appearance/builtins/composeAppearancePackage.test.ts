@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { AppearancePackage } from '../types';
-import { APPEARANCE_CSS_TOKEN_NAMES } from './catalog';
+import { APPEARANCE_THEME_TOKEN_NAMES } from './catalog';
 import { composeAppearancePackage } from './composeAppearancePackage';
 
 describe('composeAppearancePackage', () => {
   it('resolves a partial imported package into a complete host appearance', () => {
     const pkg: AppearancePackage = {
-      schema: 'bitfun.appearance',
+      schema: 'openbitfun.appearance',
       schemaVersion: 1,
       id: 'example.partial',
       name: 'Partial',
@@ -42,9 +42,9 @@ describe('composeAppearancePackage', () => {
     expect(resolved.renderers?.xterm).toBeDefined();
     expect(resolved.renderers?.mermaid).toBeDefined();
     expect(resolved.renderers?.['generative-widget']).toBeDefined();
-    expect(resolved.renderers?.['bitfun-canvas']).toBeDefined();
-    expect(Object.keys(resolved.renderers?.['css-tokens']?.settings.tokens ?? {})).toEqual(
-      expect.arrayContaining(APPEARANCE_CSS_TOKEN_NAMES),
+    expect(resolved.renderers?.['openbitfun-canvas']).toBeDefined();
+    expect(Object.keys(resolved.renderers?.['theme-tokens']?.settings.tokens ?? {})).toEqual(
+      expect.arrayContaining(APPEARANCE_THEME_TOKEN_NAMES),
     );
   });
 });

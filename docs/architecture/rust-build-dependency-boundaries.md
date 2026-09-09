@@ -1,6 +1,6 @@
 # Rust 构建与依赖边界
 
-本文定义 BitFun Rust workspace 的 Cargo feature、第三方依赖、测试目标和验证职责边界。它是
+本文定义 OpenBitFun Rust workspace 的 Cargo feature、第三方依赖、测试目标和验证职责边界。它是
 [`product-architecture.md`](product-architecture.md) 的构建视图补充；运行时 owner、端口和产品分层仍以产品架构及最近的模块 `AGENTS.md` 为准。
 
 本文只记录长期规则，不记录当前 package 数量、重复版本数量或单次构建耗时。阶段性审计和迁移顺序保留在本地工作记录或对应 issue/PR，避免把过程文档和会变化的基线提交为可不断调高的门槛。
@@ -10,7 +10,7 @@
 以下改动必须同时遵守本文：
 
 - workspace 或 crate `Cargo.toml` 的 dependency、feature、target 和 profile 变更；
-- `bitfun-core`、Assembly 或产品入口的 capability 装配；
+- `openbitfun-core`、Assembly 或产品入口的 capability 装配；
 - 为降低构建/测试时间而做的 crate 拆分、owner 迁移或第三方库替换；
 - build script、proc-macro、TLS/crypto、系统库和其他重型原生依赖的引入或扩展；
 - integration test、example、binary 的 feature/target gate；
@@ -47,7 +47,7 @@ Cargo 会统一同一 package 在依赖图中的 feature；workspace dependency 
 
 ### 3.2 产品入口显式选择 Core 能力
 
-`src/apps/*`、`src/crates/interfaces/*` 和 installer app 直接依赖 `bitfun-core` 时必须声明非空
+`src/apps/*`、`src/crates/interfaces/*` 和 installer app 直接依赖 `openbitfun-core` 时必须声明非空
 `features` 列表。Core 的 `default` 由 Core 自身和边界检查保证为空，因此仓内 consumer 不重复声明
 `default-features = false`；能力边界仍由 consumer 的显式 feature 集合决定。
 
@@ -59,9 +59,9 @@ Core library 的默认 feature 集合为空；完整产品必须显式选择 `pr
 `product-full`。每个角色必须独立编译，产品消费者还要显式关闭该 interface crate 的默认 feature 并选择
 真实使用的角色，避免 workspace feature union 掩盖边界缺口。
 
-Core 的 `agent-runtime` 只承载 Agent 生命周期基线和明确的基线工具，不得再次把 MCP、Remote Connect、模型目录、Browser/Web、Git/LSP 或产品工具组藏成 capability union。具体 service 由同名 owner feature 选择，内置工具由 `tools-*` 选择；`product-full` 显式相加全部 owner，CLI/ACP 等窄入口则按真实命令与构造路径列出自己的闭包。
+Core 的 `agent-runtime` 只承载 Agent 生命周期基线和明确的基线工具，不得再次把 MCP、Remote Connect、模型目录、Browser/Web、Git 或产品工具组藏成 capability union。具体 service 由同名 owner feature 选择，内置工具由 `tools-*` 选择；`product-full` 显式相加全部 owner，CLI/ACP 等窄入口则按真实命令与构造路径列出自己的闭包。
 
-执行层的 `bitfun-agent-runtime` 自身也保持空默认：完整生命周期由 `agent-runtime` 选择，DeepResearch 纯编号由 `deep-research` 选择，原生 Hook 配置解析与进程执行分别由 `native-hook-settings`、`native-hook-runtime` 选择。叶能力仍留在原 owner crate 内，不为依赖收敛新建 DTO/runtime crate；完整产品必须显式恢复真实 owner，不能依赖 workspace feature union 偶然补齐。
+执行层的 `openbitfun-agent-runtime` 自身也保持空默认：完整生命周期由 `agent-runtime` 选择，DeepResearch 纯编号由 `deep-research` 选择，原生 Hook 配置解析与进程执行分别由 `native-hook-settings`、`native-hook-runtime` 选择。叶能力仍留在原 owner crate 内，不为依赖收敛新建 DTO/runtime crate；完整产品必须显式恢复真实 owner，不能依赖 workspace feature union 偶然补齐。
 
 Owner feature 不等于“无前置依赖”。当实现确实调用较低层基线时，依赖必须按 `owner → baseline` 显式组合，禁止反向把 owner 藏回基线：例如 Core MCP 工具桥和 Remote Connect 依赖 Agent 生命周期，Workspace Search 依赖本地 Workspace Runtime。每个新增或调整后的 owner 闭包都必须单独 `cargo check`，避免被 Desktop/CLI 的 feature union 偶然补齐。
 
@@ -71,7 +71,8 @@ runtime dependency；真实产品入口必须同时显式选择 owner 与 modifi
 把完整 adapter、service 或 tool runtime 拉回窄闭包。
 
 Function Agent 的 Git/AI 适配由 `function-agents` 选择，MiniApp 的 domain/runtime/market
-闭包由 `tools-miniapp` 选择；不得再通过一个通用 `product-domains` Core feature 把两者、
+闭包由 `tools-miniapp` 选择，创造模式专属的前端工作台由独立的 `tools-creation` 选择；
+产品装配可以为 Creative 同时选择两个 owner，但不得再通过一个通用 `product-domains` Core feature 把它们、
 Plugin Source 和完整 domain feature 集合一起带回 Agent Runtime。产品装配计划若声明了当前
 二进制未编译的工具组，必须在 registry materialization 前明确失败，不能静默删掉该组。
 
@@ -97,10 +98,11 @@ Plugin Source 和完整 domain feature 集合一起带回 Agent Runtime。产品
 ### 3.4 Reqwest 能力由客户端 owner 选择
 
 - workspace 级 `reqwest` 只统一版本并关闭默认 feature，不替任何客户端选择 HTTP/2、序列化、表单、流、代理或 TLS 能力；
-- 真正创建 client 的 app、service 或 adapter 必须在自身依赖声明中显式选择实际使用的 Reqwest feature 和 `reqwest/rustls`；只使用 `reqwest::Url` 的 contract/assembly 路径不加载传输能力；
-- capability crate 的每个 Reqwest owner feature 必须独立带齐自己的数据/传输 feature 与 `reqwest/rustls`，不能依赖 `product-full` 或其他 feature 的 Cargo feature-union 偶然补齐；
-- 边界检查以 Cargo metadata 的解码结果看护全部直接 consumer，并检查 resolved Reqwest feature union，防止传递依赖重新激活 Native TLS；
-- 不并列启用 native-tls 兼容栈。只有真实产品场景无法由 Rustls 平台证书验证承载时，才以明确行为证据评审替换方案，而不是重新叠加第二后端。
+- 真正创建 client 的 app、service 或 adapter 必须在自身依赖声明中显式选择实际使用的 Reqwest feature 和 provider-neutral 的 `reqwest/rustls-no-provider`；只使用 `reqwest::Url` 的 contract/assembly 路径不加载传输能力；
+- capability crate 的每个 Reqwest owner feature 必须独立带齐自己的数据/传输 feature、`reqwest/rustls-no-provider` 和进程级 TLS provider owner，不能依赖 `product-full` 或其他 feature 的 Cargo feature-union 偶然补齐；
+- workspace 级 `rustls` 只统一兼容版本并关闭默认 feature；`services-core/tls-provider` 是内置 crypto provider 的唯一 owner，精确选择并安装 `ring`、`std` 和 `tls12`。产品进程入口或集中 client helper 必须在构造 TLS client 前确保该 provider 已安装；
+- 边界检查以 Cargo metadata 的解码结果看护全部直接 consumer，并检查 resolved Reqwest/Rustls feature union，拒绝缺失 provider、同时选择多个 provider、传递依赖重新激活 AWS-LC 或 Native TLS，以及绕过集中 helper 的 Reqwest client 构造；
+- 不并列启用 Native TLS 或 AWS-LC 兼容栈。只有真实产品场景无法由当前 Ring/Rustls 平台证书验证承载时，才以明确行为证据评审替换方案；替换时由同一 owner 切换 provider，不能在同一产品闭包叠加第二后端。
 
 ### 3.5 稳定契约 crate 按消费能力切片
 
@@ -244,3 +246,19 @@ cargo check -p <product> --timings
 
 当前硬边界由 `scripts/check-core-boundaries.mjs` 统一执行。不要为同一 Cargo 架构事实增加第二个 checker；新增规则先证明当前树满足、fixture 能捕获回归，并保持错误消息可直接定位到 owner manifest。
 检查器必须保持工作树只读；读取独立 manifest 的声明事实时不得生成新的 lockfile、target artifact 或格式化改动。
+
+## 独立数据迁移工具的依赖边界
+
+Data Migrator 是独立发布的本地离线工具，不依赖 Core、Product Assembly、Desktop 或 Web UI。
+主应用不检测、启动或捆绑迁移器。两者在同一源码工作区复用稳定的数据格式与存储实现：
+
+- contracts/config-contracts：配置 DTO、默认值、版本校验及到共享模型 DTO 的纯转换；Core 原路径保留转发，ConfigProvider 仍在 Core。
+- services-core 的 workspace-persistence、coordination-store、session-event-format：工作区记录、注册表校验、SQLite 物理 schema 和会话日志格式。
+- services/legacy-migration-adapters：旧版读取、转换、引用修复；只调用共享存储 owner。
+- services/legacy-migration：快照、锁、暂存、备份、原子写入、日志恢复和无时效交接依赖的任务存储。
+
+本次只移动数据/存储 owner，不移动 WorkspaceManager、会话生命周期、权限、事件或远程执行。
+WorkspaceInfo/WorkspaceIdentity 的运行操作由 Core 的 runtime extension traits 保留，稳定记录无需导入这些能力。
+原 Core 存储入口保留错误映射；可选 legacy-migration facade 保留旧导入路径，但不再由 product-full 启用。
+远程四种场景不提供迁移工具的执行入口；仅转换本机保存的连接记录，不连接远端。
+使用与发行契约以 [独立迁移器说明](../../src/apps/data-migrator/README.zh-CN.md) 为准。

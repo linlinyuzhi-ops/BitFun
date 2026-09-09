@@ -2,8 +2,8 @@
 
 #[cfg(feature = "rpc")]
 use agent_client_protocol::{JsonRpcRequest, JsonRpcResponse};
-use bitfun_product_domains::tool_permissions::{PermissionReply, PermissionRequest};
-use bitfun_runtime_ports::{
+use openbitfun_product_domains::tool_permissions::{PermissionReply, PermissionRequest};
+use openbitfun_runtime_ports::{
     AgentDialogSteerRequest, AgentDialogTurnExecution, AgentDialogTurnRequest,
     AgentInputAttachment, AgentSessionCreateRequest, AgentSessionCreateResult,
     AgentSessionDeleteRequest, AgentSessionListRequest, AgentSessionSummary,
@@ -42,6 +42,8 @@ pub struct ListAgentModesResponse {
 #[serde(rename_all = "camelCase")]
 pub struct AgentModeSummary {
     pub id: String,
+    #[serde(default)]
+    pub route_key: String,
     pub description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,

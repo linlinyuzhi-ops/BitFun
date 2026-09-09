@@ -273,6 +273,20 @@ struct HeadTailText {
 }
 
 impl RemoteExecProcessManager {
+    pub async fn is_session_active(&self, session_id: i32) -> bool {
+        let process = self
+            .sessions
+            .lock()
+            .await
+            .get(&session_id)
+            .map(|entry| Arc::clone(&entry.process));
+
+        match process {
+            Some(process) => !process.output.is_closed().await,
+            None => false,
+        }
+    }
+
     pub async fn exec_command(
         &self,
         request: RemoteExecCommandRequest,
@@ -691,20 +705,28 @@ async fn spawn_remote_process(
     if request.tty {
         if let Some(spec) = request
             .ssh_manager
-            .local_container_exec_spec(&request.connection_id, &request.command, true)
+            .local_process_exec_spec(&request.connection_id, &request.command, true)
             .await?
         {
-            return spawn_local_container_pty_process(request, spec).await;
+            return spawn_local_workspace_pty_process(request, spec).await;
         }
         return spawn_remote_pty_process(request).await;
     }
     spawn_remote_pipe_process(request).await
 }
 
-async fn spawn_local_container_pty_process(
+async fn spawn_local_workspace_pty_process(
     request: RemoteExecCommandRequest,
     (executable, args): (String, Vec<String>),
 ) -> anyhow::Result<RemoteExecProcess> {
+    let shell_type = ShellType::Custom(
+        if executable == super::wsl::EXECUTABLE {
+            "WSL"
+        } else {
+            "Docker"
+        }
+        .to_string(),
+    );
     let shell_config = ShellConfig {
         executable,
         args,
@@ -717,14 +739,8 @@ async fn spawn_local_container_pty_process(
             .try_into()
             .expect("UUID prefix is four bytes"),
     );
-    let spawned = spawn_pty(
-        process_id,
-        &shell_config,
-        ShellType::Custom("Docker".to_string()),
-        80,
-        24,
-    )
-    .map_err(|error| anyhow!("Failed to start local Docker PTY: {}", error))?;
+    let spawned = spawn_pty(process_id, &shell_config, shell_type, 80, 24)
+        .map_err(|error| anyhow!("Failed to start local workspace PTY: {}", error))?;
     let output = Arc::new(OutputState::new(request.output_capture_tx.clone()));
     let (command_tx, mut command_rx) = mpsc::channel::<RemoteExecProcessCommand>(64);
     let owner_output = output.clone();

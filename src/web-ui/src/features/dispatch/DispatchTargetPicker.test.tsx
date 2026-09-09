@@ -7,7 +7,8 @@ import { DispatchTargetPicker } from './DispatchTargetPicker';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock('@/component-library', () => ({
+vi.mock('@openbitfun/ui', async importOriginal => ({
+  ...await importOriginal<typeof import('@openbitfun/ui')>(),
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
@@ -78,7 +79,7 @@ describe('DispatchTargetPicker overlay', () => {
 
   afterEach(() => {
     act(() => root.unmount());
-    document.querySelector('[data-bf-overlay-host="true"]')?.remove();
+    document.querySelector('[data-openbitfun-overlay-host="true"]')?.remove();
     container.remove();
     vi.restoreAllMocks();
   });
@@ -97,12 +98,89 @@ describe('DispatchTargetPicker overlay', () => {
     const trigger = container.querySelector<HTMLButtonElement>(
       '[data-testid="chat-input-dispatch-trigger"]',
     );
+    expect(trigger?.querySelectorAll('svg')).toHaveLength(1);
     await act(async () => trigger?.click());
 
     const menu = document.querySelector<HTMLElement>('[data-testid="dispatch-target-menu"]');
-    expect(menu?.parentElement?.getAttribute('data-bf-overlay-host')).toBe('true');
+    expect(menu?.parentElement?.getAttribute('data-openbitfun-overlay-host')).toBe('true');
     expect(menu?.style.visibility).toBe('visible');
     expect(menu?.style.left).toBe('240px');
     expect(menu?.style.top).toBe('293px');
+  });
+
+  it('offers New Worktree inside the local target and reflects the selected local mode', async () => {
+    const onSelectLocal = vi.fn();
+    const onWorktreeChange = vi.fn();
+    const localWorktreeControl = {
+      enabled: false,
+      locked: false,
+      label: 'New Worktree',
+      description: 'Run in an isolated worktree.',
+      onChange: onWorktreeChange,
+    };
+
+    await act(async () => {
+      root.render(
+        <DispatchTargetPicker
+          target={{ kind: 'local' }}
+          locked={false}
+          localWorktreeControl={localWorktreeControl}
+          onSelectLocal={onSelectLocal}
+          onSelectTarget={vi.fn()}
+        />,
+      );
+    });
+
+    let trigger = container.querySelector<HTMLButtonElement>(
+      '[data-testid="chat-input-dispatch-trigger"]',
+    );
+    expect(trigger?.textContent).toBe('chatInput.dispatch.local');
+    expect(trigger?.querySelectorAll('svg')).toHaveLength(1);
+
+    await act(async () => trigger?.click());
+
+    const localOption = document.querySelector<HTMLButtonElement>(
+      '[data-testid="dispatch-target-local-option"]',
+    );
+    const worktreeOption = document.querySelector<HTMLButtonElement>(
+      '[data-testid="dispatch-target-new-worktree-option"]',
+    );
+    expect(localOption?.getAttribute('aria-checked')).toBe('true');
+    expect(worktreeOption?.textContent).toContain('New Worktree');
+    expect(worktreeOption?.getAttribute('aria-checked')).toBe('false');
+
+    await act(async () => worktreeOption?.click());
+    expect(onSelectLocal).toHaveBeenCalledTimes(1);
+    expect(onWorktreeChange).toHaveBeenLastCalledWith(true);
+    expect(document.querySelector('[data-testid="dispatch-target-menu"]')).toBeNull();
+
+    await act(async () => {
+      root.render(
+        <DispatchTargetPicker
+          target={{ kind: 'local' }}
+          locked={false}
+          localWorktreeControl={{ ...localWorktreeControl, enabled: true }}
+          onSelectLocal={onSelectLocal}
+          onSelectTarget={vi.fn()}
+        />,
+      );
+    });
+
+    trigger = container.querySelector<HTMLButtonElement>(
+      '[data-testid="chat-input-dispatch-trigger"]',
+    );
+    expect(trigger?.textContent).toBe('New Worktree');
+    expect(trigger?.querySelectorAll('svg')).toHaveLength(1);
+
+    await act(async () => trigger?.click());
+    expect(document.querySelector(
+      '[data-testid="dispatch-target-new-worktree-option"]',
+    )?.getAttribute('aria-checked')).toBe('true');
+
+    await act(async () => document.querySelector<HTMLButtonElement>(
+      '[data-testid="dispatch-target-local-option"]',
+    )?.click());
+    expect(onSelectLocal).toHaveBeenCalledTimes(2);
+    expect(onWorktreeChange).toHaveBeenLastCalledWith(false);
   });
 });

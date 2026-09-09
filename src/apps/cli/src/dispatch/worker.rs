@@ -3,14 +3,16 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
-use bitfun_agent_runtime::sdk::{
+use openbitfun_agent_runtime::sdk::{
     AgentDialogSteerRequest, AgentDialogTurnRequest, AgentSessionCreateRequest,
     AgentSessionModelSelection, AgentSessionModelSelectionUpdateRequest,
     AgentSessionRestoreRequest, AgentTurnCancellationRequest, AgentTurnSettlementRequest,
     PermissionReply, PermissionReplySource, PermissionRequest, PermissionRequestEvent,
 };
-use bitfun_events::{project_agentic_frontend_event, AgenticEvent};
-use bitfun_runtime_ports::{AgentSubmissionSource, DialogSubmissionPolicy, SessionExecutionTarget};
+use openbitfun_events::{project_agentic_frontend_event, AgenticEvent};
+use openbitfun_runtime_ports::{
+    AgentSubmissionSource, DialogSubmissionPolicy, SessionExecutionTarget,
+};
 
 use crate::{shutdown_mcp_servers, BootstrapProfile};
 
@@ -181,6 +183,7 @@ async fn run_inner(store: &DispatchStore, job_id: &str) -> Result<()> {
                 AgentSessionCreateRequest {
                     session_name: job.title.clone(),
                     agent_type: job.request.agent_type.clone(),
+                    agent_route_key: None,
                     workspace_path: Some(workspace_path.clone()),
                     project_workspace_path: Some(workspace_path.clone()),
                     execution_target: Some(SessionExecutionTarget::local(workspace_path.clone())),
@@ -400,7 +403,7 @@ async fn run_inner(store: &DispatchStore, job_id: &str) -> Result<()> {
         })
         .await;
     let (terminal_state, terminal_error) = match settlement {
-        Ok(()) => (terminal_state, terminal_error),
+        Ok(_) => (terminal_state, terminal_error),
         Err(error) => (
             DispatchJobState::Failed,
             Some(format!(
@@ -417,7 +420,7 @@ async fn run_inner(store: &DispatchStore, job_id: &str) -> Result<()> {
 async fn handle_permission(
     store: &DispatchStore,
     job_id: &str,
-    runtime: &bitfun_agent_runtime::sdk::AgentRuntime,
+    runtime: &openbitfun_agent_runtime::sdk::AgentRuntime,
     session_id: &str,
     turn_id: &str,
     request: PermissionRequest,
@@ -464,7 +467,7 @@ async fn handle_permission(
 async fn process_mailboxes(
     store: &DispatchStore,
     job_id: &str,
-    runtime: &bitfun_agent_runtime::sdk::AgentRuntime,
+    runtime: &openbitfun_agent_runtime::sdk::AgentRuntime,
     session_id: &str,
     turn_id: &str,
 ) -> Result<Option<(DispatchJobState, Option<String>)>> {
@@ -527,7 +530,7 @@ async fn process_mailboxes(
 }
 
 async fn cancel_turn(
-    runtime: &bitfun_agent_runtime::sdk::AgentRuntime,
+    runtime: &openbitfun_agent_runtime::sdk::AgentRuntime,
     session_id: &str,
     turn_id: &str,
     reason: &str,
@@ -550,11 +553,11 @@ async fn cancel_turn(
 
 fn runtime_attachments(
     attachments: &[super::protocol::DispatchAttachment],
-) -> Vec<bitfun_runtime_ports::AgentInputAttachment> {
+) -> Vec<openbitfun_runtime_ports::AgentInputAttachment> {
     attachments
         .iter()
         .map(|attachment| {
-            bitfun_runtime_ports::AgentInputAttachment::remote_image(
+            openbitfun_runtime_ports::AgentInputAttachment::remote_image(
                 attachment.id.clone(),
                 attachment
                     .name

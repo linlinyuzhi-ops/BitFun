@@ -1,23 +1,24 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "BitFun",
-  "identifier": "com.bitfun.desktop.dev",
+  "productName": "OpenBitFun",
+  "identifier": "com.openbitfun.desktop.dev",
   "build": {
     "beforeDevCommand": "pnpm run dev:web",
     "devUrl": "http://localhost:1422",
     "beforeBuildCommand": "pnpm run frontend:build-all",
-    "frontendDist": "../../../dist"
+    "frontendDist": "bootstrap-ui"
   },
   "bundle": {
     "active": true,
     "targets": "all",
     "icon": [
-      "icons/icon.icns",
-      "icons/icon.ico",
-      "icons/icon.png"
+      "icons/openbitfun-app-icon.icns",
+      "icons/openbitfun-app-icon.ico",
+      "icons/openbitfun-app-icon.png"
     ],
     "resources": {
       "../../mobile-web/dist": "mobile-web/dist",
+      "../extension-host/dist/extension-host.js": "resources/ext-host/extension-host.js",
       "resources/worker_host.js": "resources/worker_host.js",
       "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
       "../../crates/services/services-integrations/assets/models-dev.LICENSE.txt": "third-party/models.dev/LICENSE.txt",
@@ -30,14 +31,14 @@
           "libgtk-3-0"
         ],
         "files": {
-          "/usr/share/icons/hicolor/16x16/apps/bitfun-desktop.png": "icons/hicolor/16x16/apps/bitfun-desktop.png",
-          "/usr/share/icons/hicolor/32x32/apps/bitfun-desktop.png": "icons/hicolor/32x32/apps/bitfun-desktop.png",
-          "/usr/share/icons/hicolor/48x48/apps/bitfun-desktop.png": "icons/hicolor/48x48/apps/bitfun-desktop.png",
-          "/usr/share/icons/hicolor/64x64/apps/bitfun-desktop.png": "icons/hicolor/64x64/apps/bitfun-desktop.png",
-          "/usr/share/icons/hicolor/96x96/apps/bitfun-desktop.png": "icons/hicolor/96x96/apps/bitfun-desktop.png",
-          "/usr/share/icons/hicolor/128x128/apps/bitfun-desktop.png": "icons/hicolor/128x128/apps/bitfun-desktop.png",
-          "/usr/share/icons/hicolor/256x256/apps/bitfun-desktop.png": "icons/hicolor/256x256/apps/bitfun-desktop.png",
-          "/usr/share/icons/hicolor/512x512/apps/bitfun-desktop.png": "icons/hicolor/512x512/apps/bitfun-desktop.png"
+          "/usr/share/icons/hicolor/16x16/apps/openbitfun-desktop.png": "icons/hicolor/16x16/apps/openbitfun-desktop.png",
+          "/usr/share/icons/hicolor/32x32/apps/openbitfun-desktop.png": "icons/hicolor/32x32/apps/openbitfun-desktop.png",
+          "/usr/share/icons/hicolor/48x48/apps/openbitfun-desktop.png": "icons/hicolor/48x48/apps/openbitfun-desktop.png",
+          "/usr/share/icons/hicolor/64x64/apps/openbitfun-desktop.png": "icons/hicolor/64x64/apps/openbitfun-desktop.png",
+          "/usr/share/icons/hicolor/96x96/apps/openbitfun-desktop.png": "icons/hicolor/96x96/apps/openbitfun-desktop.png",
+          "/usr/share/icons/hicolor/128x128/apps/openbitfun-desktop.png": "icons/hicolor/128x128/apps/openbitfun-desktop.png",
+          "/usr/share/icons/hicolor/256x256/apps/openbitfun-desktop.png": "icons/hicolor/256x256/apps/openbitfun-desktop.png",
+          "/usr/share/icons/hicolor/512x512/apps/openbitfun-desktop.png": "icons/hicolor/512x512/apps/openbitfun-desktop.png"
         },
         "postInstallScript": "scripts/post-install-icons.sh"
       },

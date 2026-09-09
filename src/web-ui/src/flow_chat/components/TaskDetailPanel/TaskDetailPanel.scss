@@ -7,8 +7,8 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bf-appearance-token-color-bg-scene);
-  color: var(--bf-appearance-token-color-text-primary);
+  background: var(--openbitfun-color-surface-scene);
+  color: var(--openbitfun-color-content-primary);
 
   &--empty {
     .task-detail-panel__empty-content {
@@ -16,8 +16,8 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      color: var(--bf-appearance-token-color-text-muted);
-      font-size: var(--bf-appearance-token-tool-card-action-font-size);
+      color: var(--openbitfun-color-content-muted);
+      font-size: var(--openbitfun-type-flow-control-font-size);
     }
   }
 
@@ -28,22 +28,21 @@
     justify-content: center;
     gap: 6px;
     padding: 10px 16px;
-    background: var(--bf-appearance-token-color-bg-secondary);
+    background: var(--openbitfun-color-surface-panel);
     flex-shrink: 0;
     min-height: 36px;
   }
 
   &__header-icon {
-    color: var(--bf-appearance-token-color-text-secondary);
+    color: var(--openbitfun-color-content-secondary);
     flex-shrink: 0;
   }
 
   &__header-title {
-    font-size: var(--bf-appearance-token-tool-card-action-font-size);
-    font-weight: 500;
-    color: var(--bf-appearance-token-color-text-primary);
+    font-size: var(--openbitfun-type-flow-control-font-size);
+    font-weight: var(--openbitfun-type-label-sm-font-weight);
+    color: var(--openbitfun-color-content-primary);
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 60%;
     text-align: center;
@@ -52,10 +51,10 @@
   &__header-badge {
     padding: 2px 6px;
     border-radius: 4px;
-    font-size: var(--bf-appearance-token-flowchat-font-size-xxs);
-    font-weight: 500;
-    color: var(--bf-appearance-token-color-text-secondary);
-    background: var(--bf-appearance-token-color-overlay-white-08);
+    font-size: var(--openbitfun-type-flow-micro-font-size);
+    font-weight: var(--openbitfun-type-label-sm-font-weight);
+    color: var(--openbitfun-color-content-secondary);
+    background: color-mix(in srgb, var(--openbitfun-color-content-on-dark) 8%, transparent);
     flex-shrink: 0;
   }
 
@@ -67,8 +66,8 @@
     display: flex;
     align-items: center;
     gap: 3px;
-    font-size: var(--bf-appearance-token-flowchat-font-size-xs);
-    color: var(--bf-appearance-token-color-text-muted);
+    font-size: var(--openbitfun-type-flow-support-font-size);
+    color: var(--openbitfun-color-content-muted);
   }
 
   &__header-loading {
@@ -85,7 +84,7 @@
     right: 16px;
     top: 50%;
     transform: translateY(-50%);
-    color: var(--bf-appearance-token-color-error);
+    color: var(--openbitfun-color-status-danger-content);
   }
 
   &__error-banner {
@@ -93,21 +92,21 @@
     align-items: flex-start;
     gap: 8px;
     padding: 10px 16px;
-    background: color-mix(in srgb, var(--bf-appearance-token-color-error) 10%, var(--bf-appearance-token-color-bg-secondary));
-    border-bottom: 1px solid color-mix(in srgb, var(--bf-appearance-token-color-error) 22%, transparent);
+    background: color-mix(in srgb, var(--openbitfun-color-status-danger-content) 10%, var(--openbitfun-color-surface-panel));
+    border-bottom: 1px solid color-mix(in srgb, var(--openbitfun-color-status-danger-content) 22%, transparent);
     flex-shrink: 0;
 
     &-icon {
       flex-shrink: 0;
       margin-top: 1px;
-      color: var(--bf-appearance-token-color-error);
+      color: var(--openbitfun-color-status-danger-content);
     }
 
     &-text {
       flex: 1;
-      font-size: var(--bf-appearance-token-tool-card-action-font-size);
-      line-height: var(--bf-appearance-token-flowchat-support-line-height);
-      color: var(--bf-appearance-token-color-error);
+      font-size: var(--openbitfun-type-flow-control-font-size);
+      line-height: var(--openbitfun-type-flow-support-line-height);
+      color: var(--openbitfun-color-status-danger-content);
       word-break: break-word;
       user-select: text;
     }
@@ -130,23 +129,23 @@
 
     summary {
       padding: 8px 12px;
-      font-size: var(--bf-appearance-token-tool-card-action-font-size);
-      font-weight: 500;
-      color: var(--bf-appearance-token-color-text-secondary);
+      font-size: var(--openbitfun-type-flow-control-font-size);
+      font-weight: var(--openbitfun-type-label-sm-font-weight);
+      color: var(--openbitfun-color-content-secondary);
       cursor: pointer;
       user-select: none;
       transition:
         color 150ms ease,
         border-color 150ms ease;
-      border: 1px dashed var(--bf-appearance-token-border-base);
+      border: 1px dashed var(--openbitfun-color-border-default);
       border-radius: 6px;
 
       &:hover {
-        color: var(--bf-appearance-token-color-text-primary);
+        color: var(--openbitfun-color-content-primary);
       }
 
       &::marker {
-        color: var(--bf-appearance-token-color-text-muted);
+        color: var(--openbitfun-color-content-muted);
       }
     }
 
@@ -159,17 +158,17 @@
   &__prompt-content {
     margin: 0;
     padding: 10px 12px;
-    font-family: inherit;
-    font-size: var(--bf-appearance-token-tool-card-action-font-size);
-    font-weight: 500;
-    line-height: var(--bf-appearance-token-flowchat-support-line-height);
-    color: var(--bf-appearance-token-color-text-secondary);
+    font-family:var(--openbitfun-type-body-sm-font-family);
+    font-size: var(--openbitfun-type-flow-control-font-size);
+    font-weight: var(--openbitfun-type-label-sm-font-weight);
+    line-height: var(--openbitfun-type-flow-support-line-height);
+    color: var(--openbitfun-color-content-secondary);
     background: transparent;
     white-space: pre-wrap;
     word-break: break-word;
     max-height: 300px;
     overflow-y: auto;
-    border: 1px dashed var(--bf-appearance-token-border-base);
+    border: 1px dashed var(--openbitfun-color-border-default);
     border-top: none;
     border-radius: 0 0 6px 6px;
 
@@ -181,11 +180,11 @@
       background: transparent;
     }
     &::-webkit-scrollbar-thumb {
-      background: var(--bf-appearance-token-color-overlay-white-12);
+      background: color-mix(in srgb, var(--openbitfun-color-content-on-dark) 12%, transparent);
       border-radius: 2px;
       
       &:hover {
-        background: var(--bf-appearance-token-color-overlay-white-20);
+        background: color-mix(in srgb, var(--openbitfun-color-content-on-dark) 20%, transparent);
       }
     }
   }
@@ -197,23 +196,23 @@
 
     summary {
       padding: 8px 12px;
-      font-size: var(--bf-appearance-token-tool-card-action-font-size);
-      font-weight: 500;
-      color: var(--bf-appearance-token-color-text-secondary);
+      font-size: var(--openbitfun-type-flow-control-font-size);
+      font-weight: var(--openbitfun-type-label-sm-font-weight);
+      color: var(--openbitfun-color-content-secondary);
       cursor: pointer;
       user-select: none;
       transition:
         color 150ms ease,
         border-color 150ms ease;
-      border: 1px dashed var(--bf-appearance-token-border-base);
+      border: 1px dashed var(--openbitfun-color-border-default);
       border-radius: 6px;
 
       &:hover {
-        color: var(--bf-appearance-token-color-text-primary);
+        color: var(--openbitfun-color-content-primary);
       }
 
       &::marker {
-        color: var(--bf-appearance-token-color-text-muted);
+        color: var(--openbitfun-color-content-muted);
       }
     }
 
@@ -228,20 +227,20 @@
     flex-direction: column;
     gap: 6px;
     padding: 10px 12px;
-    border: 1px dashed var(--bf-appearance-token-border-base);
+    border: 1px dashed var(--openbitfun-color-border-default);
     border-top: none;
     border-radius: 0 0 6px 6px;
-    font-size: var(--bf-appearance-token-tool-card-action-font-size);
-    line-height: var(--bf-appearance-token-flowchat-support-line-height);
+    font-size: var(--openbitfun-type-flow-control-font-size);
+    line-height: var(--openbitfun-type-flow-support-line-height);
   }
 
   &__reviewer-role {
-    font-weight: 600;
-    font-size: var(--bf-appearance-token-tool-card-action-font-size);
+    font-weight: var(--openbitfun-type-label-selected-font-weight);
+    font-size: var(--openbitfun-type-flow-control-font-size);
   }
 
   &__reviewer-desc {
-    color: var(--bf-appearance-token-color-text-muted);
+    color: var(--openbitfun-color-content-muted);
   }
 
   &__reviewer-responsibilities {
@@ -250,7 +249,7 @@
     list-style: disc;
 
     li {
-      color: var(--bf-appearance-token-color-text-secondary);
+      color: var(--openbitfun-color-content-secondary);
     }
   }
 
@@ -276,15 +275,15 @@
     gap: 8px;
     padding: 12px;
     border-radius: 8px;
-    border: 1px solid var(--bf-appearance-token-border-base);
-    background: var(--bf-appearance-token-color-overlay-white-04);
+    border: 1px solid var(--openbitfun-color-border-default);
+    background: color-mix(in srgb, var(--openbitfun-color-content-on-dark) 4%, transparent);
     flex-shrink: 0;
   }
 
   &__actions-hint {
-    font-size: var(--bf-appearance-token-tool-card-action-font-size);
-    line-height: var(--bf-appearance-token-flowchat-support-line-height);
-    color: var(--bf-appearance-token-color-text-muted);
+    font-size: var(--openbitfun-type-flow-control-font-size);
+    line-height: var(--openbitfun-type-flow-support-line-height);
+    color: var(--openbitfun-color-content-muted);
   }
 
   &__loading {
@@ -294,15 +293,15 @@
     justify-content: center;
     gap: 12px;
     padding: 40px 20px;
-    color: var(--bf-appearance-token-color-text-muted);
-    font-size: var(--bf-appearance-token-tool-card-action-font-size);
+    color: var(--openbitfun-color-content-muted);
+    font-size: var(--openbitfun-type-flow-control-font-size);
   }
 
   &__loading--inline {
     flex-direction: row;
     justify-content: center;
     padding: 10px 12px 4px;
-    font-size: var(--bf-appearance-token-tool-card-action-font-size);
+    font-size: var(--openbitfun-type-flow-control-font-size);
     flex-shrink: 0;
   }
 
@@ -312,10 +311,10 @@
     gap: 8px;
     padding: 10px 12px;
     border-radius: 6px;
-    font-size: var(--bf-appearance-token-tool-card-action-font-size);
-    color: var(--bf-appearance-token-color-error);
-    background: var(--bf-appearance-token-glass-red-base);
-    border: 1px solid color-mix(in srgb, var(--bf-appearance-token-color-error) 20%, transparent);
+    font-size: var(--openbitfun-type-flow-control-font-size);
+    color: var(--openbitfun-color-status-danger-content);
+    background: var(--openbitfun-color-status-danger-surface);
+    border: 1px solid color-mix(in srgb, var(--openbitfun-color-status-danger-content) 20%, transparent);
     flex-shrink: 0;
 
     svg {

@@ -2,6 +2,8 @@ import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { OhosError } from './OhosError';
 
 export class QrScanService {
+  private inlineScanning: boolean = false;
+
   async scanRemoteUrl(context: Context): Promise<string> {
     try {
       const result = await scanBarcode.startScanForResult(context, {

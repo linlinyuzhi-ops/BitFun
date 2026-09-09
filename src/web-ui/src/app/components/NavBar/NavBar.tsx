@@ -1,23 +1,23 @@
 /**
- * NavBar — navigation history controls + window chrome.
+ * NavBar — navigation controls and the current left-panel title.
  *
- * Sits at the top of the left column, same height as SceneBar (38px).
- * Layout: [←][→]  <drag-region>  [_][□][×]
+ * Sits at the top of the left column on the shared 45px workbench chrome row.
+ * Layout: [panel][←][→] [scene title / drag region]
  *
  * - Back/Forward buttons mirror IDE navigation history.
- * - The centre strip is a drag region for moving the window.
- * - WindowControls (minimize/maximize/close) replace the old TitleBar chrome.
+ * - The title follows left-panel navigation, independently of the right scene.
+ * - Non-interactive space remains a drag region for moving the window.
  */
 
 import React, { useCallback, useMemo, useRef } from 'react';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
-import { Tooltip } from '@/component-library';
+
 import { useNavSceneStore } from '../../stores/navSceneStore';
+import { getSceneNavTitleKey } from '../../scenes/nav-registry';
 import { useI18n } from '../../../infrastructure/i18n';
-import { PanelLeftIcon } from '../TitleBar/PanelIcons';
 import { createLogger } from '@/shared/utils/logger';
 import { isMacOSDesktopRuntime, supportsNativeWindowDragging } from '@/infrastructure/runtime';
 import './NavBar.scss';
+import { Icon, OverflowText, Tooltip } from '@openbitfun/ui';
 
 const log = createLogger('NavBar');
 
@@ -48,6 +48,8 @@ const NavBar: React.FC<NavBarProps> = ({
   const goForward    = useNavSceneStore(s => s.goForward);
   const canGoBack    = showSceneNav && !!navSceneId;
   const canGoForward = !showSceneNav && !!navSceneId;
+  const titleKey = showSceneNav && navSceneId ? getSceneNavTitleKey(navSceneId) : null;
+  const title = titleKey ? t(titleKey) : null;
   const lastMouseDownTimeRef = useRef<number>(0);
 
   const handleBarMouseDown = useCallback((e: React.MouseEvent) => {
@@ -80,21 +82,21 @@ const NavBar: React.FC<NavBarProps> = ({
     onMaximize?.();
   }, [onMaximize]);
 
-  const rootClassName = `bitfun-nav-bar${isCollapsed ? ' bitfun-nav-bar--collapsed' : ''}${isMacOS ? ' bitfun-nav-bar--macos' : ''} ${className}`;
+  const rootClassName = `openbitfun-nav-bar${isCollapsed ? ' openbitfun-nav-bar--collapsed' : ''}${isMacOS ? ' openbitfun-nav-bar--macos' : ''} ${className}`;
 
   if (isCollapsed) {
     return (
-      <div data-bf-component="nav-bar" data-bf-part="root" data-bf-state="collapsed" className={rootClassName} role="toolbar" aria-label={t('nav.aria.navControl')} onMouseDown={handleBarMouseDown} onDoubleClick={handleBarDoubleClick}>
+      <div data-openbitfun-component="nav-bar" data-openbitfun-part="root" data-openbitfun-state="collapsed" data-openbitfun-theme-scope="chrome" className={rootClassName} role="toolbar" aria-label={t('nav.aria.navControl')} onMouseDown={handleBarMouseDown} onDoubleClick={handleBarDoubleClick}>
         <Tooltip content={t('header.expandLeftPanel')} placement="bottom" followCursor>
           <button
             type="button"
-            className="bitfun-nav-bar__panel-toggle"
-            data-bf-component="nav-bar"
-            data-bf-part="panelToggle"
+            className="openbitfun-nav-bar__panel-toggle"
+            data-openbitfun-component="nav-bar"
+            data-openbitfun-part="panelToggle"
             onClick={onExpandNav}
             aria-label={t('header.expandLeftPanel')}
           >
-            <PanelLeftIcon size={13} />
+            <Icon name="sidebar-left" size="sm" style={{ width: 13, height: 13 }} />
           </button>
         </Tooltip>
       </div>
@@ -102,17 +104,17 @@ const NavBar: React.FC<NavBarProps> = ({
   }
 
   return (
-    <div data-bf-component="nav-bar" data-bf-part="root" className={rootClassName} role="toolbar" aria-label={t('nav.aria.navControl')} onMouseDown={handleBarMouseDown} onDoubleClick={handleBarDoubleClick}>
+    <div data-openbitfun-component="nav-bar" data-openbitfun-part="root" data-openbitfun-theme-scope="chrome" className={rootClassName} role="toolbar" aria-label={t('nav.aria.navControl')} onMouseDown={handleBarMouseDown} onDoubleClick={handleBarDoubleClick}>
       <Tooltip content={t('header.collapseLeftPanel')} placement="bottom" followCursor>
         <button
           type="button"
-          className="bitfun-nav-bar__panel-toggle"
-          data-bf-component="nav-bar"
-          data-bf-part="panelToggle"
+          className="openbitfun-nav-bar__panel-toggle"
+          data-openbitfun-component="nav-bar"
+          data-openbitfun-part="panelToggle"
           onClick={onExpandNav}
           aria-label={t('header.collapseLeftPanel')}
         >
-          <PanelLeftIcon size={13} />
+          <Icon name="sidebar-left" size="sm" style={{ width: 13, height: 13 }} />
         </button>
       </Tooltip>
 
@@ -120,31 +122,41 @@ const NavBar: React.FC<NavBarProps> = ({
       <Tooltip content={t('nav.backShortcut')} placement="bottom" followCursor disabled={!canGoBack}>
         <button
           type="button"
-          className={`bitfun-nav-bar__btn${!canGoBack ? ' is-inactive' : ''}`}
-          data-bf-component="nav-bar"
-          data-bf-part="back"
+          className={`openbitfun-nav-bar__btn${!canGoBack ? ' is-inactive' : ''}`}
+          data-openbitfun-component="nav-bar"
+          data-openbitfun-part="back"
           onClick={canGoBack ? goBack : undefined}
           aria-disabled={!canGoBack}
           aria-label={t('nav.back')}
         >
-          <ArrowLeft size={15} />
+          <Icon name="arrow-left" size="sm" />
         </button>
       </Tooltip>
 
       <Tooltip content={t('nav.forwardShortcut')} placement="bottom" followCursor disabled={!canGoForward}>
         <button
           type="button"
-          className={`bitfun-nav-bar__btn${!canGoForward ? ' is-inactive' : ''}`}
-          data-bf-component="nav-bar"
-          data-bf-part="forward"
+          className={`openbitfun-nav-bar__btn${!canGoForward ? ' is-inactive' : ''}`}
+          data-openbitfun-component="nav-bar"
+          data-openbitfun-part="forward"
           onClick={canGoForward ? goForward : undefined}
           aria-disabled={!canGoForward}
           aria-label={t('nav.forward')}
         >
-          <ArrowRight size={15} />
+          <Icon name="arrow-right" size="sm" />
         </button>
       </Tooltip>
 
+      {title && (
+        <OverflowText
+          className="openbitfun-nav-bar__title"
+          data-openbitfun-component="nav-bar"
+          data-openbitfun-part="title"
+          title={title}
+        >
+          {title}
+        </OverflowText>
+      )}
     </div>
   );
 };

@@ -880,10 +880,11 @@ fn prune_idle_tree(inner: &mut PeerTurnTrackerInner, key: &PeerTurnKey) {
 pub(crate) struct PeerHostState {
     pub(crate) agent_runtime: AgentRuntime,
     pub(crate) session_event_journal: Arc<SessionEventJournal>,
-    pub(crate) local_workspace_snapshot: Arc<dyn bitfun_runtime_ports::LocalWorkspaceSnapshotPort>,
+    pub(crate) local_workspace_snapshot:
+        Arc<dyn openbitfun_runtime_ports::LocalWorkspaceSnapshotPort>,
     pub(crate) compatibility: CoreAgentRuntimeCompatibility,
     pub(crate) account_runtime:
-        Arc<bitfun_core::service::remote_connect::account_runtime::AccountRuntime>,
+        Arc<openbitfun_core::service::remote_connect::account_runtime::AccountRuntime>,
     pub(crate) account_routing: Arc<crate::account::CliAccountRoutingHost>,
     pub(crate) turns: PeerTurnTracker,
     pub(crate) workspace_service: Arc<WorkspaceService>,
@@ -1090,17 +1091,17 @@ mod tests {
     }
 
     #[test]
-    fn detach_reports_any_unconfirmed_cancellation_round() {
+    fn continuity_loss_reports_any_unconfirmed_cancellation_round() {
         assert!(aggregate_cancellation_results(Ok(()), Ok(())).is_ok());
 
         let error =
             aggregate_cancellation_results(Err("initial cancellation failed".to_string()), Ok(()))
-                .expect_err("detach must not hide an unconfirmed cancellation");
+                .expect_err("continuity loss must not hide an unconfirmed cancellation");
         assert!(error.contains("initial cancellation failed"), "{error}");
 
         let error =
             aggregate_cancellation_results(Ok(()), Err("raced cancellation failed".to_string()))
-                .expect_err("detach must report a raced cancellation failure");
+                .expect_err("continuity loss must report a raced cancellation failure");
         assert!(error.contains("raced cancellation failed"), "{error}");
     }
 

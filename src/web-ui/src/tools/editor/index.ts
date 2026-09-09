@@ -65,12 +65,9 @@ export type {
 
 export {
   ExtensionPriority,
-  createLspExtension,
-  lspExtension,
 } from './extensions';
 
 export type {
-  LspExtensionConfig,
   AiCompletionExtensionConfig,
   TabCompletionExtensionConfig,
 } from './extensions';
@@ -81,8 +78,6 @@ export {
   useSimpleEditorOptions,
   useDiffEditorOptions,
 } from './hooks';
-
-export { useLspInitialization } from './hooks/useLspIntegration';
 
 export { default as CodeEditor } from './components/CodeEditor';
 export type { CodeEditorProps } from './components/CodeEditor';
@@ -98,6 +93,9 @@ export type { MarkdownEditorProps } from './components/MarkdownEditor';
 
 export { default as ImageViewer } from './components/ImageViewer';
 export type { ImageViewerProps } from './components/ImageViewer';
+
+export { default as PdfViewer } from './components/PdfViewer';
+export type { PdfViewerProps } from './components/PdfViewer';
 
 export { default as PlanViewer } from './components/PlanViewer';
 export type { PlanViewerProps } from './components/PlanViewer';
@@ -116,10 +114,6 @@ export async function initializeEditorFeature(): Promise<void> {
   try {
     const { monacoInitManager } = await import('./services/MonacoInitManager');
     await monacoInitManager.initialize();
-    
-    const { editorExtensionManager } = await import('./services/EditorExtensionManager');
-    const { lspExtension } = await import('./extensions/LspExtension');
-    editorExtensionManager.register(lspExtension);
   } catch (error) {
     log.error('Failed to initialize editor feature', error);
     throw error;
@@ -129,7 +123,7 @@ export async function initializeEditorFeature(): Promise<void> {
 export const EditorFeatureMetadata = {
   name: 'Editor',
   version: '2.0.0',
-  description: 'Code and markdown editing with Monaco and LSP support',
+  description: 'Code and markdown editing with Monaco',
   dependencies: ['core'],
   capabilities: [
     'code-editing',
@@ -137,7 +131,6 @@ export const EditorFeatureMetadata = {
     'diff-editing',
     'syntax-highlighting',
     'code-completion',
-    'lsp-integration',
     'multi-file-editing',
     'search-replace',
     'format-document',

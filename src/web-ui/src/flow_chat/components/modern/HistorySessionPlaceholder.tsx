@@ -1,5 +1,6 @@
+import { Button, Icon } from '@openbitfun/ui';
 import React from 'react';
-import { AlertCircle, LoaderCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, LoaderCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { SessionHistoryState } from '../../types/flow-chat';
 
@@ -32,14 +33,14 @@ export const HistorySessionPlaceholder: React.FC<HistorySessionPlaceholderProps>
         </p>
       </div>
       {failed && (
-        <button
-          type="button"
-          className="history-session-placeholder__retry"
+        <Button
+          variant="outline"
+          size="md"
+          leadingIcon={<Icon name="refresh" size="sm" aria-hidden="true" />}
           onClick={onRetry}
         >
-          <RefreshCw size={14} aria-hidden="true" />
-          <span>{t('historyState.retry')}</span>
-        </button>
+          {t('historyState.retry')}
+        </Button>
       )}
     </div>
   );

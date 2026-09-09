@@ -4,14 +4,18 @@
  * batched EventBatcher text updates. Supports a streaming cursor indicator.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MarkdownRenderer } from '@/component-library';
-import type { MarkdownTraceContext } from '@/component-library';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { MarkdownRenderer } from '@/infrastructure/markdown';
+import { type MarkdownTraceContext } from '@/infrastructure/markdown';
 import type { FlowTextItem } from '../types/flow-chat';
 import { useFlowChatContext } from './modern/FlowChatContext';
 import { useTypewriter } from '../hooks/useTypewriter';
 import { useReportTypewriterReveal } from '../hooks/typewriterRevealGateContext';
 import { isStartupRenderTraceEnabled } from '@/shared/utils/startupTrace';
+import { DeepResearchProtocolGroup } from '../deep-research/DeepResearchProtocolGroup';
+import { parseDeepResearchContent } from '../deep-research/deepResearchProtocol';
+import { hasSessionFileProvider } from '../session-drivers/sessionFileNavigation';
+import { resolveSessionDriverId } from '../session-drivers/resolve';
 import './FlowTextBlock.scss';
 
 // Idle timeout (ms) after content stops growing.
@@ -45,6 +49,7 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
   testAttributes,
 }) => {
   const {
+    sessionId,
     onFileViewRequest,
     onTabOpen,
     onHttpLinkClick,
@@ -59,6 +64,11 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
   const markdownRemoteConnectionId = activeSessionOverride?.remoteConnectionId
     || activeSessionOverride?.config?.remoteConnectionId
     || contextRemoteConnectionId;
+  const markdownRemoteSshHost = activeSessionOverride?.remoteSshHost
+    || activeSessionOverride?.config?.remoteSshHost;
+  const isDispatchSession = activeSessionOverride
+    ? resolveSessionDriverId(activeSessionOverride.sessionId, activeSessionOverride) === 'dispatch'
+    : hasSessionFileProvider(sessionId);
   // Stable callback so the memoized Markdown component is not re-rendered
   // (and re-parsed) just because this block re-rendered.
   const handleOpenVisualization = useCallback((visualization: any) => {
@@ -138,9 +148,59 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
   // typewriter is still revealing leftover characters.
   const isActivelyStreaming = (isStreaming && isContentGrowing) || isRevealing;
   const markdownTraceContext = isStartupRenderTraceEnabled() ? traceContext : undefined;
+  const parsedContent = useMemo(
+    () => parseDeepResearchContent(displayContent),
+    [displayContent],
+  );
+
+  const renderMarkdown = (markdownContent: string, key?: React.Key) => (
+    <MarkdownRenderer
+      key={key}
+      content={markdownContent}
+      basePath={markdownBasePath}
+      remoteConnectionId={markdownRemoteConnectionId}
+      remoteSshHost={markdownRemoteSshHost}
+      // Prefer deferred visual streaming so Prism upgrade does not share a
+      // frame with footer insertion / list scroll settlement.
+      isStreaming={markdownStreaming}
+      onFileViewRequest={onFileViewRequest}
+      fileActionsViaCallbackOnly={isDispatchSession}
+      onTabOpen={onTabOpen}
+      onHttpLinkClick={onHttpLinkClick}
+      onOpenVisualization={handleOpenVisualization}
+      traceContext={markdownTraceContext}
+    />
+  );
+
+  const renderStructuredContent = () => (
+    <div className="deep-research-protocol" data-openbitfun-component="flow-text-block" data-openbitfun-part="protocol">
+      {parsedContent.segments.map((segment, index) => (
+        segment.type === 'protocol'
+          ? (
+              <DeepResearchProtocolGroup
+                key={`protocol:${index}`}
+                kind={segment.kind}
+                markers={segment.markers}
+              />
+            )
+          : textItem.isMarkdown
+            ? renderMarkdown(segment.content, `markdown:${index}`)
+            : (
+                <div
+                  className="text-content"
+                  data-openbitfun-component="flow-text-block"
+                  data-openbitfun-part="protocolTextContent"
+                  key={`text:${index}`}
+                >
+                  {segment.content}
+                </div>
+              )
+      ))}
+    </div>
+  );
 
   return (
-    <div data-bf-component="flow-text-block" data-bf-part="root" data-bf-mode={textItem.isMarkdown ? 'markdown' : 'text'} data-bf-state={isActivelyStreaming ? 'streaming' : ''}
+    <div data-openbitfun-component="flow-text-block" data-openbitfun-part="root" data-openbitfun-mode={textItem.isMarkdown ? 'markdown' : 'text'} data-openbitfun-state={isActivelyStreaming ? 'streaming' : ''}
       className={`flow-text-block ${className} ${isActivelyStreaming ? 'streaming flow-text-block--streaming' : ''}`}
       data-testid={testId}
       data-flow-item-id={textItem.id}
@@ -148,22 +208,12 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
       data-streaming={isVisuallyStreaming ? 'true' : 'false'}
       {...testAttributes}
     >
-      {textItem.isMarkdown ? (
-        <MarkdownRenderer
-          content={displayContent}
-          basePath={markdownBasePath}
-          remoteConnectionId={markdownRemoteConnectionId}
-          // Prefer deferred visual streaming so Prism upgrade does not share a
-          // frame with footer insertion / list scroll settlement.
-          isStreaming={markdownStreaming}
-          onFileViewRequest={onFileViewRequest}
-          onTabOpen={onTabOpen}
-          onHttpLinkClick={onHttpLinkClick}
-          onOpenVisualization={handleOpenVisualization}
-          traceContext={markdownTraceContext}
-        />
+      {parsedContent.hasProtocol ? (
+        renderStructuredContent()
+      ) : textItem.isMarkdown ? (
+        renderMarkdown(displayContent)
       ) : (
-        <div data-bf-component="flow-text-block" data-bf-part="textContent" className="text-content">
+        <div data-openbitfun-component="flow-text-block" data-openbitfun-part="textContent" className="text-content">
           {displayContent}
         </div>
       )}

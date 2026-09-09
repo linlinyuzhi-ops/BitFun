@@ -3,8 +3,46 @@
 import React, { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
+
+vi.mock('./settingsRegistry', () => {
+  const pages = {
+    'application.general': {
+      id: 'application.general',
+      categoryId: 'application',
+      component: ({ viewId, isActive }: { viewId?: string; isActive?: boolean }) => (
+        <div
+          data-testid="general-page"
+          data-view={viewId}
+          data-settings-scene-active={isActive ? 'true' : 'false'}
+        />
+      ),
+    },
+    'application.appearance': {
+      id: 'application.appearance',
+      categoryId: 'application',
+      component: () => <div data-testid="appearance-page" />,
+    },
+    'tools.automation': {
+      id: 'tools.automation',
+      categoryId: 'tools',
+      component: ({ viewId }: { viewId?: string }) => <div data-testid="automation-page" data-view={viewId} />,
+    },
+  };
+  return {
+    DEFAULT_SETTINGS_PAGE_ID: 'application.general',
+    getSettingsPageManifest: (pageId: keyof typeof pages) => pages[pageId] ?? pages['application.general'],
+    isSettingsPageId: (value: string) => value in pages,
+    isSettingsPageReady: () => true,
+    preloadSettingsPage: vi.fn(async () => undefined),
+  };
+});
+
 import SettingsScene from './SettingsScene';
 import { useSettingsStore } from './settingsStore';
+import {
+  registerSettingsDraft,
+  resetSettingsDraftRegistryForTests,
+} from '@/infrastructure/config/settingsDraftRegistry';
 
 vi.mock('../../../infrastructure/config/components/AIModelConfig', () => ({
   default: () => <div data-testid="models-config" />,
@@ -89,137 +127,88 @@ describe('SettingsScene lazy tab routing', () => {
   let root: Root;
 
   beforeEach(() => {
+    resetSettingsDraftRegistryForTests();
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
     useSettingsStore.setState({
-      activeTab: 'basics',
-      contentFocus: null,
-      contentFocusRequestId: 0,
-      tabTransitionTarget: null,
-      tabTransitionMotion: 'instant',
-      tabTransitionSequence: 0,
+      activePageId: 'application.general',
+      activeViewId: null,
+      navigationRequestId: 0,
+      pageTransitionTarget: null,
+      pageTransitionMotion: 'instant',
+      pageTransitionSequence: 0,
       searchQuery: '',
     });
   });
 
   afterEach(() => {
-    act(() => {
-      root.unmount();
-    });
+    act(() => root.unmount());
     container.remove();
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
+    resetSettingsDraftRegistryForTests();
   });
 
-  /**
-   * The scene holds its very first paint until the active tab's lazy chunk and
-   * i18n namespaces are in memory, so a cold entry cannot flash a skeleton and a
-   * frame of raw i18n keys. Both land off a macrotask, past what act() flushes.
-   */
-  async function waitForPanelContent(testId: string) {
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      if (container.querySelector(`[data-testid="${testId}"]`)) return;
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-    }
-  }
+  it('renders the active canonical page', async () => {
+    await act(async () => root.render(<SettingsScene />));
+    expect(container.querySelector('[data-testid="general-page"]')).not.toBeNull();
+    expect(container.querySelector('[data-settings-page="application.general"]')).not.toBeNull();
+  });
 
-  async function renderActiveTab(
-    tab: 'mcp-tools' | 'acp-agents' | 'external-sources' | 'voice-input'
-  ) {
-    useSettingsStore.setState({ activeTab: tab });
-    await act(async () => {
-      root.render(<SettingsScene />);
+  it('passes an internal view destination without creating a sidebar page', async () => {
+    useSettingsStore.getState().openDestination({
+      pageId: 'tools.automation',
+      viewId: 'hooks',
     });
-    await waitForPanelContent(`${tab}-config`);
-  }
-
-  it('renders the lazy MCP tools config tab', async () => {
-    await renderActiveTab('mcp-tools');
-
-    expect(container.querySelector('[data-testid="mcp-tools-config"]')).not.toBeNull();
+    await act(async () => root.render(<SettingsScene />));
+    expect(container.querySelector('[data-testid="automation-page"]')?.getAttribute('data-view')).toBe('hooks');
   });
 
-  it('renders the lazy ACP agents config tab', async () => {
-    await renderActiveTab('acp-agents');
-
-    expect(container.querySelector('[data-testid="acp-agents-config"]')).not.toBeNull();
+  it('switches pages without retaining the outgoing page for instant navigation', async () => {
+    await act(async () => root.render(<SettingsScene />));
+    await act(async () => useSettingsStore.getState().openPage('application.appearance'));
+    expect(container.querySelector('[data-testid="appearance-page"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="general-page"]')).toBeNull();
   });
 
-  it('renders the lazy external sources config tab', async () => {
-    await renderActiveTab('external-sources');
+  it('passes scene activation changes to the active settings page', async () => {
+    await act(async () => root.render(<SettingsScene isActive={false} />));
+    expect(container.querySelector('[data-testid="general-page"]')?.getAttribute(
+      'data-settings-scene-active',
+    )).toBe('false');
 
-    expect(container.querySelector('[data-testid="external-sources-config"]')).not.toBeNull();
+    await act(async () => root.render(<SettingsScene isActive />));
+    expect(container.querySelector('[data-testid="general-page"]')?.getAttribute(
+      'data-settings-scene-active',
+    )).toBe('true');
   });
 
-  it('passes a legacy Hook deep-link focus into External AI applications', async () => {
-    useSettingsStore.getState().openTab('external-sources', 'hooks');
-    await act(async () => {
-      root.render(<SettingsScene />);
+  it('saves registered drafts before committing a page change', async () => {
+    const save = vi.fn(async () => true);
+    registerSettingsDraft({
+      id: 'general-form',
+      pageId: 'application.general',
+      label: 'General form',
+      dirty: true,
+      save,
+      discard: vi.fn(),
     });
-    await waitForPanelContent('external-sources-config');
+    await act(async () => root.render(<SettingsScene />));
 
-    const externalSources = container.querySelector('[data-testid="external-sources-config"]');
-    expect(externalSources?.getAttribute('data-initial-focus')).toBe('hooks');
-    expect(externalSources?.getAttribute('data-focus-request-id')).toBe('1');
+    await act(async () => useSettingsStore.getState().openPage('application.appearance'));
+    expect(useSettingsStore.getState().activePageId).toBe('application.general');
+    const dialog = document.querySelector<HTMLElement>(
+      '[data-testid="settings-unsaved-navigation-dialog"]',
+    );
+    expect(dialog?.textContent).toContain('General form');
 
+    const confirmButton = dialog?.querySelectorAll<HTMLButtonElement>('button').item(2);
     await act(async () => {
-      useSettingsStore.getState().openTab('external-sources', 'hooks');
-    });
-    expect(externalSources?.getAttribute('data-focus-request-id')).toBe('2');
-  });
-
-  it('renders the lazy voice input config tab', async () => {
-    await renderActiveTab('voice-input');
-
-    expect(container.querySelector('[data-testid="voice-input-config"]')).not.toBeNull();
-  });
-
-  it('switches settings pages immediately without retaining the outgoing panel', async () => {
-    await act(async () => {
-      root.render(<SettingsScene />);
-    });
-    await waitForPanelContent('basics-config');
-
-    /** Only the cold first paint waits for resources; later switches are synchronous. */
-    await act(async () => {
-      useSettingsStore.setState({ activeTab: 'appearance' });
+      confirmButton?.click();
+      await Promise.resolve();
       await Promise.resolve();
     });
 
-    const scene = container.querySelector('[data-testid="settings-scene"]');
-    expect(scene?.getAttribute('data-settings-tab')).toBe('appearance');
-    expect(container.querySelector('[data-testid="appearance-config"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="basics-config"]')).toBeNull();
-    expect(container.querySelectorAll('[data-testid="settings-scene-content"]')).toHaveLength(1);
-  });
-
-  it('bridges a pointer tab switch while making the outgoing panel inert', async () => {
-    await act(async () => {
-      root.render(<SettingsScene />);
-    });
-    await waitForPanelContent('basics-config');
-
-    vi.useFakeTimers();
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
-      window.setTimeout(() => callback(performance.now()), 16)
-    ));
-    vi.stubGlobal('cancelAnimationFrame', (handle: number) => window.clearTimeout(handle));
-
-    await act(async () => {
-      useSettingsStore.getState().setActiveTab('appearance', 'pointer');
-      await Promise.resolve();
-    });
-
-    const outgoing = container.querySelector('.bitfun-view-transition-boundary__view--outgoing');
-    expect(outgoing?.hasAttribute('inert')).toBe(true);
-    expect(container.querySelector('[data-testid="basics-config"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="appearance-config"]')).not.toBeNull();
-
-    act(() => vi.advanceTimersByTime(232));
-    expect(container.querySelector('[data-testid="basics-config"]')).toBeNull();
-    expect(container.querySelectorAll('[data-testid="settings-scene-content"]')).toHaveLength(1);
+    expect(save).toHaveBeenCalledOnce();
+    expect(useSettingsStore.getState().activePageId).toBe('application.appearance');
   });
 });

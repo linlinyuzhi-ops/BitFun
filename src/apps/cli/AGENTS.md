@@ -1,4 +1,4 @@
-# BitFun CLI Agent Guide
+# OpenBitFun CLI Agent Guide
 
 Scope: `src/apps/cli`.
 
@@ -50,8 +50,8 @@ behavior and call the existing owner/service APIs directly for the non-Runtime
 operations they use. There is no catch-all TUI client, unified TUI management
 module, domain service interface layer, or owner adapter. Controllers must not
 reference Runtime IPC or Runtime implementation types, and they must not import
-`bitfun-app-server-protocol` wire DTOs. Non-Runtime projections come from the
-stable contracts layer (`bitfun-core-types` / `bitfun-product-domains`) or the
+`openbitfun-app-server-protocol` wire DTOs. Non-Runtime projections come from the
+stable contracts layer (`openbitfun-core-types` / `openbitfun-product-domains`) or the
 existing owner API. Controller-local calls reject Remote workspace scope before
 touching local state. The `server` command is an independent stdio Server Host assembled in
 `server_host.rs`, which is the only module allowed to import the
@@ -112,8 +112,11 @@ restrictions remain enforced.
   closure with `product-full` or a CLI-named umbrella; add a Core feature only
   when a production CLI path consumes that owner.
 - CLI consumes typed external-source summaries and actions. It does not parse
-  source files, import executable modules, start plugin workers, duplicate
-  approval state, or treat static discovery as runtime availability.
+  source files, import executable modules, implement or supervise plugin workers,
+  duplicate approval state, or treat static discovery as runtime availability.
+  A local product host may request Core-owned configured Plugin Host startup and
+  instance activation; the lifecycle, worker, and protocol owners remain below
+  the CLI surface.
 - ACP agents, configuration import, executable plugins, Hooks, and Peer Device
   hosting have separate trust and lifecycle state. Do not infer one from
   another.
@@ -135,8 +138,15 @@ pnpm run cli:install
 Run the smallest checks matching the changed path:
 
 ```bash
-cargo check -p bitfun-cli
-cargo test -p bitfun-cli
+cargo check -p openbitfun-cli
+cargo test -p openbitfun-cli
+cargo test -p openbitfun-cli --bin openbitfun system_info_home_contract
+```
+
+For streaming `exec` retry, context recovery, and final-event contracts:
+
+```bash
+cargo test --locked -p openbitfun-cli --test cli_command_contracts exec_cli_contracts::stream_json_
 ```
 
 When a CLI change crosses a shared boundary, use the focused command maintained

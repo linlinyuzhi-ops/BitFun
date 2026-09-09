@@ -12,7 +12,14 @@
 
 import React, { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Modal } from '@/component-library';
+import {
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogHeader,
+  DialogHeading,
+  DialogTitle,
+} from '@openbitfun/ui';
 import type { SessionUsageReport } from '@/infrastructure/api/service-api/SessionAPI';
 import { setChatPopupActive } from '../chatPopupState';
 import { SessionUsageReportCard } from './SessionUsageReportCard';
@@ -63,27 +70,36 @@ export const SessionUsageModal: React.FC = () => {
   if (!open) return null;
 
   return (
-    <Modal
-      isOpen
-      onClose={closeSessionUsageModal}
-      title={t('usage.title')}
-      size="large"
-      testId="session-usage-modal"
+    <Dialog
+      open
+      onOpenChange={(nextOpen) => { if (!nextOpen) closeSessionUsageModal(); }}
+      size="xl"
+      className="session-usage-dialog"
+      data-testid="session-usage-modal"
     >
-      <div
-        className="session-usage-modal__content"
-        data-bf-component="session-usage-modal"
-        data-bf-part="content"
-      >
-        <SessionUsageReportCard
-          report={report}
-          markdown={markdown}
-          generatedAt={report?.generatedAt}
-          isLoading={isLoading}
-          onOpenDetails={report ? handleOpenDetails : undefined}
-        />
-      </div>
-    </Modal>
+      <DialogHeader>
+        <DialogHeading>
+          <DialogTitle>{t('usage.title')}</DialogTitle>
+        </DialogHeading>
+        <DialogClose data-testid="session-usage-modal-close" />
+      </DialogHeader>
+      <DialogBody>
+        <div
+          className="session-usage-dialog__content"
+          data-openbitfun-component="session-usage-modal"
+          data-openbitfun-part="content"
+        >
+          <SessionUsageReportCard
+            compact
+            report={report}
+            markdown={markdown}
+            generatedAt={report?.generatedAt}
+            isLoading={isLoading}
+            onOpenDetails={report ? handleOpenDetails : undefined}
+          />
+        </div>
+      </DialogBody>
+    </Dialog>
   );
 };
 

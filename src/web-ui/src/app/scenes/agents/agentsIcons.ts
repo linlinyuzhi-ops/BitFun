@@ -1,25 +1,20 @@
 /**
  * Icon and color mapping for the agents scene
- * All visuals use lucide-react icons + CSS custom properties.
+ * Shared icon sources for agent identity. Rendering stays owned by @openbitfun/ui Icon.
  */
+import type { IconSource } from '@openbitfun/ui';
 import {
   Code2,
   FlaskConical,
   Bug,
   FileText,
-  Globe,
   BarChart2,
-  PenLine,
   Server,
-  Eye,
   Layers,
   Bot,
   Cpu,
-  Terminal,
   Microscope,
-  type LucideProps,
 } from 'lucide-react';
-import type React from 'react';
 export { CAPABILITY_ACCENT } from './agentAppearance';
 
 export type AgentIconKey =
@@ -27,19 +22,19 @@ export type AgentIconKey =
   | 'globe' | 'barchart' | 'layers' | 'penline' | 'server'
   | 'bot' | 'terminal' | 'microscope' | 'cpu';
 
-export const AGENT_ICON_MAP: Record<AgentIconKey, React.FC<LucideProps>> = {
-  code2: Code2,
-  eye: Eye,
-  flask: FlaskConical,
-  bug: Bug,
-  filetext: FileText,
-  globe: Globe,
-  barchart: BarChart2,
-  layers: Layers,
-  penline: PenLine,
-  server: Server,
-  bot: Bot,
-  terminal: Terminal,
-  microscope: Microscope,
-  cpu: Cpu,
+export const AGENT_ICON_MAP: Record<AgentIconKey, IconSource> = {
+  code2: { glyph: Code2 },
+  eye: { name: 'eye' },
+  flask: { glyph: FlaskConical },
+  bug: { glyph: Bug },
+  filetext: { glyph: FileText },
+  globe: { name: 'browser' },
+  barchart: { glyph: BarChart2 },
+  layers: { glyph: Layers },
+  penline: { name: 'edit' },
+  server: { glyph: Server },
+  bot: { glyph: Bot },
+  terminal: { name: 'terminal' },
+  microscope: { glyph: Microscope },
+  cpu: { glyph: Cpu },
 };

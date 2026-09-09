@@ -77,7 +77,7 @@ export struct AppShell {
       .clip(true)
       .shadow({
         radius: this.shellState.showSidebar ? 34 : 0,
-        color: this.shellState.showSidebar ? '#24000000' : '#00000000',
+        color: this.shellState.showSidebar ? SHELL_SCRIM : TRANSPARENT,
         offsetX: this.shellState.showSidebar ? -10 : 0
       })
       .blur(this.shellState.showSidebar ? 1.1 : 0)

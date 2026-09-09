@@ -194,6 +194,7 @@ pub(crate) async fn send_stream(
     request_context: Option<ModelRequestContext>,
 ) -> Result<StreamResponse> {
     let url = client.config.request_url.clone();
+    let request_context = shared::prepare_request_context(client, request_context);
     debug!(
         "OpenAI config: model={}, request_url={}, max_tries={}",
         client.config.model, client.config.request_url, max_tries

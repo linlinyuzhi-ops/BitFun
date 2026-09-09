@@ -3,6 +3,8 @@
  * Defines content types, interfaces, and configuration for the panel system.
  */
 
+import type { IconSource } from '@openbitfun/ui';
+
 export type PanelContentType = 
   | 'empty'
   | 'code-preview'
@@ -13,6 +15,7 @@ export type PanelContentType =
   | 'text-viewer'
   | 'file-viewer'
   | 'image-viewer'
+  | 'pdf-viewer'
   | 'diff-code-editor'
   | 'git-diff'
   | 'git-settings'
@@ -32,8 +35,9 @@ export type PanelContentType =
   | 'review-platform-pr-detail'
   | 'terminal'
   | 'generative-widget'
-  | 'bitfun-canvas'
-  | 'browser';
+  | 'openbitfun-canvas'
+  | 'browser'
+  | 'html-preview';
 
 export interface PanelContent {
   type: PanelContentType;
@@ -78,7 +82,7 @@ export interface TabbedFlexiblePanelRef {
 export interface PanelContentConfig {
   type: PanelContentType;
   displayName: string;
-  icon: React.ComponentType<{ size?: string | number }>;
+  icon: IconSource;
   supportsCopy: boolean;
   supportsDownload: boolean;
   showHeader: boolean;

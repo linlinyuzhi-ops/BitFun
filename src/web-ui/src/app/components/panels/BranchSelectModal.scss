@@ -2,8 +2,7 @@
  * Branch selection modal styles
  * Simple and understated style
  */
-
-@use '../../../component-library/styles/tokens' as *;
+@use '@/shared/styles/surface-recipes' as surfaces;
 
 // ==================== Overlay ====================
 
@@ -13,8 +12,8 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: $z-modal;
-  background: rgba(var(--bf-appearance-token-color-static-black-rgb), 0.6);
+  z-index: var(--openbitfun-layer-modal);
+  background: color-mix(in srgb, var(--openbitfun-color-content-on-light) 60%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -32,13 +31,11 @@
 // ==================== Dialog Body ====================
 
 .branch-select-dialog {
+  @include surfaces.dialog;
+
   position: relative;
   display: flex;
   flex-direction: column;
-  background: var(--bf-appearance-token-color-bg-primary);
-  border: 1px solid var(--bf-appearance-token-border-subtle);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px var(--bf-appearance-token-color-overlay-black-40);
   width: 380px;
   max-width: calc(100vw - 48px);
   max-height: min(520px, calc(100vh - 48px));
@@ -67,52 +64,27 @@
   }
 }
 
-// ==================== Close Button ====================
-
-.branch-select-dialog__close {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 10;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--bf-appearance-token-color-text-muted);
-  cursor: pointer;
-  padding: 5px;
-  border-radius: 5px;
-  transition:
-    transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
-    background-color 140ms ease,
-    border-color 140ms ease,
-    color 140ms ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  
-  &:hover {
-    background: var(--bf-appearance-token-element-bg-subtle);
-    color: var(--bf-appearance-token-color-text-primary);
-  }
-  
-  &:active {
-    transform: scale(0.92);
-  }
-}
-
 // ==================== Header Area ====================
 
 .branch-select-dialog__header {
+  display: flex;
+  align-items: center;
+  gap: var(--openbitfun-space-3);
   flex-shrink: 0;
-  padding: 16px 20px 12px;
-  border-bottom: 1px solid var(--bf-appearance-token-border-subtle);
+  padding-block: var(--openbitfun-space-2);
+  padding-inline: 20px var(--openbitfun-space-2);
+  border-bottom: 1px solid var(--openbitfun-color-border-subtle);
 }
 
 .branch-select-dialog__title {
-  font-size: 14px;
-  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--openbitfun-type-body-md-font-size);
+  font-weight: var(--openbitfun-type-label-sm-font-weight);
   margin: 0;
-  color: var(--bf-appearance-token-color-text-primary);
-  line-height: 1.3;
+  color: var(--openbitfun-color-content-primary);
+  line-height: var(--openbitfun-type-modifier-leading-snug-line-height);
 }
 
 // ==================== Content Area ====================
@@ -141,11 +113,11 @@
 
 .branch-select-dialog__error {
   padding: 8px 12px;
-  background: var(--bf-appearance-token-color-error-bg);
-  border: 1px solid var(--bf-appearance-token-color-error-border);
+  background: var(--openbitfun-color-status-danger-surface);
+  border: 1px solid var(--openbitfun-color-status-danger-border);
   border-radius: 6px;
-  color: var(--bf-appearance-token-color-error);
-  font-size: 12px;
+  color: var(--openbitfun-color-status-danger-content);
+  font-size: var(--openbitfun-type-label-sm-font-size);
 }
 
 // ==================== Branch List ====================
@@ -154,12 +126,11 @@
   flex: 1;
   min-height: 0;
   max-height: 240px;
-  overflow-y: auto;
   overflow-x: hidden;
-  border: 1px solid var(--bf-appearance-token-border-subtle);
+  border: 1px solid var(--openbitfun-color-border-subtle);
   border-radius: 6px;
-  background: var(--bf-appearance-token-color-bg-secondary);
-  
+  background: var(--openbitfun-color-surface-panel);
+
 }
 
 .branch-select-dialog__loading {
@@ -168,8 +139,8 @@
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  color: var(--bf-appearance-token-color-text-muted);
-  font-size: 12px;
+  color: var(--openbitfun-color-content-muted);
+  font-size: var(--openbitfun-type-label-sm-font-size);
 }
 
 .branch-select-dialog__loading-dots {
@@ -179,7 +150,7 @@
   span {
     width: 4px;
     height: 4px;
-    background: var(--bf-appearance-token-color-text-muted);
+    background: var(--openbitfun-color-content-muted);
     border-radius: 50%;
     animation: branch-loading-pulse 1.2s ease-in-out infinite;
 
@@ -196,8 +167,8 @@
 .branch-select-dialog__empty {
   padding: 24px;
   text-align: center;
-  color: var(--bf-appearance-token-color-text-muted);
-  font-size: 13px;
+  color: var(--openbitfun-color-content-muted);
+  font-size: var(--openbitfun-type-label-md-font-size);
 }
 
 // ==================== Branch Item ====================
@@ -211,25 +182,25 @@
   transition: background 0.12s ease;
 
   &:hover:not(.disabled) {
-    background: var(--bf-appearance-token-element-bg-soft);
+    background: var(--openbitfun-color-action-quiet-hover);
   }
 
   &.selected {
-    background: var(--bf-appearance-token-color-accent-100);
+    background: var(--openbitfun-color-action-secondary-background);
   }
 
   &.current {
     .branch-select-dialog__item-name {
-      font-weight: 500;
+      font-weight: var(--openbitfun-type-label-sm-font-weight);
     }
   }
 
   &--new {
-    border-bottom: 1px solid var(--bf-appearance-token-border-subtle);
-    background: var(--bf-appearance-token-element-bg-soft);
-    
+    border-bottom: 1px solid var(--openbitfun-color-border-subtle);
+    background: var(--openbitfun-color-action-quiet-hover);
+
     &:hover {
-      background: var(--bf-appearance-token-color-accent-100);
+      background: var(--openbitfun-color-action-secondary-background);
     }
   }
 
@@ -238,46 +209,45 @@
     cursor: not-allowed;
 
     .branch-select-dialog__item-name {
-      color: var(--bf-appearance-token-color-text-muted);
+      color: var(--openbitfun-color-content-muted);
     }
   }
 }
 
 .branch-select-dialog__item-icon {
   flex-shrink: 0;
-  color: var(--bf-appearance-token-color-accent-500);
+  color: var(--openbitfun-color-accent-default);
 
   &--new {
-    color: var(--bf-appearance-token-color-success);
+    color: var(--openbitfun-color-status-success-content);
   }
 }
 
 .branch-select-dialog__item-name {
   flex: 1;
-  font-size: 13px;
-  color: var(--bf-appearance-token-color-text-primary);
+  font-size: var(--openbitfun-type-label-md-font-size);
+  color: var(--openbitfun-color-content-primary);
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
 
   strong {
-    color: var(--bf-appearance-token-color-accent-500);
+    color: var(--openbitfun-color-accent-default);
   }
 }
 
 .branch-select-dialog__item-badge {
   flex-shrink: 0;
   padding: 2px 6px;
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--openbitfun-type-micro-font-size);
+  font-weight: var(--openbitfun-type-label-sm-font-weight);
   text-transform: uppercase;
-  color: var(--bf-appearance-token-color-accent-500);
-  background: var(--bf-appearance-token-color-accent-100);
+  color: var(--openbitfun-color-accent-default);
+  background: var(--openbitfun-color-action-secondary-background);
   border-radius: 4px;
 
   &--worktree {
-    color: var(--bf-appearance-token-color-warning);
-    background: var(--bf-appearance-token-color-warning-bg);
+    color: var(--openbitfun-color-status-warning-content);
+    background: var(--openbitfun-color-status-warning-surface);
   }
 }
 
@@ -291,57 +261,12 @@
   gap: 12px;
   flex-wrap: wrap;
   padding: 12px 16px 16px;
-  border-top: 1px solid var(--bf-appearance-token-border-subtle);
+  border-top: 1px solid var(--openbitfun-color-border-subtle);
 }
 
 .branch-select-dialog__options {
   flex: 1 1 220px;
   min-width: 0;
-}
-
-.branch-select-dialog__btn {
-  padding: 7px 14px;
-  font-size: 12px;
-  font-weight: 500;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition:
-    transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
-    background-color 140ms ease,
-    border-color 140ms ease,
-    color 140ms ease;
-
-  &--cancel {
-    background: var(--bf-appearance-token-element-bg-base);
-    color: var(--bf-appearance-token-color-text-secondary);
-
-    &:hover {
-      background: var(--bf-appearance-token-element-bg-soft);
-    }
-    
-    &:active {
-      transform: scale(0.97);
-    }
-  }
-
-  &--confirm {
-    background: var(--bf-appearance-token-color-accent-500);
-    color: white;
-
-    &:hover:not(:disabled) {
-      background: var(--bf-appearance-token-color-accent-600);
-    }
-    
-    &:active:not(:disabled) {
-      transform: scale(0.97);
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,0 +1,18 @@
+@layer openbitfun.base {
+  .root {
+    min-inline-size: 0;
+    color: var(--openbitfun-color-content-primary);
+    background: var(--openbitfun-color-surface-canvas);
+    font-family:var(--openbitfun-type-body-md-font-family);
+    font-size: var(--openbitfun-type-body-md-font-size);
+    line-height: var(--openbitfun-type-body-md-line-height);
+  }
+
+  .root[data-color-scheme="light"] {
+    color-scheme: light;
+  }
+
+  .root[data-color-scheme="dark"] {
+    color-scheme: dark;
+  }
+}

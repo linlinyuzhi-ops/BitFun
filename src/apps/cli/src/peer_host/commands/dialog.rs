@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use tokio::sync::Mutex as AsyncMutex;
 
-use bitfun_runtime_ports::{
+use openbitfun_agent_runtime::sdk::AgentUserAnswersRequest;
+use openbitfun_runtime_ports::{
     AgentDialogTurnRequest, AgentSubmissionSource, AgentTurnCancellationRequest,
     DialogSubmissionPolicy, DialogTriggerSource,
 };
@@ -253,7 +254,31 @@ pub(crate) async fn cancel_tool(
 mod tests {
     use serde_json::json;
 
-    use super::{dialog_submission_slot, peer_dialog_metadata};
+    use super::{dialog_submission_slot, parse_user_answer_submission, peer_dialog_metadata};
+
+    #[test]
+    fn user_answer_submission_accepts_legacy_and_session_scoped_payloads() {
+        let (legacy_session, legacy) = parse_user_answer_submission(&json!({
+            "toolId": "ask-legacy",
+            "answers": { "0": "Yes" }
+        }))
+        .expect("legacy answer payload");
+        assert_eq!(legacy_session, None);
+        assert_eq!(legacy.tool_id, "ask-legacy");
+        assert_eq!(legacy.answers, json!({ "0": "Yes" }));
+
+        let (session, current) = parse_user_answer_submission(&json!({
+            "request": {
+                "sessionId": "session-1",
+                "toolId": "ask-current",
+                "answers": { "0": ["A", "B"] }
+            }
+        }))
+        .expect("session-scoped answer payload");
+        assert_eq!(session.as_deref(), Some("session-1"));
+        assert_eq!(current.tool_id, "ask-current");
+        assert_eq!(current.answers, json!({ "0": ["A", "B"] }));
+    }
 
     #[test]
     fn peer_metadata_removes_reserved_runtime_fields() {

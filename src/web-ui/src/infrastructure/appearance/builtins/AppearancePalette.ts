@@ -9,6 +9,8 @@ export interface BackgroundColors {
   elevated: ColorValue;
   workbench: ColorValue;
   scene: ColorValue;
+  /** Optional structural navigation/window surface; ordinary palettes share the primary surface. */
+  chrome?: ColorValue;
 }
 
 export interface TextColors {
@@ -77,6 +79,21 @@ export interface ScrollbarColors {
   thumbHover: ColorValue;
 }
 
+/**
+ * Structural application chrome can deliberately contrast with the content
+ * palette. Builtins that omit this slice keep today's single-surface behavior.
+ */
+export interface ChromeColors {
+  /** A mixed appearance can use dark chrome around a light scene. */
+  type?: AppearancePaletteMode;
+  background: BackgroundColors;
+  text: TextColors;
+  accent: AccentColors;
+  border: BorderColors;
+  element: ElementBackgrounds;
+  scrollbar?: ScrollbarColors;
+}
+
 export interface ShadowConfig {
   xs: string;
   sm: string;
@@ -130,6 +147,23 @@ export interface ButtonConfig {
   };
 }
 
+/**
+ * Shared settings pages need a stable surface role that can vary independently
+ * from form controls. In particular, a filled section card must not force every
+ * input, divider, and focus ring to inherit the same treatment.
+ */
+export interface ConfigPageConfig {
+  section: {
+    background: ColorValue;
+    border: ColorValue;
+    borderWidth: string;
+    shadow: string;
+  };
+  divider: ColorValue;
+  /** Must remain distinguishable from both the section surface and its surrounding scene. */
+  rowHover: ColorValue;
+}
+
 export interface MotionConfig {
   instant: string;
   fast: string;
@@ -141,34 +175,6 @@ export interface EasingConfig {
   standard: string;
   decelerate: string;
   smooth: string;
-}
-
-export interface FontConfig {
-  sans: string;
-  mono: string;
-}
-
-export interface FontWeightConfig {
-  normal: number;
-  medium: number;
-  semibold: number;
-}
-
-export interface FontSizeConfig {
-  xs: string;
-  sm: string;
-  base: string;
-  lg: string;
-  xl: string;
-  '2xl': string;
-  '3xl': string;
-  '4xl': string;
-}
-
-export interface LineHeightConfig {
-  tight: number;
-  base: number;
-  relaxed: number;
 }
 
 export interface MonacoEditorColors {
@@ -211,6 +217,7 @@ export interface AppearancePalette {
     element: ElementBackgrounds;
     git: GitColors;
     scrollbar?: ScrollbarColors;
+    chrome?: ChromeColors;
   };
   effects: {
     shadow: ShadowConfig;
@@ -223,13 +230,10 @@ export interface AppearancePalette {
     duration: MotionConfig;
     easing: EasingConfig;
   };
-  typography: {
-    font: FontConfig;
-    weight: FontWeightConfig;
-    size: FontSizeConfig;
-    lineHeight: LineHeightConfig;
+  components?: {
+    button?: ButtonConfig;
+    configPage?: ConfigPageConfig;
   };
-  components?: { button?: ButtonConfig };
   monaco?: MonacoAppearancePaletteConfig;
   layout?: { sceneViewportBorder?: boolean };
 }

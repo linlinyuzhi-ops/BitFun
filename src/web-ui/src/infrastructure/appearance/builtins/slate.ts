@@ -12,10 +12,8 @@ import {
   createSlateRadius,
   createStandardEasing,
   createStandardSpacing,
-  createStandardTypography,
   overlayBlack,
   overlayWhite,
-  rgbFromHex,
   rgbaFromHex,
   STATIC_WHITE,
 } from './paletteHelpers';
@@ -30,17 +28,14 @@ const SLATE_ACCENT = '#94a3b8';
 const SLATE_ACCENT_HOVER = '#64748b';
 const SLATE_PURPLE = '#b8c4ff';
 const SLATE_PURPLE_HOVER = '#9dacf5';
-const SLATE_SUCCESS = '#7eb09b';
-const SLATE_WARNING = '#f59e0b';
-const SLATE_ERROR = '#c9878d';
 
-export const bitfunSlatePalette: AppearancePalette = {
+export const openBitFunSlatePalette: AppearancePalette = {
 
-  id: 'bitfun-slate',
+  id: 'openbitfun-slate',
   name: 'Slate',
   type: 'dark',
   description: 'Slate gray geometric appearance - Deep immersion, high contrast grayscale aesthetics',
-  author: 'BitFun Team',
+  author: 'OpenBitFun Team',
   version: '1.3.0',
 
   layout: {
@@ -82,27 +77,15 @@ export const bitfunSlatePalette: AppearancePalette = {
 
     purple: createSecondaryAccentScale({ base: SLATE_PURPLE, hover: SLATE_PURPLE_HOVER }),
 
-    semantic: createSemanticColors({
-      success: SLATE_SUCCESS,
-      warning: SLATE_WARNING,
-      error: SLATE_ERROR,
-      info: SLATE_TEXT_MUTED,
-      overrides: {
-        infoBg: overlayWhite(0.07),
-        infoBorder: overlayWhite(0.2),
-      },
-    }),
+    semantic: createSemanticColors('dark'),
 
     border: createDarkNeutralBorder(),
 
     element: createDarkNeutralElement(),
 
-    git: createGitColors({
+    git: createGitColors('dark', {
       branch: SLATE_ACCENT,
       branchBg: overlayWhite(0.06),
-      changes: rgbFromHex(SLATE_WARNING),
-      added: rgbFromHex(SLATE_SUCCESS),
-      deleted: rgbFromHex(SLATE_ERROR),
     }),
 
     scrollbar: createDarkNeutralScrollbar(),
@@ -146,8 +129,6 @@ export const bitfunSlatePalette: AppearancePalette = {
     easing: createStandardEasing(),
   },
 
-
-  typography: createStandardTypography(),
 
 
   components: {

@@ -7,7 +7,7 @@
 const $ = (id) => document.getElementById(id);
 
 // Categorical palette for the language donut. Leading color matches the
-// BitFun host accent (cool blue) so the dominant language reads as primary;
+// OpenBitFun host accent (cool blue) so the dominant language reads as primary;
 // remaining hues are kept distinct enough to differentiate up to ~10 langs.
 const LANG_COLORS = [
   '#60a5fa', '#8b5cf6', '#34d399', '#f59e0b', '#06b6d4',
@@ -120,7 +120,7 @@ const I18N = {
     loadingTitle: '正在扫描代码足迹',
     loadingTitleFirst: '正在扫描你的代码足迹',
     errNoWs: '还没有打开工作区',
-    errNoWsDesc: '请先在 BitFun 侧边栏选择一个 Git 仓库的工作区。',
+    errNoWsDesc: '请先在 OpenBitFun 侧边栏选择一个 Git 仓库的工作区。',
     errNotGit: '当前工作区不是 Git 仓库或远程工作区',
     errNotGitDesc: (p) => `${p} · 执行 git init 或切换到本地 Git 仓库`,
     errNoWsShort: '未检测到工作区',
@@ -214,7 +214,7 @@ const I18N = {
     loadingTitle: '正在掃描代碼足跡',
     loadingTitleFirst: '正在掃描你的代碼足跡',
     errNoWs: '還沒有打開工作區',
-    errNoWsDesc: '請先在 BitFun 側邊欄選擇一個 Git 倉庫的工作區。',
+    errNoWsDesc: '請先在 OpenBitFun 側邊欄選擇一個 Git 倉庫的工作區。',
     errNotGit: '當前工作區不是 Git 倉庫或遠程工作區',
     errNotGitDesc: (p) => `${p} · 執行 git init 或切換到本地 Git 倉庫`,
     errNoWsShort: '未檢測到工作區',
@@ -309,7 +309,7 @@ const I18N = {
     loadingTitle: 'Scanning your code footprint',
     loadingTitleFirst: 'Scanning your code footprint',
     errNoWs: 'No workspace open',
-    errNoWsDesc: 'Open a Git repo workspace from the BitFun sidebar first.',
+    errNoWsDesc: 'Open a Git repo workspace from the OpenBitFun sidebar first.',
     errNotGit: 'Workspace is not a local Git repo (or it is a remote workspace)',
     errNotGitDesc: (p) => `${p} · run \`git init\` or switch to a local Git repo`,
     errNoWsShort: 'No workspace detected',
@@ -417,7 +417,7 @@ function renderDonut(langs) {
   svg.innerHTML = '';
   const total = langs.reduce((acc, l) => acc + l.weight, 0);
   if (total <= 0) {
-    svg.innerHTML = '<circle cx="60" cy="60" r="46" fill="none" stroke="rgba(148,163,184,0.12)" stroke-width="12" />';
+    svg.innerHTML = '<circle cx="60" cy="60" r="46" fill="none" stroke="var(--cs-card-2)" stroke-width="12" />';
     $('lang-legend').innerHTML = `<li class="cs-legend-row"><span></span><span class="cs-legend-name" style="color:var(--cs-text-muted)">${t('noCommitsThisRange')}</span><span></span></li>`;
     return;
   }
@@ -444,7 +444,7 @@ function renderDonut(langs) {
     const s = slices[i];
     const frac = s.weight / total;
     const dash = c * frac;
-    const color = s.isOther ? 'rgba(148,163,184,0.35)' : LANG_COLORS[i % LANG_COLORS.length];
+    const color = s.isOther ? 'var(--cs-text-muted)' : LANG_COLORS[i % LANG_COLORS.length];
     const arc = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     arc.setAttribute('cx', '60');
     arc.setAttribute('cy', '60');
@@ -469,7 +469,7 @@ function renderDonut(langs) {
   slices.forEach((s, i) => {
     const li = document.createElement('li');
     li.className = 'cs-legend-row';
-    const color = s.isOther ? 'rgba(148,163,184,0.35)' : LANG_COLORS[i % LANG_COLORS.length];
+    const color = s.isOther ? 'var(--cs-text-muted)' : LANG_COLORS[i % LANG_COLORS.length];
     const pct = (s.weight / total) * 100;
     const barPct = (s.weight / maxWeight) * 100;
     const safeName = escapeHtml(s.name);

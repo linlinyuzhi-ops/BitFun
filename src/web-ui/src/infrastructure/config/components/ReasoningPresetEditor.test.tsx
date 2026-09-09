@@ -9,30 +9,35 @@ import type { ModelsDevReasoningCatalog } from '@/infrastructure/api/service-api
 import type { ReasoningCatalogProjection, ReasoningConfig } from '../types';
 import ReasoningPresetEditor from './ReasoningPresetEditor';
 
-vi.mock('react-i18next', () => ({
+vi.mock('react-i18next', async importOriginal => ({
+  ...await importOriginal<typeof import('react-i18next')>(),
   useTranslation: () => ({
-    t: (key: string, options?: Record<string, unknown>) => (
-      typeof options?.presets === 'string'
-        ? `${key}: ${String(options.format)}: ${options.presets}`
-        : key
-    ),
+    t: (key: string, options?: Record<string, unknown>) => {
+      if (typeof options?.format !== 'string') return key;
+      return typeof options.presets === 'string'
+        ? `${key}: ${options.format}: ${options.presets}`
+        : `${key}: ${options.format}`;
+    },
   }),
 }));
 
 interface SelectSpyProps {
-  triggerAriaLabel?: string;
-  value?: string | number | (string | number)[] | null;
+  'aria-label'?: string;
+  value?: string | number | null;
   options?: Array<{ label: string; value: string | number }>;
-  onChange?: (value: string | number | (string | number)[]) => void;
+  onValueChange?: (value: string | number) => void;
+  onCreateValue?: (value: string) => string | number | void;
   disabled?: boolean;
-  searchable?: boolean;
   clearable?: boolean;
-  allowCustomValue?: boolean;
 }
 
 const selectProps: Record<string, SelectSpyProps> = {};
 
-vi.mock('@/component-library', () => ({
+vi.mock('@openbitfun/ui', async importOriginal => ({
+  ...await importOriginal<typeof import('@openbitfun/ui')>(),
+  ScrollArea: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  Icon: ({ name, ...props }: { name: string } & React.HTMLAttributes<HTMLSpanElement>) => <span data-icon={name} {...props} />,
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   Button: ({
     children,
     ...props
@@ -45,15 +50,17 @@ vi.mock('@/component-library', () => ({
   }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button type="button" {...props}>{children}</button>
   ),
-  Select: (props: SelectSpyProps) => {
-    const label = props.triggerAriaLabel ?? '';
+  Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
+  Switch: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input type="checkbox" {...props} />,
+  Combobox: (props: SelectSpyProps) => {
+    const label = props['aria-label'] ?? '';
     selectProps[label] = props;
     return (
       <select
         aria-label={label}
         value={typeof props.value === 'string' ? props.value : ''}
         disabled={props.disabled}
-        onChange={(event) => props.onChange?.(event.target.value)}
+        onChange={(event) => props.onValueChange?.(event.target.value)}
       >
         {props.options?.map(option => (
           <option key={String(option.value)} value={String(option.value)}>{option.label}</option>
@@ -61,11 +68,30 @@ vi.mock('@/component-library', () => ({
       </select>
     );
   },
-  Switch: () => <input type="checkbox" />,
-  Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
-  NumberInput: () => <input type="number" />,
-  Textarea: () => <textarea />,
-  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  Select: (props: SelectSpyProps) => {
+    const label = props['aria-label'] ?? '';
+    selectProps[label] = props;
+    return (
+      <select
+        aria-label={label}
+        value={typeof props.value === 'string' ? props.value : ''}
+        disabled={props.disabled}
+        onChange={(event) => props.onValueChange?.(event.target.value)}
+      >
+        {props.options?.map(option => (
+          <option key={String(option.value)} value={String(option.value)}>{option.label}</option>
+        ))}
+      </select>
+    );
+  },
+  Textarea: ({
+    invalid: _invalid,
+    errorMessage: _errorMessage,
+    ...props
+  }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
+    invalid?: boolean;
+    errorMessage?: React.ReactNode;
+  }) => <textarea {...props} />,
 }));
 
 const modelsDevReasoningCatalog: ModelsDevReasoningCatalog = {
@@ -119,7 +145,7 @@ function renderEditor(
 let activeRoot: Root | null = null;
 let activeContainer: HTMLDivElement | null = null;
 
-describe('ReasoningPresetEditor models-dev binding', () => {
+describe('ReasoningPresetEditor', () => {
   beforeEach(() => {
     for (const key of Object.keys(selectProps)) delete selectProps[key];
     activeRoot = null;
@@ -153,18 +179,16 @@ describe('ReasoningPresetEditor models-dev binding', () => {
     expect(provider).toBeTruthy();
     expect(provider?.options?.map(o => o.value)).toEqual(['', 'deepseek', 'github-copilot']);
     expect(provider?.value).toBe('');
-    expect(provider?.searchable).toBe(true);
     expect(provider?.clearable).toBe(true);
-    expect(provider?.allowCustomValue).toBe(true);
+    expect(provider?.onCreateValue?.('custom')).toBe('custom');
   });
 
   it('lists only reasoning-capable models of the selected provider', () => {
     render({ catalog: { source: 'models_dev', provider: 'deepseek', model: '' }, presets: [] });
     const model = selectProps['reasoningPresets.catalogModel'];
     expect(model?.options?.map(o => o.value)).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro']);
-    expect(model?.searchable).toBe(true);
     expect(model?.clearable).toBe(true);
-    expect(model?.allowCustomValue).toBe(true);
+    expect(model?.onCreateValue?.('custom')).toBe('custom');
   });
 
   it('returns empty model options for an unknown provider', () => {
@@ -173,7 +197,7 @@ describe('ReasoningPresetEditor models-dev binding', () => {
     expect(model?.options ?? []).toHaveLength(0);
   });
 
-  it('lists a provider outside the BitFun built-in overlay', () => {
+  it('lists a provider outside the OpenBitFun built-in overlay', () => {
     render({ catalog: { source: 'models_dev', provider: 'github-copilot', model: '' }, presets: [] });
     const model = selectProps['reasoningPresets.catalogModel'];
     expect(model?.options?.map(o => o.value)).toEqual(['gpt-5.1-codex']);
@@ -199,7 +223,7 @@ describe('ReasoningPresetEditor models-dev binding', () => {
       'OpenAI (chat/completions)',
     );
 
-    const warning = activeContainer?.querySelector('[data-bf-part="unavailableWarning"]');
+    const warning = activeContainer?.querySelector('[data-openbitfun-part="unavailableWarning"]');
     expect(warning?.textContent).toContain('reasoningPresets.unavailableTitle');
     expect(warning?.textContent).toContain('OpenAI (chat/completions)');
     expect(warning?.textContent).toContain('Low, High');
@@ -215,16 +239,14 @@ describe('ReasoningPresetEditor models-dev binding', () => {
     expect(model?.value).toBe('gpt-5.1-codex');
   });
 
-  it('enables searchable, clearable and allowCustomValue on both binding selects', () => {
+  it('keeps both bindings clearable and gives custom values an explicit creation callback', () => {
     render();
     const provider = selectProps['reasoningPresets.catalogProvider'];
     const model = selectProps['reasoningPresets.catalogModel'];
-    expect(provider?.searchable).toBe(true);
     expect(provider?.clearable).toBe(true);
-    expect(provider?.allowCustomValue).toBe(true);
-    expect(model?.searchable).toBe(true);
+    expect(provider?.onCreateValue?.('provider')).toBe('provider');
     expect(model?.clearable).toBe(true);
-    expect(model?.allowCustomValue).toBe(true);
+    expect(model?.onCreateValue?.('model')).toBe('model');
   });
 
   it('clears the model when the provider changes', () => {
@@ -236,7 +258,7 @@ describe('ReasoningPresetEditor models-dev binding', () => {
     const provider = selectProps['reasoningPresets.catalogProvider'];
     expect(provider).toBeTruthy();
     act(() => {
-      provider?.onChange?.('github-copilot');
+      provider?.onValueChange?.('github-copilot');
     });
     expect(onChange).toHaveBeenCalledTimes(1);
     const updated = onChange.mock.calls[0][0] as ReasoningConfig;
@@ -253,7 +275,7 @@ describe('ReasoningPresetEditor models-dev binding', () => {
     const provider = selectProps['reasoningPresets.catalogProvider'];
     expect(provider).toBeTruthy();
     act(() => {
-      provider?.onChange?.('');
+      provider?.onValueChange?.('');
     });
     const updated = onChange.mock.calls[0][0] as ReasoningConfig;
     expect(updated.catalog).toEqual({ source: 'auto' });
@@ -268,7 +290,7 @@ describe('ReasoningPresetEditor models-dev binding', () => {
     const model = selectProps['reasoningPresets.catalogModel'];
     expect(model).toBeTruthy();
     act(() => {
-      model?.onChange?.('');
+      model?.onValueChange?.('');
     });
     const updated = onChange.mock.calls[0][0] as ReasoningConfig;
     expect(updated.catalog).toEqual({ source: 'auto' });
@@ -292,7 +314,7 @@ describe('ReasoningPresetEditor models-dev binding', () => {
     );
     const provider = selectProps['reasoningPresets.catalogProvider'];
     act(() => {
-      provider?.onChange?.('');
+      provider?.onValueChange?.('');
     });
     const updated = onChange.mock.calls[0][0] as ReasoningConfig;
     expect(updated.catalog).toEqual({ source: 'auto' });
@@ -317,7 +339,7 @@ describe('ReasoningPresetEditor models-dev binding', () => {
     );
     const model = selectProps['reasoningPresets.catalogModel'];
     act(() => {
-      model?.onChange?.('');
+      model?.onValueChange?.('');
     });
     const updated = onChange.mock.calls[0][0] as ReasoningConfig;
     expect(updated.catalog).toEqual({ source: 'auto' });
@@ -342,7 +364,7 @@ describe('ReasoningPresetEditor models-dev binding', () => {
     );
     const provider = selectProps['reasoningPresets.catalogProvider'];
     act(() => {
-      provider?.onChange?.('deepseek');
+      provider?.onValueChange?.('deepseek');
     });
     expect(onChange).not.toHaveBeenCalled();
   });
@@ -365,7 +387,7 @@ describe('ReasoningPresetEditor models-dev binding', () => {
     );
     const model = selectProps['reasoningPresets.catalogModel'];
     act(() => {
-      model?.onChange?.('gpt-5.1-codex');
+      model?.onValueChange?.('gpt-5.1-codex');
     });
     expect(onChange).not.toHaveBeenCalled();
   });
@@ -380,7 +402,7 @@ describe('ReasoningPresetEditor models-dev binding', () => {
     const source = selectProps['reasoningPresets.catalogSource'];
     expect(source).toBeTruthy();
     act(() => {
-      source?.onChange?.('models_dev');
+      source?.onValueChange?.('models_dev');
     });
     expect(onChange).not.toHaveBeenCalled();
   });
@@ -395,10 +417,138 @@ describe('ReasoningPresetEditor models-dev binding', () => {
     );
     const provider = selectProps['reasoningPresets.catalogProvider'];
     act(() => {
-      provider?.onChange?.('');
+      provider?.onValueChange?.('');
     });
     const updated = onChange.mock.calls[0][0] as ReasoningConfig;
     expect(updated.catalog).toEqual({ source: 'auto' });
     expect(updated.default_preset).toBe('my-custom');
+  });
+
+  it('creates new custom presets with exactly one request body patch', () => {
+    const onChange = vi.fn();
+    render({ catalog: { source: 'auto' }, presets: [] }, onChange);
+
+    const addPreset = Array.from(activeContainer?.querySelectorAll('button') ?? [])
+      .find(button => button.textContent === 'reasoningPresets.add');
+    act(() => addPreset?.click());
+
+    const updated = onChange.mock.calls[0][0] as ReasoningConfig;
+    expect(updated.presets).toHaveLength(1);
+    expect(updated.presets[0]?.actions).toEqual([
+      { type: 'request_patch', body: {} },
+    ]);
+    expect(activeContainer?.textContent).not.toContain('reasoningPresets.addAction');
+  });
+
+  it('edits a single request body patch without exposing action controls', () => {
+    const onChange = vi.fn();
+    render({
+      catalog: { source: 'auto' },
+      presets: [{
+        id: 'custom',
+        label: 'Custom',
+        actions: [{ type: 'request_patch', body: { reasoning: { effort: 'low' } } }],
+      }],
+    }, onChange, undefined, 'OpenAI (responses)');
+
+    act(() => activeContainer
+      ?.querySelector<HTMLButtonElement>('button[aria-label="Custom"]')
+      ?.click());
+    const textarea = activeContainer?.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="reasoningPresets.settingPatch"]',
+    );
+    expect(textarea?.value).toContain('"effort": "low"');
+    expect(activeContainer?.querySelector('[data-openbitfun-part="actionControls"]')).toBeNull();
+    expect(textarea?.placeholder).toContain('OpenAI (responses)');
+
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        'value',
+      )?.set;
+      valueSetter?.call(textarea, '{"reasoning":{"effort":"high"}}');
+      textarea?.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    const updated = onChange.mock.calls.at(-1)?.[0] as ReasoningConfig;
+    expect(updated.presets[0]?.actions).toEqual([{
+      type: 'request_patch',
+      body: { reasoning: { effort: 'high' } },
+    }]);
+  });
+
+  it('shows the common request patch example as a placeholder for an empty patch', () => {
+    render({
+      catalog: { source: 'auto' },
+      presets: [{
+        id: 'custom',
+        label: 'Custom',
+        actions: [{ type: 'request_patch', body: {} }],
+      }],
+    }, vi.fn(), undefined, 'Gemini');
+
+    act(() => activeContainer
+      ?.querySelector<HTMLButtonElement>('button[aria-label="Custom"]')
+      ?.click());
+    const textarea = activeContainer?.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="reasoningPresets.settingPatch"]',
+    );
+
+    expect(textarea?.value).toBe('');
+    expect(textarea?.placeholder).toBe('reasoningPresets.patchPlaceholder: Gemini');
+    expect(activeContainer?.querySelector('.openbitfun-reasoning-preset-editor__row-preview')).toBeNull();
+  });
+
+  it('preserves legacy actions until the user explicitly replaces them', () => {
+    const onChange = vi.fn();
+    render({
+      catalog: { source: 'auto' },
+      presets: [{
+        id: 'legacy',
+        label: 'Legacy',
+        actions: [
+          { type: 'effort', value: 'high' },
+          { type: 'request_patch', body: { reasoning: { summary: 'auto' } } },
+          { type: 'request_patch', body: { include: ['reasoning.encrypted_content'] } },
+        ],
+      }],
+    }, onChange);
+
+    act(() => activeContainer
+      ?.querySelector<HTMLButtonElement>('button[aria-label="Legacy"]')
+      ?.click());
+    const legacyActions = activeContainer?.querySelectorAll('[data-openbitfun-part="action"]');
+    expect(legacyActions).toHaveLength(3);
+    expect(activeContainer?.textContent).toContain('reasoningPresets.legacyTitle');
+    expect(activeContainer?.textContent).toContain('high');
+    expect(activeContainer?.textContent).toContain('reasoning.encrypted_content');
+    expect(onChange).not.toHaveBeenCalled();
+
+    const convert = Array.from(activeContainer?.querySelectorAll('button') ?? [])
+      .find(button => button.textContent === 'reasoningPresets.convertToSinglePatch');
+    act(() => convert?.click());
+
+    const updated = onChange.mock.calls[0][0] as ReasoningConfig;
+    expect(updated.presets[0]?.actions).toEqual([
+      { type: 'request_patch', body: {} },
+    ]);
+  });
+
+  it('adds a request body patch when an actionless preset is enabled', () => {
+    const onChange = vi.fn();
+    render({
+      catalog: { source: 'auto' },
+      presets: [{ id: 'disabled', label: 'Disabled', disabled: true, actions: [] }],
+    }, onChange);
+
+    act(() => activeContainer
+      ?.querySelector<HTMLInputElement>('input[aria-label="reasoningPresets.enabled"]')
+      ?.click());
+
+    const updated = onChange.mock.calls[0][0] as ReasoningConfig;
+    expect(updated.presets[0]?.disabled).toBe(false);
+    expect(updated.presets[0]?.actions).toEqual([
+      { type: 'request_patch', body: {} },
+    ]);
   });
 });

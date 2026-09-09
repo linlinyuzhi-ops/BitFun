@@ -1,4 +1,5 @@
 import { RemoteUiState } from '../../services/RemoteUiState';
+import { REMOTE_CAPABILITY_HARNESS_PROFILES_V1 } from '../../model/RemoteModels';
 import {
   AppRootPresentationActions,
   emptyAppRootPresentationActions
@@ -53,22 +54,26 @@ export struct WideConversationHost {
   @Param wideCollapsedDetailContentWidth: number = 0;
   @Param wideMasterPaneCollapsed: boolean = false;
   @Param wideMasterPaneMotionActive: boolean = false;
+  @Param filePreviewExpanded: boolean = false;
+  @Param canToggleFilePreviewExpanded: boolean = false;
   @Event onCollapseMasterPane: () => void = () => {};
   @Event onRestoreMasterPane: () => void = () => {};
+  @Event onToggleFilePreviewExpanded: () => void = () => {};
   @Event onOpenRemoteViewSettings: () => void = () => {};
 
   build() {
     if (this.route === AppRoute.ChatHome || this.route === AppRoute.GeneralChat) {
       this.GeneralChatContent();
     } else if (this.showsRemoteConversation() &&
+      this.filePreviewLayout.placement === FilePreviewPlacement.WideMasterPreviewFocus) {
+      this.RemoteMasterPreviewFocusContent();
+    } else if (this.showsRemoteConversation() &&
       this.filePreviewLayout.placement === FilePreviewPlacement.WideFocusSplit) {
       this.RemotePreviewFocusContent();
-    } else if (this.showsRemoteConversation()) {
+    } else if (this.showsRemoteDetail()) {
       this.RemoteChatContent();
     } else if (this.route === AppRoute.RemoteHome) {
       this.RemoteHomeContent();
-    } else {
-      this.RemoteCreateContent();
     }
   }
 
@@ -178,9 +183,9 @@ export struct WideConversationHost {
           onDeleteSession: this.actions.onSidebar.deleteSession
         })
       }
-      .width('100%').height('100%').backgroundColor(FLOATING_PANEL_BG)
+      .width('100%').height('100%').backgroundColor(CARD)
       .borderRadius(18).clip(true)
-      .shadow({ radius: 24, color: '#14000000', offsetX: 4, offsetY: 8 })
+      .shadow({ radius: 24, color: SHADOW_SUBTLE, offsetX: 4, offsetY: 8 })
     }
     .width(WideLayoutGeometry.masterPaneWidth(this.filePreviewLayout, this.wideMasterPaneWidth))
     .height('100%').padding({ left: 10, right: 6, top: 10, bottom: 10 }).backgroundColor(PAGE_BG)
@@ -246,7 +251,23 @@ export struct WideConversationHost {
   private RemotePreviewFocusContent() {
     Row() {
       this.ConversationDetail(false, this.filePreviewLayout.conversationPaneWidth)
-      this.PaneGap(this.filePreviewLayout.conversationPreviewGap)
+      this.PaneGap(
+        this.filePreviewLayout.conversationPreviewGap,
+        this.filePreviewLayout.conversationPreviewGapIsCrease
+      )
+      this.FilePreviewPane(this.filePreviewLayout.previewPaneWidth)
+    }
+    .width('100%').height('100%').backgroundColor(PAGE_BG)
+  }
+
+  @Builder
+  private RemoteMasterPreviewFocusContent() {
+    Row() {
+      this.MasterPane()
+      this.PaneGap(
+        this.filePreviewLayout.masterConversationGap,
+        this.filePreviewLayout.masterConversationGapIsCrease
+      )
       this.FilePreviewPane(this.filePreviewLayout.previewPaneWidth)
     }
     .width('100%').height('100%').backgroundColor(PAGE_BG)
@@ -261,10 +282,13 @@ export struct WideConversationHost {
         downloadPath: this.remotePageState.downloadingFilePath,
         downloadedPath: this.remotePageState.downloadedFilePath,
         downloadStatus: this.remotePageState.fileDownloadStatus,
+        previewExpanded: this.filePreviewExpanded,
+        canToggleExpanded: this.canToggleFilePreviewExpanded,
         onClose: this.actions.onFilePreview.close,
         onRefresh: this.actions.onFilePreview.refresh,
         onDownload: this.actions.onFilePreview.download,
-        onOpenLink: this.actions.onFilePreview.openLink
+        onOpenLink: this.actions.onFilePreview.openLink,
+        onToggleExpanded: this.onToggleFilePreviewExpanded
       })
     }
     .width(paneWidth).height('100%').backgroundColor(PAGE_BG)
@@ -286,7 +310,7 @@ export struct WideConversationHost {
           }
           Row() {
             Column() { this.RouteSurface(showBackButton) }
-              .width('100%').height('100%').constraintSize({ maxWidth: WIDE_DETAIL_CONTENT_MAX_WIDTH })
+              .width('100%').height('100%')
               .backgroundColor(PAGE_BG)
           }
           .width(this.currentDetailWidth() > 0 ? this.currentDetailWidth() : '100%')
@@ -296,14 +320,6 @@ export struct WideConversationHost {
           }
         }
         .width('100%').height('100%').justifyContent(FlexAlign.Start).backgroundColor(PAGE_BG)
-
-        if (this.wideMasterPaneCollapsed) {
-          SidebarToggleButton({ restore: true, controlSize: 44, onToggle: this.onRestoreMasterPane })
-            .position({ x: 12, y: 12 }).zIndex(2)
-            .hitTestBehavior(HitTestMode.Default)
-            .transition(TransitionEffect.scale({ x: 0.9, y: 0.9 }).combine(TransitionEffect.opacity(0))
-              .animation({ duration: 180, curve: Curve.EaseOut }))
-        }
       }
       .layoutWeight(1).height('100%').backgroundColor(PAGE_BG)
     }
@@ -314,15 +330,17 @@ export struct WideConversationHost {
     ConversationRouteSurface({
       route: this.route,
       remotePageState: this.remotePageState,
-      remoteCreateState: this.remoteCreateState,
       generalPageState: this.generalPageState,
       filePreviewState: this.filePreviewState,
       remoteSurfaceState: this.remoteSurfaceState,
       actions: this.actions,
       showSidebarButton: false,
       showBackButton,
+      showSidebarRestoreButton: WideLayoutGeometry.showsMasterRestoreButton(
+        this.wideMasterPaneCollapsed,
+        this.filePreviewLayout
+      ),
       useWidePresentation: true,
-      contentHorizontalOffset: this.collapsedDetailVisualBias(),
       onRestoreSidebar: this.onRestoreMasterPane
     })
   }
@@ -337,9 +355,9 @@ export struct WideConversationHost {
   }
 
   @Builder
-  private PaneGap(width: number) {
+  private PaneGap(width: number, isPhysicalCrease: boolean) {
     if (width > 0) {
-      Row() {}.width(width).height('100%').backgroundColor(LINE)
+      Row() {}.width(width).height('100%').backgroundColor(isPhysicalCrease ? PAGE_BG : LINE)
     }
   }
 
@@ -352,6 +370,10 @@ export struct WideConversationHost {
   }
 
   private showsRemoteConversation(): boolean {
+    return this.route === AppRoute.RemoteChat;
+  }
+
+  private showsRemoteDetail(): boolean {
     return this.route === AppRoute.RemoteChat;
   }
 
@@ -371,13 +393,10 @@ export struct WideConversationHost {
     );
   }
 
-  private collapsedDetailVisualBias(): number {
-    return WideLayoutGeometry.collapsedVisualBias(
-      this.wideMasterPaneCollapsed,
-      this.wideCollapsedDetailContentOffset,
-      this.wideCollapsedDetailContentWidth,
-      WIDE_DETAIL_CONTENT_MAX_WIDTH,
-      72
-    );
+  private collapsedTripleConversationWidth(): number {
+    return this.filePreviewLayout.masterPaneWidth +
+      this.filePreviewLayout.masterConversationGap +
+      this.filePreviewLayout.conversationPaneWidth;
   }
+
 }

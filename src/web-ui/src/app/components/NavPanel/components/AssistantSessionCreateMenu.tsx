@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Plus } from 'lucide-react';
-import { Tooltip } from '@/component-library';
+;
+import { OverflowText, Icon, Menu, MenuItem, Tooltip } from '@openbitfun/ui';
+
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
 import type { WorkspaceInfo } from '@/shared/types';
 import { useAnchoredPopoverPosition } from '@/shared/utils/useAnchoredPopoverPosition';
+import { isImeOwnedKeyboardEvent } from '@/shared/utils/ime';
 
 interface AssistantSessionCreateMenuProps {
   assistants: WorkspaceInfo[];
@@ -62,7 +64,7 @@ const AssistantSessionCreateMenu: React.FC<AssistantSessionCreateMenuProps> = ({
       closeMenu();
     };
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeMenu();
+      if (event.key === 'Escape' && !isImeOwnedKeyboardEvent(event)) closeMenu();
     };
 
     document.addEventListener('mousedown', handleMouseDown);
@@ -83,16 +85,16 @@ const AssistantSessionCreateMenu: React.FC<AssistantSessionCreateMenuProps> = ({
   return (
     <div
       ref={anchorRef}
-      className={`bitfun-nav-panel__assistant-session-actions${menuOpen ? ' is-open' : ''}`}
-      data-bf-component="nav-panel"
-      data-bf-part="assistantSessionActions"
-      data-bf-state={menuOpen ? 'open' : undefined}
+      className={`openbitfun-nav-panel__assistant-session-actions${menuOpen ? ' is-open' : ''}`}
+      data-openbitfun-component="nav-panel"
+      data-openbitfun-part="assistantSessionActions"
+      data-openbitfun-state={menuOpen ? 'open' : undefined}
     >
-      <div className={`bitfun-nav-panel__assistant-session-split-button${menuOpen ? ' is-active' : ''}`}>
+      <div className={`openbitfun-nav-panel__assistant-session-split-button${menuOpen ? ' is-active' : ''}`}>
         <Tooltip content={createPrimaryLabel} placement="right" followCursor>
           <button
             type="button"
-            className="bitfun-nav-panel__assistant-session-split-main"
+            className="openbitfun-nav-panel__assistant-session-split-main"
             aria-label={createPrimaryLabel}
             onClick={() => {
               closeMenu();
@@ -100,13 +102,13 @@ const AssistantSessionCreateMenu: React.FC<AssistantSessionCreateMenuProps> = ({
             }}
             data-testid="nav-primary-assistant-session-add-btn"
           >
-            <Plus size={13} />
+            <Icon name="plus" size="xs" />
           </button>
         </Tooltip>
         <Tooltip content={chooseAssistantLabel} placement="right" followCursor disabled={menuOpen}>
           <button
             type="button"
-            className="bitfun-nav-panel__assistant-session-split-toggle"
+            className="openbitfun-nav-panel__assistant-session-split-toggle"
             aria-label={chooseAssistantLabel}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
@@ -114,19 +116,15 @@ const AssistantSessionCreateMenu: React.FC<AssistantSessionCreateMenuProps> = ({
             onClick={() => setMenuOpen(open => !open)}
             data-testid="nav-assistant-session-menu-toggle"
           >
-            <ChevronDown size={11} />
+            <Icon name="chevron-down" size="2xs" />
           </button>
         </Tooltip>
       </div>
 
       {menuOpen ? createPortal(
-        <div
+        <Menu
           ref={menuRef}
-          className="bitfun-nav-panel__assistant-session-menu"
-          data-bf-component="nav-panel"
-          data-bf-part="assistantSessionMenu"
-          data-bf-placement={menuLayout?.placement ?? 'bottom'}
-          role="menu"
+          className="openbitfun-nav-panel__assistant-session-menu"
           aria-label={chooseAssistantLabel}
           data-testid="nav-assistant-session-menu"
           style={{
@@ -137,13 +135,10 @@ const AssistantSessionCreateMenu: React.FC<AssistantSessionCreateMenuProps> = ({
         >
           {orderedAssistants.map(workspace => {
             const assistantName = getAssistantDisplayName(workspace);
-            const isPrimary = workspace.id === primaryAssistant?.id;
             return (
-              <button
+              <MenuItem data-overflow-trigger
                 key={workspace.id}
-                type="button"
-                className="bitfun-nav-panel__assistant-session-menu-item"
-                role="menuitem"
+                leading={<Icon name="plus" size="xs" aria-hidden="true" />}
                 aria-label={t('nav.sessions.newAssistantSessionFor', { assistantName })}
                 onClick={() => {
                   closeMenu();
@@ -151,17 +146,11 @@ const AssistantSessionCreateMenu: React.FC<AssistantSessionCreateMenuProps> = ({
                 }}
                 data-testid={`nav-assistant-session-menu-item-${workspace.id}`}
               >
-                <Plus size={13} aria-hidden="true" />
-                <span className="bitfun-nav-panel__assistant-session-menu-name">{assistantName}</span>
-                {isPrimary ? (
-                  <span className="bitfun-nav-panel__assistant-session-menu-badge">
-                    {t('nav.workspaces.primaryAssistant')}
-                  </span>
-                ) : null}
-              </button>
+                <OverflowText className="openbitfun-nav-panel__assistant-session-menu-name">{assistantName}</OverflowText>
+              </MenuItem>
             );
           })}
-        </div>,
+        </Menu>,
         getAppearanceOverlayHost(),
       ) : null}
     </div>
