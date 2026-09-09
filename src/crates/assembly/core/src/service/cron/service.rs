@@ -5,8 +5,9 @@ use super::schedule::{
 };
 use super::store::CronJobStore;
 use super::types::{
-    CreateCronJobRequest, CronJob, CronJobPayload, CronJobTarget, CronJobTargetKind,
-    CronLaunchSpec, CronSchedule, CronWorkspaceRef, UpdateCronJobRequest, DEFAULT_RETRY_DELAY_MS,
+    CreateCronJobRequest, CronJob, CronJobCompletionStatus, CronJobHandling, CronJobPayload,
+    CronJobTarget, CronJobTargetKind, CronLaunchSpec, CronSchedule, CronWorkspaceRef,
+    UpdateCronJobRequest, DEFAULT_RETRY_DELAY_MS,
 };
 use crate::agentic::coordination::{
     ConversationCoordinator, DialogQueuePriority, DialogScheduler, DialogSubmissionPolicy,
@@ -163,6 +164,12 @@ impl CronService {
             config_updated_at_ms: current_ms,
             updated_at_ms: current_ms,
             state: Default::default(),
+            completion_status: request.completion_status,
+            handling: request.handling,
+            manual_due_at_ms: None,
+            planned_start_at_ms: request.planned_start_at_ms,
+            planned_completion_at_ms: request.planned_completion_at_ms,
+            actual_completion_at_ms: request.actual_completion_at_ms,
         };
 
         if job.enabled {
@@ -196,6 +203,7 @@ impl CronService {
             .ok_or_else(|| BitFunError::NotFound(format!("Scheduled job not found: {}", job_id)))?;
         let previous_schedule = job.schedule.clone();
         let was_enabled = job.enabled;
+        let requested_completion_status = request.completion_status;
 
         if let Some(name) = request.name {
             job.name = name.trim().to_string();
@@ -208,6 +216,33 @@ impl CronService {
         }
         if let Some(enabled) = request.enabled {
             job.enabled = enabled;
+            if !enabled {
+                job.manual_due_at_ms = None;
+            }
+        }
+        if let Some(completion_status) = request.completion_status {
+            job.completion_status = completion_status;
+            if completion_status == CronJobCompletionStatus::Completed {
+                job.manual_due_at_ms = None;
+                if job.actual_completion_at_ms.is_none() {
+                    job.actual_completion_at_ms = Some(current_ms);
+                }
+            }
+        }
+        if let Some(handling) = request.handling {
+            job.handling = handling;
+            if handling == CronJobHandling::Agent {
+                job.manual_due_at_ms = None;
+            }
+        }
+        if let Some(planned_start_at_ms) = request.planned_start_at_ms {
+            job.planned_start_at_ms = planned_start_at_ms;
+        }
+        if let Some(planned_completion_at_ms) = request.planned_completion_at_ms {
+            job.planned_completion_at_ms = planned_completion_at_ms;
+        }
+        if let Some(actual_completion_at_ms) = request.actual_completion_at_ms {
+            job.actual_completion_at_ms = actual_completion_at_ms;
         }
         if let Some(schedule) = request.schedule {
             job.schedule = materialize_schedule(schedule, current_ms);
@@ -224,6 +259,13 @@ impl CronService {
 
         if !job.enabled {
             job.state.next_run_at_ms = None;
+        } else if job.handling == CronJobHandling::Manual
+            && requested_completion_status == Some(CronJobCompletionStatus::Completed)
+            && !schedule_changed
+            && !reenabled
+        {
+            // Marking a manual Todo done must not re-arm it: a one-shot has no
+            // next run, and a recurring one keeps the already-advanced run.
         } else {
             job.state.next_run_at_ms =
                 compute_next_run_after_update(job, current_ms, schedule_changed, reenabled)?;
@@ -287,6 +329,18 @@ impl CronService {
             let job = jobs.get_mut(job_id).ok_or_else(|| {
                 BitFunError::NotFound(format!("Scheduled job not found: {}", job_id))
             })?;
+
+            if job.handling == CronJobHandling::Manual {
+                job.manual_due_at_ms = Some(current_ms);
+                job.state.last_trigger_at_ms = Some(current_ms);
+                job.updated_at_ms = current_ms;
+                self.persist_jobs_locked(&jobs).await?;
+                drop(jobs);
+                self.wakeup.notify_one();
+                return self.get_job(job_id).await.ok_or_else(|| {
+                    BitFunError::NotFound(format!("Scheduled job not found after run: {}", job_id))
+                });
+            }
 
             job.state.mark_manual_trigger(current_ms);
             job.updated_at_ms = current_ms;
@@ -432,18 +486,29 @@ impl CronService {
                 return Ok(());
             }
 
+            let is_manual = job.handling == CronJobHandling::Manual;
+
             if let Some(next_run_at_ms) = job.state.next_run_at_ms {
                 if next_run_at_ms <= current_ms {
                     let next_run_after_ms =
                         compute_next_run_after_ms(&job.schedule, job.created_at_ms, current_ms)?;
-                    job.state
-                        .apply_due_scheduled_trigger(next_run_at_ms, next_run_after_ms);
+                    if is_manual {
+                        job.state.last_trigger_at_ms = Some(next_run_at_ms);
+                        job.state.next_run_at_ms = next_run_after_ms;
+                        job.manual_due_at_ms = Some(next_run_at_ms);
+                    } else {
+                        job.state
+                            .apply_due_scheduled_trigger(next_run_at_ms, next_run_after_ms);
+                    }
                     job.updated_at_ms = current_ms;
                     should_persist = true;
                 }
             }
 
-            if job.state.active_turn_id.is_none() && job.state.pending_is_due(current_ms) {
+            if !is_manual
+                && job.state.active_turn_id.is_none()
+                && job.state.pending_is_due(current_ms)
+            {
                 let pending_trigger_at_ms = job.state.pending_trigger_at_ms.ok_or_else(|| {
                     BitFunError::service(format!(
                         "Scheduled job {} is missing pending trigger timestamp",
@@ -718,6 +783,10 @@ fn reconcile_loaded_job(job: &mut CronJob, now_ms: i64) -> BitFunResult<bool> {
 
     if !job.enabled {
         job.state.mark_disabled();
+        job.manual_due_at_ms = None;
+    } else if job.handling == CronJobHandling::Manual && job.manual_due_at_ms.is_some() {
+        // A manual job already waiting for the user keeps its state; a one-shot
+        // has no next run, and a recurring one keeps the already-advanced run.
     } else if job.state.pending_trigger_at_ms.is_some() {
         job.state.ensure_pending_retry_at(now_ms);
     } else if job.state.next_run_at_ms.is_none() {
@@ -1057,6 +1126,12 @@ mod tests {
             config_updated_at_ms: 0,
             updated_at_ms: 0,
             state: CronJobState::default(),
+            completion_status: Default::default(),
+            handling: Default::default(),
+            manual_due_at_ms: None,
+            planned_start_at_ms: None,
+            planned_completion_at_ms: None,
+            actual_completion_at_ms: None,
         }
     }
 

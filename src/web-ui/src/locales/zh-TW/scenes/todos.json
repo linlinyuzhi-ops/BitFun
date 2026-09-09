@@ -8,7 +8,8 @@
     "refresh": "重新整理",
     "edit": "編輯待辦",
     "delete": "刪除待辦",
-    "toggleEnabled": "切換啟用狀態"
+    "toggleEnabled": "切換啟用狀態",
+    "changeCompletionStatus": "更改完成狀態"
   },
   "list": {
     "title": "24 小時內",
@@ -30,6 +31,11 @@
   "badges": {
     "nextRun": "下次執行",
     "overdue": "已逾期"
+  },
+  "status": {
+    "pending": "待啟動",
+    "inProgress": "完成中",
+    "completed": "$t(shared:statuses.done)"
   },
   "relative": {
     "now": "即將執行",
@@ -61,12 +67,25 @@
   },
   "target": {
     "existingSession": "既有工作階段",
-    "newSession": "新增 {{agentType}} 工作階段"
+    "newSession": "新增 {{agentType}} 工作階段",
+    "manual": "手動處理"
+  },
+  "handling": {
+    "agent": "Agent 處理",
+    "manual": "手動處理"
   },
   "inactive": {
     "disabled": "已暫停",
     "invalid": "排程無效",
     "title": "沒有後續執行（{{total}}）"
+  },
+  "tabs": {
+    "label": "任務分類",
+    "today": "今日待完成",
+    "inProgress": "在執行",
+    "pending": "全部待完成",
+    "all": "全部任務",
+    "empty": "此分類下暫無任務"
   },
   "editor": {
     "createTitle": "新增待辦",
@@ -74,6 +93,7 @@
     "noWorkspace": "請先開啟一個工作區：定時執行需要有執行的位置。",
     "fields": {
       "name": "名稱",
+      "handling": "處理方式",
       "agentType": "Agent 類型",
       "scheduleKind": "排程類型",
       "at": "執行時間",
@@ -83,7 +103,11 @@
       "enabled": "啟用",
       "prompt": "提示詞",
       "runsIn": "執行位置",
-      "every": "間隔"
+      "every": "間隔",
+      "completionStatus": "完成狀態",
+      "plannedStartAt": "計劃開始時間",
+      "plannedCompletionAt": "計劃完成時間",
+      "actualCompletionAt": "實際完成時間"
     },
     "placeholders": {
       "name": "例如：每日站立會議摘要",

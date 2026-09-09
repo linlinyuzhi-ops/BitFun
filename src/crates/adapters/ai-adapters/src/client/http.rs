@@ -2,7 +2,7 @@ use crate::client::AIClient;
 use crate::types::ProxyConfig;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
-use reqwest::{Client, Proxy};
+use reqwest::{Client, NoProxy, Proxy};
 
 pub(crate) fn create_http_client(
     proxy_config: Option<ProxyConfig>,
@@ -73,6 +73,12 @@ pub(crate) fn build_proxy(config: &ProxyConfig) -> Result<Proxy> {
             debug!("Proxy authentication configured for user: {}", username);
         }
     }
+
+    // Honor the standard NO_PROXY/no_proxy environment variable so hosts listed
+    // there (e.g. corporate internal domains) bypass the proxy. Without this,
+    // tunneling to internal hosts can fail: some corporate proxies reject
+    // CONNECT to internal domains with 504.
+    proxy = proxy.no_proxy(NoProxy::from_env());
 
     Ok(proxy)
 }

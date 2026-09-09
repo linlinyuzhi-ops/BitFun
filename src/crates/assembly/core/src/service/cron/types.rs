@@ -5,7 +5,7 @@ pub use bitfun_agent_runtime::scheduled_job::{
     ScheduledJobRunStatus as CronJobRunStatus, ScheduledJobRuntimeState as CronJobState,
 };
 use bitfun_core_types::SessionExecutionTarget;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 pub const CRON_JOBS_VERSION: u32 = 2;
 
@@ -27,6 +27,35 @@ impl Default for CronJobsFile {
     }
 }
 
+/// User-facing lifecycle of a Todo, independent of the scheduler run state.
+///
+/// This is a manual marker set from the Todos panel; it does not change when a
+/// job runs. The scheduler keeps driving a job according to `enabled` and its
+/// schedule regardless of this value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CronJobCompletionStatus {
+    /// 待启动 — not started yet.
+    #[default]
+    Pending,
+    /// 完成中 — currently being worked on.
+    InProgress,
+    /// 已完成 — done.
+    Completed,
+}
+
+/// Who handles a Todo when it fires.
+///
+/// Agent jobs are dispatched to a session as usual. Manual jobs are never
+/// dispatched; the scheduler only marks them due so the user can act on them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CronJobHandling {
+    #[default]
+    Agent,
+    Manual,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CronJob {
@@ -41,6 +70,20 @@ pub struct CronJob {
     pub updated_at_ms: i64,
     #[serde(default)]
     pub state: CronJobState,
+    #[serde(default)]
+    pub completion_status: CronJobCompletionStatus,
+    #[serde(default)]
+    pub handling: CronJobHandling,
+    /// Latest scheduled time a manual job became due; cleared once the user
+    /// marks it completed. Agent jobs never set this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manual_due_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planned_start_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planned_completion_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_completion_at_ms: Option<i64>,
 }
 
 impl CronJob {
@@ -184,6 +227,16 @@ pub struct CreateCronJobRequest {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
     pub target: CronJobTarget,
+    #[serde(default)]
+    pub completion_status: CronJobCompletionStatus,
+    #[serde(default)]
+    pub handling: CronJobHandling,
+    #[serde(default)]
+    pub planned_start_at_ms: Option<i64>,
+    #[serde(default)]
+    pub planned_completion_at_ms: Option<i64>,
+    #[serde(default)]
+    pub actual_completion_at_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -194,6 +247,16 @@ pub struct UpdateCronJobRequest {
     pub payload: Option<CronJobPayload>,
     pub enabled: Option<bool>,
     pub target: Option<CronJobTarget>,
+    #[serde(default)]
+    pub completion_status: Option<CronJobCompletionStatus>,
+    #[serde(default)]
+    pub handling: Option<CronJobHandling>,
+    #[serde(default, deserialize_with = "deserialize_optional_ms")]
+    pub planned_start_at_ms: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "deserialize_optional_ms")]
+    pub planned_completion_at_ms: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "deserialize_optional_ms")]
+    pub actual_completion_at_ms: Option<Option<i64>>,
 }
 
 const fn default_enabled() -> bool {
@@ -202,4 +265,14 @@ const fn default_enabled() -> bool {
 
 fn default_agent_type() -> String {
     "agentic".to_string()
+}
+
+/// Deserializes an optional timestamp for `UpdateCronJobRequest` so that a
+/// missing field means "leave unchanged" (`None`) while an explicit JSON
+/// `null` means "clear" (`Some(None)`).
+fn deserialize_optional_ms<'de, D>(deserializer: D) -> Result<Option<Option<i64>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<i64>::deserialize(deserializer).map(Some)
 }

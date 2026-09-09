@@ -7,9 +7,9 @@
 
 import React from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
-import { IconButton, Switch } from '@/component-library';
+import { IconButton, Select, Switch } from '@/component-library';
 import { useI18n } from '@/infrastructure/i18n';
-import type { CronJob } from '@/infrastructure/api';
+import type { CronJob, CronJobCompletionStatus } from '@/infrastructure/api';
 import type { WorkspaceInfo } from '@/shared/types';
 import {
   formatCountdown,
@@ -35,6 +35,7 @@ export interface TodoItemRowProps {
   onEdit: (job: CronJob) => void;
   onDelete: (job: CronJob) => void;
   onToggleEnabled: (job: CronJob, enabled: boolean) => void;
+  onChangeCompletionStatus: (job: CronJob, status: CronJobCompletionStatus) => void;
 }
 
 const TodoItemRow: React.FC<TodoItemRowProps> = ({
@@ -50,6 +51,7 @@ const TodoItemRow: React.FC<TodoItemRowProps> = ({
   onEdit,
   onDelete,
   onToggleEnabled,
+  onChangeCompletionStatus,
 }) => {
   const { t, formatDate } = useI18n(['scenes/todos', 'shared']);
 
@@ -143,6 +145,18 @@ const TodoItemRow: React.FC<TodoItemRowProps> = ({
         onClick={(event) => event.stopPropagation()}
         role="presentation"
       >
+        <Select
+          size="small"
+          className="bf-todos__status-select"
+          value={job.completionStatus}
+          aria-label={t('actions.changeCompletionStatus')}
+          options={[
+            { value: 'pending', label: t('status.pending') },
+            { value: 'in_progress', label: t('status.inProgress') },
+            { value: 'completed', label: t('status.completed') },
+          ]}
+          onChange={(value) => onChangeCompletionStatus(job, value as CronJobCompletionStatus)}
+        />
         <Switch
           size="small"
           checked={job.enabled}

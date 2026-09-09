@@ -8,7 +8,8 @@
     "refresh": "Refresh",
     "edit": "Edit Todo",
     "delete": "Delete Todo",
-    "toggleEnabled": "Toggle enabled state"
+    "toggleEnabled": "Toggle enabled state",
+    "changeCompletionStatus": "Change completion status"
   },
   "list": {
     "title": "Next 24 hours",
@@ -30,6 +31,11 @@
   "badges": {
     "nextRun": "Next run",
     "overdue": "Overdue"
+  },
+  "status": {
+    "pending": "Not started",
+    "inProgress": "In progress",
+    "completed": "$t(shared:statuses.done)"
   },
   "relative": {
     "now": "Any moment",
@@ -61,12 +67,25 @@
   },
   "target": {
     "existingSession": "Existing session",
-    "newSession": "New {{agentType}} session"
+    "newSession": "New {{agentType}} session",
+    "manual": "Manual"
+  },
+  "handling": {
+    "agent": "Agent",
+    "manual": "Manual"
   },
   "inactive": {
     "disabled": "Paused",
     "invalid": "Invalid schedule",
     "title": "No upcoming run ({{total}})"
+  },
+  "tabs": {
+    "label": "Todo filters",
+    "today": "Due today",
+    "inProgress": "In progress",
+    "pending": "All open",
+    "all": "All tasks",
+    "empty": "No tasks in this view"
   },
   "editor": {
     "createTitle": "New Todo",
@@ -74,6 +93,7 @@
     "noWorkspace": "Open a workspace before creating a Todo — a scheduled run needs somewhere to execute.",
     "fields": {
       "name": "Name",
+      "handling": "Handling",
       "agentType": "Agent type",
       "scheduleKind": "Schedule",
       "at": "Run at",
@@ -83,7 +103,11 @@
       "enabled": "Enabled",
       "prompt": "Prompt",
       "runsIn": "Runs in",
-      "every": "Interval"
+      "every": "Interval",
+      "completionStatus": "Completion status",
+      "plannedStartAt": "Planned start",
+      "plannedCompletionAt": "Planned completion",
+      "actualCompletionAt": "Actual completion"
     },
     "placeholders": {
       "name": "For example: Daily standup summary",

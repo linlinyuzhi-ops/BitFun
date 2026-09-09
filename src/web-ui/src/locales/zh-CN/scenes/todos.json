@@ -8,7 +8,8 @@
     "refresh": "刷新",
     "edit": "编辑待办",
     "delete": "删除待办",
-    "toggleEnabled": "切换启用状态"
+    "toggleEnabled": "切换启用状态",
+    "changeCompletionStatus": "更改完成状态"
   },
   "list": {
     "title": "24 小时内",
@@ -30,6 +31,11 @@
   "badges": {
     "nextRun": "下次执行",
     "overdue": "已逾期"
+  },
+  "status": {
+    "pending": "待启动",
+    "inProgress": "完成中",
+    "completed": "$t(shared:statuses.done)"
   },
   "relative": {
     "now": "即将执行",
@@ -61,12 +67,25 @@
   },
   "target": {
     "existingSession": "已有会话",
-    "newSession": "新建 {{agentType}} 会话"
+    "newSession": "新建 {{agentType}} 会话",
+    "manual": "手工处理"
+  },
+  "handling": {
+    "agent": "Agent 处理",
+    "manual": "手工处理"
   },
   "inactive": {
     "disabled": "已暂停",
     "invalid": "计划无效",
     "title": "没有后续执行（{{total}}）"
+  },
+  "tabs": {
+    "label": "任务分类",
+    "today": "今日待完成",
+    "inProgress": "在执行",
+    "pending": "全部待完成",
+    "all": "全部任务",
+    "empty": "该分类下暂无任务"
   },
   "editor": {
     "createTitle": "新建待办",
@@ -74,6 +93,7 @@
     "noWorkspace": "请先打开一个工作区：定时执行需要有运行的位置。",
     "fields": {
       "name": "名称",
+      "handling": "处理方式",
       "agentType": "Agent 类型",
       "scheduleKind": "计划类型",
       "at": "执行时间",
@@ -83,7 +103,11 @@
       "enabled": "启用",
       "prompt": "提示词",
       "runsIn": "运行位置",
-      "every": "间隔"
+      "every": "间隔",
+      "completionStatus": "完成状态",
+      "plannedStartAt": "计划开始时间",
+      "plannedCompletionAt": "计划完成时间",
+      "actualCompletionAt": "实际完成时间"
     },
     "placeholders": {
       "name": "例如：每日站会总结",

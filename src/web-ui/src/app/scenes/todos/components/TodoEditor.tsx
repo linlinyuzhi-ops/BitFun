@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Input, Select, Switch, Textarea } from '@/component-library';
 import { agentAPI, type ModeInfo } from '@/infrastructure/api/service-api/AgentAPI';
+import type { CronJobCompletionStatus, CronJobHandling } from '@/infrastructure/api';
 import { useI18n } from '@/infrastructure/i18n';
 import { WorkspaceKind } from '@/shared/types';
 import { createLogger } from '@/shared/utils/logger';
@@ -176,6 +177,20 @@ const TodoEditor: React.FC<TodoEditorProps> = ({
         </label>
 
         <label className="bf-todos__field" data-bf-scene="todos" data-bf-part="field">
+          <span className="bf-todos__field-label">{t('editor.fields.handling')}</span>
+          <Select
+            size="small"
+            value={draft.handling}
+            options={[
+              { value: 'agent', label: t('handling.agent') },
+              { value: 'manual', label: t('handling.manual') },
+            ]}
+            onChange={(value) => updateDraft({ handling: value as CronJobHandling })}
+            data-testid="todos-editor-handling"
+          />
+        </label>
+
+        <label className="bf-todos__field" data-bf-scene="todos" data-bf-part="field">
           <span className="bf-todos__field-label">{t('shared:features.workspace')}</span>
           <Select
             size="small"
@@ -195,7 +210,7 @@ const TodoEditor: React.FC<TodoEditorProps> = ({
           />
         </label>
 
-        {boundSessionId ? (
+        {draft.handling === 'manual' ? null : boundSessionId ? (
           <div className="bf-todos__field" data-bf-scene="todos" data-bf-part="field">
             <span className="bf-todos__field-label">{t('editor.fields.runsIn')}</span>
             <span className="bf-todos__field-static" title={boundSessionId}>
@@ -337,6 +352,45 @@ const TodoEditor: React.FC<TodoEditorProps> = ({
             </label>
           </>
         ) : null}
+
+        <label className="bf-todos__field" data-bf-scene="todos" data-bf-part="field">
+          <span className="bf-todos__field-label">{t('editor.fields.completionStatus')}</span>
+          <Select
+            size="small"
+            value={draft.completionStatus}
+            options={[
+              { value: 'pending', label: t('status.pending') },
+              { value: 'in_progress', label: t('status.inProgress') },
+              { value: 'completed', label: t('status.completed') },
+            ]}
+            onChange={(value) => updateDraft({ completionStatus: value as CronJobCompletionStatus })}
+            data-testid="todos-editor-completion-status"
+          />
+        </label>
+
+        <label className="bf-todos__field" data-bf-scene="todos" data-bf-part="field">
+          <span className="bf-todos__field-label">{t('editor.fields.plannedStartAt')}</span>
+          <LocalizedDateTimeField
+            value={draft.plannedStartAt}
+            onChange={(plannedStartAt) => updateDraft({ plannedStartAt })}
+          />
+        </label>
+
+        <label className="bf-todos__field" data-bf-scene="todos" data-bf-part="field">
+          <span className="bf-todos__field-label">{t('editor.fields.plannedCompletionAt')}</span>
+          <LocalizedDateTimeField
+            value={draft.plannedCompletionAt}
+            onChange={(plannedCompletionAt) => updateDraft({ plannedCompletionAt })}
+          />
+        </label>
+
+        <label className="bf-todos__field" data-bf-scene="todos" data-bf-part="field">
+          <span className="bf-todos__field-label">{t('editor.fields.actualCompletionAt')}</span>
+          <LocalizedDateTimeField
+            value={draft.actualCompletionAt}
+            onChange={(actualCompletionAt) => updateDraft({ actualCompletionAt })}
+          />
+        </label>
 
         <div
           className="bf-todos__field bf-todos__field--toggle"
