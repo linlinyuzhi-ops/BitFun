@@ -33,7 +33,13 @@ import React, {
 import { CalendarDays } from 'lucide-react';
 import { RetainedMountBoundary } from '@/shared/presence';
 import { confirmDanger } from '@/infrastructure/confirm-dialog';
-import { cronAPI, type CronJob, type CreateCronJobRequest, type UpdateCronJobRequest } from '@/infrastructure/api';
+import {
+  cronAPI,
+  type CronJob,
+  type CronJobCompletionStatus,
+  type CreateCronJobRequest,
+  type UpdateCronJobRequest,
+} from '@/infrastructure/api';
 import { useI18n } from '@/infrastructure/i18n';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
 import { notificationService } from '@/shared/notification-system';
@@ -52,6 +58,7 @@ import {
   hasValidationErrors,
   jobToDraft,
   notifyScheduledJobsChanged,
+  optionalLocalDateTimeInputToMs,
   validateDraft,
   type JobDraft,
   type JobDraftValidationErrors,
@@ -60,11 +67,14 @@ import TodoCalendar from './components/TodoCalendar';
 import TodoEditor from './components/TodoEditor';
 import TodoItemRow from './components/TodoItemRow';
 import {
+  TODO_TAB_ORDER,
   buildTodoBuckets,
+  filterJobsByTab,
   groupOccurrencesByDay,
   monthRangeMs,
   type InactiveReason,
   type TodoOccurrence,
+  type TodoTab,
 } from './todoOccurrences';
 import { buildWorkspaceOptions, formatDateTime } from './todoPresentation';
 import './TodosScene.scss';
@@ -90,6 +100,7 @@ const TodosScene: React.FC = () => {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [monthAnchorMs, setMonthAnchorMs] = useState(() => startOfCurrentMonthMs(Date.now()));
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TodoTab>('today');
 
   const [editorOpen, setEditorOpen] = useState(false);
   // The whole job, not just its id: saving has to preserve the target kind a
@@ -192,6 +203,12 @@ const TodosScene: React.FC = () => {
     [calendarRange.endMs, jobs, nowMs],
   );
 
+  /** Jobs selected by the active filter tab, in the list order the tab defines. */
+  const visibleJobs = useMemo(
+    () => filterJobsByTab(jobs, activeTab, nowMs),
+    [activeTab, jobs, nowMs],
+  );
+
   const selectedDayOccurrences = useMemo(() => {
     if (!selectedDayKey) return [];
     return groupOccurrencesByDay(buckets.calendar).get(selectedDayKey) ?? [];
@@ -266,6 +283,24 @@ const TodosScene: React.FC = () => {
     }
   }, [loadJobs, t]);
 
+  const handleChangeCompletionStatus = useCallback(async (
+    job: CronJob,
+    completionStatus: CronJobCompletionStatus,
+  ) => {
+    try {
+      await cronAPI.updateJob(job.id, { completionStatus });
+      await loadJobs();
+      notifyScheduledJobsChanged(instanceIdRef.current);
+    } catch (error) {
+      log.error('Failed to change Todo completion status', { jobId: job.id, error });
+      notificationService.error(
+        t('messages.updateFailed', {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }, [loadJobs, t]);
+
   const handleDelete = useCallback(async (job: CronJob) => {
     const confirmed = await confirmDanger(t('deleteDialog.title', { name: job.name }), null);
     if (!confirmed) return;
@@ -288,7 +323,10 @@ const TodosScene: React.FC = () => {
   const handleSave = useCallback(async () => {
     // New Todos always launch their own session; an existing job keeps whatever
     // target it was created with, including a binding to a specific session.
-    const targetKind = editingJob?.target.kind ?? 'workspace';
+    // Manual Todos never bind to a session, so they always use a workspace.
+    const targetKind = draft.handling === 'manual'
+      ? 'workspace'
+      : (editingJob?.target.kind ?? 'workspace');
 
     const nextErrors = validateDraft(targetKind, draft);
     setValidationErrors(nextErrors);
@@ -323,6 +361,11 @@ const TodosScene: React.FC = () => {
           enabled: draft.enabled,
           schedule,
           target,
+          completionStatus: draft.completionStatus,
+          handling: draft.handling,
+          plannedStartAtMs: optionalLocalDateTimeInputToMs(draft.plannedStartAt),
+          plannedCompletionAtMs: optionalLocalDateTimeInputToMs(draft.plannedCompletionAt),
+          actualCompletionAtMs: optionalLocalDateTimeInputToMs(draft.actualCompletionAt),
         };
         await cronAPI.updateJob(editingJob.id, request);
       } else {
@@ -332,6 +375,11 @@ const TodosScene: React.FC = () => {
           enabled: draft.enabled,
           schedule,
           target,
+          completionStatus: draft.completionStatus,
+          handling: draft.handling,
+          plannedStartAtMs: optionalLocalDateTimeInputToMs(draft.plannedStartAt),
+          plannedCompletionAtMs: optionalLocalDateTimeInputToMs(draft.plannedCompletionAt),
+          actualCompletionAtMs: optionalLocalDateTimeInputToMs(draft.actualCompletionAt),
         };
         await cronAPI.createJob(request);
       }
@@ -375,6 +423,26 @@ const TodosScene: React.FC = () => {
       left.atMs - right.atMs || left.job.name.localeCompare(right.job.name)
     ));
   }, [buckets.calendar]);
+
+  /**
+   * The filter tabs decide which jobs the left pane shows, so they narrow both
+   * the upcoming rows and the inactive group instead of replacing one with the
+   * other: a job either has a run in this month or it is inactive, never both.
+   */
+  const visibleTodoIds = useMemo(
+    () => new Set(visibleJobs.map((job) => job.id)),
+    [visibleJobs],
+  );
+
+  const tabTodos = useMemo(
+    () => visibleTodos.filter((occurrence) => visibleTodoIds.has(occurrence.job.id)),
+    [visibleTodoIds, visibleTodos],
+  );
+
+  const tabInactive = useMemo(
+    () => buckets.inactive.filter((entry) => visibleTodoIds.has(entry.job.id)),
+    [buckets.inactive, visibleTodoIds],
+  );
 
   const dueSoonTodoCount = useMemo(
     () => new Set(buckets.upcoming.map((occurrence) => occurrence.job.id)).size,
@@ -551,17 +619,41 @@ const TodosScene: React.FC = () => {
 
           <header className="openbitfun-todos__pane-head">
             <h3 className="openbitfun-todos__list-title">
-              {t('list.countTitle', { total: visibleTodos.length })}
+              {t('list.countTitle', { total: tabTodos.length })}
             </h3>
           </header>
 
-          {visibleTodos.length === 0 ? (
+          <div
+            className="openbitfun-todos__tabs"
+            role="tablist"
+            aria-label={t('tabs.label')}
+            data-openbitfun-scene="todos"
+            data-openbitfun-part="tabs"
+          >
+            {TODO_TAB_ORDER.map((tabKey) => (
+              <button
+                key={tabKey}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tabKey}
+                className={[
+                  'openbitfun-todos__tab',
+                  activeTab === tabKey ? 'openbitfun-todos__tab--active' : '',
+                ].filter(Boolean).join(' ')}
+                onClick={() => setActiveTab(tabKey)}
+              >
+                {t(`tabs.${tabKey}`)}
+              </button>
+            ))}
+          </div>
+
+          {tabTodos.length === 0 ? (
             <p className="openbitfun-todos__empty" data-openbitfun-scene="todos" data-openbitfun-part="empty">
-              {t('list.empty')}
+              {t('tabs.empty')}
             </p>
           ) : (
             <div className="openbitfun-todos__rows" data-openbitfun-scene="todos" data-openbitfun-part="rows">
-              {visibleTodos.map((occurrence) => (
+              {tabTodos.map((occurrence) => (
                 <TodoItemRow
                   key={occurrence.job.id}
                   job={occurrence.job}
@@ -575,18 +667,19 @@ const TodosScene: React.FC = () => {
                   onEdit={handleEdit}
                   onDelete={(job) => { void handleDelete(job); }}
                   onToggleEnabled={(job, enabled) => { void handleToggleEnabled(job, enabled); }}
+                  onChangeCompletionStatus={(job, status) => { void handleChangeCompletionStatus(job, status); }}
                 />
               ))}
             </div>
           )}
 
-          {buckets.inactive.length > 0 ? (
+          {tabInactive.length > 0 ? (
             <div className="openbitfun-todos__inactive" data-openbitfun-scene="todos" data-openbitfun-part="inactive">
               <h4 className="openbitfun-todos__inactive-title">
-                {t('inactive.title', { total: buckets.inactive.length })}
+                {t('inactive.title', { total: tabInactive.length })}
               </h4>
               <div className="openbitfun-todos__rows">
-                {buckets.inactive.map((entry) => (
+                {tabInactive.map((entry) => (
                   <TodoItemRow
                     key={entry.job.id}
                     job={entry.job}
@@ -598,6 +691,7 @@ const TodosScene: React.FC = () => {
                     onEdit={handleEdit}
                     onDelete={(job) => { void handleDelete(job); }}
                     onToggleEnabled={(job, enabled) => { void handleToggleEnabled(job, enabled); }}
+                    onChangeCompletionStatus={(job, status) => { void handleChangeCompletionStatus(job, status); }}
                   />
                 ))}
               </div>
@@ -673,6 +767,7 @@ const TodosScene: React.FC = () => {
                         onEdit={handleEdit}
                         onDelete={(job) => { void handleDelete(job); }}
                         onToggleEnabled={(job, enabled) => { void handleToggleEnabled(job, enabled); }}
+                        onChangeCompletionStatus={(job, status) => { void handleChangeCompletionStatus(job, status); }}
                       />
                     ))}
                   </div>

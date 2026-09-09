@@ -210,6 +210,9 @@ function expandCalendarOccurrences(
  */
 function hasCompletedOneShot(job: CronJob): boolean {
   if (job.schedule.kind !== 'at') return false;
+  if (job.handling === 'manual') {
+    return job.completionStatus === 'completed';
+  }
   return (
     job.state.lastEnqueuedAtMs != null
     || job.state.lastRunFinishedAtMs != null
@@ -363,4 +366,73 @@ export function monthRangeMs(monthAnchorMs: number): { startMs: number; endMs: n
     startMs: new Date(first.getFullYear(), first.getMonth(), first.getDate()).getTime(),
     endMs: new Date(last.getFullYear(), last.getMonth(), last.getDate(), 23, 59, 59, 999).getTime(),
   };
+}
+
+/** Left-pane filter categories. */
+export type TodoTab = 'today' | 'inProgress' | 'pending' | 'all';
+
+export const TODO_TAB_ORDER: readonly TodoTab[] = ['today', 'inProgress', 'pending', 'all'];
+
+function startOfLocalDayMs(nowMs: number): number {
+  const date = new Date(nowMs);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function endOfLocalDayMs(nowMs: number): number {
+  const date = new Date(nowMs);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999).getTime();
+}
+
+/**
+ * Whether an unfinished Todo is due today: its planned completion is today or
+ * already overdue, or — when no planned completion is set — it has a run
+ * scheduled for today.
+ */
+export function isDueToday(job: CronJob, nowMs: number): boolean {
+  if (job.completionStatus === 'completed') return false;
+  if (job.plannedCompletionAtMs != null) {
+    return job.plannedCompletionAtMs <= endOfLocalDayMs(nowMs);
+  }
+  const startMs = startOfLocalDayMs(nowMs);
+  const endMs = endOfLocalDayMs(nowMs);
+  try {
+    return scheduleOccurrencesInRange(
+      job.schedule,
+      job.createdAtMs,
+      startMs - 1,
+      endMs,
+      1,
+    ).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function sortJobsForList(jobs: CronJob[]): CronJob[] {
+  return [...jobs].sort((a, b) => {
+    const aMs = getNextExecutionAtMs(a) ?? a.plannedCompletionAtMs ?? Number.MAX_SAFE_INTEGER;
+    const bMs = getNextExecutionAtMs(b) ?? b.plannedCompletionAtMs ?? Number.MAX_SAFE_INTEGER;
+    if (aMs !== bMs) return aMs - bMs;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/** Filters the full job list for a left-pane tab and returns it in display order. */
+export function filterJobsByTab(jobs: CronJob[], tab: TodoTab, nowMs: number): CronJob[] {
+  let filtered: CronJob[];
+  switch (tab) {
+    case 'today':
+      filtered = jobs.filter((job) => isDueToday(job, nowMs));
+      break;
+    case 'inProgress':
+      filtered = jobs.filter((job) => job.completionStatus === 'in_progress');
+      break;
+    case 'pending':
+      filtered = jobs.filter((job) => job.completionStatus !== 'completed');
+      break;
+    case 'all':
+      filtered = jobs;
+      break;
+  }
+  return sortJobsForList(filtered);
 }
