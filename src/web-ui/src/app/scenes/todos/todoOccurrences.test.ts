@@ -13,7 +13,9 @@ import {
   MAX_LIST_OCCURRENCES_PER_JOB,
   buildMonthGrid,
   buildTodoBuckets,
+  filterJobsByTab,
   groupOccurrencesByDay,
+  isDueToday,
   localDayKey,
   scheduleOccurrencesInRange,
 } from './todoOccurrences';
@@ -40,6 +42,8 @@ function makeJob(overrides: Partial<CronJob> & { schedule: CronSchedule }): Cron
     createdAtMs: 0,
     configUpdatedAtMs: 0,
     updatedAtMs: 0,
+    completionStatus: 'pending',
+    handling: 'agent',
     ...overrides,
     state,
   };
@@ -474,5 +478,91 @@ describe('calendar helpers', () => {
 
     expect(byDay.get('2026-08-13')).toHaveLength(2);
     expect(byDay.get('2026-08-14')).toHaveLength(1);
+  });
+});
+
+describe('isDueToday', () => {
+  const nowMs = localMs(2026, 8, 12, 10, 0);
+
+  it('is due when the planned completion is today', () => {
+    const job = makeJob({
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      plannedCompletionAtMs: localMs(2026, 8, 12, 18, 0),
+    });
+    expect(isDueToday(job, nowMs)).toBe(true);
+  });
+
+  it('is due when the planned completion is already overdue', () => {
+    const job = makeJob({
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      plannedCompletionAtMs: localMs(2026, 8, 11, 18, 0),
+    });
+    expect(isDueToday(job, nowMs)).toBe(true);
+  });
+
+  it('is not due when the planned completion is later', () => {
+    const job = makeJob({
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      plannedCompletionAtMs: localMs(2026, 8, 13, 18, 0),
+    });
+    expect(isDueToday(job, nowMs)).toBe(false);
+  });
+
+  it('falls back to a run scheduled today when no planned completion is set', () => {
+    const job = makeJob({
+      schedule: { kind: 'at', at: new Date(localMs(2026, 8, 12, 15, 0)).toISOString() },
+    });
+    expect(isDueToday(job, nowMs)).toBe(true);
+  });
+
+  it('is not due when the only run is tomorrow', () => {
+    const job = makeJob({
+      schedule: { kind: 'at', at: new Date(localMs(2026, 8, 13, 9, 0)).toISOString() },
+    });
+    expect(isDueToday(job, nowMs)).toBe(false);
+  });
+
+  it('is never due once completed', () => {
+    const job = makeJob({
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      completionStatus: 'completed',
+      plannedCompletionAtMs: localMs(2026, 8, 12, 18, 0),
+    });
+    expect(isDueToday(job, nowMs)).toBe(false);
+  });
+});
+
+describe('filterJobsByTab', () => {
+  const nowMs = localMs(2026, 8, 12, 10, 0);
+
+  const pending = makeJob({
+    id: 'pending',
+    schedule: { kind: 'cron', expr: '0 9 * * *' },
+    completionStatus: 'pending',
+  });
+  const inProgress = makeJob({
+    id: 'in_progress',
+    schedule: { kind: 'cron', expr: '0 9 * * *' },
+    completionStatus: 'in_progress',
+  });
+  const completed = makeJob({
+    id: 'completed',
+    schedule: { kind: 'at', at: new Date(localMs(2026, 8, 11, 9, 0)).toISOString() },
+    completionStatus: 'completed',
+  });
+
+  it('returns only in-progress jobs', () => {
+    const result = filterJobsByTab([pending, inProgress, completed], 'inProgress', nowMs);
+    expect(result.map((job) => job.id)).toEqual(['in_progress']);
+  });
+
+  it('returns every open job for the pending tab', () => {
+    const result = filterJobsByTab([pending, inProgress, completed], 'pending', nowMs);
+    expect(result.map((job) => job.id).sort()).toEqual(['in_progress', 'pending']);
+  });
+
+  it('returns every job for the all tab', () => {
+    const result = filterJobsByTab([pending, inProgress, completed], 'all', nowMs);
+    expect(result).toHaveLength(3);
   });
 });

@@ -21,7 +21,7 @@ import React, {
 } from 'react';
 import { CalendarClock, Plus, RefreshCw } from 'lucide-react';
 import { Button, IconButton, PresenceBoundary, confirmDanger } from '@/component-library';
-import { cronAPI, type CronJob, type CreateCronJobRequest, type UpdateCronJobRequest } from '@/infrastructure/api';
+import { cronAPI, type CronJob, type CronJobCompletionStatus, type CreateCronJobRequest, type UpdateCronJobRequest } from '@/infrastructure/api';
 import { useI18n } from '@/infrastructure/i18n';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
 import { notificationService } from '@/shared/notification-system';
@@ -37,9 +37,11 @@ import {
   buildTargetFromDraft,
   buildWorkspaceRef,
   createEmptyDraft,
+  getNextExecutionAtMs,
   hasValidationErrors,
   jobToDraft,
   notifyScheduledJobsChanged,
+  optionalLocalDateTimeInputToMs,
   validateDraft,
   type JobDraft,
   type JobDraftValidationErrors,
@@ -48,10 +50,14 @@ import TodoCalendar from './components/TodoCalendar';
 import TodoEditor from './components/TodoEditor';
 import TodoItemRow from './components/TodoItemRow';
 import {
+  TODO_TAB_ORDER,
   buildTodoBuckets,
+  filterJobsByTab,
   groupOccurrencesByDay,
+  isJobRunning,
   monthRangeMs,
   type InactiveReason,
+  type TodoTab,
 } from './todoOccurrences';
 import { buildWorkspaceOptions, formatDateTime } from './todoPresentation';
 import './TodosScene.scss';
@@ -78,6 +84,7 @@ const TodosScene: React.FC = () => {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [monthAnchorMs, setMonthAnchorMs] = useState(() => startOfCurrentMonthMs(Date.now()));
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TodoTab>('today');
 
   const [editorOpen, setEditorOpen] = useState(false);
   // The whole job, not just its id: saving has to preserve the target kind a
@@ -183,6 +190,19 @@ const TodosScene: React.FC = () => {
     [calendarRange.endMs, jobs, nowMs],
   );
 
+  const visibleJobs = useMemo(
+    () => filterJobsByTab(jobs, activeTab, nowMs),
+    [activeTab, jobs, nowMs],
+  );
+
+  const inactiveReasonByJobId = useMemo(() => {
+    const map = new Map<string, InactiveReason>();
+    for (const entry of buckets.inactive) {
+      map.set(entry.job.id, entry.reason);
+    }
+    return map;
+  }, [buckets.inactive]);
+
   const selectedDayOccurrences = useMemo(() => {
     if (!selectedDayKey) return [];
     return groupOccurrencesByDay(buckets.calendar).get(selectedDayKey) ?? [];
@@ -252,6 +272,24 @@ const TodosScene: React.FC = () => {
     }
   }, [loadJobs, t]);
 
+  const handleChangeCompletionStatus = useCallback(async (
+    job: CronJob,
+    completionStatus: CronJobCompletionStatus,
+  ) => {
+    try {
+      await cronAPI.updateJob(job.id, { completionStatus });
+      await loadJobs();
+      notifyScheduledJobsChanged(instanceIdRef.current);
+    } catch (error) {
+      log.error('Failed to change Todo completion status', { jobId: job.id, error });
+      notificationService.error(
+        t('messages.updateFailed', {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }, [loadJobs, t]);
+
   const handleDelete = useCallback(async (job: CronJob) => {
     const confirmed = await confirmDanger(t('deleteDialog.title', { name: job.name }), null);
     if (!confirmed) return;
@@ -274,7 +312,10 @@ const TodosScene: React.FC = () => {
   const handleSave = useCallback(async () => {
     // New Todos always launch their own session; an existing job keeps whatever
     // target it was created with, including a binding to a specific session.
-    const targetKind = editingJob?.target.kind ?? 'workspace';
+    // Manual Todos never bind to a session, so they always use a workspace.
+    const targetKind = draft.handling === 'manual'
+      ? 'workspace'
+      : (editingJob?.target.kind ?? 'workspace');
 
     const nextErrors = validateDraft(targetKind, draft);
     setValidationErrors(nextErrors);
@@ -309,6 +350,11 @@ const TodosScene: React.FC = () => {
           enabled: draft.enabled,
           schedule,
           target,
+          completionStatus: draft.completionStatus,
+          handling: draft.handling,
+          plannedStartAtMs: optionalLocalDateTimeInputToMs(draft.plannedStartAt),
+          plannedCompletionAtMs: optionalLocalDateTimeInputToMs(draft.plannedCompletionAt),
+          actualCompletionAtMs: optionalLocalDateTimeInputToMs(draft.actualCompletionAt),
         };
         await cronAPI.updateJob(editingJob.id, request);
       } else {
@@ -318,6 +364,11 @@ const TodosScene: React.FC = () => {
           enabled: draft.enabled,
           schedule,
           target,
+          completionStatus: draft.completionStatus,
+          handling: draft.handling,
+          plannedStartAtMs: optionalLocalDateTimeInputToMs(draft.plannedStartAt),
+          plannedCompletionAtMs: optionalLocalDateTimeInputToMs(draft.plannedCompletionAt),
+          actualCompletionAtMs: optionalLocalDateTimeInputToMs(draft.actualCompletionAt),
         };
         await cronAPI.createJob(request);
       }
@@ -437,54 +488,61 @@ const TodosScene: React.FC = () => {
             <p className="bf-todos__pane-hint">{t('list.hint')}</p>
           </header>
 
-          {buckets.upcoming.length === 0 ? (
+          <div
+            className="bf-todos__tabs"
+            role="tablist"
+            aria-label={t('tabs.label')}
+            data-bf-scene="todos"
+            data-bf-part="tabs"
+          >
+            {TODO_TAB_ORDER.map((tabKey) => (
+              <button
+                key={tabKey}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tabKey}
+                className={[
+                  'bf-todos__tab',
+                  activeTab === tabKey ? 'bf-todos__tab--active' : '',
+                ].filter(Boolean).join(' ')}
+                onClick={() => setActiveTab(tabKey)}
+              >
+                {t(`tabs.${tabKey}`)}
+              </button>
+            ))}
+          </div>
+
+          {visibleJobs.length === 0 ? (
             <p className="bf-todos__empty" data-bf-scene="todos" data-bf-part="empty">
-              {t('list.empty')}
+              {t('tabs.empty')}
             </p>
           ) : (
             <div className="bf-todos__rows" data-bf-scene="todos" data-bf-part="rows">
-              {buckets.upcoming.map((occurrence) => (
-                <TodoItemRow
-                  key={`${occurrence.job.id}-${occurrence.atMs}`}
-                  job={occurrence.job}
-                  atMs={occurrence.atMs}
-                  isOverdue={occurrence.isOverdue}
-                  isNextRun={occurrence.isNextRun}
-                  isRunning={occurrence.isRunning}
-                  nowMs={nowMs}
-                  workspaces={openedWorkspacesList}
-                  isSelected={editingJob?.id === occurrence.job.id}
-                  onEdit={handleEdit}
-                  onDelete={(job) => { void handleDelete(job); }}
-                  onToggleEnabled={(job, enabled) => { void handleToggleEnabled(job, enabled); }}
-                />
-              ))}
-            </div>
-          )}
-
-          {buckets.inactive.length > 0 ? (
-            <div className="bf-todos__inactive" data-bf-scene="todos" data-bf-part="inactive">
-              <h4 className="bf-todos__inactive-title">
-                {t('inactive.title', { total: buckets.inactive.length })}
-              </h4>
-              <div className="bf-todos__rows">
-                {buckets.inactive.map((entry) => (
+              {visibleJobs.map((job) => {
+                const nextAtMs = getNextExecutionAtMs(job);
+                const running = isJobRunning(job);
+                const reason = inactiveReasonByJobId.get(job.id);
+                return (
                   <TodoItemRow
-                    key={entry.job.id}
-                    job={entry.job}
-                    atMs={null}
+                    key={job.id}
+                    job={job}
+                    atMs={nextAtMs}
+                    isOverdue={nextAtMs != null && nextAtMs < nowMs && !running}
+                    isNextRun={nextAtMs != null}
+                    isRunning={running}
                     nowMs={nowMs}
                     workspaces={openedWorkspacesList}
-                    statusLabel={inactiveStatusLabel(entry.reason)}
-                    isSelected={editingJob?.id === entry.job.id}
+                    statusLabel={reason ? inactiveStatusLabel(reason) : undefined}
+                    isSelected={editingJob?.id === job.id}
                     onEdit={handleEdit}
                     onDelete={(job) => { void handleDelete(job); }}
                     onToggleEnabled={(job, enabled) => { void handleToggleEnabled(job, enabled); }}
+                    onChangeCompletionStatus={(job, status) => { void handleChangeCompletionStatus(job, status); }}
                   />
-                ))}
-              </div>
+                );
+              })}
             </div>
-          ) : null}
+          )}
         </section>
 
         {/* ── Tier 2: more than 24 hours out ────────────────── */}
@@ -550,6 +608,7 @@ const TodosScene: React.FC = () => {
                         onEdit={handleEdit}
                         onDelete={(job) => { void handleDelete(job); }}
                         onToggleEnabled={(job, enabled) => { void handleToggleEnabled(job, enabled); }}
+                        onChangeCompletionStatus={(job, status) => { void handleChangeCompletionStatus(job, status); }}
                       />
                     ))}
                   </div>

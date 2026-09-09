@@ -1143,6 +1143,11 @@ Patch schema for "update":
                             session_id: session_id.clone(),
                             workspace: workspace_ref,
                         },
+                        completion_status: Default::default(),
+                        handling: Default::default(),
+                        planned_start_at_ms: None,
+                        planned_completion_at_ms: None,
+                        actual_completion_at_ms: None,
                     })
                     .await?;
                 let serialized_job = Self::serialize_job(&created)?;
@@ -1193,6 +1198,11 @@ Patch schema for "update":
                             payload: patch.payload.map(Self::into_service_payload),
                             enabled: patch.enabled,
                             target: None,
+                            completion_status: None,
+                            handling: None,
+                            planned_start_at_ms: None,
+                            planned_completion_at_ms: None,
+                            actual_completion_at_ms: None,
                         },
                     )
                     .await?;
@@ -1454,6 +1464,12 @@ mod tests {
             config_updated_at_ms: 0,
             updated_at_ms: 0,
             state: Default::default(),
+            completion_status: Default::default(),
+            handling: Default::default(),
+            manual_due_at_ms: None,
+            planned_start_at_ms: None,
+            planned_completion_at_ms: None,
+            actual_completion_at_ms: None,
         }
     }
 

@@ -117,6 +117,50 @@ $todos-stack-breakpoint: 1080px;
     color: var(--bf-appearance-token-color-text-muted);
   }
 
+  // ── Left-pane filter tabs ─────────────────────────────────────────────────
+
+  &__tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $size-gap-1;
+    flex: 0 0 auto;
+    padding: 2px;
+    border-radius: $size-radius-lg;
+    background: var(--bf-appearance-token-element-bg-soft);
+  }
+
+  &__tab {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 4px 10px;
+    border: none;
+    border-radius: $size-radius-base;
+    background: transparent;
+    font-size: var(--bf-appearance-token-font-size-xs);
+    font-weight: $font-weight-medium;
+    color: var(--bf-appearance-token-color-text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+      background $motion-fast $easing-standard,
+      color $motion-fast $easing-standard;
+
+    &:hover {
+      color: var(--bf-appearance-token-color-text-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--bf-appearance-token-color-accent-500);
+      outline-offset: 1px;
+    }
+
+    &--active {
+      background: var(--bf-appearance-token-element-bg-base);
+      color: var(--bf-appearance-token-color-accent-500);
+      box-shadow: var(--bf-appearance-token-shadow-xs);
+    }
+  }
+
   &__empty {
     margin: 0;
     padding: $size-gap-6 $size-gap-4;
@@ -271,6 +315,11 @@ $todos-stack-breakpoint: 1080px;
     display: flex;
     align-items: center;
     gap: $size-gap-2;
+    flex: 0 0 auto;
+  }
+
+  &__status-select {
+    width: 104px;
     flex: 0 0 auto;
   }
 

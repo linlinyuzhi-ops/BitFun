@@ -192,6 +192,12 @@ fn migrate_legacy_job(legacy: LegacyCronJobV1) -> CronJob {
         config_updated_at_ms: legacy.config_updated_at_ms,
         updated_at_ms: legacy.updated_at_ms,
         state: legacy.state,
+        completion_status: Default::default(),
+        handling: Default::default(),
+        manual_due_at_ms: None,
+        planned_start_at_ms: None,
+        planned_completion_at_ms: None,
+        actual_completion_at_ms: None,
     }
 }
 

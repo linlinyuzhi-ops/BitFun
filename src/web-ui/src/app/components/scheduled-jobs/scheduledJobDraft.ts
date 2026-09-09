@@ -8,6 +8,8 @@
 
 import type {
   CronJob,
+  CronJobCompletionStatus,
+  CronJobHandling,
   CronJobTarget,
   CronJobTargetKind,
   CronSchedule,
@@ -57,6 +59,8 @@ export interface JobDraft {
   name: string;
   text: string;
   enabled: boolean;
+  completionStatus: CronJobCompletionStatus;
+  handling: CronJobHandling;
   sessionId: string;
   agentType: string;
   scheduleKind: ScheduleKind;
@@ -67,6 +71,9 @@ export interface JobDraft {
   anchorMs: string;
   expr: string;
   tz: string;
+  plannedStartAt: string;
+  plannedCompletionAt: string;
+  actualCompletionAt: string;
 }
 
 export interface JobDraftValidationErrors {
@@ -110,6 +117,14 @@ export function isFutureLocalDateTimeInput(value: string, nowMs = Date.now()): b
   return Number.isFinite(timestampMs) && timestampMs > nowMs;
 }
 
+/** Converts an optional local datetime input to epoch ms, or `null` when empty/invalid. */
+export function optionalLocalDateTimeInputToMs(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const timestampMs = new Date(trimmed).getTime();
+  return Number.isFinite(timestampMs) ? timestampMs : null;
+}
+
 /** Trims a possibly fractional interval value to a short display string. */
 export function formatIntervalValue(value: number): string {
   if (Number.isInteger(value)) return String(value);
@@ -124,6 +139,8 @@ export function createEmptyDraft(
     name: '',
     text: '',
     enabled: true,
+    completionStatus: 'pending',
+    handling: 'agent',
     sessionId: defaultSessionId,
     agentType: defaultAgentType,
     scheduleKind: 'at',
@@ -133,6 +150,9 @@ export function createEmptyDraft(
     anchorMs: '',
     expr: '0 8 * * *',
     tz: '',
+    plannedStartAt: '',
+    plannedCompletionAt: '',
+    actualCompletionAt: '',
   };
 }
 
@@ -143,6 +163,8 @@ export function jobToDraft(job: CronJob, defaultAgentType: string): JobDraft {
     name: job.name,
     text: job.payload.text,
     enabled: job.enabled,
+    completionStatus: job.completionStatus,
+    handling: job.handling,
   };
   if (job.target.kind === 'session') {
     draft.sessionId = job.target.sessionId;
@@ -165,6 +187,15 @@ export function jobToDraft(job: CronJob, defaultAgentType: string): JobDraft {
     draft.expr = job.schedule.expr;
     draft.tz = job.schedule.tz ?? '';
   }
+  draft.plannedStartAt = job.plannedStartAtMs != null
+    ? timestampMsToLocalDateTimeInput(job.plannedStartAtMs)
+    : '';
+  draft.plannedCompletionAt = job.plannedCompletionAtMs != null
+    ? timestampMsToLocalDateTimeInput(job.plannedCompletionAtMs)
+    : '';
+  draft.actualCompletionAt = job.actualCompletionAtMs != null
+    ? timestampMsToLocalDateTimeInput(job.actualCompletionAtMs)
+    : '';
   return draft;
 }
 
@@ -233,7 +264,7 @@ export function validateDraft(
   return {
     name: !draft.name.trim(),
     sessionId: targetKind === 'session' && !draft.sessionId.trim(),
-    agentType: targetKind === 'workspace' && !draft.agentType.trim(),
+    agentType: targetKind === 'workspace' && draft.handling !== 'manual' && !draft.agentType.trim(),
     text: !draft.text.trim(),
     at: draft.scheduleKind === 'at' && !draft.at.trim(),
     everyValue:
@@ -257,6 +288,9 @@ export function hasValidationErrors(errors: JobDraftValidationErrors): boolean {
 
 /** Timestamp the scheduler will actually act on next, or null when nothing is pending. */
 export function getNextExecutionAtMs(job: CronJob): number | null {
+  if (job.handling === 'manual') {
+    return job.manualDueAtMs ?? job.state.nextRunAtMs ?? null;
+  }
   return job.state.pendingTriggerAtMs ?? job.state.retryAtMs ?? job.state.nextRunAtMs ?? null;
 }
 
