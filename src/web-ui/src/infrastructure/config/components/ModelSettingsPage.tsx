@@ -26,7 +26,7 @@ import { OverflowText,
 } from '@openbitfun/ui';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Wifi, Loader, AlertTriangle, EyeOff, FolderOpen } from 'lucide-react';
+import { Wifi, Loader, AlertTriangle, EyeOff, FolderOpen, Copy } from 'lucide-react';
 import {
   AIModelConfig as AIModelConfigType, 
   ProxyConfig, 
@@ -1945,6 +1945,25 @@ const ModelSettingsPage: React.FC = () => {
     }
   };
 
+  const handleCopy = async (config: AIModelConfigType) => {
+    if (!config.id) return;
+    try {
+      const cloneName = t('messages.cloneName', { name: config.name });
+      const newConfig = {
+        ...config,
+        id: allocateModelConfigId(`${config.id}-copy`, aiModels.filter(m => m.id).map(m => m.id!)),
+        name: cloneName,
+      };
+      const updatedModels = [...aiModels, newConfig];
+      await configManager.setConfig('ai.models', updatedModels);
+      setAiModels(updatedModels);
+      notification.success(t('messages.copySuccess'));
+    } catch (error) {
+      log.error('Failed to copy config', { configId: config.id, error });
+      notification.error(t('messages.copyFailed'));
+    }
+  };
+
   const toggleExpanded = (id: string) => {
     setExpandedIds(prev => {
       const next = new Set(prev);
@@ -3364,6 +3383,14 @@ const ModelSettingsPage: React.FC = () => {
               size="sm"
               onClick={() => handleEdit(config)}
               icon={<Icon name="edit" size="sm" />}
+            />
+          </Tooltip>
+          <Tooltip content={t('actions.copy')}>
+            <IconButton
+              aria-label={t('actions.copy')}
+              size="sm"
+              onClick={() => void handleCopy(config)}
+              icon={<Copy size={14} />}
             />
           </Tooltip>
           <Tooltip content={t('actions.delete')}>
