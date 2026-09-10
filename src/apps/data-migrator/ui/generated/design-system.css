@@ -770,6 +770,9 @@
     --openbitfun-color-identity-harness-minimal: #b434ef;
     --openbitfun-color-identity-harness-standard: #1aa73e;
     --openbitfun-color-identity-harness-ultimate: #ff8c00;
+    --openbitfun-color-identity-user-content: #1c1c1f;
+    --openbitfun-color-identity-user-surface: rgba(149, 236, 105, 1);
+    --openbitfun-color-identity-user-surface-hover: rgba(134, 213, 94, 1);
     --openbitfun-color-key-hint-background: rgba(0, 0, 0, 0.08);
     --openbitfun-color-key-hint-content: rgba(0, 0, 0, 0.60);
     --openbitfun-color-link-default: #2563eb;
@@ -922,6 +925,9 @@
     --openbitfun-color-identity-harness-minimal: #b434ef;
     --openbitfun-color-identity-harness-standard: #1aa73e;
     --openbitfun-color-identity-harness-ultimate: #ff8c00;
+    --openbitfun-color-identity-user-content: #ffffff;
+    --openbitfun-color-identity-user-surface: #247344;
+    --openbitfun-color-identity-user-surface-hover: color-mix(in srgb, #247344 88%, #ffffff);
     --openbitfun-color-key-hint-background: rgba(255, 255, 255, 0.1);
     --openbitfun-color-key-hint-content: #858585;
     --openbitfun-color-link-default: #60a5fa;

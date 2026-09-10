@@ -121,6 +121,12 @@
         "surface": { "$type": "color", "$value": "color-mix(in srgb, {color.identity.assistant.content} 9%, transparent)" },
         "border": { "$type": "color", "$value": "color-mix(in srgb, {color.identity.assistant.content} 15%, transparent)" }
       },
+      "user": {
+        "$description": "Own-message bubble identity: the fill steps down to the deep reference green so the light label keeps its contrast, and hover only lifts it slightly.",
+        "surface": { "$type": "color", "$value": "{ref.color.green.700}" },
+        "surfaceHover": { "$type": "color", "$value": "color-mix(in srgb, {color.identity.user.surface} 88%, {ref.color.neutral.0})" },
+        "content": { "$type": "color", "$value": "{ref.color.neutral.0}" }
+      },
       "globalSearch": {
         "$description": "Stable wayfinding identities for the six primary Global Search actions; these colors do not imply status.",
         "newSession": { "$type": "color", "$value": "{ref.color.red.650}" },

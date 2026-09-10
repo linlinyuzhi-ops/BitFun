@@ -18,16 +18,18 @@
 .user-message-item {
   box-sizing: border-box;
   /*
-   * Fills the reading column instead of hugging its text: the bubble shares the
-   * exact leading and trailing edge as the tool-call bars and body text below
-   * it, so a turn reads as one column rather than a right-floating chat bubble.
+   * WeChat-style own-message bubble: hugs its text, caps at a share of the
+   * reading column, and sits flush against the right edge of the column. The
+   * meta row below repeats the same right alignment so a turn still reads as
+   * one right-hugging block instead of a bubble with a full-width footer.
    */
-  width: auto;
+  width: fit-content;
+  max-width: min(72%, 34rem);
   padding: 0.46rem 0.68rem;
-  background: var(--openbitfun-color-action-quiet-hover);
+  background: var(--openbitfun-color-identity-user-surface);
   border: 1px solid color-mix(in srgb, var(--openbitfun-color-border-default) 72%, transparent);
   border-radius: calc(var(--openbitfun-control-flow-chat-card-radius) + 2px);
-  margin: 0;
+  margin: 0 0 0 auto;
   box-shadow: none;
   transition: opacity 140ms ease;
   /*
@@ -38,7 +40,7 @@
   position: relative;
 
   &:hover {
-    background: var(--openbitfun-color-action-quiet-hover);
+    background: var(--openbitfun-color-identity-user-surface-hover);
     border-color: color-mix(in srgb, var(--openbitfun-color-border-subtle) 56%, transparent);
   }
 
@@ -73,6 +75,9 @@
   box-sizing: border-box;
   padding: var(--openbitfun-space-1) 0 0;
   pointer-events: auto;
+  /* Follow the right-hugging bubble instead of spanning the whole column. */
+  width: fit-content;
+  margin-left: auto;
 }
 
 .user-message-item__main {
@@ -126,7 +131,7 @@
   font-size: var(--openbitfun-type-flow-control-font-size);
   font-weight: var(--openbitfun-type-flow-control-font-weight);
   line-height: var(--openbitfun-type-flow-body-line-height);
-  color: var(--openbitfun-color-content-primary);
+  color: var(--openbitfun-color-identity-user-content);
   white-space: pre-wrap;
   display: -webkit-box;
   -webkit-line-clamp: 3;
