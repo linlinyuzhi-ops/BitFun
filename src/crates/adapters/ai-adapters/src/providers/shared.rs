@@ -57,8 +57,10 @@ pub(crate) fn prepare_request_context(
     client: &AIClient,
     context: Option<crate::types::ModelRequestContext>,
 ) -> Option<crate::types::ModelRequestContext> {
-    if client.subscription_provider_key() != Some("opencode")
-        || !is_https_endpoint(&client.config.request_url, "opencode.ai", "/zen")
+    if !is_https_endpoint(&client.config.request_url, "opencode.ai", "/zen")
+        || client
+            .subscription_provider_key()
+            .is_some_and(|key| key != "opencode")
         || context
             .as_ref()
             .and_then(|context| context.prompt_cache_route_key.as_deref())
@@ -108,9 +110,13 @@ pub(crate) fn apply_affinity_headers(
         && is_https_endpoint(url, "chatgpt.com", "/backend-api/codex")
     {
         &["session_id", "x-client-request-id"]
-    } else if client.subscription_provider_key() == Some("opencode")
-        && is_https_endpoint(url, "opencode.ai", "/zen")
+    } else if is_https_endpoint(url, "opencode.ai", "/zen")
+        && client
+            .subscription_provider_key()
+            .map_or(true, |key| key == "opencode")
     {
+        // OpenCode requires the affinity header on its Zen/Go origins for both
+        // subscription and API-key clients; the origin alone selects it.
         &["x-opencode-session"]
     } else if client.subscription_provider_key() == Some("grok")
         && is_https_endpoint(url, "api.x.ai", "/v1/responses")
@@ -583,12 +589,9 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_api_requests_keep_headers_and_context_even_at_subscription_origins() {
+    fn ordinary_api_requests_keep_headers_and_context_at_non_opencode_subscription_origins() {
         use crate::types::ModelRequestContext;
         for url in [
-            "https://opencode.ai/zen/v1/chat/completions",
-            "https://opencode.ai/zen/go/v1/responses",
-            "https://opencode.ai/zen/go/v1/messages",
             "https://chatgpt.com/backend-api/codex/responses",
             "https://api.x.ai/v1/responses",
             "https://inference-api.nousresearch.com/v1/chat/completions",
@@ -638,6 +641,46 @@ mod tests {
                 .unwrap();
                 assert!(empty.headers().is_empty(), "{url}");
             }
+        }
+    }
+
+    #[test]
+    fn opencode_origins_require_affinity_even_for_api_key_clients() {
+        for url in [
+            "https://opencode.ai/zen/v1/chat/completions",
+            "https://opencode.ai/zen/v1/messages",
+            "https://opencode.ai/zen/v1/responses",
+            "https://opencode.ai/zen/go/v1/chat/completions",
+            "https://opencode.ai/zen/go/v1/responses",
+            "https://opencode.ai/zen/go/v1/messages",
+        ] {
+            let mut client = request_client(url);
+            client.config.custom_headers = Some(std::collections::HashMap::from([(
+                "x-opencode-session".into(),
+                "user-managed".into(),
+            )]));
+            let call = super::prepare_request_context(&client, None).unwrap();
+            let key = call.prompt_cache_route_key.as_ref().unwrap();
+            let request = super::apply_affinity_headers(
+                &client,
+                super::apply_header_policy(&client, client.client.post(url), |builder| {
+                    builder.bearer_auth("synthetic")
+                }),
+                url,
+                Some(&call),
+            )
+            .build()
+            .unwrap();
+            assert_eq!(request.headers()["x-opencode-session"], key.as_str());
+            assert_eq!(
+                request
+                    .headers()
+                    .get_all("x-opencode-session")
+                    .iter()
+                    .count(),
+                1,
+                "{url}"
+            );
         }
     }
 
