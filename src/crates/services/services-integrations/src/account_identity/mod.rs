@@ -103,6 +103,7 @@ impl AccountIdentityClient {
         }
         let client = crate::reqwest_client_builder()
             .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
             .connect_timeout(std::time::Duration::from_secs(3))
             .timeout(std::time::Duration::from_secs(5))
             .build()
@@ -159,6 +160,7 @@ impl AccountIdentityClient {
         let client = crate::reqwest_client_builder()
             .user_agent(format!("OpenBitFun/{}", env!("CARGO_PKG_VERSION")))
             .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
             .build()
             .map_err(|error| local_error("market_client_init_failed", error.to_string()))?;
         let credentials = load_market_credentials()

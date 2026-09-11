@@ -17,7 +17,7 @@
 ))]
 pub(crate) fn reqwest_client_builder() -> reqwest::ClientBuilder {
     openbitfun_services_core::tls_provider::ensure_ring_crypto_provider();
-    reqwest::Client::builder()
+    reqwest::Client::builder().no_proxy()
 }
 
 #[cfg(any(
@@ -28,7 +28,7 @@ pub(crate) fn reqwest_client_builder() -> reqwest::ClientBuilder {
 ))]
 pub(crate) fn reqwest_client() -> reqwest::Client {
     openbitfun_services_core::tls_provider::ensure_ring_crypto_provider();
-    reqwest::Client::new()
+    reqwest::Client::builder().no_proxy().build().unwrap()
 }
 
 #[cfg(feature = "announcement")]
