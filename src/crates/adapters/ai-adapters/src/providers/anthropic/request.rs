@@ -41,7 +41,16 @@ fn wants_bearer_auth(url: &str) -> bool {
             && url.host_str() == Some("inference-api.nousresearch.com")
             && url.port_or_known_default() == Some(443)
     });
+    // OpenCode subscription OAuth tokens are accepted only as an Authorization
+    // bearer on the Zen/Go Messages wire, never as an Anthropic API key.
+    let opencode_zen = reqwest::Url::parse(url).ok().is_some_and(|url| {
+        url.scheme() == "https"
+            && url.host_str() == Some("opencode.ai")
+            && url.port_or_known_default() == Some(443)
+            && url.path().starts_with("/zen/")
+    });
     nous_portal
+        || opencode_zen
         || url.contains("bigmodel.cn")
         || url.contains("api.z.ai")
         || url.contains("api.kimi.com/coding")
@@ -568,6 +577,9 @@ mod tests {
             "https://api.kimi.com/coding/v1/messages",
             "https://api.moonshot.cn/anthropic/v1/messages",
             "https://api.moonshot.ai/anthropic/v1/messages",
+            "https://opencode.ai/zen/v1/messages",
+            "https://opencode.ai/zen/go/v1/messages",
+            "https://opencode.ai/zen/v1/models",
         ] {
             assert!(
                 wants_bearer_auth(url),
@@ -585,6 +597,9 @@ mod tests {
             "https://api.minimax.io/anthropic/v1/messages",
             "https://api.siliconflow.cn/v1/messages",
             "https://api.anthropic.com/v1/messages",
+            "https://opencode.ai.evil.test/zen/v1/messages",
+            "http://opencode.ai/zen/v1/messages",
+            "https://opencode.ai/console",
         ] {
             assert!(
                 !wants_bearer_auth(url),
