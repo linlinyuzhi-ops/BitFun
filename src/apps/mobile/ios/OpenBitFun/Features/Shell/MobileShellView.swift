@@ -269,7 +269,8 @@ struct MobileShellView: View {
         }
         .openBitFunAdaptiveModal(
             isPresented: $model.accountSheetOpen,
-            placement: settingsPlacement
+            placement: settingsPlacement,
+            fitContent: model.accountUser == nil && model.accountFailureStage != "DEVICE_LIST"
         ) {
             AccountSettingsView(model: model)
         }
@@ -342,7 +343,12 @@ struct MobileShellView: View {
                 RemoteConnectedHomeView(model: model)
                 ComposerBar(model: model)
             } else {
-                ChatTimelineView(model: model)
+                ZStack {
+                    ChatTimelineView(model: model)
+                    if model.surface == .remote && model.remoteConversationLoading {
+                        ConversationLoadingState()
+                    }
+                }
                 ComposerBar(model: model)
             }
         }

@@ -328,7 +328,7 @@ test("default modes preserve the built-in Appearance anchor values", () => {
   assert.equal(themes.light["color.identity.globalSearch.openFiles"], "#9e54ff");
   assert.equal(themes.light["color.status.warning.surface"], "rgba(255, 140, 0, 0.1)");
   assert.equal(themes.light["shadow.base"], "0 4px 8px rgba(16, 26, 39, 0.07)");
-  assert.equal(themes.light["shadow.composer"], "0 2px 6px rgba(0, 0, 0, 0.08)");
+  assert.equal(themes.light["shadow.composer"], "0 2px 12px rgba(0, 0, 0, 0.08)");
   assert.equal(themes.light["shadow.menu"], "0 4px 20px rgba(0, 0, 0, 0.12)");
   assert.equal(themes.light["shadow.overlay"], "0 4px 20px rgba(0, 0, 0, 0.12)");
   assert.equal(themes.light["opacity.disabled"], 0.55);

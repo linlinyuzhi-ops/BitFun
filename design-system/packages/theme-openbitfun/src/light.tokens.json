@@ -19,6 +19,10 @@
     }
   },
   "color": {
+    "composer": {
+      "border": { "$type": "color", "$value": "{color.field.border}" },
+      "contextBackground": { "$type": "color", "$value": "rgba(0, 0, 0, 0.03)" }
+    },
     "numberBadge": {
       "background": { "$type": "color", "$value": "{color.action.neutral.surfaceHover}" }
     },
@@ -267,7 +271,7 @@
     "lg": { "$value": "0 8px 16px rgba(16, 26, 39, 0.09)" },
     "xl": { "$value": "0 12px 24px rgba(16, 26, 39, 0.11)" },
     "raised": { "$value": "{shadow.sm}" },
-    "composer": { "$value": "0 2px 6px rgba(0, 0, 0, 0.08)" },
+    "composer": { "$value": "0 2px 12px rgba(0, 0, 0, 0.08)" },
     "menu": { "$value": "0 4px 20px rgba(0, 0, 0, 0.12)" },
     "overlay": { "$value": "0 4px 20px rgba(0, 0, 0, 0.12)" },
     "accentGlow": {

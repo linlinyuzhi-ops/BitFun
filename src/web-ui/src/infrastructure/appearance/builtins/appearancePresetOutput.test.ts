@@ -49,7 +49,7 @@ describe('builtin appearance preset output', () => {
     const settings = getBuiltinAppearance('openbitfun-light')?.renderers?.['theme-tokens']?.settings;
     for (const tokens of [settings?.tokens, settings?.scopes?.chrome].filter(Boolean)) {
       for (const [name, value] of Object.entries(themes.light)) {
-        if (name.startsWith('color.field.') || name === 'color.actionCard.background') expect(tokens?.[themeCssVariables[name as ThemeTokenName]]).toBe(value);
+        if (name.startsWith('color.field.') || name === 'color.actionCard.background' || name.startsWith('color.composer.')) expect(tokens?.[themeCssVariables[name as ThemeTokenName]]).toBe(value);
       }
     }
     expect(settings?.tokens['--openbitfun-color-number-badge-background']).toBe(themes.light['color.numberBadge.background']);

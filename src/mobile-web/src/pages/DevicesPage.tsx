@@ -39,6 +39,8 @@ interface Props {
   onBack: () => void;
   onDeviceSelected?: () => void;
   accountLanding?: boolean;
+  autoSelect?: boolean;
+  onSignOut?: () => void;
   preferredDeviceId?: string;
 }
 
@@ -74,7 +76,7 @@ const NoIdentityIcon = () => (
   </svg>
 );
 
-const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBack, accountLanding = false, preferredDeviceId }) => {
+const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBack, accountLanding = false, autoSelect = true, onSignOut, preferredDeviceId }) => {
   const { t, formatRelativeTime } = useI18n();
   const { connectionHealth, setControlTarget, resetForDeviceSwitch } = useMobileStore();
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
@@ -235,13 +237,13 @@ const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBac
   // Keep the online/scanned-device shortcut after account UI entry, without
   // making discovery failures undo authentication or retry in a render loop.
   useEffect(() => {
-    if (!accountLanding || !identityReady || identityChecking || loading
+    if (!accountLanding || !autoSelect || !identityReady || identityChecking || loading
       || switchingId || automaticSelectionAttemptedRef.current) return;
     const target = selectAccountDevice(devices, client.controllerDeviceId, preferredDeviceId);
     if (!target) return;
     automaticSelectionAttemptedRef.current = true;
     void selectDevice(target, false);
-  }, [accountLanding, client, devices, identityChecking, identityReady, loading, preferredDeviceId, selectDevice, switchingId]);
+  }, [accountLanding, autoSelect, client, devices, identityChecking, identityReady, loading, preferredDeviceId, selectDevice, switchingId]);
 
   const renderDeviceList = () => (
       <div className="devices-page__list">
@@ -345,7 +347,7 @@ const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBac
     <div className="devices-page">
       <MobilePageHeader
         className="devices-page__header"
-        leading={accountLanding ? <MobileButton appearance="plain" size="sm" onClick={onBack}>{t('sessions.disconnect')}</MobileButton> : <MobileIconButton
+        leading={accountLanding ? <MobileButton appearance="plain" size="sm" onClick={onBack}>{t('devices.signOut')}</MobileButton> : <MobileIconButton
           appearance="floating"
           className="devices-page__back-btn"
           icon={<BackIcon />}
@@ -353,7 +355,9 @@ const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBac
           aria-label={t('common.back')}
         />}
         title={t('devices.title')}
-        actions={<MobileIconButton
+        actions={<>
+          {!accountLanding && onSignOut && <MobileButton appearance="plain" size="sm" onClick={onSignOut}>{t('devices.signOut')}</MobileButton>}
+          <MobileIconButton
           appearance="floating"
           className="devices-page__refresh-btn"
           icon={<RefreshIcon />}
@@ -362,7 +366,7 @@ const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBac
           disabled={!!switchingId}
           aria-label={t('devices.refresh')}
           title={t('devices.refresh')}
-        />}
+        /></>}
       />
 
       {accountLanding && <p className="devices-page__description">{t('devices.accountReady')}</p>}

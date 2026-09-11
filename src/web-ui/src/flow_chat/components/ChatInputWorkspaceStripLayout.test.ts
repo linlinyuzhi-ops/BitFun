@@ -473,7 +473,7 @@ describe('composer context track layout', () => {
     );
   });
 
-  it('uses the scaled 45px capsule and keeps 25px controls stable across layouts', () => {
+  it('uses the 42px compact surface and keeps 24px controls stable across layouts', () => {
     const component = readLocalFile('ChatInput.tsx');
     const stylesheet = readChatInputStylesheet();
     const compactControls = stylesheet.slice(

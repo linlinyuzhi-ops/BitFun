@@ -38,6 +38,8 @@
     --openbitfun-color-border-subtle: rgba(255, 255, 255, 0.12);
     --openbitfun-color-code-change-added: #1aa73e;
     --openbitfun-color-code-change-removed: #ec221f;
+    --openbitfun-color-composer-border: rgba(255, 255, 255, 0.18);
+    --openbitfun-color-composer-context-background: rgba(255, 255, 255, 0.06);
     --openbitfun-color-content-caption: #858585;
     --openbitfun-color-content-disabled: #555555;
     --openbitfun-color-content-inverse: #0e0e10;

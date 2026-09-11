@@ -88,7 +88,7 @@ function themeValuesToCssTokens(
       // Default light fields use the published neutral states in both root and
       // chrome. Branded palettes and imported overrides retain their own colors.
       for (const name of Object.keys(themes.light) as ThemeTokenName[]) {
-        if (name.startsWith('color.field.')) {
+        if (name.startsWith('color.field.') || name.startsWith('color.composer.')) {
           tokens[themeCssVariables[name] as AppearanceThemeTokenName] = String(themes.light[name]);
         }
       }
@@ -172,6 +172,8 @@ function createThemeTokenValues(palette: AppearancePalette): Record<ThemeTokenNa
     'color.field.groupBackground': colors.background.tertiary,
     'color.field.background': colors.background.secondary,
     'color.field.backgroundHover': colors.element.subtle,
+    'color.composer.border': colors.border.base,
+    'color.composer.contextBackground': colors.element.subtle,
     'color.field.border': colors.border.base,
     'color.field.borderHover': colors.border.medium,
     'color.field.borderFocus': colors.accent[500],
@@ -262,6 +264,8 @@ function createChromeThemeTokens(
     'color.field.groupBackground': chrome.background.tertiary,
     'color.field.background': chrome.background.secondary,
     'color.field.backgroundHover': chrome.element.subtle,
+    'color.composer.border': chrome.border.base,
+    'color.composer.contextBackground': chrome.element.subtle,
     'color.field.border': chrome.border.base,
     'color.field.borderHover': chrome.border.medium,
     'color.field.borderFocus': chrome.accent[500],

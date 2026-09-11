@@ -345,7 +345,7 @@
     padding-top: 1px;
   }
 
-  // In capsule: vertically centre inside the 25px line height
+  // In capsule: vertically centre inside the 24px line height
   &--capsule &__placeholder {
     top: 50%;
     transform: translateY(-50%);
@@ -491,7 +491,7 @@
   }
 
   // Product controls fill the stable public ChatComposer slots. The package
-  // owns the 45px compact / 120px expanded surface geometry; Web UI owns concrete menus and
+  // owns the 42px compact / 120px expanded surface geometry; Web UI owns concrete menus and
   // lifecycle states.
   &__composer-surface {
     .openbitfun-chat-input__actions-left,

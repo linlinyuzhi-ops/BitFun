@@ -47,6 +47,7 @@ describe('composeAppearancePackage', () => {
               '--openbitfun-color-field-border-focus': '#654321',
               '--openbitfun-color-content-muted': '#778899',
               '--openbitfun-color-surface-tertiary': '#abcdef',
+              '--openbitfun-color-surface-subtle': '#abcdef',
             },
             scopes: { chrome: { '--openbitfun-color-content-muted': '#556677', '--openbitfun-color-field-border-focus': '#445566', '--openbitfun-color-surface-tertiary': '#aabbcc' } },
           },
@@ -58,6 +59,8 @@ describe('composeAppearancePackage', () => {
     const settings = resolved.renderers!['theme-tokens']!.settings;
     expect(settings.tokens['--openbitfun-color-content-caption']).toBe('#778899');
     expect(settings.scopes?.chrome?.['--openbitfun-color-content-caption']).toBe('#556677');
+    expect(settings.tokens['--openbitfun-color-composer-context-background']).toBe('#abcdef');
+    expect(settings.tokens['--openbitfun-color-composer-border']).toBe('#123456');
     expect(settings.tokens).toMatchObject({
       '--openbitfun-color-field-border': '#123456',
       '--openbitfun-color-field-border-focus': '#654321',
@@ -71,6 +74,12 @@ describe('composeAppearancePackage', () => {
     expect(composeAppearancePackage(JSON.parse(JSON.stringify(resolved))).renderers?.['theme-tokens']).toEqual(resolved.renderers?.['theme-tokens']);
     expect(JSON.stringify(original)).toBe(payload);
 
+    original.renderers!['theme-tokens']!.settings.tokens['--openbitfun-color-composer-border'] = '#998877';
+    original.renderers!['theme-tokens']!.settings.tokens['--openbitfun-color-composer-context-background'] = '#887766';
+    expect(composeAppearancePackage(original).renderers!['theme-tokens']!.settings.tokens).toMatchObject({
+      '--openbitfun-color-composer-border': '#998877',
+      '--openbitfun-color-composer-context-background': '#887766',
+    });
     original.renderers!['theme-tokens']!.settings.tokens['--openbitfun-color-field-placeholder'] = '#112233';
     original.renderers!['theme-tokens']!.settings.tokens['--openbitfun-color-field-border-active'] = '#223344';
     original.renderers!['theme-tokens']!.settings.scopes!.chrome!['--openbitfun-color-field-placeholder'] = '#334455';

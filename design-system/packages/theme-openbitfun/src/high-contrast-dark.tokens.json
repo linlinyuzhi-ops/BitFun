@@ -19,6 +19,10 @@
     }
   },
   "color": {
+    "composer": {
+      "border": { "$type": "color", "$value": "{color.field.border}" },
+      "contextBackground": { "$type": "color", "$value": "{color.surface.subtle}" }
+    },
     "keyHint": {
       "content": { "$type": "color", "$value": "{color.content.muted}" }
     },
