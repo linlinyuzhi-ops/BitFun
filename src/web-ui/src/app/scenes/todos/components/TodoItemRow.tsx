@@ -160,11 +160,13 @@ const TodoItemRow: React.FC<TodoItemRowProps> = ({
           ]}
           onValueChange={(value) => onChangeCompletionStatus(job, value as CronJobCompletionStatus)}
         />
-        <Switch
-          checked={job.enabled}
-          aria-label={t('actions.toggleEnabled')}
-          onChange={(event) => onToggleEnabled(job, event.currentTarget.checked)}
-        />
+        {job.handling === 'manual' ? null : (
+          <Switch
+            checked={job.enabled}
+            aria-label={t('actions.toggleEnabled')}
+            onChange={(event) => onToggleEnabled(job, event.currentTarget.checked)}
+          />
+        )}
         <div className="openbitfun-todos__row-action-buttons">
           <Tooltip content={t('actions.edit')}>
             <IconButton

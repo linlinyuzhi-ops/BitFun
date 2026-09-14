@@ -299,103 +299,107 @@ const TodoEditor: React.FC<TodoEditorProps> = ({
               </div>
             )}
 
-            <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
-              <span className="openbitfun-todos__field-label">
-                <Icon name="refresh" size="md" aria-hidden="true" />
-                {t('editor.fields.scheduleKind')}
-              </span>
-              <Select
-                size="md"
-                className="openbitfun-todos__field-control"
-                value={draft.scheduleKind}
-                options={[
-                  { value: 'at', label: t('schedule.kinds.at') },
-                  { value: 'every', label: t('schedule.kinds.every') },
-                  { value: 'cron', label: t('schedule.kinds.cron') },
-                ]}
-                aria-label={t('editor.fields.scheduleKind')}
-                onValueChange={handleScheduleKindChange}
-                data-testid="todos-editor-schedule-kind"
-              />
-            </div>
-
-            <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
-              <span className="openbitfun-todos__field-label">
-                <Icon name="clock" size="md" aria-hidden="true" />
-                {draft.scheduleKind === 'at'
-                  ? t('editor.fields.at')
-                  : draft.scheduleKind === 'every'
-                    ? t('editor.fields.every')
-                    : t('editor.fields.cronExpr')}
-              </span>
-
-              {draft.scheduleKind === 'at' ? (
-                <LocalizedDateTimeField
-                  className="openbitfun-todos__field-control openbitfun-todos__field-control--datetime"
-                  value={draft.at}
-                  error={validationErrors.at}
-                  aria-label={t('editor.fields.at')}
-                  onChange={(at) => {
-                    clearError('at');
-                    // Re-enable a Todo that was left off after its time passed.
-                    onDraftChange((current) => ({
-                      ...current,
-                      at,
-                      enabled: !current.enabled && isFutureLocalDateTimeInput(at)
-                        ? true
-                        : current.enabled,
-                    }));
-                  }}
+            {draft.handling === 'manual' ? null : (
+              <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
+                <span className="openbitfun-todos__field-label">
+                  <Icon name="refresh" size="md" aria-hidden="true" />
+                  {t('editor.fields.scheduleKind')}
+                </span>
+                <Select
+                  size="md"
+                  className="openbitfun-todos__field-control"
+                  value={draft.scheduleKind}
+                  options={[
+                    { value: 'at', label: t('schedule.kinds.at') },
+                    { value: 'every', label: t('schedule.kinds.every') },
+                    { value: 'cron', label: t('schedule.kinds.cron') },
+                  ]}
+                  aria-label={t('editor.fields.scheduleKind')}
+                  onValueChange={handleScheduleKindChange}
+                  data-testid="todos-editor-schedule-kind"
                 />
-              ) : null}
+              </div>
+            )}
 
-              {draft.scheduleKind === 'every' ? (
-                <div className="openbitfun-todos__interval">
+            {draft.handling === 'manual' ? null : (
+              <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
+                <span className="openbitfun-todos__field-label">
+                  <Icon name="clock" size="md" aria-hidden="true" />
+                  {draft.scheduleKind === 'at'
+                    ? t('editor.fields.at')
+                    : draft.scheduleKind === 'every'
+                      ? t('editor.fields.every')
+                      : t('editor.fields.cronExpr')}
+                </span>
+
+                {draft.scheduleKind === 'at' ? (
+                  <LocalizedDateTimeField
+                    className="openbitfun-todos__field-control openbitfun-todos__field-control--datetime"
+                    value={draft.at}
+                    error={validationErrors.at}
+                    aria-label={t('editor.fields.at')}
+                    onChange={(at) => {
+                      clearError('at');
+                      // Re-enable a Todo that was left off after its time passed.
+                      onDraftChange((current) => ({
+                        ...current,
+                        at,
+                        enabled: !current.enabled && isFutureLocalDateTimeInput(at)
+                          ? true
+                          : current.enabled,
+                      }));
+                    }}
+                  />
+                ) : null}
+
+                {draft.scheduleKind === 'every' ? (
+                  <div className="openbitfun-todos__interval">
+                    <Input
+                      className="openbitfun-todos__field-control"
+                      type="number"
+                      value={draft.everyValue}
+                      invalid={validationErrors.everyValue}
+                      min="1"
+                      aria-label={t('editor.fields.every')}
+                      placeholder="1"
+                      onChange={(event) => {
+                        const everyValue = event.currentTarget.value;
+                        clearError('everyValue');
+                        updateDraft({ everyValue });
+                      }}
+                      size="md"
+                    />
+                    <Select
+                      size="md"
+                      className="openbitfun-todos__field-control"
+                      value={draft.everyUnit}
+                      options={INTERVAL_UNIT_OPTIONS.map((unit) => ({
+                        value: unit,
+                        label: t(`schedule.intervalUnits.${unit}`),
+                      }))}
+                      aria-label={t('editor.fields.every')}
+                      onValueChange={(value) => updateDraft({ everyUnit: value as IntervalUnit })}
+                    />
+                  </div>
+                ) : null}
+
+                {draft.scheduleKind === 'cron' ? (
                   <Input
                     className="openbitfun-todos__field-control"
-                    type="number"
-                    value={draft.everyValue}
-                    invalid={validationErrors.everyValue}
-                    min="1"
-                    aria-label={t('editor.fields.every')}
-                    placeholder="1"
+                    value={draft.expr}
+                    invalid={validationErrors.cronExpr}
+                    aria-label={t('editor.fields.cronExpr')}
+                    placeholder="0 8 * * *"
                     onChange={(event) => {
-                      const everyValue = event.currentTarget.value;
-                      clearError('everyValue');
-                      updateDraft({ everyValue });
+                      const expr = event.currentTarget.value;
+                      clearError('cronExpr');
+                      updateDraft({ expr });
                     }}
                     size="md"
                   />
-                  <Select
-                    size="md"
-                    className="openbitfun-todos__field-control"
-                    value={draft.everyUnit}
-                    options={INTERVAL_UNIT_OPTIONS.map((unit) => ({
-                      value: unit,
-                      label: t(`schedule.intervalUnits.${unit}`),
-                    }))}
-                    aria-label={t('editor.fields.every')}
-                    onValueChange={(value) => updateDraft({ everyUnit: value as IntervalUnit })}
-                  />
-                </div>
-              ) : null}
-
-              {draft.scheduleKind === 'cron' ? (
-                <Input
-                  className="openbitfun-todos__field-control"
-                  value={draft.expr}
-                  invalid={validationErrors.cronExpr}
-                  aria-label={t('editor.fields.cronExpr')}
-                  placeholder="0 8 * * *"
-                  onChange={(event) => {
-                    const expr = event.currentTarget.value;
-                    clearError('cronExpr');
-                    updateDraft({ expr });
-                  }}
-                  size="md"
-                />
-              ) : null}
-            </div>
+                ) : null}
+              </div>
+            )}
 
             <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
               <span className="openbitfun-todos__field-label">
@@ -460,33 +464,35 @@ const TodoEditor: React.FC<TodoEditorProps> = ({
             </div>
           </div>
 
-          <div
-            className="openbitfun-todos__editor-runtime"
-            data-openbitfun-scene="todos"
-            data-openbitfun-part="editorRuntime"
-          >
-            <label className="openbitfun-todos__editor-enable">
-              <Switch
-                checked={draft.enabled}
-                aria-label={t('editor.enabled.title')}
-                onChange={(event) => updateDraft({ enabled: event.currentTarget.checked })}
-              />
-              <span className="openbitfun-todos__editor-enable-copy">
-                <strong>{t('editor.enabled.title')}</strong>
-                <span>{t('editor.enabled.description')}</span>
-              </span>
-            </label>
-            <span className="openbitfun-todos__editor-runtime-divider" aria-hidden="true" />
-            <div className="openbitfun-todos__editor-smart">
-              <span className="openbitfun-todos__editor-smart-icon" aria-hidden="true">
-                <Icon name="spark" size="md" />
-              </span>
-              <span className="openbitfun-todos__editor-smart-copy">
-                <strong>{t('editor.smartExecution.title')}</strong>
-                <span>{t('editor.smartExecution.description')}</span>
-              </span>
+          {draft.handling === 'manual' ? null : (
+            <div
+              className="openbitfun-todos__editor-runtime"
+              data-openbitfun-scene="todos"
+              data-openbitfun-part="editorRuntime"
+            >
+              <label className="openbitfun-todos__editor-enable">
+                <Switch
+                  checked={draft.enabled}
+                  aria-label={t('editor.enabled.title')}
+                  onChange={(event) => updateDraft({ enabled: event.currentTarget.checked })}
+                />
+                <span className="openbitfun-todos__editor-enable-copy">
+                  <strong>{t('editor.enabled.title')}</strong>
+                  <span>{t('editor.enabled.description')}</span>
+                </span>
+              </label>
+              <span className="openbitfun-todos__editor-runtime-divider" aria-hidden="true" />
+              <div className="openbitfun-todos__editor-smart">
+                <span className="openbitfun-todos__editor-smart-icon" aria-hidden="true">
+                  <Icon name="spark" size="md" />
+                </span>
+                <span className="openbitfun-todos__editor-smart-copy">
+                  <strong>{t('editor.smartExecution.title')}</strong>
+                  <span>{t('editor.smartExecution.description')}</span>
+                </span>
+              </div>
             </div>
-          </div>
+          )}
         </section>
 
         <section
