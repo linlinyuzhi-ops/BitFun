@@ -106,7 +106,7 @@ function buildProfileFromTauriArgs(args) {
 }
 
 async function main() {
-  const buildStartedAtMs = Date.now();
+const buildStartedAtMs = Date.now();
   const timer = createStageTimer(buildStartedAtMs);
   const { productConfig, forwardArgs: argsWithFlag } = extractProductConfigArg(
     tauriBuildArgsFromArgv()
@@ -119,6 +119,8 @@ async function main() {
     process.env[SKIP_AUDITS_ENV] = '1';
     console.log('[tauri-build] Skipping frontend audits (pure CI gates).');
   }
+  const bundleOnly = forward.includes('--bundle-only');
+  if (bundleOnly) forward.splice(forward.indexOf('--bundle-only'), 1);
   const resolution = resolveProductDefinition({ rootDir: ROOT, productConfig, member: 'desktop' });
   Object.assign(process.env, productBuildEnvironment(resolution));
   console.log(`[product] ${resolution.assembly.member} ${resolution.assembly.assemblyDigest}`);
@@ -129,7 +131,7 @@ async function main() {
   timer.mark('product+release');
 
   const desktopDir = join(ROOT, 'src', 'apps', 'desktop');
-  preparePluginHost();
+if (!bundleOnly) preparePluginHost();
   timer.mark('plugin-host');
   const flashgrepBinary = prepareMacOSFlashgrepForSigning(
     ensureFlashgrepBinary({ target: optionValue(forward, '--target') || rustHostTargetTriple() }),
@@ -153,7 +155,7 @@ async function main() {
   });
   timer.mark('config');
   const tauriBin = join(ROOT, 'node_modules', '.bin', 'tauri');
-  const tauriArgs = ['build', '--config', tauriConfig, ...forward];
+const tauriArgs = [bundleOnly ? 'bundle' : 'build', '--config', tauriConfig, ...forward];
   const summaryOptions = {
     profile: buildProfileFromTauriArgs(forward),
     target: optionValue(forward, '--target'),
@@ -391,6 +393,24 @@ export function prepareMacOSFlashgrepForSigning(
   return signedBinary;
 }
 
+// The cloud private key remains in SimplySign; only its certificate selector is
+// passed to Tauri. Authenticode runs before Tauri creates updater signatures.
+export function configureWindowsSigning(config, env = process.env, platform = process.platform) {
+  if (platform !== 'win32' || !env.WINDOWS_CERTIFICATE_THUMBPRINT) return;
+  const thumbprint = env.WINDOWS_CERTIFICATE_THUMBPRINT.replace(/\s/g, '').toUpperCase();
+  if (!/^[0-9A-F]{40}$/.test(thumbprint)) {
+    throw new Error('WINDOWS_CERTIFICATE_THUMBPRINT must be a SHA-1 certificate fingerprint.');
+  }
+  config.bundle ??= {};
+  config.bundle.windows = {
+    ...config.bundle.windows,
+    certificateThumbprint: thumbprint,
+    digestAlgorithm: 'sha256',
+    timestampUrl: 'http://time.certum.pl',
+    tsp: true,
+  };
+}
+
 export function prepareTauriConfig(
   baseConfigPath,
   { desktopDir, flashgrepBinary, resolution, releaseChannel }
@@ -404,6 +424,7 @@ export function prepareTauriConfig(
     config.mainBinaryName = resolution.assembly.binaryName;
     config.identifier = resolution.assembly.bundleId;
   }
+  configureWindowsSigning(config);
   injectTargetFlashgrepResource(config, desktopDir, flashgrepBinary);
   // The DeepSeek bridge is not a compile-time resource: cargo check and
   // desktop:dev must not require packages/dsh-acp/dist-profile. Official

@@ -1,3 +1,5 @@
+import { QuestionInteractionContext } from "../components/ChatAskQuestionCard";
+import { ChevronDown as LucideChevronDown } from 'lucide-react';
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { MobileIconButton } from '@openbitfun/ui/mobile';
 import { useI18n } from '../i18n';
@@ -259,6 +261,18 @@ const ChatPage: React.FC<ChatPageProps> = ({
   }, [isStreaming]);
 
   const [now, setNow] = useState(() => Date.now());
+  const handleQuestionInteraction = useCallback(async (toolId: string) => {
+    const targetEpoch = captureChatTargetEpoch();
+    if (targetEpoch === null) throw new RemoteControlTargetChangedError();
+    try {
+      await sessionMgr.startQuestionInteraction(sessionId, toolId);
+      if (!isChatTargetCurrent(targetEpoch)) throw new RemoteControlTargetChangedError();
+    } catch (err) {
+      if (isChatTargetCurrent(targetEpoch)) setError(t('common.questionTimeoutActive'));
+      throw err;
+    }
+  }, [captureChatTargetEpoch, isChatTargetCurrent, sessionMgr, sessionId, setError, t]);
+
   const handleAnswerQuestion = useCallback(async (toolId: string, answers: any) => {
     const targetEpoch = captureChatTargetEpoch();
     if (targetEpoch === null) throw new RemoteControlTargetChangedError();
@@ -1049,6 +1063,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
           <div className="chat-page__load-more-indicator">{t('chat.loadingOlderMessages')}</div>
         )}
 
+        <QuestionInteractionContext.Provider value={handleQuestionInteraction}>
         <ArtifactImageReader.Provider value={readArtifactImage}>
           <ChatTranscript
             key={`${sessionId}:${controlTargetEpoch}`}
@@ -1083,6 +1098,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
             }}
           />
         </ArtifactImageReader.Provider>
+        </QuestionInteractionContext.Provider>
 
         <div ref={messagesEndRef} />
 
@@ -1094,9 +1110,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
           className="chat-page__scroll-to-bottom"
           onClick={scrollToBottom}
           aria-label={t('chat.scrollToBottom')}
-          icon={<svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="6 9 12 15 18 9" />
-          </svg>}
+          icon={<LucideChevronDown aria-hidden="true" focusable="false" width="20" height="20" stroke="currentColor" />}
         />
       )}
 

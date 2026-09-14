@@ -58,7 +58,6 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
 use tauri::Manager;
-use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
 
 // Re-export API
 pub use api::*;
@@ -288,6 +287,12 @@ fn show_main_window_for_secondary_launch(
     main_window
         .unminimize()
         .map_err(|error| format!("failed to unminimize main window: {}", error))?;
+    if let Err(error) = window_state_support::repair_for_activation(&main_window) {
+        log::warn!(
+            "Failed to repair main window geometry from secondary launch: {}",
+            error
+        );
+    }
     main_window
         .show()
         .map_err(|error| format!("failed to show main window: {}", error))?;
@@ -329,59 +334,8 @@ pub(crate) fn e2e_storage_guard_enabled() -> bool {
         .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
 }
 
-fn main_window_state_flags() -> StateFlags {
-    main_window_geometry_state_flags() | StateFlags::MAXIMIZED
-}
-
-fn main_window_geometry_state_flags() -> StateFlags {
-    StateFlags::SIZE | StateFlags::POSITION | StateFlags::FULLSCREEN
-}
-
-/// Restore deliberately excludes `MAXIMIZED` on Windows: maximizing a hidden
-/// undecorated window does not survive `show()` and leaves Windows tracking a
-/// bogus normal-placement rect. Other platforms use the plugin's complete
-/// restore behavior.
-#[cfg(target_os = "windows")]
-fn main_window_restore_flags() -> StateFlags {
-    main_window_geometry_state_flags()
-}
-
-#[cfg(not(target_os = "windows"))]
-fn main_window_restore_flags() -> StateFlags {
-    main_window_state_flags()
-}
-
 fn persist_main_window_state(app: &tauri::AppHandle, reason: &str) -> Result<(), String> {
-    persist_main_window_state_with_flags(app, reason, main_window_state_flags())
-}
-
-fn persist_main_window_geometry_state(app: &tauri::AppHandle, reason: &str) -> Result<(), String> {
-    persist_main_window_state_with_flags(app, reason, main_window_geometry_state_flags())
-}
-
-fn persist_main_window_state_with_flags(
-    app: &tauri::AppHandle,
-    reason: &str,
-    flags: StateFlags,
-) -> Result<(), String> {
-    let result = app
-        .save_window_state(flags)
-        .map_err(|error| error.to_string());
-    if let Err(error) = &result {
-        log::warn!(
-            "Failed to save main window state: reason={}, error={}",
-            reason,
-            error
-        );
-        return result;
-    }
-
-    #[cfg(target_os = "windows")]
-    if flags.contains(StateFlags::MAXIMIZED) {
-        window_state_support::correct_saved_main_window_state(app);
-    }
-
-    Ok(())
+    window_state_support::save(app, reason)
 }
 
 pub(crate) fn save_main_window_state(app: &tauri::AppHandle, reason: &str) {
@@ -432,115 +386,8 @@ pub(crate) fn set_main_window_transient_geometry(
     })
 }
 
-fn has_standard_main_window_size(width: f64, height: f64) -> bool {
-    width >= MAIN_WINDOW_MIN_WIDTH && height >= MAIN_WINDOW_MIN_HEIGHT
-}
-
 pub(crate) fn restore_main_window_state(window: &tauri::WebviewWindow) -> bool {
-    if let Err(error) = window.restore_state(main_window_restore_flags()) {
-        log::warn!("Failed to restore main window state: {}", error);
-    }
-
-    #[cfg(target_os = "windows")]
-    let reapply_maximized =
-        window_state_support::read_persisted_main_maximized(window.app_handle()).unwrap_or(false);
-
-    #[cfg(not(target_os = "windows"))]
-    let reapply_maximized = false;
-
-    let is_maximized = window.is_maximized().unwrap_or(false);
-    let is_fullscreen = window.is_fullscreen().unwrap_or(false);
-    if !is_maximized && !is_fullscreen {
-        match (window.inner_size(), window.scale_factor()) {
-            (Ok(size), Ok(scale_factor)) => {
-                let logical_size = size.to_logical::<f64>(scale_factor);
-                if !has_standard_main_window_size(logical_size.width, logical_size.height) {
-                    log::info!(
-                        "Resetting undersized main window state: width={}, height={}",
-                        logical_size.width,
-                        logical_size.height
-                    );
-
-                    let resize_result = window.set_size(tauri::LogicalSize::new(
-                        MAIN_WINDOW_DEFAULT_WIDTH,
-                        MAIN_WINDOW_DEFAULT_HEIGHT,
-                    ));
-                    let center_result = window.center();
-                    let resize_succeeded = match resize_result {
-                        Ok(()) => true,
-                        Err(error) => {
-                            log::warn!("Failed to reset main window size: {}", error);
-                            false
-                        }
-                    };
-                    if let Err(error) = center_result {
-                        log::warn!("Failed to center reset main window: {}", error);
-                    }
-                    if resize_succeeded {
-                        if let Err(error) = persist_main_window_geometry_state(
-                            window.app_handle(),
-                            "startup_geometry_repair",
-                        ) {
-                            log::warn!("Failed to persist repaired main window state: {}", error);
-                        }
-                    }
-                }
-            }
-            (Err(error), _) => {
-                log::warn!("Failed to read restored main window size: {}", error);
-            }
-            (_, Err(error)) => {
-                log::warn!("Failed to read main window scale factor: {}", error);
-            }
-        }
-    }
-
-    if let Err(error) = window.set_min_size(Some(tauri::LogicalSize::new(
-        MAIN_WINDOW_MIN_WIDTH,
-        MAIN_WINDOW_MIN_HEIGHT,
-    ))) {
-        log::warn!("Failed to set main window minimum size: {}", error);
-    }
-
-    reapply_maximized
-}
-
-#[cfg(test)]
-mod main_window_geometry_tests {
-    use super::{
-        has_standard_main_window_size, main_window_geometry_state_flags, main_window_restore_flags,
-        main_window_state_flags,
-    };
-    use tauri_plugin_window_state::StateFlags;
-
-    #[test]
-    fn floating_toolbar_sizes_are_not_valid_main_window_sizes() {
-        assert!(!has_standard_main_window_size(440.0, 680.0));
-        assert!(!has_standard_main_window_size(700.0, 140.0));
-    }
-
-    #[test]
-    fn default_client_size_is_a_valid_main_window_size() {
-        assert!(has_standard_main_window_size(1200.0, 800.0));
-    }
-
-    #[test]
-    fn geometry_saves_do_not_overwrite_maximized_state() {
-        assert!(!main_window_geometry_state_flags().contains(StateFlags::MAXIMIZED));
-        assert!(main_window_state_flags().contains(StateFlags::MAXIMIZED));
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn windows_restore_defers_maximized_state_until_after_show() {
-        assert!(!main_window_restore_flags().contains(StateFlags::MAXIMIZED));
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    #[test]
-    fn non_windows_restore_keeps_plugin_maximized_behavior() {
-        assert!(main_window_restore_flags().contains(StateFlags::MAXIMIZED));
-    }
+    window_state_support::restore(window)
 }
 
 #[tauri::command]
@@ -860,17 +707,9 @@ pub async fn run() {
         )
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(
-            tauri_plugin_window_state::Builder::default()
-                // Restore explicitly after the main window is built, and save
-                // explicitly at normal-geometry boundaries. Empty automatic
-                // flags keep toolbar-mode resize/move events out of the
-                // plugin cache and prevent its exit hook from overwriting the
-                // last normal main-window geometry.
-                .with_state_flags(StateFlags::empty())
-                .with_filter(|label| label == "main")
-                .build(),
-        )
+        // The desktop owns validated snapshots and atomic writes. Do not install
+        // window-state: its exit hook can overwrite repairs with stale cached data.
+        .manage(window_state_support::MainWindowState::default())
         .manage(app_state)
         .manage(sleep_prevention::SleepPreventionState::default())
         .manage(desktop_runtime)
@@ -1345,6 +1184,12 @@ pub async fn run() {
         .on_window_event({
             move |window, event| {
                 if window.label() == "main"
+                    && !MAIN_WINDOW_USES_TRANSIENT_GEOMETRY.load(Ordering::SeqCst)
+                    && matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_))
+                {
+                    window_state_support::remember_normal(window);
+                }
+                if window.label() == "main"
                     && matches!(event, tauri::WindowEvent::CloseRequested { .. })
                 {
                     save_main_window_state(window.app_handle(), "close_requested");
@@ -1503,11 +1348,13 @@ pub async fn run() {
             choose_external_mcp_conflict_command,
             api::context_upload_api::upload_image_contexts,
             get_all_tools_info,
+            get_chat_mcp_catalog,
             get_readonly_tools_info,
             get_tool_info,
             validate_tool_input,
             execute_tool,
             submit_user_answers,
+            start_user_question_interaction,
             initialize_workspace_startup_state,
             get_available_tools,
             report_ide_control_result,
@@ -1939,6 +1786,7 @@ pub async fn run() {
             api::miniapp_api::miniapp_get_customization_metadata,
             api::miniapp_api::miniapp_decline_builtin_update,
             api::miniapp_market_api::miniapp_market_browse,
+            api::market_image_api::market_image_load,
             api::miniapp_market_api::miniapp_market_get_listing,
             api::miniapp_market_api::miniapp_market_capture_window,
             api::miniapp_market_api::miniapp_market_set_rating,
@@ -1976,6 +1824,7 @@ pub async fn run() {
             api::browser_api::browser_webview_navigate,
             api::browser_api::browser_webview_reload,
             api::browser_api::browser_webview_set_bounds,
+            api::browser_api::browser_webview_capture_preview,
             api::browser_api::browser_webview_set_agent_target_state,
             api::browser_api::browser_get_url,
             api::html_preview_api::html_preview_create,

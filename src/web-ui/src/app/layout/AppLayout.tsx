@@ -757,7 +757,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
             isExiting={transitionDir === 'returning'}
           />
         </main>
-        <PeerConnectionStatus />
 
         {/* Hello stays available across every client scene, including Welcome. */}
         <Suspense fallback={null}>

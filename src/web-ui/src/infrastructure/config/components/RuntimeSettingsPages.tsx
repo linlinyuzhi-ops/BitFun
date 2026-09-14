@@ -43,6 +43,7 @@ import {
   releaseAgentCompanionPetPreviewBlobs,
   type AgentCompanionPetPackage,
 } from '../services/AgentCompanionPetService';
+import { getPetSpriteLayout } from '../services/agentCompanionPetSprite';
 import { configManager } from '../services/ConfigManager';
 import { useComputerUseEnabled } from '../hooks/useComputerUseEnabled';
 import {
@@ -534,6 +535,7 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
         packagePath: imported.packagePath,
         spritesheetPath: imported.spritesheetPath,
         spritesheetMimeType: imported.spritesheetMimeType,
+        spriteVersionNumber: imported.spriteVersionNumber,
       });
     } catch (error) {
       log.error('Failed to import Agent companion pet', error);
@@ -600,6 +602,7 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
       packagePath: pet.packagePath,
       spritesheetPath: pet.spritesheetPath,
       spritesheetMimeType: pet.spritesheetMimeType,
+      spriteVersionNumber: pet.spriteVersionNumber,
     });
   };
 
@@ -1092,6 +1095,7 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
                 const isDisabled = isDeleting;
                 const previewStyle = {
                   '--openbitfun-pet-preview-src': `url("${pet.previewSrc}")`,
+                  backgroundSize: `800% ${getPetSpriteLayout(pet.spriteVersionNumber).rows * 100}%`,
                 } as React.CSSProperties;
 
                 return (

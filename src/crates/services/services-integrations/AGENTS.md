@@ -135,6 +135,13 @@ pnpm run check:core-boundaries
 Other family-specific targets remain in `Cargo.toml`; add a guide command only
 for a recurring workflow, not to mirror every test target.
 
+For persistent public marketplace image caching (restart/offline reuse, URL
+boundaries, and bounded disk storage), run:
+
+```bash
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features miniapp-market --lib market_image::tests
+```
+
 On Windows with an initialized WSL distribution, set `OPENBITFUN_TEST_WSL_DISTRO`
 and run `cargo test -p openbitfun-services-integrations --no-default-features
 --features remote-ssh-concrete --lib wsl_windows_workspace_transport -- --ignored`

@@ -16,6 +16,9 @@
     --_button-trailing-icon-size: 14px;
 
     position: relative;
+    /* The component owns its surface; suppress native WebKit button highlights. */
+    -webkit-appearance: none;
+    appearance: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -235,6 +238,13 @@
     flex: 0 0 auto;
   }
 
+  .staticLabel {
+    display: inline;
+    overflow: visible;
+    line-height: inherit;
+    white-space: inherit;
+  }
+
   .icon {
     --openbitfun-opacity-icon-artwork: 1;
     display: inline-flex;
@@ -293,6 +303,11 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .button,
+    .button::before {
+      transition: none;
+    }
+
     .button[data-loading="true"] .progress {
       animation: none;
       border-inline-end-color: currentColor;

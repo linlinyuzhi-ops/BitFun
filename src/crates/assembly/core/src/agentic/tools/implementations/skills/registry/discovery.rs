@@ -44,8 +44,13 @@ fn flat_skill_data(
     slot: &str,
 ) -> Result<SkillData, openbitfun_agent_runtime::skills::SkillParseError> {
     let stem = filename.strip_suffix(".md").unwrap_or(filename);
-    let mut data =
-        SkillRegistry::parse_skill_markdown(directory.to_string(), content, level, false, slot)?;
+    let mut data = SkillRegistry::parse_skill_markdown(
+        format!("{}/{stem}", directory.trim_end_matches(['/', '\\'])),
+        content,
+        level,
+        false,
+        slot,
+    )?;
     data.path = directory.to_string();
     data.dir_name = stem.to_string();
     data.entry_file = Some(filename.to_string());
@@ -141,54 +146,95 @@ impl SkillRegistry {
                 match fs.is_file(&skill_md).await {
                     Ok(true) => {
                         match fs.read_file_text_bounded(&skill_md, MAX_SKILL_BYTES).await {
-                            Ok(Some(content)) => match Self::parse_skill_markdown(
-                                path.clone(),
-                                &content,
-                                SkillLocation::Project,
-                                false,
-                                entry.slot,
-                            ) {
-                                Ok(mut data) => {
-                                    for warning in &data.compatibility_warnings {
-                                        scan.diagnostics.push(diagnostic(
-                                            &skill_md,
-                                            entry.source_id,
-                                            warning,
-                                        ));
+                            Ok(Some(content)) => {
+                                let marker = format!("{path}/{}", imports::IMPORT_MARKER);
+                                let import_origin = if entry.source_id == OPENBITFUN_SKILL_SOURCE_ID
+                                {
+                                    let marker_content = match fs.exists(&marker).await {
+                                        Ok(false) => Ok(None),
+                                        Ok(true) => fs.read_file_text_bounded(&marker, 16 * 1024).await
+                                            .and_then(|text| text.map(Some).ok_or_else(|| anyhow::anyhow!("Skill import record exceeds the size limit"))),
+                                        Err(error) => Err(error),
+                                    };
+                                    match marker_content {
+                                        Ok(Some(text)) => match imports::parse_import_origin(&text)
+                                        {
+                                            Ok(origin) => Some(origin),
+                                            Err(error) => {
+                                                scan.diagnostics.push(diagnostic(
+                                                    &marker,
+                                                    entry.source_id,
+                                                    error,
+                                                ));
+                                                None
+                                            }
+                                        },
+                                        Ok(None) => None,
+                                        Err(error) => {
+                                            scan.diagnostics.push(diagnostic(
+                                                &marker,
+                                                entry.source_id,
+                                                error,
+                                            ));
+                                            None
+                                        }
                                     }
-                                    if let Some(error) =
-                                        Self::apply_remote_openai_policy(&mut data, fs, &path).await
-                                    {
-                                        scan.diagnostics.push(diagnostic(
-                                            format!("{path}/agents/openai.yaml"),
+                                } else {
+                                    None
+                                };
+                                match Self::parse_skill_markdown(
+                                    path.clone(),
+                                    &content,
+                                    SkillLocation::Project,
+                                    false,
+                                    import_origin
+                                        .as_ref()
+                                        .map_or(entry.slot, |origin| origin.source_slot.as_str()),
+                                ) {
+                                    Ok(mut data) => {
+                                        for warning in &data.compatibility_warnings {
+                                            scan.diagnostics.push(diagnostic(
+                                                &skill_md,
+                                                entry.source_id,
+                                                warning,
+                                            ));
+                                        }
+                                        if let Some(error) =
+                                            Self::apply_remote_openai_policy(&mut data, fs, &path)
+                                                .await
+                                        {
+                                            scan.diagnostics.push(diagnostic(
+                                                format!("{path}/agents/openai.yaml"),
+                                                entry.source_id,
+                                                error,
+                                            ));
+                                        }
+                                        let mut candidate = SkillCandidate::from_data(
+                                            data,
+                                            entry.slot,
                                             entry.source_id,
-                                            error,
-                                        ));
+                                            entry.source_label,
+                                            PROJECT_SKILL_KEY_PREFIX,
+                                            entry.priority,
+                                            false,
+                                        );
+                                        set_nested_key(
+                                            &mut candidate,
+                                            path.strip_prefix(&format!("{}/", entry.path))
+                                                .expect("discovered child"),
+                                        );
+                                        candidate.info.installation_source =
+                                            installation_sources.get(&candidate.info.name).cloned();
+                                        candidate.info.import_origin = import_origin;
+                                        scan.candidates.push(candidate);
                                     }
-                                    let mut candidate = SkillCandidate::from_data(
-                                        data,
-                                        entry.slot,
+                                    Err(error) => scan.diagnostics.push(diagnostic(
+                                        &skill_md,
                                         entry.source_id,
-                                        entry.source_label,
-                                        PROJECT_SKILL_KEY_PREFIX,
-                                        entry.priority,
-                                        false,
-                                    );
-                                    set_nested_key(
-                                        &mut candidate,
-                                        path.strip_prefix(&format!("{}/", entry.path))
-                                            .expect("discovered child"),
-                                    );
-                                    candidate.info.installation_source =
-                                        installation_sources.get(&candidate.info.name).cloned();
-                                    scan.candidates.push(candidate);
+                                        error,
+                                    )),
                                 }
-                                Err(error) => scan.diagnostics.push(diagnostic(
-                                    &skill_md,
-                                    entry.source_id,
-                                    error,
-                                )),
-                            },
+                            }
                             Ok(None) => scan.diagnostics.push(diagnostic(
                                 &skill_md,
                                 entry.source_id,
@@ -323,6 +369,17 @@ impl SkillRegistry {
     }
 
     pub(super) async fn scan_skills_in_dir(entry: &SkillRootEntry) -> LocalSkillScan {
+        if entry.slot == "home.claude" && !entry.path.is_absolute() {
+            return LocalSkillScan {
+                candidates: Vec::new(),
+                diagnostics: vec![diagnostic(
+                    "$CLAUDE_CONFIG_DIR",
+                    entry.source_id,
+                    "Claude Code configuration directory must be absolute",
+                )],
+                cacheable: false,
+            };
+        }
         let mut scan = LocalSkillScan {
             candidates: Vec::new(),
             diagnostics: Vec::new(),
@@ -427,12 +484,31 @@ impl SkillRegistry {
                                 "SKILL.md exceeds the discovery size limit",
                             ));
                         } else {
+                            let import_origin = if entry.source_id == OPENBITFUN_SKILL_SOURCE_ID
+                                && !entry.is_builtin
+                            {
+                                match imports::read_import_origin(&path).await {
+                                    Ok(origin) => origin,
+                                    Err(error) => {
+                                        scan.diagnostics.push(diagnostic(
+                                            path.join(imports::IMPORT_MARKER).to_string_lossy(),
+                                            entry.source_id,
+                                            error,
+                                        ));
+                                        None
+                                    }
+                                }
+                            } else {
+                                None
+                            };
                             match Self::parse_skill_markdown(
                                 path.to_string_lossy().into_owned(),
                                 &content,
                                 entry.level,
                                 false,
-                                entry.slot,
+                                import_origin
+                                    .as_ref()
+                                    .map_or(entry.slot, |origin| origin.source_slot.as_str()),
                             ) {
                                 Ok(mut data) => {
                                     for warning in &data.compatibility_warnings {
@@ -471,6 +547,7 @@ impl SkillRegistry {
                                     set_nested_key(&mut candidate, &relative_dir);
                                     candidate.info.installation_source =
                                         installation_sources.get(&candidate.info.name).cloned();
+                                    candidate.info.import_origin = import_origin;
                                     scan.candidates.push(candidate);
                                 }
                                 Err(error) => scan.diagnostics.push(diagnostic(
@@ -759,9 +836,8 @@ mod tests {
             .find(|candidate| candidate.info.source_id == "pi")
             .unwrap();
         assert_eq!(pi.info.key, "project::pi::review.md");
-        // PI derives a missing name from the containing directory, including
-        // for a flat Markdown file (not from its filename).
-        assert_eq!(pi.info.name, "skills");
+        // Flat entries use the same filename stem locally and remotely.
+        assert_eq!(pi.info.name, "review");
         assert_eq!(pi.info.path, "/remote/.pi/skills");
         let content = SkillRegistry::read_skill_md_for_remote_merge(&pi.info, &FlatRemote)
             .await

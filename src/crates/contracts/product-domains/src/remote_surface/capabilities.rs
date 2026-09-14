@@ -45,8 +45,12 @@ pub enum PeerHostCapability {
     CancelTool,
     /// Read-only `get_all_tools_info` catalog is implemented.
     ToolCatalog,
+    /// Mode/workspace-scoped `get_chat_mcp_catalog` is implemented.
+    ChatMcpCatalogV1,
     /// `submit_user_answers` is implemented for Runtime-owned questions.
     UserQuestionResponse,
+    /// First human interaction disables the unattended question timeout.
+    UserQuestionInteractionV1,
 }
 
 impl PeerHostCapability {
@@ -63,7 +67,9 @@ impl PeerHostCapability {
         Self::ProductControlPresentationV1,
         Self::CancelTool,
         Self::ToolCatalog,
+        Self::ChatMcpCatalogV1,
         Self::UserQuestionResponse,
+        Self::UserQuestionInteractionV1,
     ];
 
     /// The key used in the `peer_mode_ping` `capabilities` object.
@@ -80,7 +86,9 @@ impl PeerHostCapability {
             Self::ProductControlPresentationV1 => "product_control_presentation_v1",
             Self::CancelTool => "cancel_tool",
             Self::ToolCatalog => "tool_catalog",
+            Self::ChatMcpCatalogV1 => "chat_mcp_catalog_v1",
             Self::UserQuestionResponse => "user_question_response",
+            Self::UserQuestionInteractionV1 => "user_question_interaction_v1",
         }
     }
 
@@ -102,7 +110,9 @@ const CLI_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::ProductControlV1,
     PeerHostCapability::CancelTool,
     PeerHostCapability::ToolCatalog,
+    PeerHostCapability::ChatMcpCatalogV1,
     PeerHostCapability::UserQuestionResponse,
+    PeerHostCapability::UserQuestionInteractionV1,
 ];
 
 /// The capabilities a peer host of the given kind publishes.

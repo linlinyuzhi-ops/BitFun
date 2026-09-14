@@ -190,6 +190,12 @@ Narrower local guides already exist for some subtrees:
 
 ## Verification
 
+AI client construction and subscription credential compatibility:
+
+```bash
+cargo test -p openbitfun-core --no-default-features --features ai-adapter-runtime,subscription-auth --lib infrastructure::ai::client_factory::tests
+```
+
 This guide owns Core verification. Select one command pattern that matches the
 change; do not run every feature variant:
 
@@ -230,6 +236,13 @@ cargo test -p openbitfun-core --no-default-features --features agent-runtime,git
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,git --lib file_write_tool::tests
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,git --lib delete_file_tool::tests
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,remote-workspace,git --lib service::snapshot::
+```
+
+MCP chat discovery and deferred-tool manifest contracts (Git is needed by the
+existing Agent tool test assembly):
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features mcp-runtime,git --lib agentic::tools::product_runtime::
 ```
 
 Skill discovery, installation provenance, and local/remote registry regressions:

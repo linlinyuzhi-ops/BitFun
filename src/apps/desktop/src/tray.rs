@@ -272,6 +272,9 @@ pub fn show_main_window(app: &tauri::AppHandle) {
             log::warn!("Failed to unminimize main window via tray: {}", error);
             return;
         }
+        if let Err(error) = crate::window_state_support::repair_for_activation(&window) {
+            log::warn!("Failed to repair main window geometry via tray: {}", error);
+        }
         if let Err(error) = window.show() {
             log::warn!("Failed to show main window via tray: {}", error);
             return;

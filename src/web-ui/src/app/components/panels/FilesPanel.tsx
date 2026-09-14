@@ -1,3 +1,4 @@
+import { FileText as LucideFileText } from 'lucide-react';
 /**
  * Files panel component
  * Displays the file explorer for the current workspace
@@ -1071,31 +1072,31 @@ const FilesPanel: React.FC<FilesPanelProps> = ({
               </div>
               <div className="openbitfun-files-panel__search-options">
                 <Tooltip content={t('options.caseSensitive')}>
-                  <button
+                  <IconButton
                     type="button"
                     className={`openbitfun-files-panel__search-option ${searchOptions.caseSensitive ? 'active' : ''}`}
                     onClick={() => setSearchOptions(prev => ({ ...prev, caseSensitive: !prev.caseSensitive }))}
-                  >
-                    <CaseSensitive size={14} />
-                  </button>
+                    aria-label={t('options.caseSensitive')}
+                    icon={<CaseSensitive size={14} />}
+                  />
                 </Tooltip>
                 <Tooltip content={t('options.wholeWord')}>
-                  <button
+                  <IconButton
                     type="button"
                     className={`openbitfun-files-panel__search-option ${searchOptions.wholeWord ? 'active' : ''}`}
                     onClick={() => setSearchOptions(prev => ({ ...prev, wholeWord: !prev.wholeWord }))}
-                  >
-                    <WholeWord size={14} />
-                  </button>
+                    aria-label={t('options.wholeWord')}
+                    icon={<WholeWord size={14} />}
+                  />
                 </Tooltip>
                 <Tooltip content={t('options.useRegex')}>
-                  <button
+                  <IconButton
                     type="button"
                     className={`openbitfun-files-panel__search-option ${searchOptions.useRegex ? 'active' : ''}`}
                     onClick={() => setSearchOptions(prev => ({ ...prev, useRegex: !prev.useRegex }))}
-                  >
-                    <Regex size={14} />
-                  </button>
+                    aria-label={t('options.useRegex')}
+                    icon={<Regex size={14} />}
+                  />
                 </Tooltip>
               </div>
             </div>
@@ -1112,13 +1113,7 @@ const FilesPanel: React.FC<FilesPanelProps> = ({
         {!workspacePath ? (
           <div className="openbitfun-files-panel__placeholder" data-openbitfun-component="files-panel" data-openbitfun-part="placeholder">
             <div className="openbitfun-files-panel__placeholder-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14,2 14,8 20,8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/>
-                <line x1="16" y1="17" x2="8" y2="17"/>
-                <polyline points="10,9 9,9 8,9"/>
-              </svg>
+              <LucideFileText width="32" height="32" stroke="currentColor" aria-hidden="true" />
             </div>
             <p>{t('empty.selectWorkspace')}</p>
           </div>

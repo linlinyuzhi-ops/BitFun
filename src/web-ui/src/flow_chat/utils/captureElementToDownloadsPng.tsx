@@ -1,3 +1,4 @@
+import { Button } from '@openbitfun/ui';
 import { downloadDir, join } from '@tauri-apps/api/path';
 import { writeFile } from '@tauri-apps/plugin-fs';
 import { notificationService } from '@/shared/notification-system';
@@ -112,7 +113,7 @@ export async function captureElementToDownloadsPng(
     messageNode: (
       <>
         {successPrefix}
-        <button
+        <Button labelBehavior="static" variant="text"
           type="button"
           className="notification-item__path-link"
           onClick={(e) => {
@@ -122,7 +123,7 @@ export async function captureElementToDownloadsPng(
           }}
         >
           {filePath}
-        </button>
+        </Button>
       </>
     ),
   });

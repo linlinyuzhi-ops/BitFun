@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppearanceMarketDialog } from './AppearanceMarketDialog';
 
 const mocks = vi.hoisted(() => ({
+  getCachedPage: vi.fn(),
   browse: vi.fn(),
   getListing: vi.fn(),
   downloadRelease: vi.fn(),
@@ -30,7 +31,7 @@ const mocks = vi.hoisted(() => ({
     me: {
       user: { githubId: 1, login: 'reviewer', avatarUrl: '' },
       isAdmin: true,
-    },
+    } as { user: { githubId: number; login: string; avatarUrl: string }; isAdmin: boolean } | null,
   },
 }));
 
@@ -38,7 +39,9 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock('@openbitfun/ui', () => ({
+vi.mock('@openbitfun/ui', async (importOriginal) => ({
+  NavigationPanelItem: (await importOriginal<typeof import('@openbitfun/ui')>()).NavigationPanelItem,
+  DialogHeaderActions: (await importOriginal<typeof import('@openbitfun/ui')>()).DialogHeaderActions,
   ScrollArea: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
   Icon: ({ name, ...props }: { name: string } & React.HTMLAttributes<HTMLSpanElement>) => <span data-icon={name} {...props} />,
   OverflowText: ({ children, behavior: _behavior, marqueeActive: _marqueeActive, ...props }: any) => <span {...props}>{children}</span>,
@@ -101,7 +104,7 @@ vi.mock('@/infrastructure/confirm-dialog', () => ({
 }));
 
 vi.mock('@/features/market-account', () => ({
-  AccountIdentityControls: () => <div data-testid="shared-market-account-controls" />,
+  AccountIdentityControls: () => <button type="button" data-testid="shared-market-account-controls">@reviewer</button>,
 }));
 
 vi.mock('@/infrastructure/account-identity', () => ({
@@ -117,6 +120,7 @@ vi.mock('@/infrastructure/i18n/hooks/useI18n', () => ({
 
 vi.mock('@/infrastructure/api/service-api/AppearanceMarketAPI', () => ({
   appearanceMarketAPI: {
+    getCachedPage: mocks.getCachedPage,
     browse: mocks.browse,
     getListing: mocks.getListing,
     downloadRelease: mocks.downloadRelease,
@@ -187,6 +191,11 @@ describe('AppearanceMarketDialog', () => {
   let root: ReturnType<typeof createRoot>;
 
   beforeEach(() => {
+    mocks.accountState.me = {
+      user: { githubId: 1, login: 'reviewer', avatarUrl: '' }, isAdmin: true,
+    };
+    mocks.accountState.status = 'signed-in';
+    mocks.getCachedPage.mockReset();
     mocks.browse.mockReset().mockResolvedValue({ items: [summary] });
     mocks.getListing.mockReset().mockResolvedValue({
       ...summary,
@@ -252,6 +261,11 @@ describe('AppearanceMarketDialog', () => {
     });
     await vi.waitFor(() => expect(container.textContent).toContain('Tokyo Night'));
     expect(container.querySelector('[data-testid="shared-market-account-controls"]')).not.toBeNull();
+    expect(container.querySelector('h2')?.textContent).toBe('package.market.title');
+    const accountControls = container.querySelector('[data-testid="shared-market-account-controls"]')!;
+    const headerActions = accountControls.closest('[data-openbitfun-part="header-actions"]');
+    expect(headerActions).not.toBeNull();
+    expect(headerActions?.querySelector('button[aria-label="Close"]')).not.toBeNull();
     expect(container.textContent).toContain('package.market.updateAvailable');
 
     const listingButton = [...container.querySelectorAll('button')]
@@ -285,6 +299,11 @@ describe('AppearanceMarketDialog', () => {
     });
     expect(mocks.activate).not.toHaveBeenCalled();
     expect(container.textContent).toContain('package.market.noAutoApply');
+    const browse = container.querySelector<HTMLButtonElement>('.appearance-market__nav [aria-current="page"]')!;
+    expect(browse.textContent).toBe('package.market.views.browse');
+    await act(async () => browse.querySelector<HTMLElement>('[data-openbitfun-part="label"]')!.click());
+    expect(container.querySelector('.appearance-market__detail')).toBeNull();
+    expect(container.querySelector('.appearance-market__browse')).not.toBeNull();
   });
 
   it('holds the grid with placeholder cards while the first page loads', async () => {
@@ -311,6 +330,43 @@ describe('AppearanceMarketDialog', () => {
 
     await vi.waitFor(() => expect(container.textContent).toContain('Tokyo Night'));
     expect(container.querySelector('.appearance-market__card--skeleton')).toBeNull();
+  });
+
+  it('shows cached cards immediately and preserves the same image through revalidation', async () => {
+    mocks.getCachedPage.mockReturnValue({ items: [summary] });
+    let resolveBrowse!: (page: unknown) => void;
+    mocks.browse.mockImplementation(() => new Promise(resolve => { resolveBrowse = resolve; }));
+    await act(async () => root.render(<AppearanceMarketDialog isOpen onClose={() => undefined} />));
+    const image = container.querySelector('.appearance-market__preview img');
+    expect(image).not.toBeNull();
+    expect(container.querySelector('.appearance-market__card--skeleton')).toBeNull();
+    expect(container.querySelector('.appearance-market__results--dimmed')).toBeNull();
+    await act(async () => resolveBrowse({ items: [summary] }));
+    expect(container.querySelector('.appearance-market__preview img')).toBe(image);
+  });
+
+  it('keeps cached cards available when revalidation fails', async () => {
+    mocks.getCachedPage.mockReturnValue({ items: [summary] });
+    mocks.browse.mockRejectedValue(new Error('offline'));
+    await act(async () => root.render(<AppearanceMarketDialog isOpen onClose={() => undefined} />));
+    expect(container.textContent).toContain('Tokyo Night');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('offline');
+  });
+
+  it('ignores a stale browse response after the sort changes', async () => {
+    const responses: Array<(page: unknown) => void> = [];
+    mocks.browse.mockImplementation(() => new Promise(resolve => { responses.push(resolve); }));
+    await act(async () => root.render(<AppearanceMarketDialog isOpen onClose={() => undefined} />));
+    await act(async () => {
+      const select = container.querySelector<HTMLSelectElement>('[aria-label="package.market.sortLabel"]')!;
+      select.value = 'downloads';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(responses).toHaveLength(2);
+    await act(async () => responses[1]({ items: [{ ...summary, name: 'Newest result' }] }));
+    await act(async () => responses[0]({ items: [summary] }));
+    expect(container.textContent).toContain('Newest result');
+    expect(container.textContent).not.toContain('Tokyo Night');
   });
 
   it('keeps an empty result set on the empty state once loading settles', async () => {
@@ -360,8 +416,11 @@ describe('AppearanceMarketDialog', () => {
 
     const submissionsTab = [...container.querySelectorAll('button')]
       .find(button => button.textContent === 'package.market.views.submissions');
-    await act(async () => submissionsTab?.click());
+    await act(async () => submissionsTab?.querySelector<HTMLElement>('[data-openbitfun-part="label"]')?.click());
     await vi.waitFor(() => expect(container.textContent).toContain('Tokyo Night candidate'));
+    expect(mocks.listSubmissions).toHaveBeenCalledOnce();
+    expect(submissionsTab?.getAttribute('aria-current')).toBe('page');
+    await act(async () => submissionsTab?.click());
     expect(mocks.listSubmissions).toHaveBeenCalledOnce();
 
     const reviewTab = [...container.querySelectorAll('button')]
@@ -369,8 +428,48 @@ describe('AppearanceMarketDialog', () => {
     await act(async () => reviewTab?.click());
     await vi.waitFor(() => expect(mocks.getReviewSubmission).toHaveBeenCalledWith('submission-1'));
     expect(mocks.listReviewSubmissions).toHaveBeenCalledOnce();
+    expect(reviewTab?.getAttribute('aria-current')).toBe('page');
     expect(container.textContent).toContain('package.market.review.approve');
     expect(container.textContent).toContain('package.market.review.reject');
+  });
+
+  it.each([
+    { signedIn: false, admin: false, count: 1 },
+    { signedIn: true, admin: false, count: 2 },
+    { signedIn: true, admin: true, count: 3 },
+  ])('keeps navigation visibility for account state $signedIn / admin $admin', async ({ signedIn, admin, count }) => {
+    mocks.accountState.me = signedIn ? {
+      user: { githubId: 1, login: 'member', avatarUrl: '' }, isAdmin: admin,
+    } : null;
+    mocks.accountState.status = signedIn ? 'signed-in' : 'signed-out';
+    const onClose = vi.fn();
+    await act(async () => root.render(<AppearanceMarketDialog isOpen onClose={onClose} />));
+    const nav = container.querySelector('nav')!;
+    const buttons = nav.querySelectorAll('button');
+    expect(buttons).toHaveLength(count);
+    expect(nav.querySelectorAll('[data-openbitfun-component="action-item"]')).toHaveLength(count);
+    expect(nav.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    expect(nav.querySelector('[role="tab"]')).toBeNull();
+    expect(nav.querySelector('[data-overflow-behavior]')).toBeNull();
+    await act(async () => buttons[0].click());
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('returns to browse when account permissions remove the active navigation entry', async () => {
+    const onClose = vi.fn();
+    await act(async () => root.render(<AppearanceMarketDialog isOpen onClose={onClose} />));
+    const review = [...container.querySelectorAll<HTMLButtonElement>('nav button')]
+      .find(button => button.textContent === 'package.market.views.review')!;
+    await act(async () => review.click());
+    expect(review.getAttribute('aria-current')).toBe('page');
+    mocks.accountState.me = { ...mocks.accountState.me!, isAdmin: false };
+    await act(async () => root.render(<AppearanceMarketDialog isOpen onClose={onClose} />));
+    expect(container.querySelectorAll('nav button')).toHaveLength(2);
+    expect(container.querySelector('nav [aria-current="page"]')?.textContent).toBe('package.market.views.browse');
+    mocks.accountState.me = null;
+    await act(async () => root.render(<AppearanceMarketDialog isOpen onClose={onClose} />));
+    expect(container.querySelectorAll('nav button')).toHaveLength(1);
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('shows a moderated Skin as unpublished instead of approved', async () => {

@@ -103,6 +103,7 @@ describe('isPeerLocalOnlyCommand', () => {
     // them to a peer would regress (peer host does not implement them, and
     // they drive the controller's own embedded surfaces).
     expect(isPeerLocalOnlyCommand('browser_webview_create')).toBe(true);
+    expect(isPeerLocalOnlyCommand('browser_webview_capture_preview')).toBe(true);
     expect(isPeerLocalOnlyCommand('browser_webview_eval')).toBe(true);
     expect(isPeerLocalOnlyCommand('browser_webview_navigate')).toBe(true);
     expect(isPeerLocalOnlyCommand('browser_webview_reload')).toBe(true);
@@ -354,11 +355,9 @@ describe('PeerDeviceTransportAdapter queue', () => {
     ]);
   });
 
-  it('dispatches cancel_tool immediately when the non-high slot is busy', async () => {
-    // The Terminal Interrupt button calls cancel_tool; a long-running shell on
-    // the peer keeps producing side effects until the cancel lands. cancel_tool
-    // is high-priority, so it takes the reserved high slot and dispatches even
-    // while a normal-priority mutation occupies the single non-high slot.
+  it.each(['cancel_tool', 'start_user_question_interaction', 'submit_user_answers'])('dispatches %s immediately when the non-high slot is busy', async (command) => {
+    // Interactive control must use the reserved slot while a normal mutation
+    // is blocked, including stopping an unattended question deadline.
     const started: string[] = [];
     const normalGate = createDeferred<void>();
 
@@ -393,10 +392,10 @@ describe('PeerDeviceTransportAdapter queue', () => {
 
     // Interrupt fires while the normal slot is busy. It must start on the
     // reserved high slot without waiting for the mutation to finish.
-    const cancel = adapter.request('cancel_tool', { request: { toolUseId: 'tu-1' } });
+    const cancel = adapter.request(command, { request: { toolUseId: 'tu-1', toolId: 'tu-1', sessionId: 'session-1' } });
     await Promise.resolve();
     await Promise.resolve();
-    expect(started).toEqual(['set_config', 'cancel_tool']);
+    expect(started).toEqual(['set_config', command]);
     expect(adapter.getActiveCountsForTest().high).toBe(1);
 
     await cancel;

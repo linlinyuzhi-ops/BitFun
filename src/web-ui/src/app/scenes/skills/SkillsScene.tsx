@@ -118,6 +118,7 @@ const SkillsScene: React.FC = () => {
   const remoteConnectionActive = peerDevice?.peerMode.active === true;
   const desktopConfigAvailable = isTauriRuntime() && !remoteConnectionActive;
   const {
+    nativeNavigationRequest,
     searchDraft,
     marketQuery,
     installedView,
@@ -139,6 +140,13 @@ const SkillsScene: React.FC = () => {
     | { type: 'market'; skill: SkillMarketItem }
     | null
   >(null);
+
+  useEffect(() => {
+    if (!nativeNavigationRequest) return;
+    setActiveTab('installed');
+    setInstalledSearch('');
+    setSelectedDetail(null);
+  }, [nativeNavigationRequest]);
 
   const installed = useInstalledSkills({
     searchQuery: installedSearch,

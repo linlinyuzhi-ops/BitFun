@@ -1,8 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import { Check as LucideCheck } from 'lucide-react';
+import React, { createContext, useContext, useMemo, useRef, useState } from 'react';
 import { MobileButton, MobileCard, MobileTextField } from '@openbitfun/ui/mobile';
 import { useI18n } from '../i18n';
 import { messages } from '../i18n/messages';
 import type { RemoteToolStatus } from '../services/RemoteSessionManager';
+
+export const QuestionInteractionContext = createContext<((toolId: string) => Promise<void>) | null>(null);
 
 interface ChatAskQuestionCardProps {
   onAnswer: (toolId: string, answers: Record<string, unknown>) => Promise<void>;
@@ -46,6 +49,13 @@ function isOtherOption(label: string | undefined): boolean {
 
 export default function ChatAskQuestionCard({ onAnswer, tool }: ChatAskQuestionCardProps) {
   const { t, language } = useI18n();
+  const onInteraction = useContext(QuestionInteractionContext);
+  const interactionStarted = useRef(false);
+  const startInteraction = () => {
+    if (!onInteraction || interactionStarted.current) return;
+    interactionStarted.current = true;
+    void onInteraction(tool.id).catch(() => { interactionStarted.current = false; });
+  };
   const questions = (tool.tool_input?.questions || []) as Array<Omit<Question, 'hasBuiltInOther'>>;
   const [selected, setSelected] = useState<Record<number, string | string[]>>({});
   const [customTexts, setCustomTexts] = useState<Record<number, string>>({});
@@ -64,6 +74,7 @@ export default function ChatAskQuestionCard({ onAnswer, tool }: ChatAskQuestionC
   if (normalizedQuestions.length === 0) return null;
 
   const handleSelect = (questionIndex: number, label: string, multiple: boolean) => {
+    startInteraction();
     setSelected((current) => {
       if (multiple) {
         const values = (current[questionIndex] as string[] | undefined) || [];
@@ -144,7 +155,7 @@ export default function ChatAskQuestionCard({ onAnswer, tool }: ChatAskQuestionC
                     onClick={() => handleSelect(questionIndex, option.label, !!question.multiSelect)}
                   >
                     <span className={`chat-ask-card__radio ${question.multiSelect ? 'chat-ask-card__radio--multi' : ''}`}>
-                      {optionSelected && <svg width="8" height="8" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8L6.5 11.5L13 4.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                      {optionSelected && <LucideCheck width="8" height="8" aria-hidden="true" />}
                     </span>
                     <span className="chat-ask-card__option-label">{option.label}</span>
                     {option.description && <span className="chat-ask-card__option-desc">{option.description}</span>}
@@ -159,7 +170,7 @@ export default function ChatAskQuestionCard({ onAnswer, tool }: ChatAskQuestionC
                   onClick={() => handleSelect(questionIndex, 'Other', !!question.multiSelect)}
                 >
                   <span className={`chat-ask-card__radio ${question.multiSelect ? 'chat-ask-card__radio--multi' : ''}`}>
-                    {otherSelected && <svg width="8" height="8" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8L6.5 11.5L13 4.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                    {otherSelected && <LucideCheck width="8" height="8" aria-hidden="true" />}
                   </span>
                   <span className="chat-ask-card__option-label">{t('common.other')}</span>
                   <span className="chat-ask-card__option-desc">{t('common.customTextInput')}</span>
@@ -170,6 +181,8 @@ export default function ChatAskQuestionCard({ onAnswer, tool }: ChatAskQuestionC
                   appearance="surface"
                   disabled={submitted || submitting}
                   className="chat-ask-card__custom-input"
+                  onFocus={startInteraction}
+                  onClick={startInteraction}
                   onChange={(event) => setCustomTexts((current) => ({ ...current, [questionIndex]: event.target.value }))}
                   placeholder={t('common.typeYourAnswer')}
                   value={customTexts[questionIndex] || ''}
@@ -180,7 +193,7 @@ export default function ChatAskQuestionCard({ onAnswer, tool }: ChatAskQuestionC
         );
       })}
       <MobileButton appearance="primary" block className="chat-ask-card__submit chat-ask-card__submit--bottom" disabled={!allAnswered || submitted || submitting} onClick={() => void handleSubmit()}>
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8L6 12L14 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        <LucideCheck width="12" height="12" aria-hidden="true" />
         {submitted ? t('common.submitted') : submitting ? t('common.submitting') : t('common.submit')}
       </MobileButton>
     </MobileCard>

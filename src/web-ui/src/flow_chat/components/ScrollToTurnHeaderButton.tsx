@@ -1,3 +1,4 @@
+import { ArrowUp as LucideArrowUp } from 'lucide-react';
 /**
  * Scroll-to-current-turn-header button.
  * Shows at the top of the message list when the current turn's user message
@@ -6,7 +7,7 @@
 
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Tooltip } from '@openbitfun/ui';
+import { IconButton, Tooltip } from '@openbitfun/ui';
 import './ScrollToTurnHeaderButton.scss';
 
 interface ScrollToTurnHeaderButtonProps {
@@ -25,37 +26,22 @@ export const ScrollToTurnHeaderButton: React.FC<ScrollToTurnHeaderButtonProps> =
   const { t } = useTranslation('flow-chat');
 
   return (
-    <div data-openbitfun-component="scroll-to-turn-header-button" data-openbitfun-part="root" data-openbitfun-state={visible ? 'visible' : ''}
+    <div data-openbitfun-product-component="scroll-to-turn-header-button" data-openbitfun-product-part="root" data-openbitfun-state={visible ? 'visible' : ''}
       className={`scroll-to-turn-header-trigger ${visible ? 'scroll-to-turn-header-trigger--visible' : ''} ${className}`}
       aria-hidden={!visible}
     >
-      <div data-openbitfun-component="scroll-to-turn-header-button" data-openbitfun-part="gradient" className="scroll-to-turn-header-trigger__gradient" />
-      <div data-openbitfun-component="scroll-to-turn-header-button" data-openbitfun-part="content" className="scroll-to-turn-header-trigger__content">
+      <div data-openbitfun-product-component="scroll-to-turn-header-button" data-openbitfun-product-part="gradient" className="scroll-to-turn-header-trigger__gradient" />
+      <div data-openbitfun-product-component="scroll-to-turn-header-button" data-openbitfun-product-part="content" className="scroll-to-turn-header-trigger__content">
         <Tooltip content={turnLabel || t('scroll.toCurrentTurn')}>
-          <button
-            data-openbitfun-component="scroll-to-turn-header-button"
-            data-openbitfun-part="button"
+          <IconButton
+            data-openbitfun-product-component="scroll-to-turn-header-button"
+            data-openbitfun-product-part="button"
             className="scroll-to-turn-header-trigger__btn"
             onClick={onClick}
             aria-label={turnLabel || t('scroll.toCurrentTurn')}
             tabIndex={visible ? 0 : -1}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M8 12.5V3.5M8 3.5L4 7.5M8 3.5L12 7.5"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
+            icon={<LucideArrowUp width="16" height="16" aria-hidden="true" />}
+          />
         </Tooltip>
       </div>
     </div>

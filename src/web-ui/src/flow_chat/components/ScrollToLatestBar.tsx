@@ -1,3 +1,5 @@
+import { IconButton } from '@openbitfun/ui';
+import { ArrowDown as LucideArrowDown } from 'lucide-react';
 /**
  * Scroll-to-latest bar.
  * Minimal divider style with a soft fade.
@@ -67,8 +69,8 @@ export const ScrollToLatestBar: React.FC<ScrollToLatestBarProps> = ({
     <RetainedMountBoundary present={visible}>
       <div
         ref={barRef}
-        data-openbitfun-component="scroll-to-latest-bar"
-        data-openbitfun-part="root"
+        data-openbitfun-product-component="scroll-to-latest-bar"
+        data-openbitfun-product-part="root"
         data-openbitfun-input="active"
         data-visible={visible ? 'true' : 'false'}
         className={`scroll-to-latest-bar ${className}`}
@@ -86,14 +88,13 @@ export const ScrollToLatestBar: React.FC<ScrollToLatestBarProps> = ({
         {...(!visible ? { inert: '' } : {})}
         aria-label={t('scroll.toLatest')}
       >
-        <div data-openbitfun-component="scroll-to-latest-bar" data-openbitfun-part="gradient" className="scroll-to-latest-bar__gradient" />
+        <div data-openbitfun-product-component="scroll-to-latest-bar" data-openbitfun-product-part="gradient" className="scroll-to-latest-bar__gradient" />
 
-        <div data-openbitfun-component="scroll-to-latest-bar" data-openbitfun-part="content" className="scroll-to-latest-bar__content" style={contentStyle}>
-          <button data-openbitfun-component="scroll-to-latest-bar" data-openbitfun-part="button" className="scroll-to-latest-bar__btn" aria-hidden="true" tabIndex={-1}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M8 3.5V12.5M8 12.5L4 8.5M8 12.5L12 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
+        <div data-openbitfun-product-component="scroll-to-latest-bar" data-openbitfun-product-part="content" className="scroll-to-latest-bar__content" style={contentStyle}>
+          <IconButton data-openbitfun-product-component="scroll-to-latest-bar" data-openbitfun-product-part="button" className="scroll-to-latest-bar__btn" aria-hidden="true" tabIndex={-1}
+            aria-label={t('scroll.toLatest')}
+            icon={<LucideArrowDown width="16" height="16" aria-hidden="true" />}
+          />
         </div>
       </div>
     </RetainedMountBoundary>

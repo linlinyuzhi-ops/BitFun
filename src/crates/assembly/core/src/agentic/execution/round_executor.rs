@@ -829,6 +829,15 @@ impl RoundExecutor {
                     );
                 }
                 Err(stream_err) => {
+                    if matches!(&stream_err.error, OpenBitFunError::Cancelled(_)) {
+                        Self::complete_model_exchange_trace(
+                            trace_config.as_ref(),
+                            trace_handle.as_ref(),
+                            Self::error_trace_response("cancelled", stream_err.error.to_string()),
+                        )
+                        .await;
+                        return Err(stream_err.error);
+                    }
                     let err_msg = stream_err.error.to_string();
                     let stream_error_category = stream_err.error.error_category();
                     let retryable = Self::should_retry_provider_error(&stream_error_category);
@@ -1785,6 +1794,10 @@ mod tests {
 
     impl RetryTestServer {
         fn new(replies: Vec<(u16, String)>) -> Self {
+            Self::with_open_stream(replies, false)
+        }
+
+        fn with_open_stream(replies: Vec<(u16, String)>, keep_open: bool) -> Self {
             use std::io::{BufRead, Read, Write};
             use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -1809,6 +1822,7 @@ mod tests {
                         }
                         Err(error) => panic!("accept retry fixture request: {error}"),
                     };
+                    socket.set_nonblocking(false).unwrap();
                     socket
                         .set_read_timeout(Some(Duration::from_secs(5)))
                         .unwrap();
@@ -1841,7 +1855,11 @@ mod tests {
                     } else {
                         "application/json"
                     };
-                    write!(socket, "HTTP/1.1 {status} Fixture\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                    write!(socket, "HTTP/1.1 {status} Fixture\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len() + usize::from(keep_open)).unwrap();
+                    socket.flush().unwrap();
+                    while keep_open && !stopped.load(Ordering::Relaxed) {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
                 }
             });
             Self {
@@ -1903,6 +1921,55 @@ mod tests {
                 })
             ),
         )
+    }
+
+    #[tokio::test]
+    async fn cancelling_live_stream_does_not_record_a_failed_retry() {
+        let body = format!(
+            "data: {}\n\n",
+            json!({
+                "id": "cancel-test", "object": "chat.completion.chunk", "created": 1,
+                "model": "retry-test-model",
+                "choices": [{"index": 0, "delta": {"content": "Before pause"}, "finish_reason": null}]
+            })
+        );
+        let server = RetryTestServer::with_open_stream(vec![(200, body)], true);
+        let executor = test_round_executor();
+        let token = CancellationToken::new();
+        executor.register_cancel_token("turn-1", token.clone());
+        let execution = executor.execute_round(
+            server.client(),
+            test_round_context(),
+            vec![super::AIMessage::user("Pause during output".to_string())],
+            None,
+            None,
+        );
+        let observe = async {
+            let mut events = Vec::new();
+            loop {
+                events.extend(executor.event_queue.dequeue_batch(100).await);
+                if events
+                    .iter()
+                    .any(|event| matches!(event.event, AgenticEvent::TextChunk { .. }))
+                {
+                    token.cancel();
+                    break events;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        let (result, mut events) = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(execution, observe)
+        })
+        .await
+        .expect("live stream should be cancelled after its first output");
+        assert!(matches!(result, Err(OpenBitFunError::Cancelled(_))));
+        events.extend(executor.event_queue.dequeue_batch(100).await);
+        assert!(!events.iter().any(|event| matches!(
+            event.event,
+            AgenticEvent::ModelRoundAttemptSuperseded { .. }
+        )));
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -2066,6 +2133,8 @@ mod tests {
         use openbitfun_runtime_ports::PermissionMode;
 
         let mut global = GlobalConfig::default();
+        global.tool_permissions.policy.preset =
+            openbitfun_runtime_ports::PermissionPolicyPreset::Ask;
         global.tool_permissions.interaction.auto_approve_ask = true;
         let mut context_vars = std::collections::HashMap::new();
 

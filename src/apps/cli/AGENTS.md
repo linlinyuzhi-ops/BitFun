@@ -38,7 +38,7 @@ Normal interactive submissions follow:
 ChatView / StartupPage
   -> CliAgentRuntimeClient
      -> Embedded AgentRuntime typed API
-     -> Shared private Runtime IPC v17
+     -> Shared private Runtime IPC v18
   -> existing owner/service APIs
      -> ConfigService / registries / MCPService / AccountRuntime / WorktreeService
      -> External Source and Hook domain APIs
@@ -140,6 +140,7 @@ Run the smallest checks matching the changed path:
 ```bash
 cargo check -p openbitfun-cli
 cargo test -p openbitfun-cli
+cargo test -p openbitfun-cli --bin openbitfun peer_host::
 cargo test -p openbitfun-cli --bin openbitfun system_info_home_contract
 ```
 
@@ -158,3 +159,5 @@ owners' commands into this guide.
 Use [`README.md`](README.md) for user-facing behavior and installation. Keep
 developer internals here or in architecture docs instead of expanding the user
 guide.
+
+For unattended question lifecycle changes, run `cargo test --locked -p openbitfun-cli --bin openbitfun shared_runtime::` and `cargo test --locked -p openbitfun-agent-runtime-ipc protocol_contract_tests::`.

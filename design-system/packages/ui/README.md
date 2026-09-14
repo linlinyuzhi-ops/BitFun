@@ -18,6 +18,12 @@ export function Example() {
 
 The package owns component anatomy, behavior, accessibility, and stable variants. It does not own theme selection persistence, product state, routes, locale resources, or platform APIs.
 
+Floating dialog/sheet overlays, menu popovers, select/combobox popups and tooltips declare
+`data-openbitfun-native-webview-occlusion` on their rendered floating surface.
+Native hosts use its visible bounds to temporarily hide overlapping child views;
+the components do not call platform APIs. Custom product popovers should declare
+the same marker on the floating element, including while its exit animation runs.
+
 ## Voice calls
 
 `VoiceCallPanel` owns the complete compact call surface: navigation, particle
@@ -56,6 +62,16 @@ The host allocates its dimensions; the product uses the existing 480 × 680
 compact-window contract. Build and source tests do not prove visual fidelity.
 
 ## Buttons
+
+`labelBehavior="overflow"` is the default and retains the shared OverflowText
+behavior. Use `labelBehavior="static"` for actions whose text must keep its
+existing wrapping or inline composition without adding clipping, a marquee,
+or an automatic overflow tooltip. Static labels inherit the button's whitespace
+and line height; button variants, sizes, loading, and disabled behavior stay the
+same. An explicitly composed OverflowText child retains its own behavior.
+The public `data-openbitfun-part` slots are `root`, `content`, `label`,
+`leading-icon`, `trailing-icon`, and `progress`; use them for scoped product
+layout instead of private CSS module classes.
 
 Choose variants by action role: use `primary` for the main save, submit, create,
 or confirm action, and `fill` for cancel, dismiss, or discard alongside it.
@@ -107,6 +123,13 @@ Use `OverflowText` for single-line, non-editable labels instead of local
 defaults to **fade-out truncation with an interaction marquee**: a background-independent
 gradient mask at the inline end, followed by scrolling on hover or keyboard focus.
 Both effects apply only when the text actually overflows. Short labels remain untouched.
+Single-line text uses a vertically centered inner box with the font's natural leading
+so tight control line heights do not clip descenders. The outer box keeps at least
+the owner's line height (`1lh`), without an extra inline baseline strut shifting
+the text relative to adjacent icons. This applies to plain-text
+fade and marquee labels; multiline clamps and rich composition retain their layout.
+Let text slots size naturally in the block direction instead of forcing a text-height
+box or adding outer pixel padding to compensate for clipped glyphs.
 Overflowing labels also open a wrapping, selectable tooltip on hover or keyboard
 focus, including when motion is reduced. The tooltip uses the owning
 `data-overflow-trigger` control and groups its clipped text slots into one popup.
@@ -135,6 +158,15 @@ on its owning trigger, without adding another tab stop. `ListboxOption` forwards
 its virtual active state through this contract. Selected
 tabs do not animate automatically. Motion respects `prefers-reduced-motion`;
 reduced-motion users keep the static fade. Text and movement follow RTL direction.
+
+Use `overflowStyle="ellipsis"` when a single-line slot requires a visible ellipsis
+instead of a resting fade. It works with static `behavior="fade"` labels and with
+`behavior="marquee"`, which reveals the full text on interaction and returns to
+the ellipsis afterward. Reduced motion keeps the ellipsis. Multiline clamps retain
+their existing behavior. Set `marqueeTrigger="interaction"` to ignore virtual
+active state on both the label and its owner; the default
+`"interaction-or-active"` preserves existing listbox behavior. This also prevents
+virtual activation from opening the label's tooltip; actual hover/focus still works.
 
 Rich children default to fade to preserve the label's existing inline composition.
 Composite containers keep their icons/actions fixed and give each text slot its
@@ -205,6 +237,19 @@ Hosts without Web Animations render the current text immediately.
 The **RollingText** Design Lab entry includes manual standalone and TabGroup
 examples for repeated replacement and long labels.
 
+`ActionItem` and its `NavigationPanelItem` composition also accept
+`labelBehavior="static"` to preserve wrapping labels without an implicit overflow
+tooltip or marquee. Their default remains `"overflow"`. The public `label` part
+retains its typography, and the static label inherits whitespace from its owner.
+`NavigationPanelItem.className` styles the outer row; native button attributes and
+the ref reach its `trigger` part. Keep row layout separate from trigger styling.
+
+`TabGroupItem.tabProps` applies `className`, `style`, `title`, `aria-label`,
+`aria-describedby`, and `data-*` attributes directly to the native tab button.
+Use product-namespaced data attributes for product appearance identity. The
+component retains its own part marker, IDs, panel association, disabled state,
+selection, focus, and event handling. Keep IDs and panel IDs in the item fields.
+
 `TabGroup.renderItem(item, node, index)` can wrap the supplied standard item in
 a tooltip, context-menu owner, or drag target. Keep `node` intact so TabGroup
 continues to own selection, keyboard navigation, label overflow, and end-action
@@ -274,47 +319,35 @@ circle with a 16px glyph. Quiet and outline controls use the shared neutral
 hover surface for both hover and pressed states; outline keeps its border when
 disabled. Existing sm/md/lg sizes and the default sm size remain available.
 
-The 62 reviewed single-path, single-tone masks have opaque paths.
-`Icon` and `SessionIcon` retain their original 80% artwork opacity standalone;
-Button, IconButton, ActionItem and TabGroup slots own this opacity in controls
-through the public `--openbitfun-opacity-icon-artwork` contract. Button trailing
-slots use half the content opacity and restore full disabled content opacity.
-The progress-25 and legacy turn assets retain their internal transparency.
-Product callers should not add opacity or dimensions inside these owned slots.
+General-purpose icons use **Lucide**. Named icons and explicit `glyph` icons
+share a 1.6 line weight, semantic sizing, theme color and accessibility behavior.
+Only `minimal`, `standard`, `ultimate`, `creative` and `git` retain reviewed
+SVG masks. Product logos and mascots are separate brand artwork. The device
+overview retains its original device/server SVGs and MacBook image in the Web UI.
 
-The catalog uses exported vectors, including their view boxes and per-path
-opacity. Theme colors remain caller-owned through `currentColor`. Asset
-fingerprints are reviewed with intentional resource updates so replacing a
-glyph with a similarly named substitute cannot pass unnoticed.
-
-Prefer a catalog `name` whenever it is an exact semantic match. When the
-catalog has no matching symbol, pass the Lucide component through `glyph` so
-the shared boundary applies the standard 1.6 line weight, semantic sizing,
-tone and accessibility behavior:
+Use a semantic `name` when available, or import the required Lucide glyph:
 
 ```tsx
 import { Icon } from "@openbitfun/ui";
 import { Network } from "lucide-react";
 
+<Icon name="search" size="sm" />
 <Icon glyph={Network} size="sm" />
 ```
 
-Do not set `strokeWidth` at product call sites. Let a button, menu, tab or
-navigation slot own the final glyph geometry; use `size` only for standalone
-icons. Raw Lucide rendering remains appropriate for intentionally filled
-marks, progress indicators, illustrations, or a reviewed optical exception.
+Do not set `strokeWidth` at product call sites. Button, menu, tab and navigation
+slots own final geometry and opacity; standalone named icons retain the public
+`--openbitfun-opacity-icon-artwork` treatment. Brand assets retain their original
+geometry, and fixture fingerprints protect the five preserved masks.
 
-Use `canonicalIconNames` for galleries and pickers. `iconNames` also keeps the
-legacy `download`, `circle` and `turn` entries for compatibility; prefer
-`arrow-down`, `unselected` and `<NumberBadge value={18} />` respectively.
-`turn` is only the old empty background, not a complete numbered marker.
-`NumberBadge` owns a 24px filled surface and 11px regular text; longer
-values grow horizontally. Callers supply formatted values and contextual
-accessible labels. `ToolbarBadge` delegates to the same anatomy.
+Use `canonicalIconNames` for galleries and pickers. Existing names remain
+compatible: `download` aliases `arrow-down`, `circle` aliases `unselected`,
+and legacy `turn` renders a Lucide circle. Use `NumberBadge` for numbered
+markers; it owns a 24px filled surface and 11px regular text, growing horizontally
+for longer values. `ToolbarBadge` delegates to the same anatomy.
 
-Use `Icon name="session"` in new consumers. `SessionIcon` retains its SVG
-interface for existing integrations, with geometry checked against the same
-catalog asset.
+Use `Icon name="session"` in new consumers. `SessionIcon` keeps its SVG props
+and ref interface, using the same Lucide MessageCircle glyph.
 
 ## Advanced selection and menus
 
