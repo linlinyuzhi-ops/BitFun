@@ -3,7 +3,7 @@
  * Used to browse and select remote directory as workspace
  */
 
-import { Button, ConfirmDialog, Icon, IconButton, Input, Menu, MenuItem, MenuSeparator, ScrollArea } from '@openbitfun/ui';
+import { Button, Dialog, ConfirmDialog, Icon, IconButton, Input, Menu, MenuItem, MenuSeparator, ScrollArea } from '@openbitfun/ui';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
@@ -405,7 +405,13 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
         </div>
 
         {/* Path Breadcrumb / Input */}
-        <div className="remote-file-browser__breadcrumb" data-openbitfun-component="ssh-remote" data-openbitfun-part="breadcrumb">
+        <ScrollArea
+          className="remote-file-browser__breadcrumb"
+          data-openbitfun-component="ssh-remote"
+          data-openbitfun-part="breadcrumb"
+          orientation="horizontal"
+          scrollbarVisibility="hidden"
+        >
           {isEditingPath ? (
             <Input
               ref={pathInputRef}
@@ -461,7 +467,7 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
               )}
             </div>
           )}
-        </div>
+        </ScrollArea>
 
         {/* Toolbar */}
         <div className="remote-file-browser__toolbar" data-openbitfun-component="ssh-remote" data-openbitfun-part="toolbar">
@@ -638,8 +644,20 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
 
         {/* Rename Dialog */}
         {renameEntry && (
-          <div className="remote-file-browser__dialog-overlay">
-            <div className="remote-file-browser__dialog">
+          <Dialog
+            open
+            onOpenChange={() => setRenameEntry(null)}
+            aria-label={t('ssh.remote.rename')}
+            className="remote-file-browser__dialog"
+            overlayProps={{ className: 'remote-file-browser__dialog-overlay' }}
+            portalTarget={getAppearanceOverlayHost()}
+            autoFocus={false}
+            restoreFocus={false}
+            trapFocus={false}
+            preventScroll={false}
+            closeOnEscape={false}
+            closeOnPointerOutside={false}
+          >
               <h3 className="remote-file-browser__dialog-title">{t('ssh.remote.rename')}</h3>
               <Input
                 type="text"
@@ -678,8 +696,7 @@ export const RemoteFileBrowser: React.FC<RemoteFileBrowserProps> = ({
                   {t('actions.confirm')}
                 </Button>
               </div>
-            </div>
-          </div>
+          </Dialog>
         )}
 
         {/* Delete Confirmation Dialog */}

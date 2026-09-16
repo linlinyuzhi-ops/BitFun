@@ -28,7 +28,7 @@ test('bridge routes local storage, ignores foreign replies and updates language 
   const window = { addEventListener: (name, fn) => { listeners[name] = fn; } };
   const media = { matches: true, addEventListener: (_name, fn) => { listeners.scheme = fn; } };
   const document = { documentElement: { style: {}, setAttribute: (key, value) => { attributes[key] = value; } } };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'bridge.js'), 'utf8'), { window, parent, document, matchMedia: () => media });
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../miniapps/bridge.js'), 'utf8'), { window, parent, document, matchMedia: () => media });
   assert.equal(attributes['data-openbitfun-appearance-mode'], 'dark');
   media.matches = false;
   listeners.scheme();

@@ -63,6 +63,7 @@ thiserror = { workspace = true, optional = true }
 tar = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }
+sioc = { workspace = true, optional = true }
 urlencoding = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
@@ -268,6 +269,7 @@ hook-import = [
     "uuid",
 ]
 remote-connect = [
+    "dep:sioc",
     "dep:pulldown-cmark",
     "fs2",
     "dep:openbitfun-product-domains",
@@ -558,3 +560,7 @@ required-features = ["workspace-search"]
 
 [lints]
 workspace = true
+
+[[example]]
+name = "relay_realtime_probe"
+required-features = ["remote-connect"]

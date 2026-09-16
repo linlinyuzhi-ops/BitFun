@@ -9,5 +9,9 @@ fn main() {
     // large debug invoke dispatcher cannot exhaust the default 1 MiB stack.
     #[cfg(target_os = "windows")]
     println!("cargo:rustc-link-arg-bins=/STACK:8388608");
-    tauri_build::build();
+    println!("cargo:rerun-if-changed=windows-app.manifest");
+    let windows =
+        tauri_build::WindowsAttributes::new().app_manifest(include_str!("windows-app.manifest"));
+    tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows))
+        .expect("failed to build desktop platform resources");
 }

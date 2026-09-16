@@ -318,6 +318,7 @@ impl AppearanceConfig {
         let startup_locale_json =
             serde_json::to_string(&startup_locale).unwrap_or_else(|_| "\"zh-CN\"".to_string());
         let show_startup_window_controls = !cfg!(target_os = "macos");
+        let native_sidebar_material = cfg!(any(target_os = "windows", target_os = "macos"));
         let startup_trace_id_json = serde_json::to_string(startup_trace_id)
             .unwrap_or_else(|_| "\"desktop-unknown\"".to_string());
         let bootstrap_log_level_json = serde_json::to_string(crate::logging::level_to_str(
@@ -370,6 +371,9 @@ impl AppearanceConfig {
                     root.setAttribute('data-color-scheme', '{appearance_mode}');
                     root.setAttribute('data-contrast', 'standard');
                     root.setAttribute('data-density', 'compact');
+                    if ({native_sidebar_material}) {{
+                        root.setAttribute('data-openbitfun-native-material', 'sidebar');
+                    }}
                     
                     root.style.setProperty('--openbitfun-color-surface-canvas', '{bg_primary}');
                     root.style.setProperty('--openbitfun-color-surface-panel', '{bg_secondary}');
@@ -380,10 +384,10 @@ impl AppearanceConfig {
                     root.style.setProperty('--openbitfun-color-content-primary', '{text_primary}');
                     root.style.setProperty('--openbitfun-color-content-muted', '{text_muted}');
                     root.style.setProperty('--openbitfun-color-accent-default', '{accent_color}');
-                    root.style.backgroundColor = '{bg_primary}';
+                    root.style.backgroundColor = {native_sidebar_material} ? 'transparent' : '{bg_primary}';
                     
                     if (document.body) {{
-                        document.body.style.backgroundColor = '{bg_primary}';
+                        document.body.style.backgroundColor = {native_sidebar_material} ? 'transparent' : '{bg_primary}';
                     }}
                     
                     return true;
@@ -546,8 +550,36 @@ pub fn create_main_window(
 
     #[cfg(not(debug_assertions))]
     let materialization_workbench = Arc::clone(&frontend_workbench);
+    #[cfg(target_os = "macos")]
+    let builder = {
+        // Configure both Tao's native window and Wry's WebView. The builder's
+        // traffic_light_position setter only configures Wry, so native window
+        // lifecycle events otherwise restore the default button placement.
+        let config = tauri::utils::config::WindowConfig {
+            label: "main".into(),
+            url: main_url,
+            title_bar_style: tauri::TitleBarStyle::Overlay,
+            hidden_title: true,
+            // Native button center = inset + height / 2 - origin.y.
+            // AppKit's 16pt button at y=6 needs 20.5 for the 45px toolbar.
+            traffic_light_position: Some(tauri::utils::config::LogicalPosition {
+                x: 12.0,
+                y: 20.5,
+            }),
+            ..Default::default()
+        };
+        match tauri::WebviewWindowBuilder::from_config(app_handle, &config) {
+            Ok(builder) => builder,
+            Err(error) => {
+                error!("Failed to configure main window: {}", error);
+                return;
+            }
+        }
+    };
+    #[cfg(not(target_os = "macos"))]
+    let builder = tauri::WebviewWindowBuilder::new(app_handle, "main", main_url);
     #[allow(unused_mut)]
-    let mut builder = tauri::WebviewWindowBuilder::new(app_handle, "main", main_url)
+    let mut builder = builder
         .title("OpenBitFun")
         .inner_size(
             crate::MAIN_WINDOW_DEFAULT_WIDTH,
@@ -581,6 +613,23 @@ pub fn create_main_window(
             }
         });
 
+    // The webview must be transparent for the OS material to reach the sidebar.
+    // Opaque scene and startup surfaces remain owned by the frontend.
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        builder = builder
+            .transparent(true)
+            .background_color(tauri::window::Color(0, 0, 0, 0))
+            .effects(
+                tauri::window::EffectsBuilder::new()
+                    .effects([
+                        tauri::window::Effect::Acrylic,
+                        tauri::window::Effect::Sidebar,
+                    ])
+                    .build(),
+            );
+    }
+
     #[cfg(debug_assertions)]
     if !use_development_frontend() {
         // Product-path isolation alone does not isolate WKWebView storage.
@@ -606,17 +655,6 @@ pub fn create_main_window(
     let navigation_workbench = Arc::clone(&frontend_workbench);
     builder =
         builder.on_navigation(move |url| navigation_workbench.should_allow_main_navigation(url));
-
-    #[cfg(target_os = "macos")]
-    {
-        builder = builder
-            .decorations(true)
-            .title_bar_style(tauri::TitleBarStyle::Overlay)
-            // Match the 45px toolbar row (layout.toolbar.mdHeight) used by
-            // NavBar and SceneTopBar, including when the sidebar is collapsed.
-            .traffic_light_position(tauri::LogicalPosition::new(12.0, 22.5))
-            .hidden_title(true);
-    }
 
     #[cfg(target_os = "windows")]
     {

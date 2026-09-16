@@ -18,6 +18,7 @@ tauri-build = { workspace = true }
 serde_json = { workspace = true }
 
 [dependencies]
+openbitfun-services-core = { path = "../../crates/services/services-core", features = ["pet-packages"] }
 # Internal crates
 openbitfun-core = { path = "../../crates/assembly/core", features = ["product-full"] }
 openbitfun-relay-service = { path = "../../crates/services/relay-service" }
@@ -83,7 +84,8 @@ sha2 = { workspace = true }
 minisign-verify = { workspace = true }
 screenshots = { workspace = true }
 enigo = { workspace = true }
-image = { workspace = true, features = ["jpeg", "png"] }
+# Controller-local drag thumbnails decode these formats; other files use UI icons.
+image = { workspace = true, features = ["bmp", "gif", "jpeg", "png", "webp"] }
 resvg = { workspace = true }
 tempfile = { workspace = true }
 
@@ -122,6 +124,8 @@ windows = { workspace = true, features = [
   "Win32_Graphics_Dxgi_Common",
   "Win32_Graphics_Gdi",
   "Win32_Storage_FileSystem",
+  "Win32_System_LibraryLoader",
+  "Win32_System_SystemServices",
   "Win32_Storage_Xps",
   "Win32_System_Com",
   "Win32_System_Ole",
@@ -131,10 +135,16 @@ windows = { workspace = true, features = [
   "Win32_System_WinRT_Graphics",
   "Win32_System_WinRT_Graphics_Capture",
   "Win32_UI_Accessibility",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
 windows-core = { workspace = true }
 webview2-com = { workspace = true }
+
+[target.'cfg(windows)'.dev-dependencies]
+# Real Shell IDataObject fixtures for native drag-image lifecycle regressions.
+windows = { workspace = true, features = ["Win32_UI_Shell_Common"] }
 
 [features]
 default = []

@@ -4,6 +4,8 @@
 //! keeps only compatibility exports and adapter wiring that still depends on
 //! existing concrete core paths.
 
+#[cfg(all(feature = "tools-pages", feature = "remote-connect"))]
+pub mod account_pages;
 mod runtime_services;
 
 use std::path::{Path, PathBuf};
@@ -2791,9 +2793,8 @@ mod tests {
     };
     use crate::agentic::persistence::PersistenceManager;
     use crate::agentic::session::{
-        compression::{CompressionConfig, ContextCompressor},
-        PromptCachePolicy, SessionContextStore, SessionManager, SessionManagerConfig,
-        UserContextCacheIdentity,
+        compression::ContextCompressor, PromptCachePolicy, SessionContextStore, SessionManager,
+        SessionManagerConfig, UserContextCacheIdentity,
     };
     use crate::agentic::tools::registry::ToolRegistry;
     use crate::agentic::tools::{ToolPipeline, ToolStateManager};
@@ -3458,7 +3459,7 @@ mod tests {
             )),
             event_queue.clone(),
             session_manager.clone(),
-            Arc::new(ContextCompressor::new(CompressionConfig::default())),
+            Arc::new(ContextCompressor::new()),
             ExecutionEngineConfig::default(),
         ));
         let coordinator = Arc::new(ConversationCoordinator::new(
@@ -3718,7 +3719,7 @@ mod tests {
             )),
             event_queue.clone(),
             session_manager.clone(),
-            Arc::new(ContextCompressor::new(CompressionConfig::default())),
+            Arc::new(ContextCompressor::new()),
             ExecutionEngineConfig::default(),
         ));
         let coordinator = Arc::new(ConversationCoordinator::new(
@@ -4133,7 +4134,7 @@ mod tests {
             )),
             event_queue.clone(),
             session_manager.clone(),
-            Arc::new(ContextCompressor::new(CompressionConfig::default())),
+            Arc::new(ContextCompressor::new()),
             ExecutionEngineConfig::default(),
         ));
         let coordinator = Arc::new(ConversationCoordinator::new(
@@ -4622,7 +4623,7 @@ mod tests {
             )),
             event_queue.clone(),
             session_manager.clone(),
-            Arc::new(ContextCompressor::new(CompressionConfig::default())),
+            Arc::new(ContextCompressor::new()),
             ExecutionEngineConfig::default(),
         ));
         let coordinator = Arc::new(ConversationCoordinator::new(

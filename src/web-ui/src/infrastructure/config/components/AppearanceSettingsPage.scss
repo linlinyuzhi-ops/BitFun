@@ -968,6 +968,24 @@
     margin: 0;
   }
 
+  &__empty[data-openbitfun-component='empty'] {
+    padding: 0;
+    text-align: inherit;
+
+    > [data-openbitfun-part='media'] {
+      inline-size: 28px;
+      block-size: 28px;
+      color: inherit;
+    }
+
+    > [data-openbitfun-part='description'] {
+      max-inline-size: none;
+      color: inherit;
+      font: inherit;
+      letter-spacing: inherit;
+    }
+  }
+
   &__error,
   &__warning {
     display: flex;
@@ -1809,5 +1827,20 @@
       flex: 0 1 auto;
       width: 100%;
     }
+  }
+}
+
+// The existing card owns feedback and geometry; the shared trigger owns activation.
+.appearance-package-config__card-action[data-openbitfun-component='action-card'] {
+  min-block-size: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  outline: none;
+  box-shadow: none;
+  opacity: 1;
+
+  > [data-openbitfun-part='trigger'] {
+    min-block-size: 72px;
   }
 }

@@ -679,6 +679,7 @@ mod tests {
                 "core.computer-use",
                 "core.review",
                 "core.miniapp",
+                "core.pages",
                 "core.creation",
                 "core.canvas",
             ],

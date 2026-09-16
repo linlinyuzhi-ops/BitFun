@@ -10,12 +10,17 @@ struct OpenBitFunApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if let scenario = designPreviewScenario {
+            if MobileLaunchConfiguration.streamingRegressionPreview {
+                #if DEBUG
+                StreamingRegressionView()
+                #endif
+            } else if let scenario = designPreviewScenario {
                 MobileDesignGallery(scenario: scenario)
                     .preferredColorScheme(scenario.appearance == "dark" ? .dark : .light)
             } else {
                 ZStack {
                     MobileShellView(model: model)
+                        .accessibilityHidden(showStartupBrand)
                     if showStartupBrand {
                         StartupBrandReveal { showStartupBrand = false }
                     }

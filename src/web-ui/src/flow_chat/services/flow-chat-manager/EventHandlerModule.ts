@@ -4,6 +4,7 @@
  */
 
 import { FlowChatStore, mergeModelRoundAttemptDiagnostics } from '../../store/FlowChatStore';
+import { initializeAcpPlanState } from '../acpPlanState';
 import { isSessionTurnRetired } from '../../store/sessionMutationStore';
 import { stateMachineManager } from '../../state-machine';
 import { SessionExecutionEvent, SessionExecutionState } from '../../state-machine/types';
@@ -892,6 +893,7 @@ export async function initializeEventListeners(
   };
 
   await agenticEventListener.startListening(callbacks);
+  const cleanupAcpPlanState = initializeAcpPlanState();
 
   return () => {
     unlistenProgress();
@@ -899,6 +901,7 @@ export async function initializeEventListeners(
     unlistenBackgroundCommandLifecycle();
     unlistenMcpInteractionRequest();
     unlistenAcpPermissionRequest();
+    cleanupAcpPlanState();
     agenticEventListener.stopListening();
   };
 }

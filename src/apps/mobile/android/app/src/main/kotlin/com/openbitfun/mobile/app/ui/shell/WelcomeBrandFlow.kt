@@ -13,8 +13,13 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import kotlinx.coroutines.awaitCancellation
 import kotlin.coroutines.coroutineContext
 
 private val contourData = listOf(
@@ -39,17 +44,24 @@ private val contourLengths = listOf(460.633f,470.212f,479.792f,489.371f,498.950f
 internal fun WelcomeBrandFlow(modifier: Modifier, sweep: Boolean = false) {
     val paths=remember { contourData.map { PathParser.createPathFromPathData(it)!! } }
     val paint=remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.STROKE;strokeWidth=1f } }
-    var phase by remember { mutableFloatStateOf(0f) }
     var moving by remember { mutableStateOf(false) }
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             moving=coroutineContext[androidx.compose.ui.MotionDurationScale]?.scaleFactor!=0f
-            if(moving) while(isActive) { phase=(System.currentTimeMillis() % (if(sweep) 5000 else 18000)).toFloat() / (if(sweep) 5000f else 18000f);delay(33) }
+            try { awaitCancellation() } finally { moving = false }
         }
     }
+    // Use Compose's animation clock so tooling can recognize an infinite decorative
+    // animation. A timer mutating state every 33 ms kept the entire UI perpetually busy.
+    val animatedPhase = if (moving) rememberInfiniteTransition(label = "brand-flow").animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(if (sweep) 5000 else 18000, easing = LinearEasing), RepeatMode.Restart),
+        label = "brand-phase",
+    ) else remember { mutableFloatStateOf(0f) }
     val ink=MaterialTheme.colorScheme.onBackground
     Canvas(modifier) {
+        val phase = animatedPhase.value
         drawIntoCanvas { canvas ->
             val c=canvas.nativeCanvas;c.save();c.scale(size.width/256,size.height/256);paint.color=ink.toArgb()
             if(sweep) {

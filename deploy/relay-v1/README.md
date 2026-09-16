@@ -1,31 +1,44 @@
 # Official Relay v1 deployment
 
 The owner guide is [Relay Server](../../src/apps/relay-server/README.md).
-Use this independent Compose project for `/v/1.0.0/`. Keep the older Relay
+Use this independent Compose project for `/v/1.0.1/`. Keep `/v/1.0.0/` and the older Relay
 container, paths, image, database, and `/relay` proxy location intact.
 
-Deploy from a committed checkout at `/srv/openbitfun-relay-v1/app`. Set
+Deploy from a committed checkout at `/srv/openbitfun-relay-v1.0.1/app`. Set
 `RELAY_GIT_COMMIT` to that checkout's verified full commit. Build mobile web
 from the same checkout with `pnpm run build:mobile-web` and stage its `dist`
-contents into `/srv/openbitfun-relay-v1/static`. Create `data` and `assets`
+contents into `/srv/openbitfun-relay-v1.0.1/static`. Create `data` and `assets`
 under that root owned by UID/GID 10001 before starting Compose.
 
-The Linux host network plus explicit `127.0.0.1:19700` listener lets the service
+The Linux host network plus explicit `127.0.0.1:19701` listener lets the service
 verify the immediate proxy peer before trusting its overwritten forwarded IP.
-Do not publish this listener on a public interface. Install `nginx-http.conf` in the Nginx http context and include
-`nginx-location.conf` in the existing remote server after the container passes
-its health check. The new location accepts the existing explicit WAF origin
+Do not publish this listener on a public interface. Install `nginx-http.conf` as `/etc/nginx/conf.d/relay-v1.0.1.conf` and include
+`nginx-location.conf` as `/etc/nginx/relay-v1.0.1-location.conf` in the existing remote server after the container passes
+its health check. Keep the existing v1.0.0 includes. The new version uses independent admission zones.
+The new location accepts the existing explicit WAF origin
 ranges and loopback; direct origin requests from other peers receive 403.
 Forwarded client IPs are recursively resolved only for those trusted WAF
 peers. Keep the range list synchronized with the WAF control plane. Raise
 `worker_connections` to 8192 and retain a file descriptor limit of at least
 16384; validate with `nginx -t` before a graceful reload.
 
-Published Pages are disabled with an explicit 503 until both isolated public
-and sign-in origins are configured. This prevents uploaded content from sharing
-the mobile controller's account origin. Enabling Pages requires dedicated
-origins, their proxy routes, and the Page isolation verification in the owner
-guide; setting an arbitrary origin value alone is insufficient.
+Published Pages use the existing official Relay address:
+`https://remote.openbitfun.com/v/1.0.1/p/{github_username}/{slug}`.
+Compose sets this public base URL and the separate sign-in base URL
+`https://auth.openbitfun.com/v/1.0.1`. Users do not configure domains.
+Install the versioned Pages sign-in locations from
+[`nginx-auth.openbitfun.com.conf`](../miniapp-market/nginx-auth.openbitfun.com.conf)
+in the existing auth server as well. Keep its marketplace sign-in routes intact.
+These locations forward only Page sign-in and GitHub start/poll endpoints to
+Relay, preserve the auth Host, and omit query strings from access logs.
+The Page callback and published content remain on the remote origin.
+
+Both base URLs are required: missing configuration returns an explicit 503.
+After changing the environment, recreate only `relay-v1` with the verified
+existing image (`docker compose up -d --no-build relay-v1`), validate Nginx,
+and gracefully reload it. Verify publish and deploy through an authenticated
+CLI, fetch both returned URLs, and verify that private-page sign-in redirects
+to the auth origin and its client script loads.
 
 Before replacement, back up this version's database and assets and retain the
 previous image tag. Roll back only this Compose project and its versioned

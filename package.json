@@ -190,6 +190,7 @@
     "jszip": "^3.10.1",
     "pdf-lib": "^1.17.1",
     "pnpm": "^10.32.1",
-    "pptxgenjs": "^4.0.1"
+    "pptxgenjs": "^4.0.1",
+    "socket.io-client": "4.8.3"
   }
 }

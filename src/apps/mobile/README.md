@@ -21,6 +21,12 @@ interfaces.
 All three apps can send images with or without text. Camera photos are decoded
 on the phone and converted to a supported format before upload. Failed sends
 retain the draft and images; acknowledgement removes only the submitted content.
+Android supports selecting several photos at once and retains prepared attachments
+across Activity recreation and process restarts. Android stores prepared image drafts
+in app-private files excluded from backups, scoped by account endpoint, account,
+device and session. Failed saves and unreadable records offer retry without erasing
+the stored draft. An in-progress photo conversion still needs to be retried if the
+process stops before preparation and saving finish.
 
 Model selection belongs to the connected host. A primary model that supports
 images receives their pixels directly. For a text-only primary model, select an
@@ -57,6 +63,10 @@ metadata, execution-mode IDs, speech draft merging, and completion observation i
 | Capability | Android and iOS behavior | Compatibility and verification boundary |
 |---|---|---|
 | Execution modes | Minimal / Standard / Ultimate, with the HarmonyOS density glyph; workspace menus also retain Cowork | Enabled only by live `get_workspace_info.capabilities` containing `harness_profiles_v1`; older hosts keep Code / Cowork. Capability absence in old payloads is covered by a round-trip test. |
+| Running-turn input | A nonempty remote draft offers Send; an empty composer retains Stop | Hosts advertising `dialog_steer_v1` receive `steer_turn` with the active turn ID. Older hosts retain `send_message` queueing; failed sends retain the draft and attachments. |
+| Plans | Legacy CreatePlan, structured plans and `.plan.md` writes show a plan card with file preview and Build | Build requires `plan_build_v1`, a completed plan tool and an idle connected session. Paths remain remote; the mobile app never runs the plan locally. |
+| Offline Mini Apps | Gomoku, Regex Playground and Daily Divination open from welcome and sidebar without login | Product-owned sources are bundled by `miniapps/generate.cjs`; native WebView hosts expose only per-app allowlisted storage and clipboard. No network, Node or shell bridge. |
+| Code preview | Native lexical colors, line numbers and referenced-line backgrounds | Both apps use the core-feature highlighter with native theme tokens; large files retain its bounded plain-text fallback. |
 | Account profile | Public GitHub login and avatar replace the numeric-ID placeholder | The immutable Relay user ID still authorizes devices. Display metadata uses a separate encrypted 24-hour cache; offline refreshes preserve credentials and cached display. |
 | Task completion | Notify for a previously observed successful remote turn while backgrounded | Identity includes target, session and turn. Replayed, failed and cancelled turns do not notify. These are local notifications, not server push. iOS observes within its OS background-task allowance; Android observes while the controller process remains alive. Neither promises notification after process termination. |
 | Speech input | Continue an existing draft without trimming its whitespace or inserting spaces into Chinese text | iOS owns Speech/AVAudio lifecycle in a platform adapter and cancels on route, target or scene changes. Android uses the system recognition activity. |
@@ -81,3 +91,55 @@ or opens system notification settings for an existing decision.
 Camera and microphone access stays contextual to scanning and voice input.
 Notification authorization does not extend the platform background-execution
 limits described above.
+
+## Runtime control and conversation synchronization
+
+The mobile apps control a selected Desktop or CLI runtime. Workspace paths, files, terminals, and saved SSH connections belong to that runtime. Mobile workspace selection lists only connections already saved there and never collects runtime SSH credentials.
+
+Android/iOS conversation synchronization uses the same revisioned rich session records for initial history, live updates, and recovery. The latest page opens first; earlier encrypted pages prefetch in the background through the same single flight used by explicit history requests. Complete fragment boundaries, stable record revisions, and ancestor deletion markers are preserved during backward reads. Encrypted fragments, the forward cursor, and the older-page boundary commit atomically to the local replica. Returning to the foreground actively checks the forward cursor even when the socket did not report a disconnect.
+
+Workspace tools expose directory browsing, text editing with runtime-enforced content-hash conflict detection, file/folder creation, file renaming/deletion, binary upload/download, and bundled xterm PTY control. The terminal executes on the selected runtime or its saved SSH connection; durable notifications request incremental output from the runtime cursor.
+
+Pending approvals are a separate runtime mailbox, refreshed at initial attachment, reconnect/foreground recovery, and relevant permission control events. Android/iOS answer the stable request identity even when no tool call is attached, and support approving edited JSON input through the same runtime permission owner.
+
+Android, iOS, and HarmonyOS terminal WebViews share `src/shared/terminal/webview` assets. The native adapter only bridges keyboard input, dimensions, and cursor-derived output; it has no Relay token or local process access. Android/iOS downloads stage chunks into a controller-local temporary file and hand its URL or input stream to the platform document exporter. They do not retain the full download in a Kotlin ByteArray or Swift Data. Preview buffers have their own bounded presentation policy.
+
+Android and iOS expose a device-tools button at the bottom of the sidebar.
+It selects a runtime location (the controlled device or one of its saved SSH
+connections), then opens files or terminals independently of any workspace.
+Local defaults come from the runtime's `get_system_info.homeDir`; SSH defaults to
+`/`. A successful directory change captures that directory and provider for file
+transfers. No workspace registration or current-workspace switch is required.
+Local filesystem and PTY requests explicitly select the local provider, so an
+identically named SSH path cannot redirect them. Workspace and assistant “+”
+menus contain Minimal, Standard, and Ultimate creation modes only.
+
+Android and iOS expose a runtime directory picker using the selected saved SSH
+connection, plus server-side name and modification-time sorting before directory
+pagination. File editing opens a separate full-screen native view; returning
+preserves the directory and asks before discarding edits. Its line-number gutter
+shares vertical scrolling with unwrapped source text and never changes file
+contents. Rename and delete remain available in that editor. The terminal opens
+in a separate native view whose PTY viewport follows the remaining safe-area and
+keyboard-adjusted space; leaving the view keeps the terminal running until an
+explicit close. Native build checks cover integration, while keyboard, scrolling,
+and live runtime behavior still require device or simulator interaction checks.
+
+Creating an ordinary chat sends `Claw` without a workspace override and lets the
+runtime resolve or create its primary assistant workspace. Selecting a project
+or a particular assistant sends its explicit path instead. Neither flow changes
+the runtime’s current workspace as a prerequisite. Creation results use the
+runtime-returned `workspace_path` for immediate session placement; a saved SSH
+project carries its connection identity through the create request.
+
+## Connection recovery
+
+Native iOS and Android controllers probe idle session lists while the app is in the
+foreground. An open transcript uses its durable session stream for recovery instead
+of duplicating the health request. Temporary transport failures keep the displayed
+list or transcript; a successful response restores the connected state.
+
+Account sign-in on Android, iOS and HarmonyOS opens the shared authorization page
+with separate GitHub and email-code options. Email users need no password and are
+not automatically linked to GitHub users. Sign in with the same method and account
+on the phone and the controlled desktop/CLI.

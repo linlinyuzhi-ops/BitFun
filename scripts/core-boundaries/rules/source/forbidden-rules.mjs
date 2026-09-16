@@ -4232,6 +4232,7 @@ export const forbiddenContentUnderRules = [
         'src/crates/adapters/dsh-adapter/src/hook_source.rs',
         'src/crates/adapters/dsh-adapter/src/mcp_source.rs',
         'src/crates/adapters/pi-adapter/src/hook_source.rs',
+        'src/crates/adapters/pi-adapter/src/skill_source.rs',
         'src/crates/adapters/opencode-adapter/src/hook_source.rs',
         'src/crates/adapters/opencode-adapter/src/command_source.rs',
         'src/crates/adapters/opencode-adapter/src/agent_source.rs',

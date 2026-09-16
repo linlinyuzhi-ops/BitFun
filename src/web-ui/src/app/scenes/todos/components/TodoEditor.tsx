@@ -8,7 +8,7 @@
 
 import { OverflowText, Button, Combobox, Icon, Input, Select, Switch, ScrollArea, Textarea } from '@openbitfun/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bot, CalendarClock, ClipboardList } from 'lucide-react';
+import { CalendarClock, ClipboardList } from 'lucide-react';
 import { agentAPI, type ModeInfo } from '@/infrastructure/api/service-api/AgentAPI';
 import type { CronJobCompletionStatus, CronJobHandling } from '@/infrastructure/api';
 import { useI18n } from '@/infrastructure/i18n';
@@ -269,7 +269,7 @@ const TodoEditor: React.FC<TodoEditorProps> = ({
             {draft.handling === 'manual' ? null : boundSessionId ? (
               <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
                 <span className="openbitfun-todos__field-label">
-                  <Bot size={16} aria-hidden="true" />
+                  <Icon name="user" size="md" aria-hidden="true" />
                   {t('editor.fields.runsIn')}
                 </span>
                 <span className="openbitfun-todos__field-static" title={boundSessionId}><OverflowText>
@@ -279,7 +279,7 @@ const TodoEditor: React.FC<TodoEditorProps> = ({
             ) : (
               <div className="openbitfun-todos__field-card" data-openbitfun-scene="todos" data-openbitfun-part="field">
                 <span className="openbitfun-todos__field-label">
-                  <Bot size={16} aria-hidden="true" />
+                  <Icon name="user" size="md" aria-hidden="true" />
                   {t('editor.fields.agentType')}
                 </span>
                 <Select

@@ -26,7 +26,9 @@ struct StartupBrandReveal: View {
         .ignoresSafeArea()
         .contentShape(Rectangle())
         .onTapGesture { }
-        .accessibilityHidden(true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("OpenBitFun")
+        .accessibilityIdentifier("startup.brand")
         .task {
             guard !reduceMotion else { onFinished(); return }
             started = Date()

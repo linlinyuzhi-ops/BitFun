@@ -55,6 +55,7 @@ members = [
 
 exclude = [
     "OpenBitFun-Installer/src-tauri",
+    "third_party/eioc",
 ]
 
 resolver = "2"
@@ -134,6 +135,7 @@ indexmap = "2"
 include_dir = "0.7"
 aes = "0.8"
 hmac = "0.12"
+lettre = { version = "0.11.23", default-features = false }
 hex = "0.4"
 chardetng = "0.1.17"
 encoding_rs = "0.8.35"
@@ -269,6 +271,7 @@ qrcode = { version = "0.14", default-features = false }
 
 # WebSocket client
 tokio-tungstenite = "0.29"
+sioc = { version = "0.5.0", default-features = false }
 
 # Local speech recognition
 sherpa-onnx = "1.13.4"
@@ -294,6 +297,8 @@ ssh_config = "0.1"
 rustls = { version = "0.23", default-features = false }
 
 [patch.crates-io]
+# Keep Socket.IO on the product-owned ring provider; see the patch note.
+eioc = { path = "third_party/eioc" }
 # Tauri 2.11 loses keyboard focus for child webviews after Windows reactivates
 # an `unstable` multi-webview window. Use the upstream fix until released;
 # this revision also adopts tao 0.36, which includes the Windows input deadlock fix.

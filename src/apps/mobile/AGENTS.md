@@ -25,6 +25,7 @@ Native mobile applications are product entrypoints under `src/apps/mobile`.
 | `ios/` | iOS app, resources, lifecycle, and adapters |
 | `harmonyos/` | HarmonyOS app, resources, lifecycle, and adapters |
 | `shared/` | Kotlin Multiplatform core: protocol, crypto, transport, persistence, domain, feature stores |
+| `miniapps/` | Build-time packaging and isolated document bridge for product-owned offline tools; native storage and WebView lifecycle stay in each app |
 | `design-system/` | HarmonyOS-derived mobile tokens, component contracts, deterministic preview scenarios, and the desktop comparison surface |
 
 ## Native UI Contract
@@ -75,6 +76,11 @@ UiState or an Intent declared there, and no module above it is visible to them.
   `./gradlew compileKotlinIosSimulatorArm64` for iOS. Run iOS pure Swift
   infrastructure checks from the repository root with
   `(cd src/apps/mobile/ios && ./Testing/run-pure-swift-tests.sh)`.
+  The isolated native streaming fixture (no remote requests) is covered by
+  `xcodebuild -project src/apps/mobile/ios/OpenBitFun.xcodeproj -scheme OpenBitFun -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16 Plus' -parallel-testing-enabled NO -only-testing:OpenBitFunUITests/StreamingPresentationUITests test`.
+  Run it on one phone and one iPad destination when changing timeline layout,
+  streaming reveal, keyboard dismissal, or history anchoring. The Debug-only
+  launch argument `--streaming-regression` opens the same deterministic fixture.
   `local.properties` holds
   the local SDK path and is not committed.
 - The Android app builds from `android/`: `./gradlew :app:assembleDebug` and
@@ -90,3 +96,17 @@ UiState or an Intent declared there, and no module above it is visible to them.
   from `shared/`, with an emulator or handset attached. Those suites compile the
   same `commonTest` sources onto ART; they are not in CI, so run them by hand
   when touching either module.
+
+## Remote capability ownership
+
+Native mobile surfaces are controllers. Desktop and CLI own execution, files, terminals and SSH credentials. Mobile workspace selection may use only connections already saved on the controlled runtime; it must not create an SSH connection or instantiate another runtime. Carry the selected connection identity through every operation, and report missing identity instead of falling back to local files.
+
+## Offline Mini Apps
+
+Android preBuild and the iOS resource phase run `miniapps/generate.cjs` (Node.js
+must be on PATH). Generated native HTML is ignored; update product-owned built-in
+sources or the packaging owner, never the generated resources. Harmony retains
+its existing native host and invokes the same generator without native wrappers.
+Run `node --test src/apps/mobile/miniapps/*.test.cjs src/apps/mobile/harmonyos/miniapps/*.test.cjs`
+from the repository root after bundle/bridge changes. Storage keys remain scoped
+to an allowlisted app; retain unreadable records and surface the error.

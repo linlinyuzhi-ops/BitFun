@@ -55,7 +55,7 @@ class ChatMessageBubbleTest {
         }
 
         val first = composeRule.onNodeWithText("Checking the manifest.").getUnclippedBoundsInRoot()
-        val tool = composeRule.onNodeWithText("Running \"AndroidManifest.xml\"").getUnclippedBoundsInRoot()
+        val tool = composeRule.onNodeWithText(testString(R.string.tool_line_running, "AndroidManifest.xml")).getUnclippedBoundsInRoot()
         val second = composeRule.onNodeWithText("It targets API 35.").getUnclippedBoundsInRoot()
 
         assertTrue(first.top < tool.top)
@@ -90,7 +90,7 @@ class ChatMessageBubbleTest {
     }
 
     @Test
-    fun aRunningSubagentShowsItsChildrenByDefault() {
+    fun aRunningSubagentKeepsChildrenCollapsedUntilOpened() {
         composeRule.setContent {
             Bubble(
                 row(
@@ -108,6 +108,8 @@ class ChatMessageBubbleTest {
             )
         }
 
+        composeRule.onNodeWithText("Build step started.").assertDoesNotExist()
+        composeRule.onNodeWithText("Inspect the build").performClick()
         composeRule.onNodeWithText("Build step started.").assertIsDisplayed()
     }
 
@@ -152,6 +154,7 @@ class ChatMessageBubbleTest {
             Bubble(row(kind = ConversationRowKind.ASSISTANT, blocks = listOf(block)))
         }
 
+        composeRule.onNodeWithText("Inspect the build").performClick()
         composeRule.onNodeWithText("Initial step.").assertIsDisplayed()
         composeRule.onNodeWithText("Inspect the build").performClick()
         assertTrue(composeRule.onAllNodesWithText("Initial step.").fetchSemanticsNodes().isEmpty())
@@ -175,8 +178,8 @@ class ChatMessageBubbleTest {
         }
 
         // The agent's reply started and stopped; it was never "not delivered".
-        composeRule.onNodeWithText("Reply interrupted.").assertIsDisplayed()
-        composeRule.onNodeWithText("Retry").assertIsDisplayed()
+        composeRule.onNodeWithText(testString(R.string.chat_reply_interrupted)).assertIsDisplayed()
+        composeRule.onNodeWithText(testString(R.string.account_devices_retry)).assertIsDisplayed()
     }
 
     @Test
@@ -259,6 +262,7 @@ class ChatMessageBubbleTest {
         typing = typing,
         showRetry = showRetry,
         error = null,
+        live = false,
     )
 
     private fun runningTool(): ToolCard = ToolCard(

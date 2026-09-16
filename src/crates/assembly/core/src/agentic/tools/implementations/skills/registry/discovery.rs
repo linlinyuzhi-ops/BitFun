@@ -36,6 +36,97 @@ fn supports_flat_skills(source_id: &str) -> bool {
     matches!(source_id, "pi" | "deepseek-harness")
 }
 
+#[cfg(all(test, feature = "external-sources"))]
+mod configured_pi_tests {
+    use super::*;
+    use openbitfun_product_domains::external_sources::ExternalSourceScope;
+
+    #[tokio::test]
+    async fn explicit_paths_reuse_pi_parsing_and_keep_stable_distinct_identities() {
+        let temp = tempfile::tempdir().unwrap();
+        let package = temp.path().join("package");
+        fs::create_dir_all(package.join("references"))
+            .await
+            .unwrap();
+        fs::write(package.join("SKILL.md"), "---\nname: example\ndescription: Example\ndisable-model-invocation: true\n---\nPackage body").await.unwrap();
+        fs::write(
+            package.join("references/example.md"),
+            "---\nname: unwanted\ndescription: Reference\n---\nReference body",
+        )
+        .await
+        .unwrap();
+        let flat = temp.path().join("flat.md");
+        fs::write(
+            &flat,
+            "---\nname: flat\ndescription: Flat skill\n---\nFlat body",
+        )
+        .await
+        .unwrap();
+        let roots = || {
+            vec![
+                LocalConfiguredSkillRootContribution {
+                    path: package.clone(),
+                    scope: ExternalSourceScope::UserGlobal,
+                    precedence: 0,
+                },
+                LocalConfiguredSkillRootContribution {
+                    path: flat.clone(),
+                    scope: ExternalSourceScope::Project,
+                    precedence: 1,
+                },
+                LocalConfiguredSkillRootContribution {
+                    path: package.join("SKILL.md"),
+                    scope: ExternalSourceScope::UserGlobal,
+                    precedence: 2,
+                },
+            ]
+        };
+        let scan = SkillRegistry::scan_configured_pi_candidates(roots(), &[], true).await;
+        assert!(scan.diagnostics.is_empty(), "{:?}", scan.diagnostics);
+        assert_eq!(scan.candidates.len(), 2);
+        assert_eq!(scan.candidates[0].info.source_slot, "home.pi");
+        assert_eq!(
+            scan.candidates[1].info.entry_file.as_deref(),
+            Some("flat.md")
+        );
+        assert!(
+            SkillRegistry::read_local_skill_markdown(&scan.candidates[0].info)
+                .await
+                .unwrap()
+                .contains("Package body")
+        );
+        assert!(
+            SkillRegistry::read_local_skill_markdown(&scan.candidates[1].info)
+                .await
+                .unwrap()
+                .contains("Flat body")
+        );
+        let again = SkillRegistry::scan_configured_pi_candidates(
+            roots().into_iter().rev().collect(),
+            &[],
+            true,
+        )
+        .await;
+        let keys = |candidates: &[SkillCandidate]| {
+            candidates
+                .iter()
+                .map(|candidate| candidate.info.key.clone())
+                .collect::<HashSet<_>>()
+        };
+        assert_eq!(keys(&scan.candidates), keys(&again.candidates));
+        assert!(
+            SkillRegistry::scan_configured_pi_candidates(roots(), &scan.candidates, true)
+                .await
+                .candidates
+                .is_empty()
+        );
+        fs::remove_file(&flat).await.unwrap();
+        let refreshed = SkillRegistry::scan_configured_pi_candidates(roots(), &[], true).await;
+        assert_eq!(refreshed.candidates.len(), 1);
+        assert_eq!(refreshed.diagnostics.len(), 1);
+    }
+}
+
 fn flat_skill_data(
     directory: &str,
     filename: &str,
@@ -58,6 +149,137 @@ fn flat_skill_data(
 }
 
 impl SkillRegistry {
+    #[cfg(feature = "external-sources")]
+    pub(super) async fn scan_configured_pi_candidates(
+        roots: Vec<LocalConfiguredSkillRootContribution>,
+        standard: &[SkillCandidate],
+        has_workspace: bool,
+    ) -> SkillCandidateScan {
+        let mut scan = SkillCandidateScan::default();
+        let identity = |candidate: &SkillCandidate| {
+            dunce::canonicalize(
+                Path::new(&candidate.info.path)
+                    .join(candidate.info.entry_file.as_deref().unwrap_or("SKILL.md")),
+            )
+            .ok()
+        };
+        let mut seen = standard.iter().filter_map(identity).collect::<HashSet<_>>();
+        for root in roots {
+            let level = if root.scope
+                == openbitfun_product_domains::external_sources::ExternalSourceScope::UserGlobal
+            {
+                SkillLocation::User
+            } else {
+                SkillLocation::Project
+            };
+            let slot = if level == SkillLocation::User {
+                "home.pi"
+            } else {
+                "pi"
+            };
+            let priority = if level == SkillLocation::Project {
+                PROJECT_SKILL_ROOTS
+                    .iter()
+                    .position(|root| root.slot == "pi")
+                    .unwrap()
+            } else {
+                usize::from(has_workspace) * PROJECT_SKILL_ROOTS.len()
+                    + USER_HOME_SKILL_ROOTS
+                        .iter()
+                        .position(|root| root.slot == "home.pi")
+                        .unwrap()
+            };
+            let entry = SkillRootEntry {
+                path: root.path.clone(),
+                level,
+                slot,
+                source_id: "pi",
+                source_label: "PI",
+                priority,
+                is_builtin: false,
+            };
+            let mut candidates = if root.path.is_dir() {
+                let part = Self::scan_skill_directory(&entry, true).await;
+                scan.diagnostics.extend(part.diagnostics);
+                part.candidates
+            } else {
+                let result = async {
+                    let file = fs::File::open(&root.path)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    let mut content = String::new();
+                    file.take((MAX_SKILL_BYTES + 1) as u64)
+                        .read_to_string(&mut content)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    if content.len() > MAX_SKILL_BYTES {
+                        return Err("Skill Markdown exceeds the discovery size limit".to_string());
+                    }
+                    let directory = root.path.parent().ok_or("Skill path has no parent")?;
+                    let filename = root
+                        .path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .ok_or("Invalid Skill filename")?;
+                    let data = if filename == "SKILL.md" {
+                        Self::parse_skill_markdown(
+                            directory.to_string_lossy().into_owned(),
+                            &content,
+                            level,
+                            false,
+                            slot,
+                        )
+                    } else {
+                        flat_skill_data(
+                            &directory.to_string_lossy(),
+                            filename,
+                            &content,
+                            level,
+                            slot,
+                        )
+                    }
+                    .map_err(|error| error.to_string())?;
+                    Ok::<_, String>(SkillCandidate::from_data(
+                        data,
+                        slot,
+                        "pi",
+                        "PI",
+                        level.as_str(),
+                        priority,
+                        false,
+                    ))
+                }
+                .await;
+                match result {
+                    Ok(candidate) => vec![candidate],
+                    Err(error) => {
+                        scan.diagnostics
+                            .push(diagnostic(root.path.to_string_lossy(), "pi", error));
+                        Vec::new()
+                    }
+                }
+            };
+            for candidate in &mut candidates {
+                if let Some(path) = identity(candidate) {
+                    let mut hasher = Sha256::new();
+                    hasher.update(path.to_string_lossy().as_bytes());
+                    candidate.info.key = format!(
+                        "{}::{}::configured/{}",
+                        level.as_str(),
+                        slot,
+                        hex::encode(hasher.finalize())
+                    );
+                }
+            }
+            scan.candidates.extend(
+                candidates
+                    .into_iter()
+                    .filter(|candidate| identity(candidate).is_some_and(|path| seen.insert(path))),
+            );
+        }
+        scan
+    }
+
     pub(super) async fn scan_remote_project_skills(
         fs: &dyn WorkspaceFileSystem,
         remote_root: &str,
@@ -85,6 +307,38 @@ impl SkillRegistry {
         for mut scan in scans {
             result.candidates.append(&mut scan.candidates);
             result.diagnostics.append(&mut scan.diagnostics);
+        }
+        let settings = format!("{root}/.pi/settings.json");
+        let pi_config = async {
+            if !fs
+                .exists(&settings)
+                .await
+                .map_err(|error| error.to_string())?
+            {
+                return Ok(false);
+            }
+            let content = fs
+                .read_file_text_bounded(&settings, MAX_SKILL_BYTES)
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or("Pi settings exceed the size limit")?;
+            let value: serde_json::Value =
+                serde_json::from_str(&content).map_err(|_| "Pi settings are not valid JSON")?;
+            Ok::<_, String>(
+                value
+                    .get("skills")
+                    .is_some_and(|skills| skills.as_array().is_none_or(|paths| !paths.is_empty())),
+            )
+        }
+        .await;
+        match pi_config {
+            Ok(true) => result.diagnostics.push(diagnostic(
+                &settings,
+                "pi",
+                "Explicit Pi settings paths are not supported for remote workspace discovery",
+            )),
+            Err(error) => result.diagnostics.push(diagnostic(&settings, "pi", error)),
+            Ok(false) => {}
         }
         result
     }
@@ -369,6 +623,13 @@ impl SkillRegistry {
     }
 
     pub(super) async fn scan_skills_in_dir(entry: &SkillRootEntry) -> LocalSkillScan {
+        Self::scan_skill_directory(entry, false).await
+    }
+
+    pub(super) async fn scan_skill_directory(
+        entry: &SkillRootEntry,
+        include_root: bool,
+    ) -> LocalSkillScan {
         if entry.slot == "home.claude" && !entry.path.is_absolute() {
             return LocalSkillScan {
                 candidates: Vec::new(),
@@ -460,7 +721,7 @@ impl SkillRegistry {
                 continue;
             }
 
-            if depth > 0 {
+            if depth > 0 || include_root {
                 let skill_md = path.join("SKILL.md");
                 scan.cacheable &= local_source_path_is_cacheable(&skill_md).await;
                 match fs::File::open(&skill_md).await {

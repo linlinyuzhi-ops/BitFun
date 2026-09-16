@@ -197,6 +197,7 @@ import { miniAppDetailModalAppearanceDescriptor } from '@/app/scenes/miniapps/co
 import { agentCardAppearanceDescriptor } from '@/app/scenes/agents/components/AgentCard.appearance';
 import { coreAgentCardAppearanceDescriptor } from '@/app/scenes/agents/components/CoreAgentCard.appearance';
 import { agentCapabilityTooltipAppearanceDescriptor } from '@/app/scenes/agents/components/AgentCapabilityTooltip.appearance';
+import { agentCapabilityOptionAppearanceDescriptor } from '@/app/scenes/agents/components/AgentCapabilityOption.appearance';
 import { gitNavAppearanceDescriptor } from '@/app/scenes/git/GitNav.appearance';
 import { fileViewerNavAppearanceDescriptor } from '@/app/scenes/file-viewer/FileViewerNav.appearance';
 import { assistantQuickInputAppearanceDescriptor } from '@/app/scenes/profile/views/AssistantQuickInput.appearance';
@@ -333,6 +334,7 @@ export function createDefaultAppearanceRegistry(): AppearanceRegistry {
     .registerComponent(agentCardAppearanceDescriptor)
     .registerComponent(coreAgentCardAppearanceDescriptor)
     .registerComponent(agentCapabilityTooltipAppearanceDescriptor)
+    .registerComponent(agentCapabilityOptionAppearanceDescriptor)
     .registerComponent(gitNavAppearanceDescriptor)
     .registerComponent(fileViewerNavAppearanceDescriptor)
     .registerComponent(assistantQuickInputAppearanceDescriptor)

@@ -655,6 +655,11 @@
   }
 
   &__decision-gate-supplement textarea {
+    font-family: inherit;
+    font-weight: inherit;
+    letter-spacing: inherit;
+    transition: none;
+    caret-color: auto;
     width: 100%;
     min-height: 52px;
     max-height: 120px;
@@ -757,6 +762,15 @@
   }
 
   &__custom-textarea {
+    width: 100%;
+  }
+
+  &__custom-textarea > [data-openbitfun-part='input'] {
+    font-family: inherit;
+    font-weight: inherit;
+    letter-spacing: inherit;
+    transition: none;
+    caret-color: auto;
     width: 100%;
     padding: 8px 10px;
     border-radius: 8px;
@@ -1171,5 +1185,20 @@
   .deep-review-action-bar__icon--loading,
   .deep-review-action-bar__fixing-icon {
     animation: none;
+  }
+}
+
+// The existing card owns feedback and geometry; the shared trigger owns activation.
+.deep-review-action-bar__decision-gate-card[data-openbitfun-component='action-card'] {
+  min-block-size: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  outline: none;
+  box-shadow: none;
+  opacity: 1;
+
+  > [data-openbitfun-part='trigger'] {
+    min-block-size: 0;
   }
 }

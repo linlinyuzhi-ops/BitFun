@@ -113,6 +113,7 @@ const MainNav: React.FC<MainNavProps> = ({
   const workspaceMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
   const sectionsScrollRef = useRef<HTMLDivElement | null>(null);
+  const sessionContentRef = useRef<HTMLDivElement | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceMenuClosing, setWorkspaceMenuClosing] = useState(false);
   const [workspaceMenuPos, setWorkspaceMenuPos] = useState({ top: 0, left: 0 });
@@ -607,7 +608,7 @@ const MainNav: React.FC<MainNavProps> = ({
 
         {/* Unified sessions */}
         <div className="openbitfun-nav-panel__section" data-openbitfun-component="nav-panel" data-openbitfun-part="section" data-openbitfun-section="sessions">
-          <StickySectionHeader scrollRootRef={sectionsScrollRef}>
+          <StickySectionHeader scrollRootRef={sectionsScrollRef} contentRef={sessionContentRef}>
             <SectionHeader
               label={t('nav.items.sessions')}
               actions={
@@ -634,7 +635,7 @@ const MainNav: React.FC<MainNavProps> = ({
               }
             />
           </StickySectionHeader>
-          <div className="openbitfun-nav-panel__items" data-openbitfun-component="nav-panel" data-openbitfun-part="sectionContent">
+          <div ref={sessionContentRef} className="openbitfun-nav-panel__items" data-openbitfun-component="nav-panel" data-openbitfun-part="sectionContent">
             <WorkspaceListSection variant="all" />
           </div>
         </div>

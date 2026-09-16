@@ -4,7 +4,8 @@ import ImageIO
 import OpenBitFunMobileCore
 
 extension MobileAppModel {
-    func send() { sendRemote() }
+    @discardableResult
+    func send() -> Bool { sendRemote() }
 
     func select(_ session: ChatSession) {
         pendingDirectoryRemoteDraft = nil
@@ -53,8 +54,13 @@ extension MobileAppModel {
     }
 
     func selectModel(_ modelID: String) {
-        guard selectedSession != nil else { return }
-        coreAdapter?.selectRemoteModel(sessionID: selectedSessionID, modelID: modelID)
+        guard surface == .remote, remoteSessionSelected,
+              let sessionID = RemoteAuthorityGate.sendSessionID(
+                selectedSessionID: selectedSessionID, openedSessionID: remoteOpenedSessionID,
+                connected: remoteConnected && connectionPhase == .connected,
+                busy: busy, sending: isSending
+              ) else { return }
+        coreAdapter?.selectRemoteModel(sessionID: sessionID, modelID: modelID)
     }
 
     static func simpleTimelineRow(_ message: ChatMessage) -> MobileConversationRow {
@@ -98,7 +104,8 @@ extension MobileAppModel {
             typing: row.typing,
             pending: row.pending,
             showRetry: row.showRetry,
-            error: row.error
+            error: row.error,
+            live: row.live
         )
     }
 
@@ -127,7 +134,8 @@ extension MobileAppModel {
                 )
             },
             actions: Set(tool.actions.map(\.name)),
-            foldIntoSummary: tool.foldIntoSummary
+            foldIntoSummary: tool.foldIntoSummary,
+            planPath: tool.plan?.path, planName: tool.plan?.name ?? "", planOverview: tool.plan?.overview ?? ""
         )
     }
 
@@ -147,7 +155,8 @@ extension MobileAppModel {
                 title: subagent.title,
                 running: subagent.running,
                 text: subagent.text,
-                children: subagent.children.map(mapBlock)
+                children: subagent.children.map(mapBlock),
+                status: subagent.status
             )
         }
         return .text(id: block.id, text: "", streaming: false)

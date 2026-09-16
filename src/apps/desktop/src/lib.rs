@@ -1298,6 +1298,7 @@ pub async fn run() {
             webdriver_bridge_result,
             get_startup_native_trace,
             api::agentic_api::list_sessions,
+            api::agentic_api::get_session_interaction_mailbox,
             api::agentic_api::list_pending_permission_requests,
             api::agentic_api::subscribe_permission_requests,
             api::agentic_api::respond_permission,
@@ -1322,11 +1323,13 @@ pub async fn run() {
             apply_external_hook_import_command,
             mutate_external_hook_import_command,
             get_external_source_snapshot,
+            get_instruction_source_catalog,
             get_workspace_reference_snapshot,
             plan_external_mcp_import_command,
             apply_external_mcp_import_command,
             reveal_external_source_location,
             get_external_source_control_snapshot,
+            get_external_source_discovery_snapshot,
             apply_external_source_control_action_command,
             get_external_ecosystem_awareness_command,
             acknowledge_external_ecosystems_command,
@@ -1386,12 +1389,14 @@ pub async fn run() {
             delete_agent_companion_pet_package,
             read_file_content,
             write_file_content,
+            workspace_file_upload,
             reset_workspace_persona_files,
             check_path_exists,
             get_file_metadata,
             get_file_editor_sync_hash,
             rename_file,
             export_local_file_to_path,
+            api::local_file_download::local_file_download,
             reveal_in_explorer,
             get_file_tree,
             explorer_get_file_tree,
@@ -1420,6 +1425,7 @@ pub async fn run() {
             get_watched_paths,
             get_clipboard_files,
             api::browser_file_drop_api::resolve_browser_dropped_file_paths,
+            api::file_drop_preview_api::set_file_drop_preview_target,
             paste_files,
             get_config,
             get_configs,
@@ -1683,6 +1689,7 @@ pub async fn run() {
             api::system_api::quit_app,
             api::system_api::minimize_to_tray,
             api::system_api::initialize_tray_after_startup,
+            api::system_api::set_tray_unread_count,
             api::system_api::startup_window_control,
             api::system_api::set_main_window_transient_geometry,
             api::system_api::toggle_main_window_fullscreen,
@@ -1728,6 +1735,9 @@ pub async fn run() {
             api::remote_connect_api::account_list_devices,
             api::remote_connect_api::account_delete_device,
             api::remote_connect_api::account_device_rpc,
+            api::remote_connect_api::account_subscribe_session,
+            api::remote_connect_api::account_unsubscribe_session,
+            api::remote_connect_api::account_load_older_session,
             // OpenBitFun Page API
             api::pages_api::page_publish,
             api::pages_api::page_save_version,
@@ -1967,7 +1977,7 @@ async fn init_agentic_system() -> anyhow::Result<(
     let persistence_manager = Arc::new(persistence::PersistenceManager::new(path_manager.clone())?);
 
     let context_store = Arc::new(session::SessionContextStore::new());
-    let context_compressor = Arc::new(session::ContextCompressor::new(Default::default()));
+    let context_compressor = Arc::new(session::ContextCompressor::new());
 
     let session_manager = Arc::new(session::SessionManager::new(
         context_store,
@@ -2296,6 +2306,7 @@ async fn deliver_event_to_webview(
     event: AgenticEvent,
     session_event_journal: &SessionEventJournal,
 ) {
+    openbitfun_core::service::remote_connect::notify_session_catalog_event(&event);
     let cursor = session_event_journal.record(&event);
     let Some(mut projected) = openbitfun_events::project_agentic_frontend_event(event) else {
         log::warn!("Unhandled AgenticEvent type in desktop delivery");
@@ -2305,6 +2316,60 @@ async fn deliver_event_to_webview(
         attach_session_event_cursor(&mut projected.payload, cursor);
     }
 
+    if let (Some(publisher), Some(session_id)) = (
+        api::remote_connect_api::session_publisher().await,
+        projected
+            .payload
+            .get("sessionId")
+            .or_else(|| projected.payload.get("session_id"))
+            .and_then(serde_json::Value::as_str),
+    ) {
+        let name = projected.event_name.as_str();
+        let policy =
+            openbitfun_core::service::remote_connect::session_records::session_event_publication(
+                name,
+                &projected.payload,
+            );
+        if policy.synchronize_records {
+            if let Err(error) = async {
+                if let Some(turn) = projected
+                    .payload
+                    .get("turnId")
+                    .or_else(|| projected.payload.get("settledTurnId"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    openbitfun_core::service::remote_connect::synchronize_session_record_turn(
+                        &publisher, session_id, turn,
+                    )
+                    .await
+                } else if name == "agentic://session-history-changed" {
+                    openbitfun_core::service::remote_connect::synchronize_session_records(
+                        &publisher, session_id,
+                    )
+                    .await
+                } else {
+                    Ok(())
+                }
+            }
+            .await
+            {
+                log::error!("Unable to synchronize durable session records: {error}");
+            }
+        }
+        if policy.persist_control {
+            if let Err(error) = publisher
+                .append(
+                    session_id.to_owned(),
+                    projected.event_name.clone(),
+                    projected.payload.clone(),
+                )
+                .await
+            {
+                log::error!("Unable to persist session control event: {error}");
+            }
+        }
+    }
+
     if let Err(e) = transport
         .emit_generic(&projected.event_name, projected.payload.clone())
         .await
@@ -2312,9 +2377,8 @@ async fn deliver_event_to_webview(
         log::error!("Failed to emit event: {:?}", e);
     }
 
-    if !api::peer_host_invoke::attached_controllers().is_empty() {
-        api::remote_connect_api::fanout_peer_device_event(projected.event_name, projected.payload);
-    }
+    // Session events are delivered once through the durable account log.
+    // Do not duplicate every payload on the per-controller ephemeral channel.
 }
 
 /// Update the rate EMA from a flush that produced `flushed_chars` characters.

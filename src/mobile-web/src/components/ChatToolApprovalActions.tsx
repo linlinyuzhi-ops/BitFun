@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { MobileButton } from '@openbitfun/ui/mobile';
+import { MobileButton, MobileTextarea } from '@openbitfun/ui/mobile';
 import { useI18n } from '../i18n';
 import type { RemoteToolStatus } from '../services/RemoteSessionManager';
 
 interface ChatToolApprovalActionsProps {
   tool: RemoteToolStatus;
-  onApprove?: (toolId: string) => Promise<void>;
+  onApprove?: (toolId: string, updatedInput?: Record<string, unknown>) => Promise<void>;
   onReject?: (toolId: string) => Promise<void>;
 }
 
@@ -22,6 +22,8 @@ export default function ChatToolApprovalActions({
   const { t } = useI18n();
   const [pendingAction, setPendingAction] = useState<'approve' | 'reject' | null>(null);
 
+  const [editing, setEditing] = useState(false);
+  const [editedInput, setEditedInput] = useState('');
   const [failed, setFailed] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
@@ -29,6 +31,7 @@ export default function ChatToolApprovalActions({
     setPendingAction(null);
     setFailed(false);
     setSubmitted(false);
+    setEditing(false);
   }, [tool.id, tool.status]);
 
   if (!isToolAwaitingApproval(tool) || !onApprove || !onReject) return null;
@@ -41,7 +44,9 @@ export default function ChatToolApprovalActions({
     setPendingAction(action);
     setFailed(false);
     try {
-      await (action === 'approve' ? onApprove(tool.id) : onReject(tool.id));
+      const updated = editing && action === 'approve' ? JSON.parse(editedInput) : undefined;
+      if (updated !== undefined && (updated === null || typeof updated !== 'object' || Array.isArray(updated))) throw new Error('Approval input must be a JSON object');
+      await (action === 'approve' ? onApprove(tool.id, updated) : onReject(tool.id));
       setSubmitted(true);
       setPendingAction(null);
     } catch {
@@ -54,6 +59,8 @@ export default function ChatToolApprovalActions({
     <div className="chat-tool-approval" role="group" aria-label={t('chat.approvalRequired')}>
       <p className="chat-tool-approval__label">{t('chat.approvalRequired')}</p>
       {requestText && <pre className="chat-tool-approval__request">{requestText.length > 240 ? `${requestText.slice(0, 240)}…` : requestText}</pre>}
+      {!editing && <MobileButton disabled={pendingAction !== null || submitted} onClick={() => { setEditedInput(requestText || '{}'); setEditing(true); }}>{t('chat.editApproval')}</MobileButton>}
+      {editing && <MobileTextarea aria-label={t('chat.toolRequest')} value={editedInput} onChange={event => setEditedInput(event.target.value)} disabled={pendingAction !== null || submitted} rows={6} />}
       {failed && <p className="chat-tool-approval__error" role="alert">{t('chat.approvalFailed')}</p>}
       {submitted && <p role="status">{t('chat.approvalSubmitted')}</p>}
       <div className="chat-tool-approval__actions" aria-busy={pendingAction !== null}>

@@ -86,6 +86,9 @@ public data class ToolCard public constructor(
     public val actions: Set<ToolAction>,
     public val expandable: Boolean,
 ) {
+    public val plan: PlanToolDescriptor?
+        get() = PlanToolPolicy.descriptor(name, input, filePath)
+
     /** Whether a finished tool can join the compact consecutive-activity summary. */
     public val foldIntoSummary: Boolean
         get() {
@@ -162,6 +165,8 @@ public data class ConversationRow public constructor(
     public val showRetry: Boolean,
     /** A user-visible assistant failure returned by the desktop. */
     public val error: String?,
+    /** This is the current turn, including its finalizing snapshot before persistence. */
+    public val live: Boolean,
 )
 
 /**
@@ -202,6 +207,7 @@ public fun ChatTimelineState.conversationRows(): List<ConversationRow> =
             images = message?.images.orEmpty().map { ConversationImage(it.name, it.dataUrl) },
             tools = message?.let(::toolCards).orEmpty(),
             blocks = message?.let { messageBlocks(it, item.isStreaming) }.orEmpty(),
+            live = item.type == ChatTimelineItemType.ASSISTANT_LIVE_TURN,
             streaming = item.isStreaming,
             typing = message?.let { isTyping(it, item.isStreaming) } == true,
             pending = item.type == ChatTimelineItemType.OPTIMISTIC_USER_MESSAGE,
@@ -300,16 +306,18 @@ internal fun toolCard(tool: RemoteToolStatusResponse): ToolCard {
         }
     }
     val file = ToolInputPolicy.fileTarget(tool)
+    val planInput = tool.plan?.toString() ?: ToolStatusPolicy.inputText(tool)
+    val plan = PlanToolPolicy.descriptor(if (tool.plan != null) "CreatePlan" else tool.name.orEmpty(), planInput, file?.path.orEmpty())
     return ToolCard(
         id = tool.id.orEmpty(),
-        name = tool.name.orEmpty(),
+        name = if (tool.plan != null) "CreatePlan" else tool.name.orEmpty(),
         phase = toolPhase(tool),
         kind = toolKind(tool),
         operation = toolOperation(tool),
         target = ToolInputPolicy.summary(tool),
-        filePath = file?.path.orEmpty(),
+        filePath = plan?.path ?: file?.path.orEmpty(),
         fileLabel = file?.label.orEmpty(),
-        input = ToolStatusPolicy.inputText(tool),
+        input = planInput,
         output = ToolStatusPolicy.outputText(tool),
         question = question,
         questions = questions,

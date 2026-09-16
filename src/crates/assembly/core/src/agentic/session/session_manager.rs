@@ -3555,19 +3555,17 @@ impl SessionManager {
     }
 
     pub async fn remove_listing_diff_internal_reminders(&self, session_id: &str) -> bool {
-        let context_messages = self.context_store.get_context_messages(session_id);
-        if context_messages.is_empty() {
-            return false;
-        }
-
-        let (filtered_messages, changed) =
-            Self::strip_listing_diff_internal_reminders(context_messages);
+        let changed = self
+            .context_store
+            .try_transform_context(session_id, |messages| {
+                let (filtered, changed) =
+                    Self::strip_listing_diff_internal_reminders(messages.to_vec());
+                Ok((changed.then_some(filtered), changed))
+            })
+            .unwrap_or(false);
         if !changed {
             return false;
         }
-
-        self.context_store
-            .replace_context(session_id, filtered_messages);
         self.persist_current_turn_context_snapshot_best_effort(
             session_id,
             "listing_diff_internal_reminders_removed",
@@ -7720,6 +7718,9 @@ impl SessionManager {
                                         },
                                         duration_ms: None,
                                     });
+                                    tool_item.status = Some(
+                                        if *is_error { "error" } else { "completed" }.to_string(),
+                                    );
                                     tool_item.end_time = Some(timestamp);
                                     break;
                                 }
@@ -7929,7 +7930,7 @@ impl SessionManager {
         Ok(())
     }
 
-    fn append_generation_rounds(
+    pub(crate) fn append_generation_rounds(
         turn: &mut DialogTurnData,
         turn_id: &str,
         new_messages: &[Message],
@@ -8010,8 +8011,12 @@ impl SessionManager {
                         tool_item.subagent_model_id = previous.subagent_model_id.clone();
                         tool_item.subagent_model_display_name =
                             previous.subagent_model_display_name.clone();
-                        tool_item.status = previous.status.clone().or(tool_item.status.clone());
-                        tool_item.interruption_reason = previous.interruption_reason.clone();
+                        // A runtime result settles the request immediately. A persisted
+                        // waiting/running checkpoint must not overwrite that newer fact.
+                        if tool_item.tool_result.is_none() {
+                            tool_item.status = previous.status.clone().or(tool_item.status.clone());
+                            tool_item.interruption_reason = previous.interruption_reason.clone();
+                        }
                     }
                 }
                 // Client-derived display cards are not part of the model's
@@ -9260,6 +9265,25 @@ impl SessionManager {
             .await;
     }
 
+    /// Caller holds the session mutation guard through the subsequent formal
+    /// compression side effects. The context entry lock also fences appends.
+    pub(crate) fn transform_compression_context<T>(
+        &self,
+        session_id: &str,
+        transform: impl FnOnce(&[Message]) -> OpenBitFunResult<(Option<Vec<Message>>, T)>,
+    ) -> OpenBitFunResult<T> {
+        self.context_store
+            .try_transform_context(session_id, transform)
+    }
+
+    pub(crate) async fn persist_compression_context(&self, session_id: &str, messages: &[Message]) {
+        self.review_read_receipt_store.clear_session(session_id);
+        self.prune_token_anchors_to_messages(session_id, messages)
+            .await;
+        self.persist_current_turn_context_snapshot_best_effort(session_id, "context_compressed")
+            .await;
+    }
+
     pub fn record_review_read(
         &self,
         session_id: &str,
@@ -9318,6 +9342,15 @@ impl SessionManager {
         compression_state: CompressionState,
     ) -> OpenBitFunResult<()> {
         let _mutation_guard = self.acquire_session_mutation(session_id).await?;
+        self.update_compression_state_locked(session_id, compression_state)
+            .await
+    }
+
+    pub(crate) async fn update_compression_state_locked(
+        &self,
+        session_id: &str,
+        compression_state: CompressionState,
+    ) -> OpenBitFunResult<()> {
         let effective_path = self.effective_session_storage_path(session_id).await;
 
         // IMPORTANT: keep the DashMap guard scope short -- do NOT hold it across .await.

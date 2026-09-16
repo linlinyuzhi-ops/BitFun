@@ -27,25 +27,27 @@ import com.openbitfun.mobile.app.R
 import com.openbitfun.mobile.app.ui.theme.generated.MobileDesignColors
 import com.openbitfun.mobile.app.ui.theme.generated.MobileDesignGeometry as G
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.awaitCancellation
 import kotlin.math.*
 
 /** A welcome layout, C text motion. Only presentation state is kept here. */
 @Composable
 internal fun WelcomeHome(onLogin: () -> Unit, onScan: () -> Unit, signedIn: Boolean = false, modifier: Modifier = Modifier) {
     val phrases = listOf("OpenBitFun", stringResource(R.string.welcome_work), stringResource(R.string.welcome_play), stringResource(R.string.welcome_yours))
-    val elapsed = remember { Animatable(0f) }
+    var moving by remember { mutableStateOf(false) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(lifecycle, phrases) {
+    LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            val reduced = currentCoroutineContext()[androidx.compose.ui.MotionDurationScale]?.scaleFactor == 0f
-            if (reduced) { elapsed.snapTo(2700f); return@repeatOnLifecycle }
-            while (currentCoroutineContext().isActive) {
-                elapsed.snapTo(0f)
-                elapsed.animateTo(phrases.sumOf { welcomeDuration(it) }.toFloat(), tween(phrases.sumOf { welcomeDuration(it) }, easing = LinearEasing))
-            }
+            moving = currentCoroutineContext()[androidx.compose.ui.MotionDurationScale]?.scaleFactor != 0f
+            try { awaitCancellation() } finally { moving = false }
         }
     }
+    val duration = phrases.sumOf { welcomeDuration(it) }
+    val elapsed = if (moving) rememberInfiniteTransition(label = "welcome-copy").animateFloat(
+        initialValue = 0f, targetValue = duration.toFloat(),
+        animationSpec = infiniteRepeatable(tween(duration, easing = LinearEasing), RepeatMode.Restart),
+        label = "welcome-time",
+    ) else remember { mutableFloatStateOf(2700f) }
     var time = elapsed.value
     var phrase = phrases.first()
     for (item in phrases) { phrase = item; if (time < welcomeDuration(item)) break; time -= welcomeDuration(item) }
@@ -79,8 +81,7 @@ internal fun WelcomeHome(onLogin: () -> Unit, onScan: () -> Unit, signedIn: Bool
                 .padding(start = G.WelcomeGutter, end = G.WelcomeGutter, top = G.WelcomeGutter, bottom = G.WelcomeDockBottom), verticalArrangement = Arrangement.spacedBy(G.WelcomeButtonGap)) {
                 WelcomeAction(stringResource(if (signedIn) R.string.sidebar_connect_desktop else R.string.welcome_login), onLogin)
                 WelcomeAction(stringResource(R.string.welcome_scan), onScan, scan = true)
-                // Reserve the optional MiniApp row; this host does not ship a MiniApp runtime yet.
-                Spacer(Modifier.height(44.dp))
+                com.openbitfun.mobile.app.ui.miniapps.MiniAppsButton(contentColor = MobileDesignColors.Light.WelcomeButton)
             }
         }
     }

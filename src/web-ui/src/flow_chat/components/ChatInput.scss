@@ -161,7 +161,15 @@
   flex: 0 0 auto;
 }
 
-.openbitfun-chat-input__voice-setup-dismiss.icon-btn {
+.openbitfun-chat-input__voice-setup-pill > [data-openbitfun-part='action'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+
+.openbitfun-chat-input__voice-setup-dismiss[data-openbitfun-component='icon-button'] {
   width: 24px;
   height: 24px;
   min-width: 24px;
@@ -699,18 +707,19 @@
     }
   }
 
+  &__target-tab-separator,
   &__target-tab-name {
-    max-width: 110px;
-    overflow: hidden;
-    white-space: nowrap;
     font-size: var(--openbitfun-type-flow-support-font-size);
     font-weight: var(--openbitfun-type-body-sm-font-weight);
     opacity: 0.65;
+  }
 
-    &::before {
-      content: '·';
-      margin-right: 2px;
-    }
+  &__target-tab-separator {
+    flex-shrink: 0;
+  }
+
+  &__target-tab-name {
+    max-width: 110px;
   }
 
 

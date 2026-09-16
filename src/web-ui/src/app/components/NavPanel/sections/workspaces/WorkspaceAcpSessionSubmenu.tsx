@@ -10,7 +10,7 @@ import {
   type MutableRefObject,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Icon, Menu, MenuItem } from '@openbitfun/ui';
 
 import type { AcpClientInfo } from '@/infrastructure/api/service-api/ACPClientAPI';
@@ -172,7 +172,7 @@ const WorkspaceAcpSessionSubmenu = forwardRef<HTMLDivElement, WorkspaceAcpSessio
         <MenuItem
           ref={triggerRef}
           className={`openbitfun-nav-panel__workspace-acp-menu-trigger${open ? ' is-open' : ''}`}
-          leading={<Icon glyph={Bot} />}
+          leading={<Icon name="user" />}
           shortcut={<Icon name="chevron-right" size="sm" aria-hidden="true" />}
           aria-haspopup="menu"
           aria-expanded={open}
@@ -206,7 +206,7 @@ const WorkspaceAcpSessionSubmenu = forwardRef<HTMLDivElement, WorkspaceAcpSessio
               return (
                 <MenuItem
                   key={client.id}
-                  leading={<Icon glyph={Bot} />}
+                  leading={<Icon name="user" />}
                   onClick={() => onSelect(client)}
                   data-testid="nav-workspace-menu-create-acp-session"
                   data-acp-client-id={client.id}

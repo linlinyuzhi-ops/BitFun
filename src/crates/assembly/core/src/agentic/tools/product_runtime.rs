@@ -232,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn sdk_and_cli_profiles_current_tool_plan_ceilings_match_without_sharing_identity() {
+    fn cli_adds_pages_without_expanding_the_sdk_tool_plan() {
         let sdk = ProductToolRuntime::for_profile(DeliveryProfile::Sdk)
             .create_registry()
             .expect("SDK runtime plan must materialize in the product-full test build");
@@ -240,8 +240,21 @@ mod tests {
             .create_registry()
             .expect("CLI runtime plan must materialize in the product-full test build");
 
-        assert_eq!(sdk.get_tool_names(), cli.get_tool_names());
-        assert_eq!(sdk.get_deferred_tool_names(), cli.get_deferred_tool_names());
+        for tool in ["PagePublish", "PageDeploy"] {
+            assert!(cli.get_tool(tool).is_some(), "CLI must materialize {tool}");
+            assert!(sdk.get_tool(tool).is_none(), "SDK must not inherit {tool}");
+        }
+        let without_pages = |names: Vec<String>| {
+            names
+                .into_iter()
+                .filter(|name| !matches!(name.as_str(), "PagePublish" | "PageDeploy"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(sdk.get_tool_names(), without_pages(cli.get_tool_names()));
+        assert_eq!(
+            sdk.get_deferred_tool_names(),
+            without_pages(cli.get_deferred_tool_names())
+        );
     }
 
     #[test]

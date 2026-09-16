@@ -460,6 +460,8 @@ export interface ModeSkillInfo extends SkillInfo {
 
 export interface GlobalSkillSettings {
   globallyDisabledUserSkillKeys: string[];
+  globallyDisabledProjectSkillKeys?: string[];
+  directSkillManagementVersion?: number;
 }
 
 export interface SkillScanDiagnostic {

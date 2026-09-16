@@ -19,7 +19,7 @@ import { OverflowText,
   Dialog,
   DialogBody,
 } from '@openbitfun/ui';
-import { BarChart3, Blocks, Bot, CheckSquare2, FileText, Keyboard, MessageSquareText, MessagesSquare, Network, Users } from 'lucide-react';
+import { BarChart3, Blocks, CheckSquare2, FileText, Keyboard, MessageSquareText, MessagesSquare, Network, Users } from 'lucide-react';
 import { useShortcut } from '@/infrastructure/hooks/useShortcut';
 import { useI18n } from '@/infrastructure/i18n';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
@@ -111,7 +111,7 @@ const GROUP_ICONS: Record<Exclude<GlobalSearchGroupId, 'actions'>, IconSource> =
   sessions: { glyph: MessagesSquare },
   files: { glyph: FileText },
   workspaces: { name: 'folder' },
-  assistants: { glyph: Bot },
+  assistants: { name: 'user' },
   capabilities: { glyph: Blocks },
   settings: { name: 'gear' },
 };

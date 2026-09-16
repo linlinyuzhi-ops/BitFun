@@ -44,7 +44,7 @@ struct ComposerBar: View {
 
     private var primaryActionKind: ComposerPrimaryAction {
         if speech.isListening { return .stopListening }
-        if model.isSending { return .stopTurn }
+        if model.isSending && (!hasContent || model.surface != .remote) { return .stopTurn }
         if hasContent { return canSend ? .send : .sendBlocked }
         return model.busy ? .voiceBlocked : .voice
     }
@@ -95,6 +95,10 @@ struct ComposerBar: View {
         .background(OpenBitFunTheme.page)
         .animation(.easeOut(duration: 0.22), value: expanded)
         .animation(.easeOut(duration: 0.18), value: model.composerImages.count)
+        .onChange(of: model.composerSendGeneration) { _ in
+            focused = false
+            modelSelectorOpen = false
+        }
         .onDisappear { speech.stop() }
         .onChange(of: scenePhase) { if $0 != .active { speech.stop() } }
         .onChange(of: model.selectedSessionID) { _ in speech.stop() }
@@ -231,7 +235,7 @@ struct ComposerBar: View {
             .accessibilityIdentifier("composer.input")
             .submitLabel(.send)
             .onSubmit {
-                if canSend { model.send() }
+                if canSend { submitMessage() }
             }
             if showsSupplementalVoice, !expanded {
                 supplementalVoiceAction
@@ -494,12 +498,19 @@ struct ComposerBar: View {
         case .stopTurn:
             model.stopSending()
         case .send:
-            model.send()
+            submitMessage()
         case .sendBlocked, .voiceBlocked:
             return
         case .voice:
             startVoiceInput()
         }
+    }
+
+    private func submitMessage() {
+        guard model.send() else { return }
+        speech.stop()
+        focused = false
+        modelSelectorOpen = false
     }
 
     private func startVoiceInput() {
