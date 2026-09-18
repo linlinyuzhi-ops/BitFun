@@ -6,6 +6,7 @@ import {
   Dialog,
   DialogBody,
   DialogClose,
+  DialogFooter,
   DialogHeader,
   DialogHeading,
   DialogTitle,
@@ -519,7 +520,7 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
           </DialogHeading>
           <DialogClose />
         </DialogHeader>
-        <DialogBody inset="none">
+        <DialogBody>
         {reviewPlan ? (
           <div>
             {planNotice ? <p role="status">{planNotice}</p> : null}
@@ -548,6 +549,11 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
                 {t('imports.skipped', { reason: skipped.reasonCode, count: skipped.count })}
               </p>
             ))}
+          </div>
+        ) : null}
+        </DialogBody>
+        {reviewPlan ? (
+          <DialogFooter separator>
             <Button
               variant="fill"
               disabled={busyKey === 'apply'}
@@ -565,9 +571,8 @@ const HooksConfig: React.FC<HooksConfigProps> = ({ embedded = false }) => {
             >
               {t(reviewUpdatesExistingImport ? 'imports.confirmUpdate' : 'imports.confirm')}
             </Button>
-          </div>
+          </DialogFooter>
         ) : null}
-              </DialogBody>
       </Dialog>
 
       <ConfirmDialog

@@ -37,13 +37,8 @@ $_section-header-height: 22px;
     max-width: 100%;
     display: flex;
     flex-direction: column;
-    // Dynamic clip-path origin — set via JS from anchor element measurement.
-    // Fallback: ~20% from top (roughly the "Files" item in a typical layout).
     position: relative;
     overflow: visible;
-
-    --clip-origin-top: 20%;
-    --clip-origin-bottom: 80%;
   }
 
   // ── Layers ─────────────────────────────────
@@ -65,8 +60,8 @@ $_section-header-height: 22px;
       transform: translate3d(0, 0, 0);
       transition: none;
 
-      // Non-split scenes move as a coordinated pair when pointer motion is on.
-      .is-scene:not(.is-split-open) & {
+      // Hide the retained main navigation whenever a scene owns this layer.
+      .is-scene & {
         opacity: 0;
         transform: translate3d(-4px, 0, 0);
         pointer-events: none;
@@ -91,19 +86,6 @@ $_section-header-height: 22px;
         opacity: 1;
         transform: translate3d(0, 0, 0);
       }
-
-      // Split-open scenes (file-viewer): clip-path reveal from anchor.
-      // The opaque background ensures revealed portions fully cover MainNav
-      // so departing items never bleed through.
-      .is-split-open.has-pointer-motion & {
-        clip-path: inset(var(--clip-origin-top) 0 var(--clip-origin-bottom) 0);
-        transition: clip-path 0.26s cubic-bezier(0.22, 1, 0.36, 1),
-                    opacity 0.06s linear;
-
-        &.is-active {
-          clip-path: inset(0 0 0 0);
-        }
-      }
     }
   }
 
@@ -113,7 +95,7 @@ $_section-header-height: 22px;
       transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
   }
 
-  &__content.has-pointer-motion:not(.is-split-open) &__layer--scene {
+  &__content.has-pointer-motion &__layer--scene {
     transition:
       opacity 160ms cubic-bezier(0.23, 1, 0.32, 1),
       transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
@@ -1058,60 +1040,11 @@ $_section-header-height: 22px;
     -webkit-appearance: none;
   }
 
-  // ──────────────────────────────────────────────
-  // Split-departure animation
-  //
-  // When scene-nav opens, MainNav items & sections receive directional
-  // classes based on their position relative to the anchor item:
-  //   .is-departing-up     → items above anchor slide up + fade
-  //   .is-departing-anchor → the anchor item itself (brief scale pulse)
-  //   .is-departing-down   → items below anchor slide down + fade
-  // These provide the "split-open" feel while scene navigation changes.
-  // ──────────────────────────────────────────────
-
-  $_depart-distance: 28px;
-  $_depart-duration: 0.24s;
-  $_depart-easing: cubic-bezier(0.4, 0, 0.2, 1);
-
-  // Item slots depart with the split-open animation used by scene navs.
-
   &__section {
     margin-bottom: calc(var(--openbitfun-space-5) * 0.75);
-    transition: transform $_depart-duration $_depart-easing,
-                opacity $_depart-duration $_depart-easing;
 
     &:last-child {
       margin-bottom: var(--openbitfun-space-5);
-    }
-
-    &.is-departing-up {
-      transform: translateY(-$_depart-distance);
-      opacity: 0;
-    }
-
-    &.is-departing-down {
-      transform: translateY($_depart-distance);
-      opacity: 0;
-    }
-  }
-
-  &__item-slot {
-    transition: transform $_depart-duration $_depart-easing,
-                opacity $_depart-duration $_depart-easing;
-
-    &.is-departing-up {
-      transform: translateY(-$_depart-distance);
-      opacity: 0;
-    }
-
-    &.is-departing-anchor {
-      transform: scale(0.96);
-      opacity: 0;
-    }
-
-    &.is-departing-down {
-      transform: translateY($_depart-distance);
-      opacity: 0;
     }
   }
 
@@ -2152,12 +2085,12 @@ $_section-header-height: 22px;
     }
 
     &__content.has-pointer-motion &__layer--main,
-    &__content.has-pointer-motion:not(.is-split-open) &__layer--scene {
+    &__content.has-pointer-motion &__layer--scene {
       transform: none;
       transition: opacity 100ms cubic-bezier(0.23, 1, 0.32, 1);
     }
 
-    &__content.has-pointer-motion:not(.is-split-open) &__layer--scene.is-active {
+    &__content.has-pointer-motion &__layer--scene.is-active {
       @starting-style {
         opacity: 0;
         transform: none;
@@ -2229,8 +2162,9 @@ $_section-header-height: 22px;
 }
 
 .openbitfun-nav-panel__identity-name {
-  color: var(--openbitfun-color-accent-default);
-  font-family: var(--openbitfun-type-code-md-font-family);
+  --_nav-identity-cursive-font: 'STXingkai', '华文行楷', 'KaiTi', '楷体', 'STKaiti', '华文楷体', var(--openbitfun-type-code-md-font-family);
+  color: var(--openbitfun-color-status-danger-content);
+  font-family: var(--_nav-identity-cursive-font);
   font-size: var(--openbitfun-type-body-lg-font-size);
   font-weight: var(--openbitfun-type-body-lg-font-weight);
 }
@@ -2482,21 +2416,6 @@ $_section-header-height: 22px;
     overflow: visible;
   }
 
-  &__layer--main {
-    transition: none;
-  }
-
-  &__layer--scene {
-    clip-path: inset(0);
-    transition: none;
-
-    .is-split-open &,
-    .is-split-open &.is-active {
-      clip-path: inset(0);
-      transition: none;
-    }
-  }
-
   &__brand-header {
     padding: 0 6px 5px;
   }
@@ -2609,12 +2528,6 @@ $_section-header-height: 22px;
     &:last-child {
       margin-bottom: var(--openbitfun-space-3);
     }
-
-    &.is-departing-up,
-    &.is-departing-down {
-      opacity: 1;
-      transform: none;
-    }
   }
 
   &__section-header {
@@ -2641,17 +2554,6 @@ $_section-header-height: 22px;
       transform 120ms cubic-bezier(0.23, 1, 0.32, 1),
       color 120ms ease,
       background 120ms ease;
-  }
-
-  &__item-slot {
-    transition: none;
-
-    &.is-departing-up,
-    &.is-departing-anchor,
-    &.is-departing-down {
-      opacity: 1;
-      transform: none;
-    }
   }
 
   &__items {

@@ -22,7 +22,7 @@ vi.mock('@openbitfun/ui', async (importOriginal) => {
     Disclosure: (await importOriginal<typeof import('@openbitfun/ui')>()).Disclosure,
     Textarea: (await importOriginal<typeof import('@openbitfun/ui')>()).Textarea,
     Dialog: ({ open, children }: React.PropsWithChildren<{ open: boolean }>) => open ? <div role="dialog">{children}</div> : null,
-    DialogBody: Wrapper, DialogHeader: Wrapper, DialogHeading: Wrapper, DialogTitle: Wrapper,
+    DialogBody: Wrapper, DialogFooter: Wrapper, DialogHeader: Wrapper, DialogHeading: Wrapper, DialogTitle: Wrapper,
     DialogClose: () => null, Icon: () => null, Input: () => null,
     Button: ({ children, disabled, onClick }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button disabled={disabled} onClick={onClick}>{children}</button>,
   };

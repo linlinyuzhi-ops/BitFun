@@ -249,14 +249,8 @@
   }
 
   &__footer {
-    display: flex;
-    align-items: center;
     justify-content: space-between;
     gap: var(--openbitfun-space-5);
-    min-height: 84px;
-    padding: var(--openbitfun-space-4) 56px;
-    box-sizing: border-box;
-    border-top: 1px solid var(--openbitfun-color-border-subtle);
   }
 
   &__status {
@@ -305,9 +299,6 @@
       padding-inline: var(--openbitfun-space-6);
     }
 
-    &__footer {
-      padding-inline: var(--openbitfun-space-6);
-    }
   }
 }
 
@@ -356,7 +347,6 @@
     &__footer {
       align-items: stretch;
       flex-direction: column;
-      padding: var(--openbitfun-space-4);
     }
 
     &__actions {

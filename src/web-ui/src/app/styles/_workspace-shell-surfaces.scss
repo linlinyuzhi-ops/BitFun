@@ -13,14 +13,14 @@
   @include sidebar-background;
 
   @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-    background: color-mix(in srgb, var(--openbitfun-color-surface-chrome) 75%, transparent);
+    background: color-mix(in srgb, var(--openbitfun-color-surface-chrome) 90%, transparent);
     -webkit-backdrop-filter: var(--openbitfun-effect-blur-medium);
     backdrop-filter: var(--openbitfun-effect-blur-medium);
     box-shadow: var(--openbitfun-shadow-inner-highlight);
   }
 
   :root[data-openbitfun-native-material='sidebar'] & {
-    background: color-mix(in srgb, var(--openbitfun-color-surface-chrome) 75%, transparent);
+    background: color-mix(in srgb, var(--openbitfun-color-surface-chrome) 90%, transparent);
     // The OS blurs desktop pixels; a CSS backdrop only sees the webview.
     -webkit-backdrop-filter: none;
     backdrop-filter: none;

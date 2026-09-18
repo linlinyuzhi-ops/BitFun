@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { withConversationExcerptFallback } from '@/shared/utils/conversationExcerpt';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { RotateCcw, Loader2 } from 'lucide-react';
 import type { DialogTurn, FlowUserSteeringItem } from '../../types/flow-chat';
@@ -56,6 +57,7 @@ import {
 import { restoreImageContextsFromPayload } from '../../utils/imageContextRestoration';
 import { UserMessagePresentationContent, UserMessageTextContent } from './UserMessagePresentationContent';
 import { UserMessageImage } from './UserMessageImage';
+import { useSubmittedMessageMotion } from './useSubmittedMessageMotion';
 import './UserMessageItem.scss';
 
 const log = createLogger('UserMessageItem');
@@ -88,7 +90,7 @@ function buildPresentationRerunPayload(presentation: ComposerPresentation): {
 
   return {
     message: contextSection ? `${contextSection}\n\n${modelText}` : modelText,
-    displayMessage: composerPresentationToEditorText(presentation),
+    displayMessage: withConversationExcerptFallback(composerPresentationToEditorText(presentation), composerPresentationContexts(presentation)),
     userMessageMetadata: {
       composerPresentation: presentation,
       ...(sessionReferences.length > 0 ? { sessionReferences } : {}),
@@ -121,6 +123,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
     const setEditDraft = useMessageEditStore(s => s.setDraft);
     const setEditSubmitting = useMessageEditStore(s => s.setSubmitting);
     const containerRef = useRef<HTMLDivElement>(null);
+    const shellRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
     const messageContent = typeof message?.content === 'string' ? message.content : String(message?.content || '');
     const sentTimestamp = typeof message?.timestamp === 'number'
@@ -181,6 +184,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
     const resolvedTurnStatus = dialogTurn?.status ?? turnStatus;
     const isFailed = resolvedTurnStatus === 'error';
     const resolvedSessionId = sessionId ?? currentSession?.sessionId;
+    useSubmittedMessageMotion(shellRef, resolvedSessionId, turnId, message?.id, isFailed || isEditing);
     const sessionMachine = useSessionStateMachine(resolvedSessionId ?? null);
     const sessionExecutionState = sessionMachine && sessionMachine.sessionId === resolvedSessionId
       ? sessionMachine.currentState
@@ -530,39 +534,55 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
         </div>
       );
     }
+
+    const messageImageGallery = messageImages.length > 0 ? (
+      <div
+        className="user-message-item__images"
+        data-openbitfun-product-component="user-message-item"
+        data-openbitfun-product-part="images"
+      >
+        {messageImages.map(img => (
+          <UserMessageImage key={img.id} image={img} onPreview={setLightboxImage} />
+        ))}
+      </div>
+    ) : null;
     
     return (
-      <div className="user-message-item-shell">
+      <div className="user-message-item-shell" ref={shellRef}>
+        {messageImageGallery}
+
         <div
           data-openbitfun-product-component="user-message-item"
           data-openbitfun-product-part="root"
           data-openbitfun-state={[expanded && 'expanded', isFailed && 'failed'].filter(Boolean).join(' ') || undefined}
           ref={containerRef}
-          className={`user-message-item ${expanded ? 'user-message-item--expanded' : ''}${isFailed ? ' user-message-item--failed' : ''}`}
+          className={`user-message-item ${expanded ? 'user-message-item--expanded' : ''}${isFailed ? ' user-message-item--failed' : ''}${isEditing ? ' user-message-item--editing' : ''}`}
           data-testid="chat-user-message"
           data-turn-id={turnId}
           data-status={resolvedTurnStatus || ''}
           data-failed={isFailed ? 'true' : 'false'}
         >
         {isEditing ? (
-          <UserMessageEditComposer
-            value={editDraft}
-            isSubmitting={isEditSubmitting}
-            submitLabel={t('message.saveEdit')}
-            cancelLabel={t('message.cancelEdit')}
-            placeholder={t('message.editPlaceholder')}
-            onChange={setEditDraft}
-            onSubmit={handleSubmitEdit}
-            onCancel={cancelEdit}
-            presentation={composerPresentation}
-            workspacePath={currentSession?.workspacePath}
-            workspaceId={currentSession?.workspaceId}
-            remoteConnectionId={
-              currentSession?.remoteConnectionId
-              || currentSession?.config?.remoteConnectionId
-            }
-            excludeSessionId={resolvedSessionId}
-          />
+          <div className="user-message-item__edit-layout">
+            <UserMessageEditComposer
+              value={editDraft}
+              isSubmitting={isEditSubmitting}
+              submitLabel={t('message.saveEdit')}
+              cancelLabel={t('message.cancelEdit')}
+              placeholder={t('message.editPlaceholder')}
+              onChange={setEditDraft}
+              onSubmit={handleSubmitEdit}
+              onCancel={cancelEdit}
+              presentation={composerPresentation}
+              workspacePath={currentSession?.workspacePath}
+              workspaceId={currentSession?.workspaceId}
+              remoteConnectionId={
+                currentSession?.remoteConnectionId
+                || currentSession?.config?.remoteConnectionId
+              }
+              excludeSessionId={resolvedSessionId}
+            />
+          </div>
         ) : (
           <div className="user-message-item__main" data-openbitfun-product-component="user-message-item" data-openbitfun-product-part="main">
           <div
@@ -574,7 +594,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
           >
             {isFailed ? (
               <div className="user-message-item__failed-body">
-                <div 
+                <div
                   ref={contentRef}
                   className="user-message-item__content"
                   data-openbitfun-product-component="user-message-item"
@@ -599,7 +619,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
               </div>
             ) : (
               <>
-                <div 
+                <div
                   ref={contentRef}
                   className="user-message-item__content"
                   data-openbitfun-product-component="user-message-item"
@@ -624,14 +644,6 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
               </>
             )}
             </div>
-          </div>
-        )}
-
-        {message.images && message.images.length > 0 && (
-          <div className="user-message-item__images" data-openbitfun-product-component="user-message-item" data-openbitfun-product-part="images">
-            {message.images.map(img => (
-              <UserMessageImage key={img.id} image={img} onPreview={setLightboxImage} />
-            ))}
           </div>
         )}
 

@@ -41,7 +41,7 @@ import {
 import { sessionWorktreeMaterializationPlan } from '../../utils/sessionWorktree';
 import { cleanupSaveState, updateSessionMetadata } from '../../services/flow-chat-manager/PersistenceModule';
 import { cleanupSessionBuffers } from '../../services/flow-chat-manager/TextChunkModule';
-import { applyGeneratingTitlePlaceholder } from '../shared';
+import { addSubmittedDialogTurn, applyGeneratingTitlePlaceholder } from '../shared';
 import { initializeSessionTitleMetadata } from '../../services/sessionTitleMetadata';
 
 const log = createLogger('LocalSessionDriver');
@@ -358,7 +358,7 @@ export const localSessionDriver: SessionDriver = {
       storageTurnIndex: acpStorageTurnIndex,
     };
 
-    context.flowChatStore.addDialogTurn(sessionId, dialogTurn);
+    addSubmittedDialogTurn(context, surfaceScope, sessionId, dialogTurn);
     tracker.createdLocalTurnId = dialogTurnId;
     const isRestoringHistoricalSession =
       readySession.isHistorical

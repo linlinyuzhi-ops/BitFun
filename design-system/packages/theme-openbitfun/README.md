@@ -55,6 +55,13 @@ IconButton, and other controls. Dark and high-contrast mappings retain their
 mode-specific feedback and outline contrast. Color entries remain editable in
 Design Lab's Colors catalog; Button geometry is independent of this palette.
 
+`component.empty.media` owns the low-emphasis color for decorative Empty
+artwork. It resolves to an opaque neutral in every mode because Lucide icons can
+contain overlapping paths; reusing translucent disabled-content colors would
+make those intersections visibly darker. The color matches muted content at 35%
+over the tertiary empty-state surface, while `layout.empty.*` owns the reference
+10px rhythm, 32/16px padding, and 24/32/40px media sizes.
+
 The default Web UI appearances consume these published component values.
 Branded presets and imported appearances may still supply the existing action
 tokens: the Web UI inherits explicit old values only when the corresponding

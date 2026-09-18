@@ -6,6 +6,8 @@ import {useTranslation} from 'react-i18next';
 import path from 'path-browserify';
 import { CornerUpLeft, Loader2, Square } from 'lucide-react';
 import {FlowChatContext, FlowChatVolatileContext} from '../modern/FlowChatContext';
+import { FlowChatSelectionBar } from '../../selection/FlowChatSelectionBar';
+import { ConversationExcerptSourceProvider } from '../../selection/ConversationExcerptSources';
 import {BtwVirtualSessionList} from './BtwVirtualSessionList';
 import {useBtwSessionState} from './useBtwSessionState';
 import {useFlowChatViewportOwner} from '../modern/useFlowChatViewportOwner';
@@ -68,7 +70,7 @@ import {
   SubagentAvatar,
 } from '../../subagent-identity';
 import { FlowChatManager } from '../../services/FlowChatManager';
-import { useSessionCompletionReceipt } from '../../hooks/useSessionCompletionReceipt';
+import { useSessionReadOnOpen } from '../../hooks/useSessionReadOnOpen';
 import { isImeOwnedKeyboardEvent } from '@/shared/utils/ime';
 import { bindBtwTailFollow } from './btwTailFollow';
 
@@ -164,7 +166,7 @@ const BtwSessionPanelContent: React.FC<BtwSessionPanelProps & { viewState: BtwPa
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const listHeaderRef = useRef<HTMLDivElement>(null);
   const viewportOwner = useFlowChatViewportOwner(scrollContainerRef);
-  useSessionCompletionReceipt(childSessionId ?? null, scrollContainerRef);
+  useSessionReadOnOpen(childSessionId ?? null);
   const actionBarRef = useRef<HTMLDivElement>(null);
   const [actionBarHeight, setActionBarHeight] = useState(0);
   const shouldAutoScrollRef = useRef(viewState.followTail);
@@ -1050,6 +1052,7 @@ const BtwSessionPanelContent: React.FC<BtwSessionPanelProps & { viewState: BtwPa
 
   return (
     <FlowChatContext.Provider value={contextValue}>
+      <ConversationExcerptSourceProvider sessionId={childSession.sessionId}>
       <FlowChatVolatileContext.Provider value={volatileContextValue}>
       <div
         className={`btw-session-panel${retainsReviewActionBarLayout ? ' btw-session-panel--has-action-bar' : ''}`}
@@ -1140,6 +1143,8 @@ const BtwSessionPanelContent: React.FC<BtwSessionPanelProps & { viewState: BtwPa
 
         <div
           ref={scrollContainerRef}
+          data-flowchat-selection-root={childSessionId}
+          data-flowchat-parent-session-id={parentSessionId}
           tabIndex={-1}
           className="btw-session-panel__body"
           data-openbitfun-component="btw-session-panel"
@@ -1191,10 +1196,16 @@ const BtwSessionPanelContent: React.FC<BtwSessionPanelProps & { viewState: BtwPa
               followRef={shouldAutoScrollRef}
               viewportOwner={viewportOwner}
               exploreGroupStates={exploreGroupStates}
+              onExpandGroup={onExpandGroup}
               isHistorical={childSession.isHistorical === true}
               viewState={viewState}
             />
           )}
+          {childSession.sessionKind === 'btw' && <FlowChatSelectionBar rootRef={scrollContainerRef}
+            sessionId={childSessionId} parentSessionId={parentSessionId} onSelectionIntent={() => {
+              shouldAutoScrollRef.current = false;
+              viewState.followTail = false;
+            }} />}
           <RuntimeStatusSlot
             sessionId={childSessionId}
             className="btw-session-panel__runtime-status"
@@ -1251,6 +1262,7 @@ const BtwSessionPanelContent: React.FC<BtwSessionPanelProps & { viewState: BtwPa
         </RetainedMountBoundary>
       </div>
       </FlowChatVolatileContext.Provider>
+      </ConversationExcerptSourceProvider>
     </FlowChatContext.Provider>
   );
 };

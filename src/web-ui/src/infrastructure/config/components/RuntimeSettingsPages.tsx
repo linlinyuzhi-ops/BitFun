@@ -1,5 +1,6 @@
 import { OverflowText,
   Button,
+  Combobox,
   Icon,
   IconButton,
   Input,
@@ -13,6 +14,7 @@ import { OverflowText,
   Dialog,
   DialogBody,
   DialogClose,
+  DialogFooter,
   DialogHeader,
   DialogHeading,
   DialogTitle,
@@ -56,12 +58,16 @@ import { systemAPI } from '@/infrastructure/api/service-api/SystemAPI';
 import { api } from '@/infrastructure/api/service-api/ApiClient';
 import { useNotification, notificationService } from '@/shared/notification-system';
 import type {
+  AIModelConfig,
+  SubagentModelSelection,
   PermissionRule,
   ToolPermissionConfig,
 } from '../types';
 import { GlobalPermissionRulesDialog } from './GlobalPermissionRulesDialog';
+import { useModelSelectPresentation } from './ModelSelectPresentation';
 import SessionTitleConfig from './SessionTitleConfig';
 import DefaultHarnessConfig from './DefaultHarnessConfig';
+import { useSceneStore } from '@/app/stores/sceneStore';
 import { useCurrentWorkspace } from '@/infrastructure/contexts/WorkspaceContext';
 import { isRemoteWorkspace } from '@/shared/types/global-state';
 import { WORKSPACE_SEARCH_AVAILABLE } from '@/infrastructure/config/workspaceSearchAvailability';
@@ -167,6 +173,10 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
   const { t: tNavigation } = useTranslation('settings');
   const { t: tTools } = useTranslation('settings/agentic-tools');
   const notification = useNotification();
+  const { t: tModels } = useTranslation('settings/models');
+  const { buildModelOption } = useModelSelectPresentation();
+  const [subagentDefaultModel, setSubagentDefaultModel] = useState<SubagentModelSelection>({ kind: 'fixed', model_id: 'fast' });
+  const [configuredModels, setConfiguredModels] = useState<AIModelConfig[]>([]);
 
   // ── Session config state ─────────────────────────────────────────────────
   const [isLoading, setIsLoading] = useState(true);
@@ -182,6 +192,7 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
   const [subagentMaxConcurrency, setSubagentMaxConcurrency] = useState(DEFAULT_SUBAGENT_MAX_CONCURRENCY);
   const [swarmMaxConcurrency, setSwarmMaxConcurrency] = useState(DEFAULT_SWARM_MAX_CONCURRENCY);
   const [executionTimeout, setExecutionTimeout] = useState('');
+  const [userQuestionTimeout, setUserQuestionTimeout] = useState('180');
   const [subagentBatchExecutionPolicy, setSubagentBatchExecutionPolicy] =
     useState<SubagentBatchExecutionPolicy>(DEFAULT_SUBAGENT_BATCH_EXECUTION_POLICY);
   const [toolExecConfigLoading, setToolExecConfigLoading] = useState(false);
@@ -342,22 +353,30 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
         setSettings(await aiExperienceConfigService.getSettingsAsync());
       } else if (page === 'execution') {
         const [
+          loadedSubagentDefaultModel,
+          loadedModels,
           deferredToolLoadingEnabled,
           loadedSubagentMaxConcurrency,
           loadedSwarmMaxConcurrency,
           execTimeout,
           loadedSubagentBatchExecutionPolicy,
           loadedToolPermissionConfig,
+          loadedUserQuestionTimeout,
           loadedPermissionModeControlVisibility,
         ] = await Promise.all([
+          configManager.getConfig<SubagentModelSelection>('ai.agent_model_defaults.subagents.default'),
+          configManager.getConfig<AIModelConfig[]>('ai.models'),
           configManager.getConfig<boolean>('ai.enable_deferred_tool_loading'),
           configManager.getConfig<number | null>('ai.subagent_max_concurrency'),
           configManager.getConfig<number | null>('ai.swarm_max_concurrency'),
           configManager.getConfig<number | null>('ai.tool_execution_timeout_secs'),
           configManager.getConfig<SubagentBatchExecutionPolicy>('ai.subagent_batch_execution_policy'),
           permissionConfigService.getConfig(),
+          configManager.getOptionalConfig<number | null>('ai.user_question_timeout_secs'),
           configManager.getOptionalConfig<boolean>(SHOW_PERMISSION_MODE_CONTROL_CONFIG_PATH),
         ]);
+        setSubagentDefaultModel(loadedSubagentDefaultModel ?? { kind: 'fixed', model_id: 'fast' });
+        setConfiguredModels(loadedModels ?? []);
         setEnableDeferredToolLoading(deferredToolLoadingEnabled ?? true);
         setSubagentMaxConcurrency(loadedSubagentMaxConcurrency != null
           ? loadedSubagentMaxConcurrency
@@ -366,6 +385,9 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
           ? loadedSwarmMaxConcurrency
           : DEFAULT_SWARM_MAX_CONCURRENCY);
         setExecutionTimeout(execTimeout != null ? String(execTimeout) : '');
+        setUserQuestionTimeout(loadedUserQuestionTimeout === undefined || loadedUserQuestionTimeout === 180
+          ? '180'
+          : loadedUserQuestionTimeout === null ? '0' : String(loadedUserQuestionTimeout));
         setSubagentBatchExecutionPolicy(normalizeSubagentBatchExecutionPolicy(loadedSubagentBatchExecutionPolicy));
         setToolPermissionConfig(normalizeToolPermissionConfig(loadedToolPermissionConfig));
         setShowPermissionModeControl(loadedPermissionModeControlVisibility !== false);
@@ -645,6 +667,40 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
     }
   };
 
+  const subagentModelValue = subagentDefaultModel.kind === 'inherit' ? 'inherit' : subagentDefaultModel.model_id;
+  const subagentModelOptions: ComboboxOption[] = [
+    { value: 'inherit', label: tTools('config.subagentModelInherit') },
+    { value: 'fast', label: tModels('sessionTitle.model.fast') },
+    { value: 'primary', label: tModels('sessionTitle.model.primary') },
+    ...configuredModels.filter(model => model.enabled && model.id).map(buildModelOption),
+  ];
+  if (!subagentModelOptions.some(option => option.value === subagentModelValue)) {
+    subagentModelOptions.push({
+      value: subagentModelValue,
+      label: tModels('sessionTitle.models.unavailable', { id: subagentModelValue }),
+      disabled: true,
+    });
+  }
+
+  const handleSubagentDefaultModelChange = async (value: string | number) => {
+    const selection: SubagentModelSelection = value === 'inherit'
+      ? { kind: 'inherit' }
+      : { kind: 'fixed', model_id: String(value) };
+    setToolExecConfigLoading(true);
+    try {
+      await configManager.setConfig('ai.agent_model_defaults.subagents.default', selection);
+      setSubagentDefaultModel(selection);
+      notificationService.success(tTools('messages.saveSuccess'), { duration: 2000 });
+    } catch (error) {
+      log.error('Failed to save default subagent model', error);
+      notificationService.error(
+        `${tTools('messages.saveFailed')}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      setToolExecConfigLoading(false);
+    }
+  };
+
   const handleSwarmMaxConcurrencyChange = async (input: number) => {
     if (!Number.isFinite(input)) return;
     const value = Math.min(SWARM_MAX_CONCURRENCY_LIMIT, Math.max(1, Math.round(input)));
@@ -904,6 +960,24 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
     } catch (error) {
       log.error('Failed to save tool timeout config', { error });
       setExecutionTimeout(previous);
+      notificationService.error(tTools('messages.saveFailed'));
+    } finally {
+      setToolExecConfigLoading(false);
+    }
+  };
+
+  const handleUserQuestionTimeoutChange = async (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed !== '' && (!/^\d+$/.test(trimmed) || Number(trimmed) > 3600)) return;
+    if (toolExecConfigLoading || Number(trimmed) === Number(userQuestionTimeout)) return;
+    const previous = userQuestionTimeout;
+    setUserQuestionTimeout(trimmed);
+    setToolExecConfigLoading(true);
+    try {
+      await configManager.setConfig('ai.user_question_timeout_secs', trimmed === '' ? null : Number(trimmed));
+    } catch (error) {
+      log.error('Failed to save user question timeout config', { error });
+      setUserQuestionTimeout(previous);
       notificationService.error(tTools('messages.saveFailed'));
     } finally {
       setToolExecConfigLoading(false);
@@ -1288,6 +1362,61 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
             </div>
           </ConfigPageRow>
           <ConfigPageRow
+            label={tTools('config.userQuestionTimeout')}
+            description={tTools('config.userQuestionTimeoutDesc')}
+            align="center"
+          >
+            <div className="openbitfun-runtime-settings__row-control" data-openbitfun-component="runtime-settings" data-openbitfun-part="control">
+              <NumberInput
+                value={userQuestionTimeout === '' ? 0 : parseInt(userQuestionTimeout, 10)}
+                onValueChange={(val) => void handleUserQuestionTimeoutChange(val === 0 ? '0' : String(val))}
+                min={0}
+                max={3600}
+                step={5}
+                unit={tTools('config.seconds')}
+                size="sm"
+                variant="compact"
+                disabled={toolExecConfigLoading}
+              />
+            </div>
+          </ConfigPageRow>
+        </ConfigPageSection>
+
+        <ConfigPageSection
+          title={tTools('section.subagents.title')}
+          description={tTools('section.subagents.description')}
+        >
+          <ConfigPageRow
+            className="openbitfun-runtime-settings__subagent-model-row"
+            label={
+              <span className="openbitfun-runtime-settings__subagent-model-label">
+                {tTools('config.subagentDefaultModel')}
+                <Tooltip content={tTools('config.subagentModelSettings')}>
+                  <IconButton
+                    type="button"
+                    size="sm"
+                    className="openbitfun-runtime-settings__subagent-model-settings"
+                    aria-label={tTools('config.subagentModelSettings')}
+                    icon={<Icon name="settings" size="sm" />}
+                    onClick={() => useSceneStore.getState().openScene('agents')}
+                  />
+                </Tooltip>
+              </span>
+            }
+            description={tTools('config.subagentDefaultModelDesc')}
+            align="center"
+          >
+            <div className="openbitfun-runtime-settings__row-control" data-openbitfun-component="runtime-settings" data-openbitfun-part="control">
+              <Combobox
+                value={subagentModelValue}
+                options={subagentModelOptions}
+                size="sm"
+                disabled={toolExecConfigLoading}
+                onValueChange={(value) => void handleSubagentDefaultModelChange(value)}
+              />
+            </div>
+          </ConfigPageRow>
+          <ConfigPageRow
             label={tTools('config.subagentBatchPolicy.label')}
             description={tTools('config.subagentBatchPolicy.desc')}
             align="center"
@@ -1642,7 +1771,7 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
             </DialogHeading>
             <DialogClose />
           </DialogHeader>
-          <DialogBody inset="none">
+          <DialogBody>
           <div className="openbitfun-debug-config__modal-body" data-openbitfun-component="runtime-settings" data-openbitfun-part="restartModal">
             <p>{t('browserControl.restartModal.description', { browser: browserRestartPrompt?.browserKind || browserKind })}</p>
             <p>{t('browserControl.restartModal.warning')}</p>
@@ -1650,7 +1779,13 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
               <p className="openbitfun-runtime-settings__hint">{browserRestartPrompt.message}</p>
             ) : null}
           </div>
-          <div className="openbitfun-debug-config__modal-footer" data-openbitfun-component="runtime-settings" data-openbitfun-part="modalFooter">
+          </DialogBody>
+          <DialogFooter
+            separator
+            className="openbitfun-debug-config__modal-footer"
+            data-openbitfun-component="runtime-settings"
+            data-openbitfun-part="modalFooter"
+          >
             <Button
               variant="fill"
               size="sm"
@@ -1669,8 +1804,7 @@ const RuntimeSettingsPage: React.FC<RuntimeSettingsPageProps> = ({
                 ? t('browserControl.restartModal.restarting')
                 : t('browserControl.restartModal.confirm')}
             </Button>
-          </div>
-                  </DialogBody>
+          </DialogFooter>
         </Dialog>
 
           </>

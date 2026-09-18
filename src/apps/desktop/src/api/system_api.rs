@@ -721,8 +721,11 @@ pub struct SetTrayUnreadCountRequest {
 }
 
 #[tauri::command]
-pub async fn set_tray_unread_count(request: SetTrayUnreadCountRequest) -> Result<(), String> {
-    crate::tray::set_unread_count(request.count)
+pub async fn set_tray_unread_count(
+    app: tauri::AppHandle,
+    request: SetTrayUnreadCountRequest,
+) -> Result<(), String> {
+    crate::tray::set_unread_count(&app, request.count)
 }
 
 /// Initialize the desktop tray after the startup shell has become interactive.

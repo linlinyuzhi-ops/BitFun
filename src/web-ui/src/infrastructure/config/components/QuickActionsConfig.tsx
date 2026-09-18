@@ -1,5 +1,6 @@
 import { OverflowText,
   Button,
+  Empty,
   Icon,
   IconButton,
   Input,
@@ -9,6 +10,7 @@ import { OverflowText,
   Dialog,
   DialogBody,
   DialogClose,
+  DialogFooter,
   DialogHeader,
   DialogHeading,
   DialogTitle,
@@ -174,7 +176,14 @@ const ActionFormModal: React.FC<ActionFormModalProps> = ({ isOpen, target, onClo
           <p className="quick-actions-config__modal-hint">{t('modal.promptHint')}</p>
         </div>
 
-        <div data-openbitfun-component="quick-actions-config" data-openbitfun-part="dialogFooter" className="quick-actions-config__modal-footer">
+      </div>
+      </DialogBody>
+      <DialogFooter
+        separator
+        data-openbitfun-component="quick-actions-config"
+        data-openbitfun-part="dialogFooter"
+        className="quick-actions-config__modal-footer"
+      >
           <Button variant="fill" size="sm" onClick={requestClose} disabled={saving}>
             {t('modal.cancel')}
           </Button>
@@ -189,9 +198,7 @@ const ActionFormModal: React.FC<ActionFormModalProps> = ({ isOpen, target, onClo
 
             {isEdit ? t('modal.saveEdit') : t('modal.confirmAdd')}
           </Button>
-        </div>
-      </div>
-          </DialogBody>
+      </DialogFooter>
     </Dialog>
   );
 };
@@ -417,18 +424,21 @@ const QuickActionsConfig: React.FC = () => {
           <div data-openbitfun-component="quick-actions-config" data-openbitfun-part="list" className="quick-actions-config__list">
             {customActions.length === 0 ? (
               <div data-openbitfun-component="quick-actions-config" data-openbitfun-part="empty" data-openbitfun-state="empty" className="quick-actions-config__empty">
-                <Zap size={20} className="quick-actions-config__empty-icon" />
-                <p>{t('sections.custom.empty')}</p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setModalTarget(null)}
-                  disabled={saving}
-                  leadingIcon={<Icon name="plus" size="sm" />}
-                >
-
-                  {t('add.button')}
-                </Button>
+                <Empty
+                  icon={<Zap aria-hidden />}
+                  description={t('sections.custom.empty')}
+                  actions={(
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setModalTarget(null)}
+                      disabled={saving}
+                      leadingIcon={<Icon name="plus" size="sm" />}
+                    >
+                      {t('add.button')}
+                    </Button>
+                  )}
+                />
               </div>
             ) : (
               customActions.map(action => (

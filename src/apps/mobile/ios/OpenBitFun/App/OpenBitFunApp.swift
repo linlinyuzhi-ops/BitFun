@@ -2,7 +2,9 @@ import SwiftUI
 
 @main
 struct OpenBitFunApp: App {
-    @State private var showStartupBrand = true
+    @State private var showStartupBrand = !MobileLaunchConfiguration.streamingRegressionPreview
+        && MobileLaunchConfiguration.designPreviewScenario() == nil
+        && StartupRevealPreference.claim()
     @State private var notificationOnboardingOpen = false
     @StateObject private var model = MobileLaunchConfiguration.makeModel()
     @Environment(\.scenePhase) private var scenePhase

@@ -1,41 +1,44 @@
 /**
  * User message item styles (BEM).
  */
-.user-message-item-shell {
-  position: relative;
-  margin:
-    0.06rem
-    var(--openbitfun-control-flow-chat-content-padding-inline)
-    var(--openbitfun-control-flow-chat-flow-item-gap)
-    var(--openbitfun-control-flow-chat-content-padding-inline);
+@use '../../transcript-layout' as transcriptLayout;
 
-  @media (max-width: 768px) {
-    margin-left: var(--openbitfun-control-flow-chat-content-padding-inline-mobile);
-    margin-right: var(--openbitfun-control-flow-chat-content-padding-inline-mobile);
+.user-message-item-shell {
+  @include transcriptLayout.content-column;
+
+  --_user-message-border-width: var(--openbitfun-border-width-default);
+  --_user-message-radius: calc(var(--openbitfun-control-flow-chat-card-radius) + 2px);
+  --_user-message-padding-inline: max(0px, calc(var(--_user-message-radius) - var(--_user-message-border-width)));
+
+  position: relative;
+  margin: 0.06rem 0 var(--openbitfun-control-flow-chat-flow-item-gap);
+
+  &:has(> .user-message-item--failed) {
+    --_user-message-border-width: 0px;
   }
 }
 
 .user-message-item {
   box-sizing: border-box;
   /*
-   * WeChat-style own-message bubble: hugs its text, caps at a share of the
-   * reading column, and sits flush against the right edge of the column. The
-   * meta row below repeats the same right alignment so a turn still reads as
-   * one right-hugging block instead of a bubble with a full-width footer.
+* The shell owns the same reading column as replies. Extend the bubble by
+   * its radius so the horizontal edges' tangent points meet that column.
+   * Padding subtracts the border width to put message text on the same axis.
    */
   width: fit-content;
-  max-width: min(72%, 34rem);
-  padding: 0.46rem 0.68rem;
+  max-width: min(72%, 48rem);
+  padding: 0.46rem var(--_user-message-padding-inline);
   background: var(--openbitfun-color-identity-user-surface);
-  border: 1px solid color-mix(in srgb, var(--openbitfun-color-border-default) 72%, transparent);
-  border-radius: calc(var(--openbitfun-control-flow-chat-card-radius) + 2px);
-  margin: 0 0 0 auto;
+  border: var(--_user-message-border-width) solid color-mix(in srgb, var(--openbitfun-color-border-default) 72%, transparent);
+  border-radius: var(--_user-message-radius);
+  margin-block: 0;
+  margin-inline: auto calc(-1 * var(--_user-message-radius));
   box-shadow: none;
   transition: opacity 140ms ease;
   /*
-   * No enter animation: the message list is virtualized, so a mount-triggered
-   * slide-in replays every time a turn scrolls back into view and reads as the
-   * conversation jumping.
+   * No CSS mount animation: virtualized remounts are already settled.
+   * useSubmittedMessageMotion owns the one-shot feedback for an explicit send;
+   * it changes only paint on the contents, never this row's measured layout.
    */
   position: relative;
 
@@ -50,6 +53,12 @@
 
 }
 
+.user-message-item--editing {
+  width: auto;
+  max-width: none;
+  margin-inline: calc(-1 * var(--_user-message-radius));
+}
+
 .user-message-item__timestamp {
   /* The timestamp shares the external meta row with the action cluster. */
   color: var(--openbitfun-color-content-muted);
@@ -61,19 +70,15 @@
   white-space: nowrap;
   opacity: 1;
   pointer-events: none;
-  margin-right: auto;
+  margin-inline-end: auto;
 }
 
 .user-message-item__meta {
-  /* Keep the full action hit targets in the measured row, including when a
-     legacy message has no timestamp. The always-visible metadata leaves the
-     trailing item gap clear for the next response. */
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.125rem;
-  box-sizing: border-box;
-  padding: var(--openbitfun-space-1) 0 0;
+  @include transcriptLayout.metadata-row;
+  // Metadata follows the reading column, independently of bubble decoration.
+  // Its full hit targets remain in normal flow for virtual-row measurement.
+  padding-block: calc(var(--openbitfun-space-1) / 2) 0;
+  padding-inline: 0;
   pointer-events: auto;
   /* Follow the right-hugging bubble instead of spanning the whole column. */
   width: fit-content;
@@ -112,14 +117,10 @@
 }
 
 .user-message-item__actions {
-  display: flex;
-  align-items: center;
-  gap: 0.125rem;
-  flex-shrink: 0;
+  @include transcriptLayout.metadata-actions;
   opacity: 1;
   pointer-events: auto;
   /* Controls remain available without requiring hover or keyboard focus. */
-  margin: 0;
 }
 
 .user-message-item__blocks {
@@ -212,37 +213,15 @@
 .user-message-item__copy-btn,
 .user-message-item__edit-btn,
 .user-message-item__rollback-btn {
+  @include transcriptLayout.metadata-action;
   // Keep the message action feedback and original pending indicator.
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  min-height: 28px;
-  padding: 0;
   background: transparent;
-  border: none;
-  border-radius: var(--openbitfun-radius-sm);
   color: var(--openbitfun-color-content-secondary);
   cursor: pointer;
   transition: transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
-  flex-shrink: 0;
   align-self: center;
   outline: none;
   user-select: none;
-
-  &::before { content: none; }
-
-  > [data-openbitfun-part='icon'] {
-    --openbitfun-opacity-icon-artwork: inherit;
-    display: contents;
-  }
-
-  > :where([data-openbitfun-part='icon']) > :where(svg, [data-openbitfun-component='icon']) {
-    inline-size: 14px;
-    block-size: 14px;
-  }
 
   &:hover:not(:disabled) {
     background: transparent;
@@ -259,14 +238,6 @@
     cursor: default;
     opacity: 0.35;
   }
-
-  svg,
-  [data-openbitfun-component='icon'] {
-    width: 14px;
-    height: 14px;
-    display: block;
-    flex-shrink: 0;
-  }
 }
 
 .user-message-item__copy-btn.copied {
@@ -274,13 +245,37 @@
   background: var(--openbitfun-color-status-success-surface);
 }
 
+.user-message-item__edit-layout {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--openbitfun-control-flow-chat-inline-gap);
+}
+
 .user-message-edit-composer {
   width: 100%;
+
+  // The surrounding user-message bubble already communicates the editing
+  // boundary. Keep Composer's layout, but avoid stacking its border, shadow,
+  // and focus ring into a visually heavy double frame.
+  > [data-openbitfun-part='surface'],
+  > [data-openbitfun-part='surface']:focus-within {
+    min-block-size: 0;
+    gap: var(--openbitfun-control-flow-chat-inline-gap);
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  > [data-openbitfun-part='surface'] > [data-openbitfun-part='editor'] {
+    padding: 0;
+  }
 }
 
 .user-message-edit-composer__textarea {
   width: 100%;
-  min-height: 5.5rem;
+  min-height: var(--openbitfun-control-height-sm);
   max-height: 45vh;
   overflow-y: auto;
   font-size: var(--openbitfun-type-flow-control-font-size);
@@ -289,12 +284,12 @@
 
 .user-message-edit-composer__rich-input {
   position: relative;
-  min-height: 5.5rem;
+  min-height: var(--openbitfun-control-height-sm);
   max-height: 45vh;
   overflow-y: auto;
 
   .rich-text-input {
-    min-height: 4.4rem;
+    min-height: var(--openbitfun-control-height-sm);
     padding: 0;
     border: none;
     background: transparent;
@@ -329,8 +324,10 @@
 .user-message-item__images {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
-  margin-top: 6px;
+  margin-block: 0 6px;
+  margin-inline-end: calc(-1 * var(--_user-message-radius));
 }
 
 .user-message-item__image-thumb {

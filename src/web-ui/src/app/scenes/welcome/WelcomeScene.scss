@@ -64,8 +64,9 @@
   }
 
   &__identity-name {
-    color: var(--openbitfun-color-accent-default);
-    font-family: var(--openbitfun-type-code-md-font-family);
+    --_welcome-identity-cursive-font: 'STXingkai', '华文行楷', 'KaiTi', '楷体', 'STKaiti', '华文楷体', var(--openbitfun-type-code-md-font-family);
+    color: var(--openbitfun-color-status-danger-content);
+    font-family: var(--_welcome-identity-cursive-font);
     font-size: var(--openbitfun-type-heading-card-font-size);
     font-weight: var(--openbitfun-type-heading-card-font-weight);
   }

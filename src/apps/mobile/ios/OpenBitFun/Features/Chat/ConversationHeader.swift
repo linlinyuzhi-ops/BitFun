@@ -13,7 +13,6 @@ struct ConversationHeader: View {
 
     private var resolvedTitle: String {
         if let title = model.selectedSession?.title, !title.isEmpty { return title }
-        if model.surface == .remote { return model.localized("远程") }
         return "OpenBitFun"
     }
 
@@ -91,9 +90,7 @@ struct ConversationHeader: View {
                 }
             }
             .frame(
-                height: resolvedSubtitle == nil
-                    ? MobileDesignGeometry.conversationHeaderCompactHeight
-                    : MobileDesignGeometry.conversationHeaderHeight
+                height: MobileDesignGeometry.conversationHeaderHeight
             )
             .padding(.horizontal, MobileDesignGeometry.contentGutter)
 

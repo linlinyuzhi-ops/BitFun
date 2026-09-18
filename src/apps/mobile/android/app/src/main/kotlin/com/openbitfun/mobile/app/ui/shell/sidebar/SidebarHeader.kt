@@ -44,7 +44,7 @@ internal fun SidebarAuthenticatedHeader(
     onToggleSearch: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().height(com.openbitfun.mobile.app.ui.theme.generated.MobileDesignGeometry.ConversationHeaderHeight),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(

@@ -785,57 +785,59 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
               </div>
             )}
 
-            <ForkSessionButton sessionId={sessionId} turnId={turnId} />
+            <div className="model-round-item__actions">
+              <ForkSessionButton sessionId={sessionId} turnId={turnId} />
 
-            {allowTranscriptExport && <div className="model-round-item__copy-menu-anchor">
-              <Tooltip content={copied ? t('modelRound.copiedDialog') : t('modelRound.copyDialog')} placement="top">
-                <IconButton
-                  ref={copyButtonRef}
-                  className={`model-round-item__action-btn model-round-item__copy-btn ${copied ? 'copied' : ''}`}
-                  onClick={() => setIsCopyMenuOpen(current => !current)}
-                  tabIndex={shouldRevealFooter ? 0 : -1}
-                  disabled={!shouldRevealFooter}
-                  aria-haspopup="menu"
-                  aria-expanded={isCopyMenuOpen}
-                  aria-label={copied ? t('modelRound.copiedDialog') : t('modelRound.copyDialog')}
-                  data-testid="model-round-copy-btn"
-                  data-openbitfun-product-component="model-round-item" data-openbitfun-product-part="action" data-openbitfun-state={copied ? 'copied' : undefined}
-                  icon={<Icon name={copied ? 'check-line' : 'duplicate'} size="sm" />}
-                />
-              </Tooltip>
+              {allowTranscriptExport && <div className="model-round-item__copy-menu-anchor">
+                <Tooltip content={copied ? t('modelRound.copiedDialog') : t('modelRound.copyDialog')} placement="top">
+                  <IconButton
+                    ref={copyButtonRef}
+                    className={`model-round-item__action-btn model-round-item__copy-btn ${copied ? 'copied' : ''}`}
+                    onClick={() => setIsCopyMenuOpen(current => !current)}
+                    tabIndex={shouldRevealFooter ? 0 : -1}
+                    disabled={!shouldRevealFooter}
+                    aria-haspopup="menu"
+                    aria-expanded={isCopyMenuOpen}
+                    aria-label={copied ? t('modelRound.copiedDialog') : t('modelRound.copyDialog')}
+                    data-testid="model-round-copy-btn"
+                    data-openbitfun-product-component="model-round-item" data-openbitfun-product-part="action" data-openbitfun-state={copied ? 'copied' : undefined}
+                    icon={<Icon name={copied ? 'check-line' : 'duplicate'} size="sm" />}
+                  />
+                </Tooltip>
 
-              {isCopyMenuOpen && createPortal(
-                <Menu
-                  ref={copyMenuRef}
-                  className="model-round-item__copy-menu"
-                  data-testid="model-round-copy-menu"
-                  data-openbitfun-placement={copyMenuLayout?.placement ?? 'top'}
-                  style={{
-                    top: `${copyMenuLayout?.top ?? 0}px`,
-                    left: `${copyMenuLayout?.left ?? 0}px`,
-                    visibility: copyMenuLayout ? 'visible' : 'hidden',
-                  }}
-                >
-                  <MenuItem
-                    type="button"
-                    onClick={() => void handleCopyScope('full')}
-                    data-testid="model-round-copy-full"
+                {isCopyMenuOpen && createPortal(
+                  <Menu
+                    ref={copyMenuRef}
+                    className="model-round-item__copy-menu"
+                    data-testid="model-round-copy-menu"
+                    data-openbitfun-placement={copyMenuLayout?.placement ?? 'top'}
+                    style={{
+                      top: `${copyMenuLayout?.top ?? 0}px`,
+                      left: `${copyMenuLayout?.left ?? 0}px`,
+                      visibility: copyMenuLayout ? 'visible' : 'hidden',
+                    }}
                   >
-                    {t('transcriptExport.copyFull')}
-                  </MenuItem>
-                  <MenuItem
-                    type="button"
-                    onClick={() => void handleCopyScope('result')}
-                    data-testid="model-round-copy-result"
-                  >
-                    {t('transcriptExport.copyResult')}
-                  </MenuItem>
-                </Menu>,
-                getAppearanceOverlayHost(),
-              )}
-            </div>}
+                    <MenuItem
+                      type="button"
+                      onClick={() => void handleCopyScope('full')}
+                      data-testid="model-round-copy-full"
+                    >
+                      {t('transcriptExport.copyFull')}
+                    </MenuItem>
+                    <MenuItem
+                      type="button"
+                      onClick={() => void handleCopyScope('result')}
+                      data-testid="model-round-copy-result"
+                    >
+                      {t('transcriptExport.copyResult')}
+                    </MenuItem>
+                  </Menu>,
+                  getAppearanceOverlayHost(),
+                )}
+              </div>}
 
-            {allowTranscriptExport && <ExportImageButton turnId={turnId} />}
+              {allowTranscriptExport && <ExportImageButton turnId={turnId} />}
+            </div>
           </div>
         )}
       </div>

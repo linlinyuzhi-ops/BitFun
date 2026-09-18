@@ -16,6 +16,13 @@
       "primaryBackgroundHover": { "$type": "color", "$value": "rgba(0, 0, 0, 0.60)" },
       "primaryBackgroundPressed": { "$type": "color", "$value": "rgba(0, 0, 0, 0.90)" },
       "primaryContentDisabled": { "$type": "color", "$value": "rgba(0, 0, 0, 0.20)" }
+    },
+    "empty": {
+      "media": {
+        "$description": "Opaque low-emphasis color for decorative empty-state artwork, matching muted content at 35% over the tertiary empty-state surface without alpha accumulation.",
+        "$type": "color",
+        "$value": "color-mix(in srgb, {color.content.muted} 35%, {color.surface.tertiary})"
+      }
     }
   },
   "color": {

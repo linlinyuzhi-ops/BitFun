@@ -84,11 +84,11 @@
   &__card-preview {
     position: relative;
     display: flex;
-    flex: 0 0 104px;
+    flex: 0 0 160px;
     align-items: center;
     justify-content: center;
-    width: 104px;
-    height: 72px;
+    width: 160px;
+    aspect-ratio: 8 / 5;
     border-radius: var(--openbitfun-radius-sm);
     overflow: hidden;
     background: var(--openbitfun-color-surface-workbench);
@@ -184,7 +184,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    aspect-ratio: 16 / 9;
+    aspect-ratio: 8 / 5;
     overflow: hidden;
     border: 1px solid var(--openbitfun-color-border-default);
     border-radius: var(--openbitfun-radius-sm);
@@ -1812,9 +1812,8 @@
     }
 
     &__card-preview {
-      flex-basis: 72px;
-      width: 72px;
-      height: 56px;
+      flex-basis: min(160px, 32cqi);
+      width: min(160px, 32cqi);
     }
 
     &__card-body--inline {

@@ -684,3 +684,14 @@ re-measured".
 - `flowChatLiveTailWindow.ts`
 - `VirtualMessageList.tsx`
 - `ModernFlowChatContainer.tsx`
+
+## Moving Between Main and Floating Hosts
+
+An explicit host move stages `SessionViewportState` through
+`flowChatViewHandoff.ts`: semantic viewport snapshot, history presentation and
+viewport intent. The source captures through `VirtualMessageList`; the receiving
+host restores through the existing viewport owner. No separate scroll writer is
+introduced. A render may inspect the pending handoff, but only a committed host
+consumes it, so interrupted renders cannot discard the reading position.
+Handoffs are fenced by device activation and session identity. Each host keeps
+its own display projection and composer geometry; Runtime history stays shared.

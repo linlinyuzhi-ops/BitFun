@@ -1,20 +1,17 @@
 @use '../../item-rhythm' as itemRhythm;
+@use '../../transcript-layout' as transcriptLayout;
 
 /* Explore region styling for consecutive explore tool calls. */
 
 .explore-region {
+  @include transcriptLayout.content-column;
   position: relative;
   overflow: hidden;
   /* Same column box as .model-round-item so the collapse header (`>`) and the
    * round's body text share one leading edge. */
-  box-sizing: border-box;
   width: min(100%, 900px);
   margin: 0 auto;
-  padding: 0 var(--openbitfun-control-flow-chat-content-padding-inline);
-
-  @media (max-width: 768px) {
-    padding: 0 var(--openbitfun-control-flow-chat-content-padding-inline-mobile);
-  }
+  padding-block: 0;
 }
 
 // ==================== Collapsible (header + animated content) ====================

@@ -123,6 +123,10 @@ For shared GitHub sign-in and token redaction, use
 For the matching cross-entry UI state, run
 `pnpm --dir src/web-ui run test:run src/infrastructure/account-identity/AccountIdentityService.test.ts src/features/market-account/AccountIdentityControls.test.tsx src/app/components/RemoteConnectDialog/ensureAccountSession.test.ts`.
 
+For side-question request compatibility, initial model selection, and optional
+message metadata, use
+`cargo test -p openbitfun-desktop --no-default-features --lib api::btw_api::tests`.
+
 For skill discovery response compatibility and timeouts, use
 `cargo test -p openbitfun-desktop --lib api::skill_api::tests`.
 For companion pet manifest versions and package metadata, use

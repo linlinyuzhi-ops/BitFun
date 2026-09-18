@@ -59,8 +59,7 @@ export struct ConversationHeader {
       this.TrailingControl()
     }
     .width('100%')
-    .height(this.hasSubtitle() ? MobileDesignGeometry.conversationHeaderHeight :
-      MobileDesignGeometry.conversationHeaderCompactHeight)
+    .height(MobileDesignGeometry.conversationHeaderHeight)
     .alignItems(VerticalAlign.Center)
     .padding({
       left: MobileDesignGeometry.contentGutter,

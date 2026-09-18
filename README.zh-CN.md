@@ -2,19 +2,15 @@
 
 <div align="center">
 
-![OpenBitFun](./png/openbitfun-wordmark.png)
-
-[![Trendshift](https://trendshift.io/api/badge/repositories/44672)](https://trendshift.io/repositories/44672)
+<img src="./png/openbitfun-wordmark.png" alt="OpenBitFun" width="520" />
 
 ### 持续推进，直到完成。
 
-**Built to keep going.**
+OpenBitFun 是一个高度可定制的开源 Agent 工作台，让任务按你的方式持续推进。
 
-OpenBitFun 是一个开源 Agent 桌面工作台。我们把高效稳健的 **Rust Agent Runtime**、强大可塑的 **Agent Harness** 与优雅从容的 **桌面体验**放在一起，让更多人能够简单、顺畅地使用 Agent。
+**四种一流的 Agent Harness 模式** · **跨设备远程控制** · **从 Mini App 到源码，全面可定制**
 
-让 AI 帮你写代码、修 Bug、查资料、写报告、做 PPT，制作工作中需要的小工具。你还可以为漫剧创作、视觉设计等领域定制专属 Agent，让它按你的工作流程协作。
-
-**如果你也期待这样的 Agent，欢迎点一颗 ⭐ Star，关注它的进展，也让更多人发现这个项目。**
+**如果你也期待这样的 Agent，欢迎点亮 ⭐ Star，让更多人发现 OpenBitFun。**
 
 [下载体验](https://openbitfun.com/zh/download) · [Mini App 市场](https://market.openbitfun.com/miniapp/) · [参与共建](./CONTRIBUTING_CN.md)
 
@@ -22,7 +18,21 @@ OpenBitFun 是一个开源 Agent 桌面工作台。我们把高效稳健的 **Ru
 [![Core code: MIT](https://img.shields.io/badge/core_code-MIT-yellow?style=flat-square)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)](https://openbitfun.com/zh/download)
 
+[![Trendshift](https://trendshift.io/api/badge/repositories/44672)](https://trendshift.io/repositories/44672)
+
 </div>
+
+---
+
+### OpenBitFun 1.0.0 全新发布
+
+OpenBitFun 1.0.0 带来全新界面、面向不同任务的四种 Agent Harness，以及全面升级的
+多设备协同与远程控制，让任务在桌面、手机与浏览器之间顺畅接续。
+
+**数据迁移提醒：** OpenBitFun 1.0.0 与 0.2.x 旧版数据不互通。需要迁移旧版数据时，请使用
+[OpenBitFun 数据迁移器](src/apps/data-migrator/README.zh-CN.md)，当前支持 0.2.17～0.2.19 正式版。
+
+---
 
 ![OpenBitFun 官网展示的桌面界面](./png/openbitfun-desktop.png)
 
@@ -105,15 +115,9 @@ OpenBitFun 仍在演进，我们希望继续探索三个方向：
 
 更可靠的长任务、更高效的 Runtime、更从容的桌面体验，是这些探索共同的基础。
 
-## 按需迁移旧版数据
-
-数据迁移是可选操作，请按需**单独下载 OpenBitFun 数据迁移器**。工具独立运行，
-不随主应用打包，也不会由主应用自动启动。下载、兼容范围、操作步骤与中断恢复见
-[迁移器使用说明](src/apps/data-migrator/README.zh-CN.md)。
-
 ## 用它创造，也一起创造它
 
-**欢迎用 Star 关注 OpenBitFun，用作品、反馈和代码参与它的未来。**
+**欢迎用作品、反馈和代码参与 OpenBitFun 的未来。**
 
 你可以分享真实任务与使用经验，贡献 Agent、Skills、Mini App 和皮肤，也可以从一处文档、一项交互或一个 Runtime 问题开始。想法与问题欢迎在本仓库的 Issues 和 Discussions 中讨论，开发流程见[贡献指南](./CONTRIBUTING_CN.md)。
 

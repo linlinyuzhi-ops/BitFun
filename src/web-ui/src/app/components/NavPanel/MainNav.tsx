@@ -5,9 +5,6 @@
  *   1. Search
  *   2. AI Assistant, Task Board, Mini Apps, then Extensions & Compatibility
  *   3. Unified Sessions (all or grouped by project / assistant)
- *
- * When a scene-nav transition is active (`isDeparting=true`), items receive
- * positional CSS classes for the split-open animation effect.
  */
 
 import React, { useCallback, useState, useMemo, useEffect, useRef, useSyncExternalStore } from 'react';
@@ -32,7 +29,6 @@ import { FolderOpen, FolderPlus, Network, Server, Users } from 'lucide-react';
 // import { PanelsTopLeft } from 'lucide-react'; // temporarily hidden: Pages nav entry
 import { useSceneManager } from '../../hooks/useSceneManager';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
-import type { SceneTabId } from '../SceneBar/types';
 import SectionHeader from './components/SectionHeader';
 import StickySectionHeader from './components/StickySectionHeader';
 import WorkspaceSessionGroupingToggle from './components/WorkspaceSessionGroupingToggle';
@@ -64,15 +60,7 @@ import './NavPanel.scss';
 
 const log = createLogger('MainNav');
 
-interface MainNavProps {
-  isDeparting?: boolean;
-  anchorNavSceneId?: SceneTabId | null;
-}
-
-const MainNav: React.FC<MainNavProps> = ({
-  isDeparting: _isDeparting = false,
-  anchorNavSceneId: _anchorNavSceneId = null,
-}) => {
+const MainNav: React.FC = () => {
   const sshRemote = useSSHRemoteContext();
   const [isSSHConnectionDialogOpen, setIsSSHConnectionDialogOpen] = useState(false);
 

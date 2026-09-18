@@ -23,7 +23,7 @@ const slots = [
   ["Select", "indicator", "inline-size", "100%"],
   ["StatusPill", "leading", "inline-size", "100%"],
   ["Avatar", "content", "inline-size", "55%"],
-  ["Empty", "media", "max-inline-size", "100%"],
+  ["Empty", "media", "inline-size", "var(--_empty-icon-size)"],
   ["ConfirmDialog", "icon", "inline-size", "var(--openbitfun-layout-confirm-dialog-icon-glyph-size)"],
   ["Listbox", "leading", "inline-size", "100%"],
   ["Listbox", "indicator", "inline-size", "100%"],

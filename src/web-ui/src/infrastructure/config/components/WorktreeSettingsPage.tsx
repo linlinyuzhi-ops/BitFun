@@ -701,7 +701,7 @@ const WorktreeSettingsPage: React.FC = () => {
       return (
         <ConfigEmptyState
           className="openbitfun-worktree-settings__empty"
-          icon={<FolderGit2 size={36} aria-hidden />}
+          icon={<FolderGit2 aria-hidden />}
           title={t('management.empty.title')}
           description={t('management.empty.description')}
         />

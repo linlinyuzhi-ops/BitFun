@@ -3823,7 +3823,7 @@ const ModelSettingsPage: React.FC = () => {
             <ConfigEmptyState
               data-openbitfun-component="model-settings"
               data-openbitfun-part="empty"
-              icon={<Wifi size={36} aria-hidden="true" />}
+              icon={<Wifi aria-hidden="true" />}
               description={t('empty.noModels')}
               actions={(
                 <Button data-testid="settings-model-create-first-config-btn" variant="primary" size="sm" onClick={handleCreateNew} leadingIcon={<Icon name="plus" size="sm" />}>

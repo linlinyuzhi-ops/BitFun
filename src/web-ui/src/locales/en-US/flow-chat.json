@@ -1,4 +1,30 @@
 {
+  "selection": {
+    "numbered": "Annotation {{number}}",
+    "removeNumbered": "Remove {{annotation}}",
+    "save": "Save",
+    "saveAndLocate": "Save and locate",
+    "editUnavailable": "This annotation has changed. Reopen it to edit.",
+    "queueEditUnavailable": "This queued annotation cannot be updated right now. Edit the message from the pending queue.",
+    "inheritedSettings": "On this device version, the first side question uses the main conversation settings. You can change the model after sending.",
+    "actions": "Selected text actions",
+    "annotate": "Add annotation",
+    "annotation": "Annotation",
+    "editAnnotation": "Annotate selected text",
+    "addToSession": "Add to conversation",
+    "addToMain": "Add to main conversation",
+    "currentSession": "Current conversation",
+    "askSide": "Ask in side conversation",
+    "askHere": "Ask here",
+    "sideUnsupported": "This runtime does not support side questions",
+    "cancel": "Cancel",
+    "remove": "Remove annotation",
+    "locate": "Go to source",
+    "sourceUnavailable": "The source has changed or is unavailable. The quoted text is preserved.",
+    "count": "{{count}} annotations",
+    "submitAnnotations": "Please address these annotations.",
+    "questionRequired": "Add a question or comment about the selected text."
+  },
   "permission": {
     "title": "Permission required",
     "subagentOwner": "{{subagent}} subagent",
@@ -1892,6 +1918,9 @@
       "submitFailed": "Could not submit the answer. Check the connection and try again.",
       "unsupportedOnPeer": "This device's OpenBitFun version cannot answer the question. Update OpenBitFun on that device.",
       "waitingAnswer": "Waiting for answer",
+      "awaitingTimeoutConfirmation": "Waiting for timeout confirmation",
+      "cancelCountdown": "Cancel countdown",
+      "timeoutSettingsHint": "Click to cancel the countdown. Change the timeout in Settings → Execution & Permissions → Tool execution → Question timeout.",
       "questionsCount": "{{count}} questions",
       "answerAllBeforeSubmit": "Please answer all questions before submitting",
       "submit": "Submit",
@@ -2762,5 +2791,21 @@
     "placeholder": "Send a request to {{app}}…",
     "send": "Send",
     "hint": "Messages are handled by {{app}}"
+  },
+  "dock": {
+    "hideConversation": "Hide conversation",
+    "openApp": "Open app",
+    "loadingHistory": "Loading messages…",
+    "newConversation": "New control conversation",
+    "newConversationBusy": "Finish the current task or call to start a new conversation",
+    "open": "OpenBitFun assistant",
+    "tabs": "Floating conversations",
+    "moveToMain": "Move to main window",
+    "collapse": "Collapse",
+    "welcome": "Manage OpenBitFun and keep your work moving.",
+    "unavailable": "This conversation is unavailable. Reopen its app.",
+    "loadFailed": "Unable to open the assistant",
+    "retry": "Retry",
+    "loading": "Opening assistant…"
   }
 }

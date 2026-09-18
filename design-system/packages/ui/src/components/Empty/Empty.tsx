@@ -32,7 +32,7 @@ export const Empty = forwardRef<HTMLDivElement, EmptyProps>(function Empty({
   title,
   ...props
 }, ref) {
-  const media = icon ?? image ?? <Icon name="folder" size="lg" tone="muted" />;
+  const media = icon ?? image ?? <Icon name="folder" />;
   const footer = actions ?? children;
 
   return (

@@ -86,28 +86,6 @@
     }
   }
 
-  &__empty {
-    display: flex;
-    align-items: center;
-    gap: var(--openbitfun-space-4);
-    padding: var(--openbitfun-space-8) var(--openbitfun-space-5);
-    color: var(--openbitfun-color-content-muted);
-
-    h4 {
-      margin: 0 0 var(--openbitfun-space-1);
-      font-size: var(--openbitfun-type-label-md-font-size);
-      font-weight: var(--openbitfun-type-label-selected-font-weight);
-      line-height: var(--openbitfun-type-label-md-line-height);
-      color: var(--openbitfun-color-content-primary);
-    }
-
-    p {
-      margin: 0;
-      font-size: var(--openbitfun-type-label-sm-font-size);
-      line-height: var(--openbitfun-type-body-sm-line-height);
-    }
-  }
-
   &__hit-rate-list {
     display: flex;
     flex-direction: column;
@@ -415,10 +393,6 @@
       &:nth-child(n + 3) {
         border-top: 1px solid var(--openbitfun-component-config-page-divider);
       }
-    }
-
-    &__empty {
-      padding: var(--openbitfun-space-6) var(--openbitfun-space-4);
     }
 
     &__hit-rate-row {

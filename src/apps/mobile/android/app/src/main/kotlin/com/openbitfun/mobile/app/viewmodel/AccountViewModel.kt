@@ -94,7 +94,21 @@ internal class AccountViewModel(application: Application) : AndroidViewModel(app
      * a way back.
      */
     fun selectDevice(deviceId: String) {
-        if (deviceId == activeTarget) bindTarget(deviceId) else store.dispatch(AccountIntent.SelectDevice(deviceId))
+        if (deviceId == activeTarget) {
+            bindTarget(deviceId)
+        } else {
+            // Clear the outgoing projection before publishing the new selection.
+            // The account collector binds the new target's shared stores.
+            val ready = state.value as? AccountUiState.Ready ?: return
+            if (ready.devices.none { it.id == deviceId && it.online }) return
+            remoteJob?.cancel()
+            workspaceJob?.cancel()
+            connectionJob?.cancel()
+            _remoteState.value = RemoteSessionUiState.Loading
+            _workspaceState.value = RemoteWorkspaceUiState.Loading
+            _connectionPhase.value = ConnectionPhase.IDLE
+            store.dispatch(AccountIntent.SelectDevice(deviceId))
+        }
     }
 
     fun disconnectDevice() {

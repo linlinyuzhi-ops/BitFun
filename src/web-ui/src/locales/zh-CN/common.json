@@ -245,7 +245,7 @@
         "agent": "智能体"
       },
       "actions": {
-        "newTerminal": "新建终端",
+        "newTerminal": "新建终端会话",
         "refresh": "刷新"
       },
       "context": {

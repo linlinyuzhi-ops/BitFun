@@ -99,6 +99,13 @@ deliberate layout transitions or animate virtualized content. Rely on CI for
 full lint, build, and broad test coverage unless the local change specifically
 needs it.
 
+For Appearance descriptor changes, also exercise production registration; its ID
+and property validation goes beyond the static DOM audit:
+
+```bash
+pnpm --dir src/web-ui run test:run src/infrastructure/appearance/registry/AppearanceRegistry.test.ts
+```
+
 For Session selection, presentation synchronization, and scene lifetime changes,
 also run the focused state contracts:
 

@@ -175,7 +175,7 @@ export const DefaultModelConfig: React.FC = () => {
         data-openbitfun-component="default-model-config"
         data-openbitfun-part="empty"
         data-openbitfun-state="empty"
-        icon={<Layers size={36} aria-hidden="true" />}
+        icon={<Layers aria-hidden="true" />}
         description={t('empty.noModels')}
       />
     );

@@ -70,6 +70,15 @@ are gone.
 
 ## What Counts as a Gesture
 
+Selecting transcript text hands the viewport to the reader through the existing
+user-gesture path. The selection toolbar waits for pointer release and uses a
+portal; neither the toolbar nor its frozen annotation changes row geometry.
+Returning to an excerpt reuses concrete text navigation: stable Turn/item ids
+materialize only missing rows, then saved offsets and text context resolve the
+selected occurrence. CSS highlights do not wrap or resize transcript nodes.
+An edited or ambiguous source retains the quote and reports that it cannot be
+located. Gestures, a new request, and surface changes cancel a pending aim.
+
 Ordinary `scroll` events do not transfer viewport ownership; only explicit
 wheel, touch, or keyboard navigation exits follow-output. Once a reader takes
 the viewport, resting inside the reserved blank does not hand it back.

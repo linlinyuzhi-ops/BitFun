@@ -10,6 +10,7 @@ import {
   Dialog,
   DialogBody,
   DialogClose,
+  DialogFooter,
   DialogHeader,
   DialogHeading,
   DialogTitle,
@@ -111,7 +112,7 @@ export const TerminalEditModal: React.FC<TerminalEditModalProps> = ({
         </DialogHeading>
         <DialogClose />
       </DialogHeader>
-      <DialogBody inset="none">
+      <DialogBody>
       <div data-openbitfun-component="terminal-edit-modal" data-openbitfun-part="content" className="terminal-edit-dialog__content">
         <Field label={t('dialog.editTerminal.nameLabel')}>
           <Input
@@ -155,16 +156,20 @@ export const TerminalEditModal: React.FC<TerminalEditModalProps> = ({
           {tCommon('nav.resources.actionFailed', { error: saveError })}
         </p>}
       </div>
-
-      <div data-openbitfun-component="terminal-edit-modal" data-openbitfun-part="footer" className="terminal-edit-dialog__footer">
+      </DialogBody>
+      <DialogFooter
+        separator
+        data-openbitfun-component="terminal-edit-modal"
+        data-openbitfun-part="footer"
+        className="terminal-edit-dialog__footer"
+      >
         <Button variant="fill" onClick={onClose}>
           {t('dialog.editTerminal.cancel')}
         </Button>
         <Button variant="primary" onClick={handleSave} disabled={!canSave}>
           {t('dialog.editTerminal.save')}
         </Button>
-      </div>
-          </DialogBody>
+      </DialogFooter>
     </Dialog>
   );
 };

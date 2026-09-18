@@ -226,6 +226,9 @@ Agent-profile canonicalization in the focused configuration suite:
 ```bash
 cargo test -p openbitfun-core --no-default-features --features remote-connect --lib service::config::
 cargo test -p openbitfun-core --no-default-features --features remote-connect --lib service::remote_connect::settings_sync::tests
+cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib service::remote_connect::permission_publication::tests
+cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib service_agent_runtime::tests::local_workspace_marker_is_not_remote_routing_authority
+cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib service_agent_runtime::tests::remote_workspace_catalog_tracks_opened_rows_and_assistant_identity
 ```
 
 Focused workspace-IO and snapshot regression entry points (use the matching
@@ -234,6 +237,8 @@ filter rather than a product-wide build):
 ```bash
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,git,document-read --lib file_read_tool::tests
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,git --lib file_write_tool::tests
+cargo test -p openbitfun-core --no-default-features --features agent-runtime,git --lib file_edit_tool::tests
+cargo test -p openbitfun-core --no-default-features --features agent-runtime,git --lib classified_edit
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,git --lib delete_file_tool::tests
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,remote-workspace,git --lib service::snapshot::
 ```

@@ -518,6 +518,7 @@ pub fn create_main_window(
     frontend_workbench: Arc<crate::frontend_workbench::FrontendWorkbenchManager>,
 ) {
     let total_started_at = Instant::now();
+    let (startup_page_ready, mut startup_page_ready_rx) = tokio::sync::watch::channel(false);
     let bootstrap_config = AppearanceConfig::load_startup_bootstrap_config();
     let appearance = bootstrap_config.appearance.clone();
     let bg_color = appearance.to_tauri_color();
@@ -595,6 +596,9 @@ pub fn create_main_window(
         .on_page_load({
             let startup_trace_id = startup_trace_id.to_string();
             move |_window, payload| {
+                if matches!(payload.event(), PageLoadEvent::Finished) {
+                    let _ = startup_page_ready.send(true);
+                }
                 let event = match payload.event() {
                     PageLoadEvent::Started => "started",
                     PageLoadEvent::Finished => "finished",
@@ -614,7 +618,7 @@ pub fn create_main_window(
         });
 
     // The webview must be transparent for the OS material to reach the sidebar.
-    // Opaque scene and startup surfaces remain owned by the frontend.
+    // Scene backgrounds and the startup tint remain owned by the frontend.
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
         builder = builder
@@ -683,12 +687,36 @@ pub fn create_main_window(
                 }
             }
 
-            show_main_window_for_startup(
-                &window,
-                total_started_at,
-                startup_trace,
-                reapply_maximized,
-            );
+            // A transparent window shown before the document loads exposes bare
+            // Acrylic: the frontend's startup tint does not exist yet. Keep the
+            // native background transparent and delay only the initial reveal.
+            let startup_trace = startup_trace.clone();
+            tauri::async_runtime::spawn(async move {
+                let ready = matches!(
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        startup_page_ready_rx.wait_for(|ready| *ready),
+                    )
+                    .await,
+                    Ok(Ok(_))
+                );
+                if !ready {
+                    // Keep a failed navigation observable instead of leaving an
+                    // invisible process; normal startup always waits for the page.
+                    warn!("Startup page did not finish loading before the window reveal watchdog");
+                }
+                let visible_window = window.clone();
+                if let Err(error) = window.run_on_main_thread(move || {
+                    show_main_window_for_startup(
+                        &visible_window,
+                        total_started_at,
+                        &startup_trace,
+                        reapply_maximized,
+                    );
+                }) {
+                    warn!("Failed to schedule main window startup reveal: {}", error);
+                }
+            });
         }
         Err(e) => {
             error!(

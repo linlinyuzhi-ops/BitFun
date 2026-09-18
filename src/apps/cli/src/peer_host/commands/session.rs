@@ -1101,3 +1101,43 @@ mod tests {
         ));
     }
 }
+
+pub(crate) async fn ensure_control_conversation(
+    state: &PeerHostState,
+    _args: &Value,
+) -> Result<Value, String> {
+    let result = state
+        .compatibility
+        .ensure_control_conversation()
+        .await
+        .map_err(|error| error.to_string())?;
+    serde_json::to_value(result).map_err(|error| error.to_string())
+}
+
+pub(crate) async fn record_voice_exchange(
+    state: &PeerHostState,
+    args: &Value,
+) -> Result<Value, String> {
+    let request = serde_json::from_value(args.get("request").unwrap_or(args).clone())
+        .map_err(|error| error.to_string())?;
+    state
+        .compatibility
+        .record_voice_exchange(request)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(Value::Null)
+}
+
+pub(crate) async fn create_control_conversation(
+    state: &PeerHostState,
+    args: &Value,
+) -> Result<Value, String> {
+    let request = serde_json::from_value(args.get("request").unwrap_or(args).clone())
+        .map_err(|error| error.to_string())?;
+    let result = state
+        .compatibility
+        .create_control_conversation(request)
+        .await
+        .map_err(|error| error.to_string())?;
+    serde_json::to_value(result).map_err(|error| error.to_string())
+}

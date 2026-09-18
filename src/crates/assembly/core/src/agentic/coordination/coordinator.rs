@@ -4518,6 +4518,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                                     tool_call_id.clone(),
                                     TASK_TOOL_NAME,
                                 ),
+                                error_detail: None,
                                 error: error_text.clone(),
                                 duration_ms: Some(duration_ms),
                                 queue_wait_ms: None,
@@ -10877,6 +10878,8 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         image_contexts: Option<Vec<ImageContextData>>,
         parent_dialog_turn_id: Option<&str>,
         parent_turn_index: Option<usize>,
+        user_message_metadata: Option<serde_json::Value>,
+        initial_model_selection: Option<openbitfun_runtime_ports::AgentSessionModelSelection>,
     ) -> OpenBitFunResult<String> {
         if request_id.trim().is_empty() {
             return Err(OpenBitFunError::Validation(
@@ -10910,7 +10913,14 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             )
             .await?;
 
-        if let Some(model_id) = model_id
+        if let Some(selection) = initial_model_selection {
+            self.update_session_model_selection(
+                child_session_id,
+                &selection.model_id,
+                selection.reasoning_preset.as_deref(),
+            )
+            .await?;
+        } else if let Some(model_id) = model_id
             .map(str::trim)
             .filter(|model_id| !model_id.is_empty())
         {
@@ -10920,10 +10930,11 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         }
 
         let turn_id = format!("btw-turn-{}", request_id.trim());
-        let mut user_message_metadata = serde_json::json!({
-            "kind": "btw",
-            "parentSessionId": parent_session_id,
-        });
+        let mut user_message_metadata = user_message_metadata
+            .filter(serde_json::Value::is_object)
+            .unwrap_or_else(|| serde_json::json!({}));
+        user_message_metadata["kind"] = serde_json::json!("btw");
+        user_message_metadata["parentSessionId"] = serde_json::json!(parent_session_id);
         if let Some(images) = image_contexts.as_ref().filter(|images| !images.is_empty()) {
             user_message_metadata["images"] = serde_json::Value::Array(
                 images
@@ -16828,6 +16839,78 @@ mod tests {
 
     fn test_coordinator() -> (ConversationCoordinator, Arc<SessionManager>) {
         test_coordinator_with_max_active_sessions(100)
+    }
+
+    #[tokio::test]
+    async fn control_conversation_reset_preserves_history_and_retries_one_selection() {
+        let workspace = tempfile::tempdir().expect("control workspace");
+        let (coordinator, manager) = test_persistent_coordinator();
+        let original = coordinator
+            .select_control_conversation_in_workspace(workspace.path(), None)
+            .await
+            .unwrap();
+        assert_eq!(original.session_id, "openbitfun-control");
+        coordinator
+            .record_voice_exchange(super::super::VoiceExchangeRequest {
+                session_id: original.session_id.clone(),
+                exchange_id: "saved-exchange".into(),
+                user_text: "Keep this record".into(),
+                assistant_text: "Saved".into(),
+            })
+            .await
+            .unwrap();
+        let before = manager
+            .persistence_manager()
+            .load_session_metadata(workspace.path(), &original.session_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let (first, duplicate) = tokio::join!(
+            coordinator.select_control_conversation_in_workspace(
+                workspace.path(),
+                Some(&original.session_id)
+            ),
+            coordinator.select_control_conversation_in_workspace(
+                workspace.path(),
+                Some(&original.session_id)
+            ),
+        );
+        let created = first.unwrap();
+        assert_ne!(created.session_id, original.session_id);
+        assert_eq!(duplicate.unwrap().session_id, created.session_id);
+        assert_eq!(
+            coordinator
+                .select_control_conversation_in_workspace(workspace.path(), None)
+                .await
+                .unwrap()
+                .session_id,
+            created.session_id
+        );
+        let after = manager
+            .persistence_manager()
+            .load_session_metadata(workspace.path(), &original.session_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(before).unwrap(),
+            serde_json::to_value(after).unwrap()
+        );
+        assert!(manager.get_session(&original.session_id).is_some());
+
+        let state_path = workspace.path().join("active.json");
+        tokio::fs::write(&state_path, "unreadable saved selection")
+            .await
+            .unwrap();
+        assert!(coordinator
+            .select_control_conversation_in_workspace(workspace.path(), None)
+            .await
+            .is_err());
+        assert_eq!(
+            tokio::fs::read_to_string(state_path).await.unwrap(),
+            "unreadable saved selection"
+        );
     }
 
     #[tokio::test]

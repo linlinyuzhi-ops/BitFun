@@ -15,19 +15,17 @@ const INTERACTIVE_SELECTOR =
 
 function blocksWindowChromeInteraction(
   event: React.MouseEvent<HTMLDivElement>,
-  allowTabDragging: boolean,
 ): boolean {
   const target = event.target;
   if (event.defaultPrevented || !(target instanceof Element) || !event.currentTarget.contains(target)) {
     return true;
   }
 
-  // Tab count changes the tab hit target, never the surrounding window chrome.
-  if (!allowTabDragging && target.closest('[data-openbitfun-component="tab-group"] [data-openbitfun-part="item"]')) {
+  // The whole tab, including item padding, belongs to tab interaction.
+  if (target.closest('[data-openbitfun-component="tab-group"] [data-openbitfun-part="item"]')) {
     return true;
   }
-  const interactive = target.closest(INTERACTIVE_SELECTOR);
-  return interactive !== null && !(allowTabDragging && interactive.getAttribute('role') === 'tab');
+  return target.closest(INTERACTIVE_SELECTOR) !== null;
 }
 
 interface SceneTopBarProps {
@@ -45,25 +43,23 @@ const SceneTopBar: React.FC<SceneTopBarProps> = ({
   onClose,
   isMaximized = false,
 }) => {
-  const openTabCount = useSceneStore(state => state.openTabs.length);
-  const hasTabs = openTabCount > 0;
-  const isSingleTab = openTabCount <= 1;
+  const hasTabs = useSceneStore(state => state.openTabs.length > 0);
   const canDragWindow = supportsNativeWindowDragging();
   const hasWindowControls = Boolean(onMinimize && onMaximize && onClose);
 
   const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (!canDragWindow || event.button !== 0 || event.detail > 1) return;
-    if (blocksWindowChromeInteraction(event, isSingleTab)) return;
+    if (blocksWindowChromeInteraction(event)) return;
 
     void startNativeWindowDragging().catch(error => {
       log.debug('startDragging failed', { error });
     });
-  }, [canDragWindow, isSingleTab]);
+  }, [canDragWindow]);
 
   const handleDoubleClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (!canDragWindow || event.button !== 0 || blocksWindowChromeInteraction(event, isSingleTab)) return;
+    if (!canDragWindow || event.button !== 0 || blocksWindowChromeInteraction(event)) return;
     onMaximize?.();
-  }, [canDragWindow, isSingleTab, onMaximize]);
+  }, [canDragWindow, onMaximize]);
 
   return (
     <Toolbar

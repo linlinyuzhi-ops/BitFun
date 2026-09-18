@@ -36,6 +36,7 @@ export const navPanelAppearanceDescriptor: AppearanceSurfaceDescriptor = {
   ],
   states: [
     { id: 'scene', selector: { kind: 'self', suffix: '[data-openbitfun-state~="scene"]' } },
+    // Keep legacy split selectors valid in installed appearances.
     { id: 'split', selector: { kind: 'self', suffix: '[data-openbitfun-state~="split"]' } },
     { id: 'active', selector: { kind: 'self', suffix: '[data-openbitfun-state~="active"]' } },
     { id: 'open', selector: { kind: 'self', suffix: '[data-openbitfun-state~="open"]' } },

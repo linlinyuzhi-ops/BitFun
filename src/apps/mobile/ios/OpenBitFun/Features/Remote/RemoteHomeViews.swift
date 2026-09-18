@@ -6,13 +6,13 @@ struct RemoteConnectedHomeView: View {
     var onBrowse: (() -> Void)?
 
     private var recent: [ChatSession] {
-        Array(model.remoteSessions.filter { $0.status != "archived" }.sorted {
-            timestamp($0) > timestamp($1)
-        }.prefix(3))
-    }
-    private func timestamp(_ session: ChatSession) -> Int64 {
-        let updated = SessionTimePresentation.shared.timestampMs(value: session.updatedLabel)?.int64Value ?? 0
-        return updated > 0 ? updated : SessionTimePresentation.shared.timestampMs(value: session.createdAt)?.int64Value ?? 0
+        let candidates = model.remoteSessions.map {
+            RecentSessionUiState(id: $0.id, status: $0.status,
+                                 updatedAt: $0.updatedLabel, createdAt: $0.createdAt)
+        }
+        return RecentSessionsPresentation.shared.sessionIds(sessions: candidates).compactMap { id in
+            model.remoteSessions.first { $0.id == id }
+        }
     }
     private func context(_ session: ChatSession) -> String {
         let device = model.accountDevices.first { $0.id == session.deviceKey }?.name ?? model.accountDeviceName ?? ""
@@ -48,7 +48,7 @@ struct RemoteConnectedHomeView: View {
         case .connecting, .loadingSessions:
             homeButton("查看设备", action: browse)
         case .unavailable:
-            // The shell's connection banner owns the error detail and retry action.
+            // The device row exposes connection state and retry without a separate banner.
             homeButton("查看设备", action: browse)
         case .ready:
             EmptyView()
@@ -81,6 +81,7 @@ struct RemoteConnectedHomeView: View {
                         Text(model.localized("最近会话"))
                         Spacer()
                         Button(model.localized("全部会话"), action: browse)
+                            .foregroundStyle(OpenBitFunTheme.ink)
                     }.font(.system(size: 12)).foregroundStyle(OpenBitFunTheme.muted)
                 }
                 ForEach(recent) { session in
@@ -95,8 +96,6 @@ struct RemoteConnectedHomeView: View {
                                     .foregroundStyle(OpenBitFunTheme.muted).lineLimit(1)
                             }
                             Spacer(minLength: 0)
-                            Image(systemName: "chevron.right").font(.system(size: 12))
-                                .foregroundStyle(OpenBitFunTheme.muted)
                         }.padding(.vertical, MobileDesignGeometry.recentHomeRowPadding)
                             .contentShape(Rectangle())
                     }.buttonStyle(.plain)
@@ -112,51 +111,6 @@ struct RemoteConnectedHomeView: View {
             .frame(maxWidth: MobileDesignGeometry.recentHomeMaxWidth)
             .frame(maxWidth: .infinity, alignment: .center)
         }.foregroundStyle(OpenBitFunTheme.ink).background(OpenBitFunTheme.page)
-    }
-}
-
-/// Matches HarmonyOS ChatStatusBar: page background, two hairlines, one status label.
-struct RemoteConversationStatusBar: View {
-    @ObservedObject var model: MobileAppModel
-
-    private var failed: Bool { model.connectionPhase == .disconnected && !(model.coreErrorMessage ?? "").isEmpty }
-    private var tone: Color { failed ? OpenBitFunTheme.statusDanger : OpenBitFunTheme.muted }
-    private var title: String {
-        model.localized(model.isSending ? "OpenBitFun 正在执行..." :
-            (model.connectionPhase == .reconnecting ? "正在恢复连接" : (failed ? "连接异常" : "已断开")))
-    }
-    private var detail: String {
-        model.coreErrorMessage ?? model.localized(model.connectionPhase == .reconnecting ?
-            "正在重新连接桌面端" : "请重新连接")
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            if model.isSending { Color.clear.frame(width: 68) }
-            HStack(spacing: 7) {
-                Circle().fill(tone).frame(width: 8, height: 8)
-                Text(detail.isEmpty || detail == title ? title : "\(title) · \(detail)")
-                    .font(MobileDesignTypography.bodySmall.font)
-                    .foregroundStyle(model.isSending ? OpenBitFunTheme.muted : tone)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity, alignment: model.isSending ? .center : .leading)
-            if model.isSending {
-                Button(model.localized("停止"), action: model.stopSending)
-                    .font(MobileDesignTypography.bodySmall.font)
-                    .foregroundStyle(OpenBitFunTheme.ink)
-                    .frame(width: 68, height: 34)
-                    .background(OpenBitFunTheme.soft, in: Capsule())
-                    .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 24)
-        .frame(height: 48)
-        .background(OpenBitFunTheme.page)
-        .overlay(alignment: .top) { OpenBitFunTheme.line.frame(height: 1) }
-        .overlay(alignment: .bottom) { OpenBitFunTheme.line.frame(height: 1) }
-        .accessibilityIdentifier("conversation.connectionStatus")
     }
 }
 

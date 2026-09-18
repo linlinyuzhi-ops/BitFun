@@ -245,7 +245,7 @@
         "agent": "Agent"
       },
       "actions": {
-        "newTerminal": "New Terminal",
+        "newTerminal": "New terminal session",
         "refresh": "Refresh"
       },
       "context": {

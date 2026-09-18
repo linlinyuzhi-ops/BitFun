@@ -936,6 +936,26 @@ pub struct CoreAgentRuntimeCompatibility {
 }
 
 impl CoreAgentRuntimeCompatibility {
+    pub async fn ensure_control_conversation(
+        &self,
+    ) -> OpenBitFunResult<crate::agentic::coordination::ControlConversation> {
+        self.coordinator.ensure_control_conversation().await
+    }
+
+    pub async fn create_control_conversation(
+        &self,
+        request: crate::agentic::coordination::CreateControlConversationRequest,
+    ) -> OpenBitFunResult<crate::agentic::coordination::ControlConversation> {
+        self.coordinator.create_control_conversation(request).await
+    }
+
+    pub async fn record_voice_exchange(
+        &self,
+        request: crate::agentic::coordination::VoiceExchangeRequest,
+    ) -> OpenBitFunResult<()> {
+        self.coordinator.record_voice_exchange(request).await
+    }
+
     pub fn build(
         coordinator: Arc<ConversationCoordinator>,
         scheduler: Arc<DialogScheduler>,

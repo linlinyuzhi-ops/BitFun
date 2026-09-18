@@ -153,7 +153,9 @@ const OverlaySurface = forwardRef<HTMLDivElement, OverlaySurfaceProps>(function 
     ownerDocument,
   });
   useFocusScope({
-    active: open,
+    // A closed dialog mounts its surface on the presence commit. Start the
+    // focus scope only once that ref exists, including every subsequent open.
+    active: open && present,
     autoFocus,
     containerRef: surfaceRef,
     initialFocusRef,

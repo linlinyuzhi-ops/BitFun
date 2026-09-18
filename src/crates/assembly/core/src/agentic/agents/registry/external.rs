@@ -813,18 +813,18 @@ fn local_binding(logical_id: &str, runtime_agent_key: &str) -> ExternalSubagentI
 }
 
 /// Builtin agents that are allowed to act as the main agent of a session even
-/// though they are not registered as `Mode` (review child sessions).
+/// though they are not registered as `Mode` (review and product-control sessions).
 ///
 /// Review child sessions are created by the product surfaces with
 /// `agentType=CodeReview` (standard) or `agentType=DeepReview` (strict), and
 /// the remediation phase of either session runs with `agentType=ReviewFixer`.
-/// All three must resolve through the primary-agent path for create, turn,
+/// These and the hidden OpenBitFun control Agent resolve through the primary path for create, turn,
 /// restore, and compaction. Other subagents (e.g. `ReviewWorker`,
 /// `ReviewJudge`) stay restricted.
 fn is_builtin_session_primary_agent(id: &str) -> bool {
     matches!(
         id,
-        CODE_REVIEW_AGENT_TYPE | DEEP_REVIEW_AGENT_TYPE | REVIEW_FIXER_AGENT_TYPE
+        CODE_REVIEW_AGENT_TYPE | DEEP_REVIEW_AGENT_TYPE | REVIEW_FIXER_AGENT_TYPE | "OpenBitFun"
     )
 }
 

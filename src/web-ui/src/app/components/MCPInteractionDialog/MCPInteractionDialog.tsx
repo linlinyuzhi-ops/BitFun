@@ -4,6 +4,7 @@ import { OverflowText,
   Textarea,
   Dialog,
   DialogBody,
+  DialogFooter,
   DialogHeader,
   DialogHeading,
   DialogTitle,
@@ -150,7 +151,7 @@ export const MCPInteractionDialog: React.FC = () => {
           <DialogTitle>{currentRequest ? `MCP Interaction: ${currentRequest.method}` : 'MCP Interaction'}</DialogTitle>
         </DialogHeading>
       </DialogHeader>
-      <DialogBody inset="none">
+      <DialogBody>
       {currentRequest && (
         <div
           className="mcp-interaction-dialog"
@@ -188,28 +189,35 @@ export const MCPInteractionDialog: React.FC = () => {
             />
           </div>
 
-          <div className="mcp-interaction-dialog__actions" data-openbitfun-component="mcp-interaction-dialog" data-openbitfun-part="actions">
-            <Button
-              variant="fill"
-              size="sm"
-              onClick={() => void handleReject()}
-              disabled={isSubmitting}
-            >
-              Reject
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => void handleApprove()}
-              loading={isSubmitting}
-              disabled={isSubmitting}
-            >
-              Approve
-            </Button>
-          </div>
         </div>
       )}
-          </DialogBody>
+      </DialogBody>
+      {currentRequest ? (
+        <DialogFooter
+          separator
+          className="mcp-interaction-dialog__actions"
+          data-openbitfun-component="mcp-interaction-dialog"
+          data-openbitfun-part="actions"
+        >
+          <Button
+            variant="fill"
+            size="sm"
+            onClick={() => void handleReject()}
+            disabled={isSubmitting}
+          >
+            Reject
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => void handleApprove()}
+            loading={isSubmitting}
+            disabled={isSubmitting}
+          >
+            Approve
+          </Button>
+        </DialogFooter>
+      ) : null}
     </Dialog>
   );
 };

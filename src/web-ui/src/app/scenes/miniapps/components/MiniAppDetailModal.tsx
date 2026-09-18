@@ -5,6 +5,7 @@ import { OverflowText,
   Dialog,
   DialogBody,
   DialogClose,
+  DialogFooter,
   DialogHeader,
   DialogHeading,
   DialogTitle,
@@ -272,7 +273,14 @@ const MiniAppDetailModal: React.FC<MiniAppDetailModalProps> = ({
           </div>
         </section>
 
-        <footer className="miniapp-detail-modal__footer" data-openbitfun-component="mini-app-detail-modal" data-openbitfun-part="footer">
+        </ScrollArea>
+      </DialogBody>
+      <DialogFooter
+        separator
+        className="miniapp-detail-modal__footer"
+        data-openbitfun-component="mini-app-detail-modal"
+        data-openbitfun-part="footer"
+      >
           <div className="miniapp-detail-modal__status" data-openbitfun-component="mini-app-detail-modal" data-openbitfun-part="status">
             <Icon name="check-circle" size="lg" aria-hidden="true" />
             <span data-testid="miniapp-detail-status">{statusCopy}</span>
@@ -314,9 +322,7 @@ const MiniAppDetailModal: React.FC<MiniAppDetailModalProps> = ({
               {t('detail.delete')}
             </Button>
           </div>
-        </footer>
-        </ScrollArea>
-      </DialogBody>
+      </DialogFooter>
     </Dialog>
   );
 };

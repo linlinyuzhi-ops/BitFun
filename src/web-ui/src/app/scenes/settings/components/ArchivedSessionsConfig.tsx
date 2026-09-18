@@ -7,7 +7,7 @@
  * directly with explicit success or failure feedback.
  */
 
-import { OverflowText, Button, Icon } from '@openbitfun/ui';
+import { OverflowText, Button, Empty, Icon } from '@openbitfun/ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, Inbox } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -559,8 +559,10 @@ const ArchivedSessionsConfig: React.FC = () => {
             </div>
           ) : !hasEntries && loadFailures.length === 0 ? (
             <div data-openbitfun-component="archived-sessions-config" data-openbitfun-part="empty" className="archived-sessions-config__empty">
-              <Inbox size={32} className="archived-sessions-config__empty-icon" />
-              <span>{t('nav.sessions.noArchivedSessions')}</span>
+              <Empty
+                icon={<Inbox aria-hidden />}
+                title={t('nav.sessions.noArchivedSessions')}
+              />
             </div>
           ) : hasEntries ? (
             <>

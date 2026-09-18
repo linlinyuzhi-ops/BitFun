@@ -83,7 +83,7 @@ describe('FlowChat transcript rhythm', () => {
       '> .task-with-subagent-wrapper:is(',
     );
     expect(userMessageStyles).toMatch(
-      /margin:\s*0\.06rem\s*var\(--openbitfun-control-flow-chat-content-padding-inline\)\s*var\(--openbitfun-control-flow-chat-flow-item-gap\)/,
+      /margin:\s*0\.06rem\s*0\s*var\(--openbitfun-control-flow-chat-flow-item-gap\)/,
     );
   });
 

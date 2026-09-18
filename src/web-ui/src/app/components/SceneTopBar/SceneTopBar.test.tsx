@@ -163,25 +163,19 @@ describe('SceneTopBar', () => {
       expect(maximize).toHaveBeenCalledTimes(3);
     });
 
-    it('keeps the single tab label draggable and updates the boundary when another tab opens or closes', async () => {
-      const toolbar = renderBar();
-      const label = () => toolbar.querySelector('[role="tab"] [data-openbitfun-part="label"] span')!;
-      await mouseDown(label());
-      doubleClick(label());
-      expect(startDragging).toHaveBeenCalledOnce();
-      expect(maximize).toHaveBeenCalledOnce();
-
-      renderBar(2);
-      await mouseDown(label());
-      doubleClick(label());
-      expect(startDragging).toHaveBeenCalledOnce();
-      expect(maximize).toHaveBeenCalledOnce();
-
-      renderBar(1);
-      await mouseDown(label());
-      doubleClick(label());
-      expect(startDragging).toHaveBeenCalledTimes(2);
-      expect(maximize).toHaveBeenCalledTimes(2);
+    it('excludes the whole tab from window gestures as other tabs open and close', async () => {
+      for (const tabCount of [1, 2, 1]) {
+        const toolbar = renderBar(tabCount);
+        const tab = toolbar.querySelector('[role="tab"]')!;
+        const label = tab.querySelector('[data-openbitfun-part="label"] span')!;
+        const item = tab.closest('[data-openbitfun-part="item"]')!;
+        for (const target of [tab, label, item]) {
+          await mouseDown(target);
+          doubleClick(target);
+        }
+        expect(startDragging).not.toHaveBeenCalled();
+        expect(maximize).not.toHaveBeenCalled();
+      }
     });
 
     it('leaves multi-tab labels and item padding to tab interaction', async () => {

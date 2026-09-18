@@ -1,8 +1,9 @@
+import { SidebarToolsFooter } from './SidebarToolsFooter';
 import { SavedRuntimeConnection } from '../../model/RemoteModels';
 import { WorkspaceToolsIntent } from '../state/WorkspaceToolsState';
 import { MobileDesignGeometry, MobileDesignTypography } from '../../generated/MobileDesignTokens';
 import { RemoteI18n } from '../../i18n/RemoteI18n';
-import { CARD, INK, LINE, PAGE_BG, PAGE_BG_FADE, SHADOW_FAINT, SHADOW_SUBTLE, SOFT, SUBTLE, TRANSPARENT } from './Theme';
+import { CARD, INK, LINE, PAGE_BG, PAGE_BG_FADE, SHADOW_FAINT, SOFT, SUBTLE, TRANSPARENT } from './Theme';
 import { SidebarToggleButton } from './SidebarToggleButton';
 import { SidebarGlyph } from './SidebarGlyphs';
 import { SidebarConnectionActionPolicy } from '../policy/SidebarConnectionActionPolicy';
@@ -16,8 +17,6 @@ export struct AppSidebar {
   @Param workspacePath: string = '';
   @Param controlTargetDeviceId: string = '';
   @Param supportsHarnessProfiles: boolean = false;
-  @Local showToolsPicker: boolean = false;
-  @Local toolsPickerTargetId: string = '';
   @Param toolLocations: SavedRuntimeConnection[] = [];
   @Event onWorkspaceTools: (intent: WorkspaceToolsIntent) => void = (_intent: WorkspaceToolsIntent) => {};
   @Param accountUserId: string = '';
@@ -118,7 +117,7 @@ export struct AppSidebar {
     }
     .width('100%')
     .height('100%')
-    .padding({ left: 20, right: 20, top: 4, bottom: 16 })
+    .padding({ left: 20, right: 20, top: 0, bottom: 16 })
     .backgroundColor(PAGE_BG)
   }
 
@@ -181,7 +180,7 @@ export struct AppSidebar {
       }
     }
     .width('100%')
-    .height(50)
+    .height(MobileDesignGeometry.conversationHeaderHeight)
     .alignItems(VerticalAlign.Center)
 
     if (this.showSearch) {
@@ -241,62 +240,11 @@ export struct AppSidebar {
 
   @Builder
   private PrimaryNavigationFooter() {
-    Row() {
-      Button() {
-        Row({ space: 8 }) {
-          SidebarGlyph({ kind: 'edit' })
-          Text(RemoteI18n.t('workspaceTools.title'))
-            .fontSize(MobileDesignTypography.titleMedium.size)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(INK)
-        }
-      }
-      .constraintSize({ minWidth: 128, maxWidth: 180 })
-      .height(44)
-      .padding({ left: 14, right: 14 })
-      .backgroundColor(CARD)
-      .border({ width: 0.5, color: LINE })
-      .borderRadius(22)
-      .shadow({ radius: 24, color: SHADOW_SUBTLE, offsetY: 7 })
-      .enabled(this.connectionState === 'connected')
-      .opacity(this.connectionState === 'connected' ? 1 : 0.45)
-      .accessibilityText(RemoteI18n.t('workspaceTools.title'))
-      .stateEffect(true)
-      .bindPopup(this.showToolsPicker, {
-        builder: () => { this.DeviceToolsPicker() },
-        placement: Placement.Top,
-        popupColor: TRANSPARENT,
-        enableArrow: false,
-        autoCancel: true,
-        mask: false,
-        targetSpace: 6,
-        onStateChange: (event) => {
-          if (!event.isVisible) this.showToolsPicker = false;
-        }
-      })
-      .onClick(() => { this.requestDeviceTools(); })
-
-      Blank()
-
-      Button() {
-        SidebarGlyph({ kind: 'settings' })
-      }
-        .width(44)
-        .height(44)
-        .padding(0)
-        .backgroundColor(CARD)
-        .borderRadius(22)
-        .shadow({ radius: 24, color: SHADOW_SUBTLE, offsetY: 7 })
-        .stateEffect(true)
-        .onClick(() => {
-          this.onOpenSettings();
-        })
-    }
-    .width('100%')
-    .height(56)
-    .padding({ left: 12 })
-    .alignItems(VerticalAlign.Center)
-    .zIndex(2)
+    SidebarToolsFooter({
+      toolsEnabled: this.connectionState === 'connected',
+      onOpenTools: () => this.requestDeviceTools(),
+      onOpenSettings: () => this.onOpenSettings()
+    })
   }
 
   @Builder
@@ -343,39 +291,9 @@ export struct AppSidebar {
       .zIndex(2)
   }
 
-  @Monitor('controlTargetDeviceId', 'workspacePath', 'workspaceKind', 'connectionState', 'isBusy', 'supportsHarnessProfiles')
-  private closeStaleToolsPicker(): void {
-    this.showToolsPicker = false;
-  }
-
   private requestDeviceTools(): void {
     if (this.connectionState !== 'connected') return;
-    this.toolsPickerTargetId = this.controlTargetDeviceId;
-    this.showToolsPicker = !this.showToolsPicker;
-  }
-
-  @Builder
-  private DeviceToolsPicker() {
-    Scroll() {
-      Column({ space: 4 }) {
-        Text(RemoteI18n.t('workspaceTools.selectLocation'))
-          .fontSize(MobileDesignTypography.labelSmall.size).fontColor(SUBTLE)
-          .padding(10).width('100%')
-        Button(RemoteI18n.t('workspaceTools.runtimeLocal')).width('100%').padding(12)
-          .backgroundColor(TRANSPARENT).fontColor(INK).onClick(() => this.openDeviceLocation(''))
-        ForEach(this.toolLocations, (location: SavedRuntimeConnection) => {
-          Button(location.name || location.id).width('100%').padding(12)
-            .backgroundColor(TRANSPARENT).fontColor(INK)
-            .onClick(() => this.openDeviceLocation(location.id))
-        }, (location: SavedRuntimeConnection): string => location.id)
-      }.width('100%').padding(8)
-    }.width(270).constraintSize({ maxHeight: 360 }).backgroundColor(CARD).borderRadius(16)
-  }
-
-  private openDeviceLocation(connectionId: string): void {
-    this.showToolsPicker = false;
-    if (this.toolsPickerTargetId !== this.controlTargetDeviceId || this.connectionState !== 'connected') return;
-    this.onWorkspaceTools({ type: 'open-device', deviceId: this.toolsPickerTargetId, connectionId: connectionId, tab: 0 });
+    this.onWorkspaceTools({ type: 'open-device', deviceId: this.controlTargetDeviceId, connectionId: '', tab: 0 });
   }
 
   private shouldShowPrimaryNavigation(): boolean {

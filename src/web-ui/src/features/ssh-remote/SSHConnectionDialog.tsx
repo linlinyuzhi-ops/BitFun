@@ -19,6 +19,7 @@ import { OverflowText,
   Dialog,
   DialogBody,
   DialogClose,
+  DialogFooter,
   DialogHeader,
   DialogHeading,
   DialogTitle,
@@ -1444,8 +1445,15 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
           </FieldGroup>
           </ScrollArea>
 
-          {/* Actions */}
-          <div className="ssh-connection-dialog__actions" data-openbitfun-component="ssh-remote" data-openbitfun-part="connectionActions">
+        </div>
+        </DialogBody>
+
+        <DialogFooter
+          separator
+          className="ssh-connection-dialog__actions"
+          data-openbitfun-component="ssh-remote"
+          data-openbitfun-part="connectionActions"
+        >
             <Button
               variant="outline"
               size="sm"
@@ -1489,9 +1497,7 @@ export const SSHConnectionDialog: React.FC<SSHConnectionDialogProps> = ({
                 </>
               )}
             </Button>
-          </div>
-        </div>
-              </DialogBody>
+        </DialogFooter>
       </Dialog>
 
       <SSHAuthPromptDialog

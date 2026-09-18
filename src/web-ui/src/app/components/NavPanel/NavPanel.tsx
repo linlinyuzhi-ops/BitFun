@@ -1,16 +1,9 @@
 /**
  * NavPanel — navigation sidebar container.
  *
- * Two transition modes depending on the target scene:
- *
- *   file-viewer:
- *     Split-open accordion — MainNav items depart up/down from the anchor
- *     item while SceneNav is revealed via clip-path expanding from the
- *     anchor's Y position. Both layers coexist in the DOM (overlay).
- *
- *   All other pointer-opened scenes (settings, …):
- *     MainNav and SceneNav use a short paired crossfade/translation. Keyboard
- *     and programmatic navigation stay immediate.
+ * All scene navigation shares a short paired crossfade/translation for pointer
+ * input. Keyboard and programmatic navigation stay immediate. WorkspaceBody
+ * owns the background material beneath both layers.
  *
  * MainNav is always mounted so its state is preserved across transitions.
  */
@@ -21,7 +14,6 @@ import React, {
   useState,
   useEffect,
   useRef,
-  useCallback,
 } from 'react';
 import { useI18n } from '@/infrastructure/i18n';
 import { useNavSceneStore } from '../../stores/navSceneStore';
@@ -33,13 +25,7 @@ import MainNav from './MainNav';
 import PersistentFooterActions from './components/PersistentFooterActions';
 import './NavPanel.scss';
 
-/** Scenes that use the split-open accordion transition. */
-const SPLIT_OPEN_SCENES: ReadonlySet<SceneTabId> = new Set(['file-viewer']);
-
 interface NavPanelProps {
-  // Persist the last known sceneId so SceneNav content remains visible
-  // during the closing accordion animation (navSceneId may clear before
-  // the transition ends).
   className?: string;
 }
 
@@ -49,6 +35,7 @@ const NavPanel: React.FC<NavPanelProps> = ({ className = '' }) => {
   const navSceneId = useNavSceneStore(s => s.navSceneId);
   const navigationMotion = useNavSceneStore(s => s.navigationMotion);
 
+  // Retain the scene while its layer exits, including when navSceneId clears.
   const [mountedSceneId, setMountedSceneId] = useState<SceneTabId | null>(navSceneId);
   const [mountedSceneMotion, setMountedSceneMotion] = useState<InteractionMotion>(navigationMotion);
   const sceneRequestRef = useRef(0);
@@ -70,39 +57,11 @@ const NavPanel: React.FC<NavPanelProps> = ({ className = '' }) => {
 
   const SceneNavComponent = mountedSceneId ? getSceneNav(mountedSceneId) : null;
 
-  const hasMountedSceneNav = showSceneNav && mountedSceneId !== null;
-  const useSplitOpen = !!(
-    hasMountedSceneNav
-    && mountedSceneId
-    && SPLIT_OPEN_SCENES.has(mountedSceneId)
-  );
-
-  const contentRef = useRef<HTMLDivElement>(null);
-
-  const updateClipOrigin = useCallback(() => {
-    const container = contentRef.current;
-    if (!container) return;
-    const anchor = container.querySelector<HTMLElement>('.openbitfun-nav-panel__item-slot.is-departing-anchor');
-    if (anchor) {
-      const containerRect = container.getBoundingClientRect();
-      const anchorRect = anchor.getBoundingClientRect();
-      const anchorCenterY = anchorRect.top + anchorRect.height / 2 - containerRect.top;
-      const pct = (anchorCenterY / containerRect.height) * 100;
-      container.style.setProperty('--clip-origin-top', `${pct}%`);
-      container.style.setProperty('--clip-origin-bottom', `${100 - pct}%`);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (useSplitOpen) {
-      requestAnimationFrame(updateClipOrigin);
-    }
-  }, [useSplitOpen, updateClipOrigin]);
+  const hasMountedSceneNav = showSceneNav && SceneNavComponent !== null;
 
   const contentCls = [
     'openbitfun-nav-panel__content',
     hasMountedSceneNav && 'is-scene',
-    useSplitOpen && 'is-split-open',
     (showSceneNav ? mountedSceneMotion : navigationMotion) === 'pointer' && 'has-pointer-motion',
   ].filter(Boolean).join(' ');
 
@@ -110,32 +69,40 @@ const NavPanel: React.FC<NavPanelProps> = ({ className = '' }) => {
     'openbitfun-nav-panel__layer openbitfun-nav-panel__layer--scene',
     hasMountedSceneNav && 'is-active',
   ].filter(Boolean).join(' ');
-  const appearanceState = [
-    showSceneNav && 'scene',
-    useSplitOpen && 'split',
-  ].filter(Boolean).join(' ');
 
   return (
     <div
       data-openbitfun-component="nav-panel"
       data-openbitfun-part="root"
-      data-openbitfun-state={appearanceState}
+      data-openbitfun-state={hasMountedSceneNav ? 'scene' : ''}
       data-openbitfun-theme-scope="chrome"
       className={`openbitfun-nav-panel ${className}`}
       aria-label={t('nav.aria.mainNav')}
       data-testid="nav-panel"
     >
-      <div ref={contentRef} className={contentCls} data-openbitfun-component="nav-panel" data-openbitfun-part="content">
+      <div className={contentCls} data-openbitfun-component="nav-panel" data-openbitfun-part="content">
 
-        <div className="openbitfun-nav-panel__layer openbitfun-nav-panel__layer--main" data-openbitfun-component="nav-panel" data-openbitfun-part="mainLayer" data-openbitfun-layer="main">
-          <MainNav
-            isDeparting={useSplitOpen}
-            anchorNavSceneId={useSplitOpen ? mountedSceneId : null}
-          />
+        <div
+          className="openbitfun-nav-panel__layer openbitfun-nav-panel__layer--main"
+          data-openbitfun-component="nav-panel"
+          data-openbitfun-part="mainLayer"
+          data-openbitfun-layer="main"
+          aria-hidden={hasMountedSceneNav || undefined}
+          {...(hasMountedSceneNav ? { inert: '' } : {})}
+        >
+          <MainNav />
         </div>
 
         {SceneNavComponent && (
-          <div className={sceneCls} data-openbitfun-component="nav-panel" data-openbitfun-part="sceneLayer" data-openbitfun-layer="scene" data-openbitfun-state={showSceneNav ? 'active' : ''}>
+          <div
+            className={sceneCls}
+            data-openbitfun-component="nav-panel"
+            data-openbitfun-part="sceneLayer"
+            data-openbitfun-layer="scene"
+            data-openbitfun-state={hasMountedSceneNav ? 'active' : ''}
+            aria-hidden={!hasMountedSceneNav || undefined}
+            {...(!hasMountedSceneNav ? { inert: '' } : {})}
+          >
             <Suspense fallback={null}>
               <NavigationTransitionBoundary
                 transitionKey={mountedSceneId ?? 'main'}

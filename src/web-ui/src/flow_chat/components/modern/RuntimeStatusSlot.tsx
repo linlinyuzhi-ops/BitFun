@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { OverflowText, Spinner } from '@openbitfun/ui';
 import { useRuntimeStatusStore } from '../../store/runtimeStatusStore';
+import { submittedMessageStatusDelay } from '../../services/submittedMessagePresentation';
 import './RuntimeStatusSlot.scss';
 
 interface RuntimeStatusSlotProps {
@@ -35,6 +36,9 @@ export const RuntimeStatusSlot: React.FC<RuntimeStatusSlotProps> = ({
       || ''
     : '';
   const visible = Boolean(status && hint);
+  const revealDelay = status && visible
+    ? submittedMessageStatusDelay(status.sessionId, status.turnId)
+    : 0;
 
   return (
     <div
@@ -48,6 +52,7 @@ export const RuntimeStatusSlot: React.FC<RuntimeStatusSlotProps> = ({
         className="runtime-status-slot__content"
         data-openbitfun-component="runtime-status-slot"
         data-openbitfun-part="content"
+        style={revealDelay > 0 ? { transitionDelay: `${revealDelay}ms` } : undefined}
       >
         <span className="runtime-status-slot__icon" data-openbitfun-component="runtime-status-slot" data-openbitfun-part="leadingIcon" aria-hidden="true">
           <Spinner size="sm" />

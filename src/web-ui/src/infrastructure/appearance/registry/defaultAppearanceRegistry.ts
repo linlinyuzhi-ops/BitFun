@@ -95,6 +95,7 @@ import { dateTimePickerAppearanceDescriptor } from '@/app/components/scheduled-j
 import { todosSceneAppearanceDescriptor } from '@/app/scenes/todos/appearance';
 import { flexiblePanelAppearanceDescriptor } from '@/app/components/panels/base/FlexiblePanel.appearance';
 import { btwSessionPanelAppearanceDescriptor } from '@/flow_chat/components/btw/BtwSessionPanel.appearance';
+import { conversationExcerptAppearanceDescriptor } from '@/flow_chat/selection/ConversationExcerpt.appearance';
 import { modernFlowChatAppearanceDescriptor, virtualMessageListAppearanceDescriptor } from '@/flow_chat/components/modern/appearance';
 import { modelSettingsAppearanceDescriptor } from '@/infrastructure/config/components/ModelSettingsPage.appearance';
 import { reasoningConfigPanelAppearanceDescriptor } from '@/infrastructure/config/components/ReasoningConfigPanel.appearance';
@@ -358,6 +359,7 @@ export function createDefaultAppearanceRegistry(): AppearanceRegistry {
     .registerComponent(dateTimePickerAppearanceDescriptor)
     .registerComponent(flexiblePanelAppearanceDescriptor)
     .registerComponent(btwSessionPanelAppearanceDescriptor)
+    .registerComponent(conversationExcerptAppearanceDescriptor)
     .registerComponent(modernFlowChatAppearanceDescriptor)
     .registerComponent(virtualMessageListAppearanceDescriptor)
     .registerComponent(modelSettingsAppearanceDescriptor)

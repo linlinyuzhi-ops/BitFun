@@ -9,6 +9,7 @@ import {
   Dialog,
   DialogBody,
   DialogClose,
+  DialogFooter,
   DialogHeader,
   DialogHeading,
   DialogTitle,
@@ -123,7 +124,14 @@ export const UpdateAvailableDialog: React.FC<UpdateAvailableDialogProps> = ({
           </div>
         ) : null}
 
-        <div className="openbitfun-update-available__actions" data-openbitfun-component="update" data-openbitfun-part="actions">
+      </div>
+      </DialogBody>
+      <DialogFooter
+        separator
+        className="openbitfun-update-available__actions"
+        data-openbitfun-component="update"
+        data-openbitfun-part="actions"
+      >
           {variant === 'daily' ? (
             <>
               <Button variant="fill" size="md" onClick={onLater}>
@@ -148,9 +156,7 @@ export const UpdateAvailableDialog: React.FC<UpdateAvailableDialogProps> = ({
               </Button>
             </>
           )}
-        </div>
-      </div>
-          </DialogBody>
+      </DialogFooter>
     </Dialog>
   );
 };

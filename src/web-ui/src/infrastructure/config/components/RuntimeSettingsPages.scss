@@ -14,8 +14,28 @@
     gap: var(--openbitfun-space-2);
   }
 
-  &__identity-title {
+&__identity-title {
     width: min(280px, 100%);
+  }
+
+  &__subagent-model-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--openbitfun-space-2);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    &__subagent-model-settings {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    &__subagent-model-row:hover &__subagent-model-settings,
+    &__subagent-model-row:focus-within &__subagent-model-settings {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
   }
 
   &__status-row {

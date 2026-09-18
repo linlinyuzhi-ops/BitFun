@@ -3,7 +3,7 @@
   flex-direction: column;
   gap: 14px;
   min-width: 0;
-  padding-block: 4px 16px;
+  padding-block-start: 4px;
   color: var(--openbitfun-color-content-primary);
 
   &__modal {
@@ -277,11 +277,8 @@
   }
 
   &__footer {
-    display: flex;
-    align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding-top: 2px;
+    flex-wrap: wrap;
   }
 
   &__footer-actions {

@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.openbitfun.mobile.app.ui.shell.MobileScreen
+import com.openbitfun.mobile.app.platform.StartupRevealPreference
 import com.openbitfun.mobile.app.platform.AppLocaleController
 import com.openbitfun.mobile.app.ui.preview.MobileDesignGallery
 import com.openbitfun.mobile.app.ui.preview.mobileDesignScenario
@@ -26,6 +27,8 @@ class MainActivity : ComponentActivity() {
         AppLocaleController.applySaved(this)
         super.onCreate(savedInstanceState)
         showStartupBrand = savedInstanceState == null
+            && !intent.getBooleanExtra(DESIGN_PREVIEW_EXTRA, false)
+            && StartupRevealPreference.claim(this)
         enableEdgeToEdge()
         setContent {
             if (intent.getBooleanExtra(DESIGN_PREVIEW_EXTRA, false)) {

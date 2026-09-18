@@ -7418,6 +7418,98 @@ impl SessionManager {
         Ok(turn_id)
     }
 
+    /// Record a provider-native voice exchange in the same model-visible ledger.
+    /// Stable exchange IDs make transport retries harmless. Admission and persistence
+    /// share the ordinary Session mutation lock; a running Agent is never overwritten.
+    pub async fn append_voice_exchange(
+        &self,
+        session_id: &str,
+        exchange_id: &str,
+        user_text: String,
+        assistant_text: String,
+    ) -> OpenBitFunResult<()> {
+        if exchange_id.trim().is_empty() || user_text.trim().is_empty() {
+            return Err(OpenBitFunError::Validation(
+                "Voice exchange requires an id and final user transcript".into(),
+            ));
+        }
+        let _guard = self.acquire_session_mutation(session_id).await?;
+        let mut session = self
+            .get_session(session_id)
+            .ok_or_else(|| OpenBitFunError::NotFound(format!("Session not found: {session_id}")))?;
+        if session.dialog_turn_ids.iter().any(|id| id == exchange_id) {
+            return Ok(());
+        }
+        if matches!(session.state, SessionState::Processing { .. }) {
+            return Err(OpenBitFunError::Validation(
+                "Voice exchange is waiting for the active Agent turn".into(),
+            ));
+        }
+        self.ensure_persisted_turn_append_allowed(session_id)
+            .await?;
+        let storage = self
+            .effective_storage_path_for_config(&session.config)
+            .await
+            .ok_or_else(|| OpenBitFunError::Validation("Session storage is unavailable".into()))?;
+        let index = session.dialog_turn_ids.len();
+        let timestamp = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let user = Message::user(user_text.clone())
+            .with_semantic_kind(MessageSemanticKind::ActualUserInput)
+            .with_turn_id(exchange_id.to_string());
+        let assistant =
+            Message::assistant(assistant_text.clone()).with_turn_id(exchange_id.to_string());
+        let mut turn = DialogTurnData::new_with_kind(
+            DialogTurnKind::UserDialog,
+            exchange_id.to_string(),
+            index,
+            session_id.to_string(),
+            Some(session.agent_type.clone()),
+            UserMessageData {
+                id: format!("{exchange_id}-user"),
+                content: user_text,
+                timestamp,
+                metadata: Some(json!({ "source": "realtime_voice", "nativeExchange": true })),
+            },
+        );
+        turn.timestamp = timestamp;
+        turn.start_time = timestamp;
+        turn.end_time = Some(timestamp);
+        turn.duration_ms = Some(0);
+        turn.status = TurnStatus::Completed;
+        turn.model_rounds =
+            Self::build_model_rounds_from_messages(&[assistant.clone()], exchange_id, timestamp);
+        let persist = self.config.enable_persistence && self.should_persist_session(&session);
+        // A failed write leaves the in-memory ledger untouched and can be retried.
+        if persist {
+            self.persistence_manager
+                .save_dialog_turn(&storage, &turn)
+                .await?;
+        }
+        session.dialog_turn_ids.push(exchange_id.to_string());
+        session.updated_at = SystemTime::now();
+        session.last_activity_at = session.updated_at;
+        if persist {
+            self.persistence_manager
+                .save_session(&storage, &session)
+                .await?;
+        }
+        self.sessions.insert(session_id.to_string(), session);
+        self.context_store.add_message(session_id, user);
+        if !assistant_text.is_empty() {
+            self.context_store.add_message(session_id, assistant);
+        }
+        self.persist_context_snapshot_for_turn_best_effort(
+            session_id,
+            index,
+            "voice_exchange_recorded",
+        )
+        .await;
+        Ok(())
+    }
+
     /// Append a completed local command turn that should be persisted in user-facing
     /// history without entering model-visible runtime context.
     pub async fn append_completed_local_command_turn(
@@ -7712,7 +7804,11 @@ impl SessionManager {
                                         result_for_assistant: assistant_text,
                                         image_attachments: image_attachments.clone(),
                                         error: if *is_error {
-                                            serde_json::to_string(result).ok()
+                                            result
+                                                .get("error")
+                                                .and_then(serde_json::Value::as_str)
+                                                .map(str::to_owned)
+                                                .or_else(|| serde_json::to_string(result).ok())
                                         } else {
                                             None
                                         },
@@ -9816,6 +9912,42 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, SystemTime};
     use uuid::Uuid;
+
+    #[test]
+    fn classified_edit_history_preserves_detail_and_readable_error() {
+        let assistant = Message::assistant_with_tools(
+            String::new(),
+            vec![ToolCall {
+                tool_id: "edit-1".into(),
+                tool_name: "Edit".into(),
+                arguments: json!({}),
+                raw_arguments: None,
+                is_error: false,
+                parse_error: None,
+                recovered_from_truncation: false,
+                repair_kind: Default::default(),
+            }],
+        );
+        let result = Message::tool_result(ToolResult {
+            tool_id: "edit-1".into(),
+            tool_name: "Edit".into(),
+            effective_tool_name: None,
+            result: json!({"error":"[guidance] Inputs are equal", "error_detail":{"code":"edit_no_change", "kind":"guidance"}}),
+            result_for_assistant: None,
+            is_error: true,
+            duration_ms: None,
+            image_attachments: None,
+        });
+        let rounds =
+            SessionManager::build_model_rounds_from_messages(&[assistant, result], "turn-1", 1);
+        let encoded = serde_json::to_value(&rounds[0]).unwrap();
+        let restored: crate::service::session::ModelRoundData =
+            serde_json::from_value(encoded).unwrap();
+        let result = restored.tool_items[0].tool_result.as_ref().unwrap();
+        assert!(!result.success);
+        assert_eq!(result.error.as_deref(), Some("[guidance] Inputs are equal"));
+        assert_eq!(result.result["error_detail"]["code"], "edit_no_change");
+    }
 
     #[tokio::test]
     async fn runtime_model_is_visible_to_turn_admission_config() {
@@ -14072,6 +14204,111 @@ mod tests {
             .expect("session should remain available");
         assert!(updated);
         assert!(matches!(session.state, SessionState::Idle));
+    }
+
+    #[tokio::test]
+    async fn voice_exchange_survives_restore_and_idempotent_replay() {
+        let workspace = TestWorkspace::new();
+        let persistence = Arc::new(PersistenceManager::new(workspace.path_manager()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let session = manager
+            .create_session(
+                "Voice".into(),
+                "agent".into(),
+                SessionConfig {
+                    workspace_path: Some(workspace.path().to_string_lossy().to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            manager
+                .append_voice_exchange(
+                    &session.session_id,
+                    "voice-1",
+                    "Remember this".into(),
+                    "I will".into(),
+                )
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            manager
+                .get_messages(&session.session_id)
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        let turns = persistence
+            .load_session_turns(workspace.path(), &session.session_id)
+            .await
+            .unwrap();
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].kind, DialogTurnKind::UserDialog);
+        assert_eq!(SessionManager::build_messages_from_turns(&turns).len(), 2);
+        // The existing persisted UserDialog shape is enough; no new enum is required.
+        let encoded = serde_json::to_value(&turns[0]).unwrap();
+        let decoded: DialogTurnData = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.user_message.content, "Remember this");
+        assert!(manager
+            .unload_session_from_memory(&session.session_id)
+            .await
+            .expect("first writer should unload"));
+        drop(manager);
+        let restored = test_manager(persistence);
+        restored
+            .restore_session(workspace.path(), &session.session_id)
+            .await
+            .unwrap();
+        restored
+            .append_voice_exchange(
+                &session.session_id,
+                "voice-1",
+                "Remember this".into(),
+                "I will".into(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            restored
+                .get_messages(&session.session_id)
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn voice_exchange_does_not_overwrite_a_running_turn() {
+        let workspace = TestWorkspace::new();
+        let manager = test_manager(Arc::new(
+            PersistenceManager::new(workspace.path_manager()).unwrap(),
+        ));
+        let session = manager
+            .create_session(
+                "Voice".into(),
+                "agent".into(),
+                SessionConfig {
+                    workspace_path: Some(workspace.path().to_string_lossy().to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        manager.sessions.get_mut(&session.session_id).unwrap().state = SessionState::Processing {
+            current_turn_id: "running".into(),
+            phase: ProcessingPhase::Thinking,
+        };
+        assert!(manager
+            .append_voice_exchange(&session.session_id, "voice-2", "Hello".into(), "Hi".into())
+            .await
+            .is_err());
+        let unchanged = manager.get_session(&session.session_id).unwrap();
+        assert!(matches!(unchanged.state, SessionState::Processing { .. }));
+        assert!(unchanged.dialog_turn_ids.is_empty());
     }
 
     #[tokio::test]

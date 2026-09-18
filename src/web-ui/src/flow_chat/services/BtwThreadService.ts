@@ -11,6 +11,7 @@ import type {
 } from '@/shared/services/reviewTeamService';
 import type { ImagePayload } from '../utils/imagePayload';
 import { absoluteSessionTurnIndexForId } from '../utils/flowChatTurnOrdinal';
+import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 
 export function createBtwRequestId(prefix = 'btw'): string {
   try {
@@ -216,6 +217,7 @@ export function createBtwSessionPlaceholder(params: {
   parentSessionId: string;
   workspacePath?: string;
   childSessionName: string;
+  parentDialogTurnId?: string;
 }): { childSessionId: string; parentDialogTurnId?: string; parentTurnIndex?: number } {
   const parentSession = requireSession(params.parentSessionId);
   const workspacePath = params.workspacePath || parentSession.workspacePath;
@@ -225,7 +227,10 @@ export function createBtwSessionPlaceholder(params: {
 
   const childSessionId = createBtwRequestId('btw_session');
   const childSessionName = params.childSessionName.trim() || 'Side thread';
-  const { parentDialogTurnId, parentTurnIndex } = getParentInterruptionContext(params.parentSessionId);
+  const { parentDialogTurnId, parentTurnIndex } = params.parentDialogTurnId
+    ? { parentDialogTurnId: params.parentDialogTurnId,
+        parentTurnIndex: absoluteSessionTurnIndexForId(parentSession, params.parentDialogTurnId) }
+    : getParentInterruptionContext(params.parentSessionId);
 
   flowChatStore.addExternalSession(
     childSessionId,
@@ -257,6 +262,10 @@ export function createBtwSessionPlaceholder(params: {
     parentSessionId: params.parentSessionId,
     sessionKind: 'btw',
   });
+  if (parentSession.config.modelName) {
+    flowChatStore.updateSessionModelName(childSessionId, parentSession.config.modelName);
+  }
+  flowChatStore.updateSessionReasoningPreset(childSessionId, parentSession.config.reasoningPreset);
 
   return { childSessionId, parentDialogTurnId, parentTurnIndex };
 }
@@ -270,6 +279,9 @@ export async function sendMessageToBtwSession(params: {
   imagePayload?: ImagePayload;
   parentDialogTurnId?: string;
   parentTurnIndex?: number;
+  userMessageMetadata?: Record<string, unknown>;
+  initialModelSelection?: { modelId: string; reasoningPreset?: string };
+  requestId?: string;
 }): Promise<{ requestId: string }> {
   const question = params.question.trim();
   if (!question) {
@@ -282,7 +294,8 @@ export async function sendMessageToBtwSession(params: {
     throw new Error(`Session is not a persistent /btw session: ${params.childSessionId}`);
   }
 
-  const requestId = createBtwRequestId('btw');
+  const scope = getActiveSurfaceScope();
+  const requestId = params.requestId ?? createBtwRequestId('btw');
   flowChatStore.updateSessionBtwOrigin(params.childSessionId, {
     ...(childSession.btwOrigin || {}),
     requestId,
@@ -301,8 +314,10 @@ export async function sendMessageToBtwSession(params: {
     parentDialogTurnId: params.parentDialogTurnId ?? childSession.btwOrigin?.parentDialogTurnId,
     parentTurnIndex: params.parentTurnIndex ?? childSession.btwOrigin?.parentTurnIndex,
     imageContexts: params.imagePayload?.imageContexts,
+    ...(params.userMessageMetadata ? { userMessageMetadata: params.userMessageMetadata } : {}),
+    ...(params.initialModelSelection ? { initialModelSelection: params.initialModelSelection } : {}),
   });
-  if (modelId) {
+  if (modelId && scope.isCurrent()) {
     flowChatStore.updateSessionModelName(params.childSessionId, modelId);
   }
 

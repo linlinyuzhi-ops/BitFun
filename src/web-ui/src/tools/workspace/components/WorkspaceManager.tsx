@@ -202,7 +202,7 @@ const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
         </DialogHeading>
         <DialogClose />
       </DialogHeader>
-      <DialogBody inset="none">
+      <DialogBody>
       <ScrollArea className="workspace-manager" data-openbitfun-component="workspace-tool" data-openbitfun-part="root">
         {error && (
           <div className="error-message" data-openbitfun-component="workspace-tool" data-openbitfun-part="error">

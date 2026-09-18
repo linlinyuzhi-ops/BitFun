@@ -1,4 +1,30 @@
 {
+  "selection": {
+    "numbered": "批注 {{number}}",
+    "removeNumbered": "移除{{annotation}}",
+    "save": "保存",
+    "saveAndLocate": "保存并定位",
+    "editUnavailable": "批注状态已变化，请重新打开后编辑。",
+    "queueEditUnavailable": "暂时无法修改这条待发送批注，请从待发送列表编辑消息。",
+    "inheritedSettings": "此设备版本的首次侧边提问沿用主会话设置。发送后可调整模型。",
+    "actions": "选中文本操作",
+    "annotate": "添加批注",
+    "annotation": "批注",
+    "editAnnotation": "批注选中文本",
+    "addToSession": "添加到会话",
+    "addToMain": "添加到主会话",
+    "currentSession": "当前会话",
+    "askSide": "侧边提问",
+    "askHere": "在此追问",
+    "sideUnsupported": "当前运行端不支持侧边提问",
+    "cancel": "取消",
+    "remove": "移除批注",
+    "locate": "定位原文",
+    "sourceUnavailable": "原文已变化或暂时无法定位，引用内容已保留。",
+    "count": "{{count}} 条批注",
+    "submitAnnotations": "请处理这些批注。",
+    "questionRequired": "请补充针对选中文字的问题或意见。"
+  },
   "permission": {
     "title": "需要授权",
     "subagentOwner": "{{subagent}} 子智能体",
@@ -1892,6 +1918,9 @@
       "submitFailed": "答案提交失败，请检查连接后重试。",
       "unsupportedOnPeer": "该设备的 OpenBitFun 版本暂不支持回答此问题，请更新该设备上的 OpenBitFun。",
       "waitingAnswer": "等待回答",
+      "awaitingTimeoutConfirmation": "等待后端确认超时",
+      "cancelCountdown": "取消计时",
+      "timeoutSettingsHint": "点击可取消计时。可在设置 → 执行与权限 → 工具运行 → 提问超时中调整超时时间。",
       "questionsCount": "{{count}} 个问题",
       "answerAllBeforeSubmit": "请回答所有问题后再提交",
       "submit": "提交",
@@ -2762,5 +2791,21 @@
     "placeholder": "把需求发给 {{app}}…",
     "send": "发送",
     "hint": "消息将由 {{app}} 处理"
+  },
+  "dock": {
+    "hideConversation": "隐藏对话",
+    "openApp": "打开应用",
+    "loadingHistory": "正在加载记录…",
+    "newConversation": "新建操控会话",
+    "newConversationBusy": "结束当前任务或通话后可新建会话",
+    "open": "OpenBitFun 助手",
+    "tabs": "小窗会话",
+    "moveToMain": "移回主窗口",
+    "collapse": "收起",
+    "welcome": "一起管理 OpenBitFun，继续手头的事。",
+    "unavailable": "此会话暂不可用，请重新打开所属应用。",
+    "loadFailed": "暂时无法打开助手",
+    "retry": "重试",
+    "loading": "正在打开助手…"
   }
 }

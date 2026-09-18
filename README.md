@@ -2,17 +2,15 @@
 
 <div align="center">
 
-![OpenBitFun](./png/openbitfun-wordmark.png)
-
-[![Trendshift](https://trendshift.io/api/badge/repositories/44672)](https://trendshift.io/repositories/44672)
+<img src="./png/openbitfun-wordmark.png" alt="OpenBitFun" width="520" />
 
 ### Built to keep going.
 
-OpenBitFun is an open-source desktop workspace for AI agents. It brings together a fast, reliable **Rust Agent Runtime**, a powerful, flexible **Agent Harness**, and a polished **desktop experience** to make working with agents straightforward.
+OpenBitFun is a highly customizable, open-source agent workspace that keeps work moving your way.
 
-Use AI to write code, fix bugs, research a topic, draft reports, create presentations, and build tools for your daily work. You can also create a specialist agent for motion comic production, visual design, or your own field, with a workflow tailored to your needs.
+**Four powerful Agent Harness modes** · **Cross-device remote control** · **Customization from Mini Apps to source**
 
-**⭐ Star OpenBitFun to follow its progress and help others discover the project.**
+**If this is the kind of agent workspace you want, ⭐ Star OpenBitFun and help more people discover it.**
 
 [Download](https://openbitfun.com/download) · [Mini App Marketplace](https://market.openbitfun.com/miniapp/) · [Contribute](./CONTRIBUTING.md)
 
@@ -20,7 +18,23 @@ Use AI to write code, fix bugs, research a topic, draft reports, create presenta
 [![Core code: MIT](https://img.shields.io/badge/core_code-MIT-yellow?style=flat-square)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)](https://openbitfun.com/download)
 
+[![Trendshift](https://trendshift.io/api/badge/repositories/44672)](https://trendshift.io/repositories/44672)
+
 </div>
+
+---
+
+### OpenBitFun 1.0.0 is here
+
+OpenBitFun 1.0.0 brings a redesigned interface, four Agent Harness modes for different
+kinds of work, and major upgrades to cross-device collaboration and remote control, so
+tasks move smoothly across desktop, mobile, and browser.
+
+**Migration note:** OpenBitFun 1.0.0 is not data-compatible with legacy 0.2.x releases. To migrate legacy data,
+use the [OpenBitFun Data Migrator](src/apps/data-migrator/README.md), currently available
+for stable releases 0.2.17–0.2.19.
+
+---
 
 ![The OpenBitFun desktop interface](./png/openbitfun-desktop.png)
 
@@ -103,15 +117,9 @@ OpenBitFun is still evolving. Here are three directions we want to explore:
 
 Getting there means making long-running tasks more reliable, the runtime more efficient, and the desktop experience smoother.
 
-## Optional legacy data migration
-
-Data migration is optional and uses a **separately downloaded OpenBitFun Data
-Migrator**. It runs independently and is not bundled with or launched by the main
-application. See the [download, compatibility and recovery guide](src/apps/data-migrator/README.md).
-
 ## Build with it. Help shape it.
 
-**Star OpenBitFun to follow along. Share what you build, offer feedback, or contribute code to help shape what comes next.**
+**Share what you build, offer feedback, or contribute code to help shape OpenBitFun.**
 
 Share your use cases and experience, contribute agents, Skills, Mini Apps, or skins, or help improve the docs, interface, and runtime. Ideas and questions are welcome in this repository's Issues and Discussions. See the [contribution guide](./CONTRIBUTING.md) for the development workflow.
 

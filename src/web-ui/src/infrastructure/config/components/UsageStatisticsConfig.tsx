@@ -21,7 +21,7 @@ import {
   ConfigRefreshButton,
 } from './common';
 import './UsageStatisticsConfig.scss';
-import { OverflowText, Icon, IconButton, Input, Select, Tooltip, ScrollArea } from '@openbitfun/ui';
+import { Empty, OverflowText, Icon, IconButton, Input, Select, Tooltip, ScrollArea } from '@openbitfun/ui';
 import {
   formatCacheHitRate,
   formatTokenCount,
@@ -952,11 +952,11 @@ const UsageStatisticsConfig: React.FC = () => {
                 data-openbitfun-component="usage-statistics-config"
                 data-openbitfun-part="empty"
               >
-                <BarChart3 size={26} aria-hidden />
-                <div>
-                  <h4>{t(filteredEmpty ? 'filter.empty.title' : 'empty.title')}</h4>
-                  <p>{t(filteredEmpty ? 'filter.empty.description' : 'empty.description')}</p>
-                </div>
+                <Empty
+                  icon={<BarChart3 aria-hidden />}
+                  title={t(filteredEmpty ? 'filter.empty.title' : 'empty.title')}
+                  description={t(filteredEmpty ? 'filter.empty.description' : 'empty.description')}
+                />
               </div>
             ) : stats ? (
               <div

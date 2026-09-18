@@ -13,6 +13,7 @@ import {
   Dialog,
   DialogBody,
   DialogClose,
+  DialogFooter,
   DialogHeader,
   DialogHeading,
   DialogTitle,
@@ -321,7 +322,14 @@ export const SSHAuthPromptDialog: React.FC<SSHAuthPromptDialogProps> = ({
           </>
         )}
 
-        <div className="ssh-auth-prompt-dialog__actions" data-openbitfun-component="ssh-remote" data-openbitfun-part="authActions">
+      </div>
+      </DialogBody>
+      <DialogFooter
+        separator
+        className="ssh-auth-prompt-dialog__actions"
+        data-openbitfun-component="ssh-remote"
+        data-openbitfun-part="authActions"
+      >
           <Button variant="fill" size="sm" onClick={onCancel} disabled={isConnecting}>
             {t('actions.cancel')}
           </Button>
@@ -340,9 +348,7 @@ export const SSHAuthPromptDialog: React.FC<SSHAuthPromptDialogProps> = ({
               t('ssh.remote.connect')
             )}
           </Button>
-        </div>
-      </div>
-          </DialogBody>
+      </DialogFooter>
     </Dialog>
   );
 };

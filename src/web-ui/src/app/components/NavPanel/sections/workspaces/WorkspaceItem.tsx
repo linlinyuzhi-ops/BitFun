@@ -23,6 +23,7 @@ import { RetainedMountBoundary } from '@/shared/presence';
 import { InputDialog } from '@/app/components/InputDialog';
 
 import { useI18n } from '@/infrastructure/i18n';
+import { getActiveSurfaceId } from '@/infrastructure/peer-device/deviceSurface';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { aiExperienceConfigService } from '@/infrastructure/config/services/AIExperienceConfigService';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
@@ -790,6 +791,24 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
     openWorkspaceResources(workspace.id);
   }, [openWorkspaceResources, switchLeftPanelTab, workspace.id]);
 
+  const handleCreateTerminal = useCallback(() => {
+    setMenuOpen(false);
+    const surfaceId = getActiveSurfaceId();
+    window.dispatchEvent(new CustomEvent('terminal-create-requested', {
+      detail: {
+        workingDirectory: workspace.rootPath,
+        workspacePath: workspace.rootPath,
+        surfaceId,
+        resourceScope: {
+          surfaceId,
+          workspaceId: workspace.id,
+          workspacePath: workspace.rootPath,
+          remoteConnectionId: workspace.connectionId,
+        },
+      },
+    }));
+  }, [workspace]);
+
   if (workspace.workspaceKind === WorkspaceKind.Assistant) {
     return (
       <div className={[
@@ -1423,6 +1442,14 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
                   loading={acpClientsLoading}
                   onSelect={client => { void handleCreateAcpSession(client); }}
                 />
+                <MenuItem
+                  leading={<Icon name="terminal" size="xs" />}
+                  onClick={handleCreateTerminal}
+                  disabled={!workspace.rootPath}
+                  data-testid="nav-workspace-menu-create-terminal"
+                >
+                  {t('nav.shell.actions.newTerminal')}
+                </MenuItem>
                 <MenuItem
                   leading={<Icon glyph={FileText} />}
                   onClick={() => { void handleCreateInitSession(); }}

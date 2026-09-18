@@ -249,7 +249,7 @@ internal fun OpenBitFunCompactDrawer(
                     translationX = drawerWidthPx * contentProgress.value
                     scaleX = 1f - (1f - CONTENT_SCALE_X) * contentProgress.value
                     scaleY = 1f - (1f - CONTENT_SCALE_Y) * contentProgress.value
-                    transformOrigin = TransformOrigin(0f, 0.5f)
+                    transformOrigin = TransformOrigin(0f, com.openbitfun.mobile.app.ui.theme.generated.MobileDesignGeometry.ConversationHeaderHeight.toPx() / 2f / size.height.coerceAtLeast(1f))
                 }
                 .then(
                     if (contentCard.phase == ContentCardPhase.Receded) {

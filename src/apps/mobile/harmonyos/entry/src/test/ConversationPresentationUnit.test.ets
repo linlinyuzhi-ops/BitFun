@@ -623,7 +623,7 @@ export default function conversationPresentationUnitTest() {
       expect(RemoteI18n.t('sidebar.newChat')).assertEqual('聊天');
       expect(RemoteI18n.t('sidebar.connectDesktop')).assertEqual('连接电脑');
       expect(RemoteI18n.t('sidebar.scanToConnect')).assertEqual('扫码连接电脑');
-      expect(RemoteI18n.t('sidebar.signInOpenBitFunAccount')).assertEqual('使用 GitHub 登录');
+      expect(RemoteI18n.t('sidebar.signInOpenBitFunAccount')).assertEqual('使用邮箱或 GitHub 登录');
       expect(RemoteI18n.t('connect.chooseConnectionTitle')).assertEqual('连接电脑');
       expect(RemoteI18n.t('sidebar.local')).assertEqual('sidebar.local');
       expect(RemoteI18n.t('sidebar.code')).assertEqual('sidebar.code');
@@ -762,7 +762,8 @@ export default function conversationPresentationUnitTest() {
       expect(RemoteCompactHomePolicy.shouldShowConnectHome('failed')).assertTrue();
       expect(RemoteCompactHomePolicy.shouldShowConnectHome('disconnected')).assertTrue();
       expect(RemoteCompactHomePolicy.shouldShowConnectHome('idle')).assertTrue();
-      expect(RemoteCompactHomePolicy.headerSubtitle('reconnecting', 'Studio')).assertEqual('');
+      expect(RemoteCompactHomePolicy.headerSubtitle('reconnecting', 'Studio')).assertEqual('Studio');
+      expect(RemoteCompactHomePolicy.headerSubtitle('idle', 'Studio')).assertEqual('');
       expect(RemoteCompactHomePolicy.headerSubtitle('connected', 'Studio')).assertEqual('Studio');
     });
   });

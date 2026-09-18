@@ -662,6 +662,7 @@ const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
         size="sm"
         leading={(
           <SegmentedControl
+            className="openbitfun-markdown-editor__mode-toggle"
             aria-label={t('editor.markdownEditor.viewModeLabel')}
             size="sm"
             tone="neutral"

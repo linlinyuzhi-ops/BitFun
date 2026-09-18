@@ -162,7 +162,11 @@ test('theme CSS var contract registry is explicit and non-overlapping', () => {
   assert.equal(
     CANONICAL_THEME_COLOR_TOKENS.every(token => (
       /^--openbitfun-[a-z0-9-]+$/.test(token.cssVariable)
-      && (token.name.startsWith('color.') || token.name.startsWith('component.button.'))
+      && (
+        token.name.startsWith('color.')
+        || token.name.startsWith('component.button.')
+        || token.name.startsWith('component.empty.')
+      )
       && typeof token.value === 'string'
     )),
     true,

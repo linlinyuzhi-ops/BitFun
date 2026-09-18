@@ -24,6 +24,31 @@ function staticImportSpecifiers(source: string): string[] {
 }
 
 describe('startup performance contract', () => {
+  it('creates native glass with a transparent background instead of repainting it after load', () => {
+    const source = readSource('../../../../apps/desktop/src/appearance.rs');
+    const mainWindow = source.slice(source.indexOf('pub fn create_main_window('), source.indexOf('fn show_main_window_for_startup('));
+
+    expect(mainWindow).toContain('.transparent(true)');
+    expect(mainWindow).toContain('.background_color(tauri::window::Color(0, 0, 0, 0))');
+    expect(mainWindow).toContain('tauri::window::Effect::Acrylic');
+    // The Windows host fill ignores alpha during repaint. Changing its color
+    // after page load can cover the native material even with transparent CSS.
+    expect(mainWindow).not.toContain('.set_background_color(');
+  });
+
+  it('waits for the startup document before revealing the transparent native window', () => {
+    const source = readSource('../../../../apps/desktop/src/appearance.rs');
+    const mainWindow = source.slice(source.indexOf('pub fn create_main_window('), source.indexOf('fn show_main_window_for_startup('));
+
+    expect(mainWindow).toContain('.visible(false)');
+    expect(mainWindow).toMatch(/PageLoadEvent::Finished\)\s*\{\s*let _ = startup_page_ready.send\(true\)/);
+    const wait = mainWindow.indexOf('startup_page_ready_rx.wait_for(');
+    expect(wait).toBeGreaterThan(-1);
+    expect(mainWindow.indexOf('show_main_window_for_startup(')).toBeGreaterThan(wait);
+    // Failed navigation must not leave an invisible application indefinitely.
+    expect(mainWindow).toContain('tokio::time::timeout(');
+  });
+
   it('keeps the pre-React startup fallback vector-only', () => {
     const source = readSource('../../../index.html');
 

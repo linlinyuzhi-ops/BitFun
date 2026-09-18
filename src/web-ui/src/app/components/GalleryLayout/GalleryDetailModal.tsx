@@ -3,6 +3,7 @@ import {
   Dialog,
   DialogBody,
   DialogClose,
+  DialogFooter,
   DialogHeader,
   DialogHeading,
   DialogTitle,
@@ -194,17 +195,18 @@ const GalleryDetailModal: React.FC<GalleryDetailModalProps> = ({
           </div>
         ) : null}
 
-        {actions ? (
-          <div
-            className="gallery-detail-modal__actions"
-            data-openbitfun-component="gallery-detail-modal"
-            data-openbitfun-part="actions"
-          >
-            {actions}
-          </div>
-        ) : null}
       </div>
       </DialogBody>
+      {actions ? (
+        <DialogFooter
+          separator
+          className="gallery-detail-modal__actions"
+          data-openbitfun-component="gallery-detail-modal"
+          data-openbitfun-part="actions"
+        >
+          {actions}
+        </DialogFooter>
+      ) : null}
     </Dialog>
   );
 };

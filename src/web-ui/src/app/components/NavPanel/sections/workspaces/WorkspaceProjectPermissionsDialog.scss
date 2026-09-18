@@ -131,12 +131,7 @@
   }
 
   &__footer {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    padding: 12px;
-    border-top: 1px solid var(--openbitfun-color-border-subtle);
-    background: var(--openbitfun-color-surface-subtle);
+    flex-wrap: wrap;
   }
 
   &__empty {

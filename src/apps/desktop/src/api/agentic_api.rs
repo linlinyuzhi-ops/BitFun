@@ -4858,3 +4858,35 @@ mod tests {
         ));
     }
 }
+
+#[tauri::command]
+pub async fn ensure_control_conversation(
+    coordinator: State<'_, Arc<ConversationCoordinator>>,
+) -> Result<openbitfun_core::agentic::coordination::ControlConversation, String> {
+    coordinator
+        .ensure_control_conversation()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn create_control_conversation(
+    coordinator: State<'_, Arc<ConversationCoordinator>>,
+    request: openbitfun_core::agentic::coordination::CreateControlConversationRequest,
+) -> Result<openbitfun_core::agentic::coordination::ControlConversation, String> {
+    coordinator
+        .create_control_conversation(request)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn record_voice_exchange(
+    coordinator: State<'_, Arc<ConversationCoordinator>>,
+    request: openbitfun_core::agentic::coordination::VoiceExchangeRequest,
+) -> Result<(), String> {
+    coordinator
+        .record_voice_exchange(request)
+        .await
+        .map_err(|error| error.to_string())
+}

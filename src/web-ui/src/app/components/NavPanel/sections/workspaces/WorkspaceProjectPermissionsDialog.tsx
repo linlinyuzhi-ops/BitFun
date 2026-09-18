@@ -9,6 +9,7 @@ import { OverflowText,
   Dialog,
   DialogBody,
   DialogClose,
+  DialogFooter,
   DialogHeader,
   DialogHeading,
   DialogTitle,
@@ -401,28 +402,32 @@ export const WorkspaceProjectPermissionsDialog: React.FC<WorkspaceProjectPermiss
             </div>
           )}
 
-          {rulesDirty ? (
-            <div data-openbitfun-component="workspace-project-permissions-dialog" data-openbitfun-part="footer" className="workspace-project-permissions-dialog__footer">
-              <Button type="button" variant="fill" onClick={handleDiscardRules} disabled={isBusy}>
-                {t('projectPermissions.cancel')}
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                loading={rulesSaving}
-                disabled={!rulesValid || rulesRevision === null || isBusy}
-                onClick={() => void handleSaveRules()}
-                leadingIcon={<Icon glyph={Save} />}
-              >
-
-                {t('projectPermissions.saveRules')}
-              </Button>
-            </div>
-          ) : null}
         </section>
       </div>
             </div>
-            </DialogBody>
+      </DialogBody>
+      {rulesDirty ? (
+        <DialogFooter
+          separator
+          data-openbitfun-component="workspace-project-permissions-dialog"
+          data-openbitfun-part="footer"
+          className="workspace-project-permissions-dialog__footer"
+        >
+          <Button type="button" variant="fill" onClick={handleDiscardRules} disabled={isBusy}>
+            {t('projectPermissions.cancel')}
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            loading={rulesSaving}
+            disabled={!rulesValid || rulesRevision === null || isBusy}
+            onClick={() => void handleSaveRules()}
+            leadingIcon={<Icon glyph={Save} />}
+          >
+            {t('projectPermissions.saveRules')}
+          </Button>
+        </DialogFooter>
+      ) : null}
     </Dialog>
   );
 };

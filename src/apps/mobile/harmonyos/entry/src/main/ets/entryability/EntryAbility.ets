@@ -13,19 +13,20 @@ export default class EntryAbility extends UIAbility {
 
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     const scenarioId = want.parameters?.['openbitfunDesignPreview'];
-    if (scenarioId === 'welcome-home' || scenarioId === 'connected-conversation' ||
+    if (scenarioId === 'device-selector' || scenarioId === 'device-selector-dark' || scenarioId === 'welcome-home' || scenarioId === 'connected-conversation' ||
       scenarioId === 'streaming-dark' ||
       scenarioId === 'reconnecting-wide' || scenarioId === 'narrow-multiline' ||
-      scenarioId === 'fold-context' || scenarioId === 'long-reading') {
+      scenarioId === 'fold-context' || scenarioId === 'long-reading' ||
+      scenarioId === 'interaction-mailbox' || scenarioId === 'interaction-mailbox-dark') {
       this.initialPage = 'pages/preview/MobileDesignGallery';
       this.previewStorage = new LocalStorage();
       this.previewStorage.setOrCreate('scenarioId', scenarioId);
       AppStorage.setOrCreate('scenarioId', scenarioId);
     }
     try {
-      const colorMode = scenarioId === 'streaming-dark'
+      const colorMode = scenarioId === 'device-selector-dark' || scenarioId === 'streaming-dark' || scenarioId === 'interaction-mailbox-dark'
         ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK
-        : scenarioId === 'connected-conversation' || scenarioId === 'reconnecting-wide'
+        : scenarioId === 'device-selector' || scenarioId === 'connected-conversation' || scenarioId === 'reconnecting-wide'
           ? ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT
           : ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET;
       this.context.getApplicationContext().setColorMode(colorMode);

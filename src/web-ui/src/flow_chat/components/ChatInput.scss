@@ -5,6 +5,7 @@
 @use '@/shared/styles/surface-recipes' as surfaces;
 
 .openbitfun-context-drop-zone.openbitfun-chat-input-drop-zone {
+  box-sizing: border-box;
   position: absolute;
   flex: 0 0 auto;
   bottom: var(--openbitfun-space-6);
@@ -13,6 +14,7 @@
   width: 100%;
   height: auto;
   min-height: 0;
+  min-width: 0;
   max-width: 900px;
   z-index: var(--openbitfun-layer-overlay);
   display: flex;
@@ -20,6 +22,16 @@
   justify-content: flex-end;
   padding: 0 var(--openbitfun-space-2);
   pointer-events: auto !important;
+
+  // Reserve the composer's actual height so the transcript ends above it.
+  &.openbitfun-chat-input-drop-zone--conversation {
+    position: relative;
+    inset: auto;
+    transform: none;
+    max-width: none;
+    z-index: auto;
+    padding: var(--openbitfun-space-2) var(--openbitfun-space-3) var(--openbitfun-space-3);
+  }
 
   &.openbitfun-context-drop-zone--can-accept {
     .openbitfun-chat-input__composer {
@@ -301,7 +313,7 @@
 
 }
 
-@media (max-width: 640px) {
+@container chat-input (max-width: 640px) {
   .openbitfun-chat-input__voice-cluster--recording {
     min-width: 220px;
   }
@@ -327,7 +339,11 @@
 }
 
 .openbitfun-chat-input {
+  // The off-screen capsule measurement clones this root, so responsive controls
+  // see the same local width there as in main, floating, and native windows.
+  container: chat-input / inline-size;
   width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   transform: translateY(0);
@@ -501,7 +517,7 @@
   // Product controls fill the stable public ChatComposer slots. The package
   // owns the 42px compact / 120px expanded surface geometry; Web UI owns concrete menus and
   // lifecycle states.
-  &__composer-surface {
+  &__composer > [data-openbitfun-part='body'] > [data-openbitfun-part='surface'] {
     .openbitfun-chat-input__actions-left,
     .openbitfun-chat-input__actions-right {
       display: flex;
@@ -545,6 +561,7 @@
     }
 
     .openbitfun-model-selector__trigger {
+      min-width: 0;
       height: var(--openbitfun-control-chat-composer-control-height);
       padding: 0 var(--openbitfun-space-1) 0 var(--openbitfun-space-2);
       border: 0;
@@ -555,7 +572,11 @@
     }
 
     .openbitfun-model-selector__name {
-      max-width: 160px;
+      max-width: min(160px, 22cqi);
+    }
+
+    .openbitfun-model-selector__trigger-reasoning {
+      max-width: min(72px, 12cqi);
     }
 
     .openbitfun-reasoning-preset-selector[data-openbitfun-presentation='label']
@@ -590,6 +611,14 @@
     }
 
     &[data-openbitfun-layout='compact'] {
+      // Keep the editing track usable in smaller panes. The reasoning setting
+      // remains available in the model menu when its inline summary cannot fit.
+      @container chat-input (max-width: 360px) {
+        .openbitfun-model-selector__trigger-reasoning {
+          display: none;
+        }
+      }
+
       .openbitfun-chat-input__actions-left,
       .openbitfun-chat-input__actions-right {
         height: 100%;
@@ -736,78 +765,6 @@
 
     .rich-text-input {
       font-size: var(--openbitfun-type-flow-control-font-size);
-    }
-  }
-
-  &__image-strip {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--openbitfun-control-flow-chat-inline-gap);
-    margin-bottom: var(--openbitfun-control-flow-chat-inline-gap);
-    padding: 0.12rem 0;
-  }
-
-  &__image-chip {
-    position: relative;
-    width: 44px;
-    height: 44px;
-    border-radius: 6px;
-    overflow: visible;
-    background: var(--openbitfun-color-action-neutral-surface-hover);
-    border: 1px solid var(--openbitfun-color-border-subtle);
-    flex-shrink: 0;
-
-    &:hover .openbitfun-chat-input__image-chip-remove {
-      opacity: 1;
-      transform: scale(1);
-    }
-  }
-
-  &__image-chip-thumb {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: 5px;
-    display: block;
-
-    &--placeholder {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--openbitfun-color-content-secondary);
-    }
-  }
-
-  &__image-chip-remove {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    border: none;
-    background: var(--openbitfun-color-surface-raised);
-    color: var(--openbitfun-color-content-primary);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    padding: 0;
-    box-shadow: 0 1px 3px color-mix(in srgb, var(--openbitfun-color-content-on-light) 35%, transparent);
-    opacity: 0;
-    transform: scale(0.85);
-    transition:
-      opacity 140ms ease,
-      transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
-
-    &:hover {
-      background: var(--openbitfun-color-action-neutral-surface-hover);
-    }
-
-    &:focus-visible {
-      opacity: 1;
-      outline: 2px solid var(--openbitfun-color-accent-default);
-      outline-offset: 1px;
     }
   }
 

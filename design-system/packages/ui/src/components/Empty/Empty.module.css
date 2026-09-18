@@ -4,46 +4,55 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: var(--openbitfun-space-3);
+    gap: var(--openbitfun-layout-empty-gap);
     min-inline-size: 0;
-    padding: var(--openbitfun-space-8) var(--openbitfun-space-5);
-    color: var(--openbitfun-color-content-secondary);
+    padding: var(--openbitfun-layout-empty-padding-block) var(--openbitfun-layout-empty-padding-inline);
+    color: var(--openbitfun-color-content-muted);
     text-align: center;
   }
 
   .media {
+    --_empty-media-size: var(--openbitfun-layout-empty-media-size-md);
+    --_empty-icon-size: var(--openbitfun-layout-empty-icon-size-md);
+
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    inline-size: var(--openbitfun-control-height-lg);
-    block-size: var(--openbitfun-control-height-lg);
-    color: var(--openbitfun-color-content-muted);
+    inline-size: var(--_empty-media-size);
+    block-size: var(--_empty-media-size);
+    color: var(--openbitfun-component-empty-media);
   }
 
   .media[data-size="sm"] {
-    inline-size: var(--openbitfun-control-height-md);
-    block-size: var(--openbitfun-control-height-md);
+    --_empty-media-size: var(--openbitfun-layout-empty-media-size-sm);
+    --_empty-icon-size: var(--openbitfun-layout-empty-icon-size-sm);
   }
 
   .media[data-size="lg"] {
-    inline-size: calc(var(--openbitfun-control-height-lg) + var(--openbitfun-space-4));
-    block-size: calc(var(--openbitfun-control-height-lg) + var(--openbitfun-space-4));
+    --_empty-media-size: var(--openbitfun-layout-empty-media-size-lg);
+    --_empty-icon-size: var(--openbitfun-layout-empty-icon-size-lg);
   }
 
   .media > :where(svg, img),
   .media > [data-openbitfun-component="icon"] {
     display: block;
+    inline-size: var(--_empty-icon-size);
+    block-size: var(--_empty-icon-size);
     max-inline-size: 100%;
     max-block-size: 100%;
   }
 
+  .media > [data-openbitfun-component="icon"] {
+    color: inherit;
+  }
+
   .title {
-    color: var(--openbitfun-color-content-primary);
-    font-family: var(--openbitfun-type-heading-card-font-family);
-    font-size: var(--openbitfun-type-heading-card-font-size);
-    font-weight: var(--openbitfun-type-heading-card-font-weight);
-    line-height: var(--openbitfun-type-heading-card-line-height);
-    letter-spacing: var(--openbitfun-type-heading-card-letter-spacing);
+    color: var(--openbitfun-color-content-muted);
+    font-family: var(--openbitfun-type-label-md-font-family);
+    font-size: var(--openbitfun-type-label-md-font-size);
+    font-weight: var(--openbitfun-type-label-md-font-weight);
+    line-height: var(--openbitfun-type-label-md-line-height);
+    letter-spacing: var(--openbitfun-type-label-md-letter-spacing);
   }
 
   .description {

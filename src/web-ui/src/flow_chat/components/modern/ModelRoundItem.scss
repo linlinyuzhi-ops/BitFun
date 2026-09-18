@@ -1,8 +1,10 @@
 @use '../../item-rhythm' as itemRhythm;
+@use '../../transcript-layout' as transcriptLayout;
 
 /* Model round item styles (BEM). */
 .model-round-item {
   @include itemRhythm.apply;
+  @include transcriptLayout.content-column;
   /*
    * The composition assigns one 8px trailing gap to each item, including the
    * last item across a model-round boundary. Consecutive collapsed ambient
@@ -14,7 +16,7 @@
    * the typewriter finishes. Both read as the whole chat refreshing.
    */
   margin-bottom: 0;
-  padding: 0 var(--openbitfun-control-flow-chat-content-padding-inline);
+  padding-block: 0;
   position: relative;
   opacity: 1;
 
@@ -36,10 +38,6 @@
   &--complete {
     opacity: 1;
   }
-
-  @media (max-width: 768px) {
-    padding: 0 var(--openbitfun-control-flow-chat-content-padding-inline-mobile);
-  }
 }
 
 .model-round-item__header {
@@ -51,11 +49,7 @@
 
 // Action button container (bottom-right of last round).
 .model-round-item__footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: var(--openbitfun-space-2);
+  @include transcriptLayout.metadata-row;
   padding: var(--openbitfun-space-1) 0;
   margin-top: var(--openbitfun-space-1);
 
@@ -66,13 +60,18 @@
   }
 }
 
+.model-round-item__actions {
+  @include transcriptLayout.metadata-actions;
+}
+
 .model-round-item__meta {
   display: flex;
   flex: 1 1 auto;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--openbitfun-space-2);
   min-width: 0;
-  margin-right: auto;
+  margin-inline-end: auto;
   color: var(--openbitfun-color-content-muted);
   font-family: var(--openbitfun-type-flow-meta-font-family);
   font-size: var(--openbitfun-type-flow-meta-font-size);
@@ -263,15 +262,8 @@
 }
 
 .model-round-item__action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
+  @include transcriptLayout.metadata-action;
   background: transparent;
-  border: none;
-  border-radius: 4px;
   color: var(--openbitfun-color-content-muted);
   cursor: pointer;
   transition:
@@ -312,25 +304,6 @@
 .model-round-item__copy-menu {
   position: fixed;
   z-index: var(--openbitfun-layer-popover);
-}
-
-.model-round-item__fork-btn,
-.model-round-item__copy-btn,
-.model-round-item__export-btn {
-  flex-shrink: 1;
-
-  // Preserve footer action geometry, feedback, and the existing pending icons.
-  &::before { content: none; }
-
-  > [data-openbitfun-part='icon'] {
-    --openbitfun-opacity-icon-artwork: inherit;
-    display: contents;
-  }
-
-  > :where([data-openbitfun-part='icon']) > :where([data-openbitfun-component='icon']) {
-    inline-size: var(--openbitfun-control-icon-size-sm);
-    block-size: var(--openbitfun-control-icon-size-sm);
-  }
 }
 
 .model-round-item__fork-btn {

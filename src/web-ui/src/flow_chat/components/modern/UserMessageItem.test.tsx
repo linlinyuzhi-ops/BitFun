@@ -250,6 +250,84 @@ describe('UserMessageItem steering tag', () => {
     expect(document.querySelector('.user-message-item__lightbox')).toBeNull();
   });
 
+  it('keeps image attachments outside the compact editor while editing', async () => {
+    activeSessionRef.current = {
+      sessionId: 'main-session',
+      sessionKind: 'normal',
+      dialogTurns: [{ id: 'turn-1', status: 'completed' }],
+    };
+
+    act(() => root.render(
+      <FlowChatContext.Provider
+        value={{
+          sessionId: 'main-session',
+          allowUserMessageEdit: true,
+          allowUserMessageRollback: true,
+        }}
+      >
+        <UserMessageItem
+          message={{
+            id: 'image-edit',
+            content: 'Describe this image',
+            timestamp: 1000,
+            images: [{
+              id: 'image-1',
+              name: 'preview.png',
+              dataUrl: 'data:image/png;base64,AA==',
+              mimeType: 'image/png',
+            }],
+          }}
+          turnId="turn-1"
+        />
+      </FlowChatContext.Provider>,
+    ));
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('.user-message-item__edit-btn')?.click();
+    });
+
+    const shell = container.querySelector('.user-message-item-shell');
+    const imageGallery = shell?.querySelector('.user-message-item__images');
+    const bubble = shell?.querySelector('.user-message-item--editing');
+    const editLayout = bubble?.querySelector('.user-message-item__edit-layout');
+    const editComposer = editLayout?.querySelector('.user-message-edit-composer__icon-button--confirm');
+
+    expect(shell?.firstElementChild).toBe(imageGallery);
+    expect(imageGallery?.nextElementSibling).toBe(bubble);
+    expect(editLayout?.contains(imageGallery ?? null)).toBe(false);
+    expect(editLayout?.firstElementChild).toBe(editComposer);
+    expect(container.querySelectorAll('.user-message-item__images')).toHaveLength(1);
+  });
+
+  it('places sent image attachments above the right-aligned text bubble', () => {
+    act(() => root.render(
+      <FlowChatContext.Provider value={{ allowUserMessageEdit: false, allowUserMessageRollback: false }}>
+        <UserMessageItem
+          message={{
+            id: 'sent-image',
+            content: 'Describe this image',
+            timestamp: 1000,
+            images: [{
+              id: 'image-1',
+              name: 'preview.png',
+              dataUrl: 'data:image/png;base64,AA==',
+              mimeType: 'image/png',
+            }],
+          }}
+          turnId="turn-1"
+        />
+      </FlowChatContext.Provider>,
+    ));
+
+    const shell = container.querySelector('.user-message-item-shell');
+    const imageGallery = shell?.querySelector('.user-message-item__images');
+    const bubble = shell?.querySelector('.user-message-item');
+
+    expect(shell?.firstElementChild).toBe(imageGallery);
+    expect(imageGallery?.nextElementSibling).toBe(bubble);
+    expect(bubble?.classList.contains('user-message-item--editing')).toBe(false);
+  });
+
   it('renders pending steering tag on the right side of the message row', () => {
     act(() => {
       root.render(

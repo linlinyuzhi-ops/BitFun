@@ -18,16 +18,16 @@ export interface SessionComposerDraft {
 
 interface SessionComposerState {
   drafts: Record<string, SessionComposerDraft>;
-  getDraft: (sessionId: string) => SessionComposerDraft;
+  getDraft: (sessionId: string, surfaceId?: DeviceSurfaceId) => SessionComposerDraft;
   activateDraft: (
     previousSessionId: string | null,
     nextSessionId: string | null,
     currentContexts: ContextItem[],
     persistPreviousContexts?: boolean,
   ) => SessionComposerDraft;
-  setValue: (sessionId: string, value: string) => void;
-  setContexts: (sessionId: string, contexts: ContextItem[]) => void;
-  setPendingLargePastes: (sessionId: string, pendingLargePastes: PendingLargePasteMap) => void;
+  setValue: (sessionId: string, value: string, surfaceId?: DeviceSurfaceId) => void;
+  setContexts: (sessionId: string, contexts: ContextItem[], surfaceId?: DeviceSurfaceId) => void;
+  setPendingLargePastes: (sessionId: string, pendingLargePastes: PendingLargePasteMap, surfaceId?: DeviceSurfaceId) => void;
   clearDraft: (sessionId: string) => void;
   removeDrafts: (sessionIds: Iterable<string>) => void;
   removeSurfaceDrafts: (surfaceId: DeviceSurfaceId) => void;
@@ -53,8 +53,9 @@ function updateDraft(
   state: SessionComposerState,
   sessionId: string,
   update: Partial<Omit<SessionComposerDraft, 'updatedAt'>>,
+  surfaceId = getActiveSurfaceId(),
 ): Pick<SessionComposerState, 'drafts'> {
-  const key = draftKey(sessionId);
+  const key = draftKey(sessionId, surfaceId);
   const current = state.drafts[key] ?? createEmptyDraft();
   return {
     drafts: {
@@ -71,7 +72,7 @@ function updateDraft(
 export const useSessionComposerStore = create<SessionComposerState>((set, get) => ({
   drafts: {},
 
-  getDraft: (sessionId) => get().drafts[draftKey(sessionId)] ?? createEmptyDraft(),
+  getDraft: (sessionId, surfaceId) => get().drafts[draftKey(sessionId, surfaceId)] ?? createEmptyDraft(),
 
   activateDraft: (
     previousSessionId,
@@ -89,18 +90,18 @@ export const useSessionComposerStore = create<SessionComposerState>((set, get) =
     return nextSessionId ? get().getDraft(nextSessionId) : createEmptyDraft();
   },
 
-  setValue: (sessionId, value) => {
-    set(state => updateDraft(state, sessionId, { value }));
+  setValue: (sessionId, value, surfaceId) => {
+    set(state => updateDraft(state, sessionId, { value }, surfaceId));
   },
 
-  setContexts: (sessionId, contexts) => {
-    set(state => updateDraft(state, sessionId, { contexts: [...contexts] }));
+  setContexts: (sessionId, contexts, surfaceId) => {
+    set(state => updateDraft(state, sessionId, { contexts: [...contexts] }, surfaceId));
   },
 
-  setPendingLargePastes: (sessionId, pendingLargePastes) => {
+  setPendingLargePastes: (sessionId, pendingLargePastes, surfaceId) => {
     set(state => updateDraft(state, sessionId, {
       pendingLargePastes: { ...pendingLargePastes },
-    }));
+    }, surfaceId));
   },
 
   clearDraft: (sessionId) => {

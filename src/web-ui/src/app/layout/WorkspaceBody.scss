@@ -56,11 +56,12 @@ $_resize-target-width: 6px;
   height: 100%;
   overflow: visible;
 
+  // The shared material stays visible through every navigation mode.
   > .openbitfun-nav-bar,
   > .openbitfun-nav-panel,
   .openbitfun-nav-panel__brand-header,
   .openbitfun-nav-panel__sticky-section-header,
-  .openbitfun-nav-panel__content:not(.is-split-open) .openbitfun-nav-panel__layer--scene,
+  .openbitfun-nav-panel__layer--scene,
   .openbitfun-nav-panel [data-openbitfun-component='navigation-panel'] {
     background: transparent;
   }

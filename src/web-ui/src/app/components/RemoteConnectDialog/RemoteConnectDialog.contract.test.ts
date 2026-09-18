@@ -9,6 +9,14 @@ const dialogStyleSource = readFileSync(
   new URL('./RemoteConnectDialog.scss', import.meta.url),
   'utf8',
 );
+const disclaimerSource = readFileSync(
+  new URL('./RemoteConnectDisclaimer.tsx', import.meta.url),
+  'utf8',
+);
+const disclaimerStyleSource = readFileSync(
+  new URL('./RemoteConnectDisclaimer.scss', import.meta.url),
+  'utf8',
+);
 const chatAppBrandIconSource = readFileSync(
   new URL('./ChatAppBrandIcon.tsx', import.meta.url),
   'utf8',
@@ -38,6 +46,25 @@ describe('Remote Connect safety contracts', () => {
   it('gates the complete dialog surface behind disclaimer agreement', () => {
     expect(dialogSource).toContain('open={isOpen && hasAgreedDisclaimer}');
     expect(dialogSource).toContain('open={isOpen && (disclaimerIsGate || showDisclaimer)}');
+  });
+
+  it('composes disclaimer actions through the shared dialog footer spacing', () => {
+    const rootStyle = disclaimerStyleSource.slice(
+      disclaimerStyleSource.indexOf('.openbitfun-remote-disclaimer {'),
+      disclaimerStyleSource.indexOf('.openbitfun-remote-disclaimer__meta'),
+    );
+    const actionStyle = disclaimerStyleSource.slice(
+      disclaimerStyleSource.indexOf('.openbitfun-remote-disclaimer__actions'),
+    );
+
+    expect(disclaimerSource).toContain('<DialogBody>');
+    expect(disclaimerSource).toContain('<DialogFooter');
+    expect(disclaimerSource).toContain('separator');
+    expect(disclaimerSource).toContain("variant={canAgree ? 'fill' : 'primary'}");
+    expect(rootStyle).toContain('padding-block-start: var(--openbitfun-space-3);');
+    expect(rootStyle).not.toContain('padding-block-end');
+    expect(actionStyle).not.toContain('border-top');
+    expect(actionStyle).not.toContain('padding-top');
   });
 
   it('presents one overview with account and connection destinations', () => {

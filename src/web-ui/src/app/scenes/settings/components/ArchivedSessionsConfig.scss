@@ -14,21 +14,6 @@
     font-size: var(--openbitfun-type-label-md-font-size);
   }
 
-  &__empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    padding: 32px 16px;
-    color: var(--openbitfun-color-content-muted);
-    text-align: center;
-    font-size: var(--openbitfun-type-label-md-font-size);
-  }
-
-  &__empty-icon {
-    opacity: 0.35;
-  }
-
   &__group {
     display: flex;
     flex-direction: column;

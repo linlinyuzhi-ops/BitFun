@@ -278,6 +278,14 @@ test("Button states have a mode-complete palette independent from shared actions
   }
 });
 
+test("Empty artwork uses a mode-complete opaque component color", () => {
+  assert.equal(themes.light["component.empty.media"], "color-mix(in srgb, #6a6a6a 35%, #f7f7f7)");
+  assert.equal(themes.dark["component.empty.media"], "color-mix(in srgb, #858585 35%, #0e0e10)");
+  for (const values of Object.values(themes)) {
+    assert.match(values["component.empty.media"], /^color-mix\(in srgb, #[0-9a-f]{6} 35%, #[0-9a-f]{6}\)$/i);
+  }
+});
+
 test("default modes preserve the built-in Appearance anchor values", () => {
   assert.equal(themes.light["color.surface.canvas"], "#fdfdfd");
   assert.equal(themes.light["color.content.primary"], "rgba(0, 0, 0, 0.80)");
@@ -381,11 +389,15 @@ test("public theme catalog contains only semantic theme tokens for every mode", 
   assert.equal(themeTokenCatalog.length, Object.keys(themes.light).length);
   for (const token of themeTokenCatalog) {
     assert.equal(
-      ["color.", "component.button.", "effect.", "opacity.", "shadow."].some((prefix) => token.name.startsWith(prefix)),
+      ["color.", "component.button.", "component.empty.", "effect.", "opacity.", "shadow."].some((prefix) => token.name.startsWith(prefix)),
       true,
     );
     assert.equal(token.name.startsWith("ref."), false);
-    if (token.name.startsWith("color.") || token.name.startsWith("component.button.")) {
+    if (
+      token.name.startsWith("color.")
+      || token.name.startsWith("component.button.")
+      || token.name.startsWith("component.empty.")
+    ) {
       assert.equal(token.type, "color");
     }
     assert.deepEqual(Object.keys(token.values), themeModes);

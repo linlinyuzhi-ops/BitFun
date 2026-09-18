@@ -155,6 +155,12 @@
         z-index: 9999;
       }
 
+      /* Keep the mounting shell from showing through or doubling the tint.
+         Preserve layout so startup readiness and measurements still complete. */
+      #root:has(+ #openbitfun-startup-overlay:not(.openbitfun-startup-overlay--exiting)) {
+        visibility: hidden;
+      }
+
       .openbitfun-sr-only {
         position: absolute;
         width: 1px;
@@ -173,11 +179,21 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--openbitfun-color-surface-chrome);
+        background: color-mix(in srgb, var(--openbitfun-color-surface-chrome) 90%, transparent);
         color: var(--openbitfun-color-content-muted);
         font-family: var(--openbitfun-font-family-sans);
         font-size: 13px;
         pointer-events: none;
+      }
+
+      :root[data-contrast='high'] .splash-screen {
+        background: var(--openbitfun-color-surface-chrome);
+      }
+
+      @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+        .splash-screen {
+          background: var(--openbitfun-color-surface-chrome);
+        }
       }
 
       #openbitfun-startup-overlay.openbitfun-startup-overlay--exiting {
@@ -352,7 +368,7 @@
   <body>
     <script type="module" src="/src/main.tsx"></script>
     <div id="root"></div>
-    <div id="openbitfun-startup-overlay">
+    <div id="openbitfun-startup-overlay" data-tauri-drag-region>
       <div class="splash-screen">
         <div
           class="window-controls openbitfun-startup-window-controls"

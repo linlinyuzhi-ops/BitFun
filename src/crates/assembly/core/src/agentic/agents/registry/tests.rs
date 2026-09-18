@@ -2127,6 +2127,27 @@ fn external_primary_route_follows_the_session_execution_worktree() {
 }
 
 #[test]
+fn hidden_control_agent_resolves_as_a_session_primary() {
+    let registry = AgentRegistry::new();
+    let binding = registry
+        .resolve_primary_agent_for_turn("OpenBitFun", None, false, None)
+        .expect("the persistent control conversation must be admitted");
+    assert_eq!(binding.runtime_agent_key, "OpenBitFun");
+    assert_eq!(
+        binding.route_owner,
+        openbitfun_core_types::SessionAgentRouteOwner::Local
+    );
+    assert!(registry
+        .resolve_primary_agent_for_turn(
+            "OpenBitFun",
+            None,
+            false,
+            Some(openbitfun_core_types::SessionAgentRouteOwner::External)
+        )
+        .is_none());
+}
+
+#[test]
 fn builtin_review_agents_resolve_as_local_session_primaries() {
     let registry = AgentRegistry::new();
 

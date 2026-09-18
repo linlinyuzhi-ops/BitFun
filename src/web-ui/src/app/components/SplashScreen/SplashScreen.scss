@@ -1,7 +1,7 @@
 /**
  * SplashScreen styles.
  *
- * Full-screen opaque overlay with no separate loading spinner.
+ * Full-screen themed overlay with no separate loading spinner.
  * Exit: logo scales up and fades, backdrop dissolves.
  */
 // ── Container ────────────────────────────────────────────────────────────────
@@ -13,8 +13,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--openbitfun-color-surface-chrome);
+  background: color-mix(in srgb, var(--openbitfun-color-surface-chrome) 90%, transparent);
   pointer-events: none;
+
+  :root[data-contrast='high'] & {
+    background: var(--openbitfun-color-surface-chrome);
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    background: var(--openbitfun-color-surface-chrome);
+  }
 
   // ── Exit state ─────────────────────────────────────────────────────────────
   // Whole container fades together — logo and backdrop in sync.

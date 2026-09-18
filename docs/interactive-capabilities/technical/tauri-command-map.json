@@ -2,12 +2,12 @@
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
   "catalogDigest": "5473331e06ecd4bfafbf9b547d48b4fe1561ccf69d86fdfde51ea10dc919531c",
-  "commandCount": 657,
+  "commandCount": 660,
   "coverage": {
-    "commandCount": 657,
+    "commandCount": 660,
     "documentedCommandCount": 613,
-    "implementationCommandCount": 44,
-    "implementationDigest": "012cebbd8d7c908d8e4c0787f73a2fa5f43184c240e7fde68cb941667574ba8f"
+    "implementationCommandCount": 47,
+    "implementationDigest": "401fd0a5f64377e65573d1b0883fbfa844570096adfafd4c11a999d749ba5859"
   },
   "commands": [
     {
@@ -1451,6 +1451,20 @@
       "remoteWorkspacePolicy": "LegacyUnaudited"
     },
     {
+      "id": "create_control_conversation",
+      "moduleId": "agentic",
+      "capabilityId": "feature.ai-assistant",
+      "capabilityIds": [
+        "feature.ai-assistant"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::agentic_api::create_control_conversation",
+      "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
+      "signature": "fn create_control_conversation( coordinator: State<'_, Arc<ConversationCoordinator>>, request: openbitfun_core::agentic::coordination::CreateControlConversationRequest, ) -> Result<openbitfun_core::agentic::coordination::ControlConversation, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
       "id": "create_cron_job",
       "moduleId": "cron",
       "capabilityId": "feature.tasks-automation",
@@ -2235,6 +2249,20 @@
       "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
       "signature": "fn ensure_assistant_bootstrap( coordinator: State<'_, Arc<ConversationCoordinator>>, request: EnsureAssistantBootstrapRequest, ) -> Result<EnsureAssistantBootstrapResponse, String>",
       "remoteWorkspacePolicy": "RemoteUnsupported"
+    },
+    {
+      "id": "ensure_control_conversation",
+      "moduleId": "agentic",
+      "capabilityId": "feature.ai-assistant",
+      "capabilityIds": [
+        "feature.ai-assistant"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::agentic_api::ensure_control_conversation",
+      "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
+      "signature": "fn ensure_control_conversation( coordinator: State<'_, Arc<ConversationCoordinator>>, ) -> Result<openbitfun_core::agentic::coordination::ControlConversation, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "ensure_coordinator_session",
@@ -6667,6 +6695,20 @@
       "remoteWorkspacePolicy": "LegacyUnaudited"
     },
     {
+      "id": "record_voice_exchange",
+      "moduleId": "agentic",
+      "capabilityId": "feature.ai-assistant",
+      "capabilityIds": [
+        "feature.ai-assistant"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::agentic_api::record_voice_exchange",
+      "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
+      "signature": "fn record_voice_exchange( coordinator: State<'_, Arc<ConversationCoordinator>>, request: openbitfun_core::agentic::coordination::VoiceExchangeRequest, ) -> Result<(), String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
       "id": "recover_interrupted_dialog_turn",
       "moduleId": "agentic",
       "capabilityId": "feature.ai-assistant",
@@ -8818,7 +8860,7 @@
       "visibility": "implementation",
       "rustPath": "api::system_api::set_tray_unread_count",
       "sourceFile": "src/apps/desktop/src/api/system_api.rs",
-      "signature": "fn set_tray_unread_count(request: SetTrayUnreadCountRequest) -> Result<(), String>",
+      "signature": "fn set_tray_unread_count( app: tauri::AppHandle, request: SetTrayUnreadCountRequest, ) -> Result<(), String>",
       "remoteWorkspacePolicy": "LocalOnly"
     },
     {

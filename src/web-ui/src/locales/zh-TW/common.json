@@ -245,7 +245,7 @@
         "agent": "智能體"
       },
       "actions": {
-        "newTerminal": "新增終端",
+        "newTerminal": "新增終端會話",
         "refresh": "重新整理"
       },
       "context": {

@@ -2,8 +2,7 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  /* Vertical breathing room; horizontal inset is owned by the dialog body recipe. */
-  padding: 4px 0 22px;
+  padding-block-start: 4px;
   max-width: 100%;
 }
 
@@ -120,17 +119,9 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--openbitfun-color-border-subtle);
 }
 
 @media (max-width: 480px) {
-  .openbitfun-update-available {
-    padding-bottom: 18px;
-  }
-
   .openbitfun-update-available__row {
     grid-template-columns: 1fr;
     gap: 6px;
