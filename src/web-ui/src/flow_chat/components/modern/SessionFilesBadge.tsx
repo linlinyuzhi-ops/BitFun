@@ -4,10 +4,9 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { FilePlus, SearchCheck, Zap, GitPullRequest } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { OverflowText, Icon, IconButton, Menu, MenuItem, MenuSeparator, Tooltip } from '@openbitfun/ui';
+import { createOverlayPortal, useDismissibleLayer, OverflowText, Icon, IconButton, Menu, MenuItem, MenuSeparator, Tooltip } from '@openbitfun/ui';
 import { useSnapshotState } from '../../../tools/snapshot_system/hooks/useSnapshotState';
 import { createDiffEditorTab } from '../../../shared/utils/tabUtils';
 import { snapshotAPI } from '../../../infrastructure/api';
@@ -42,6 +41,7 @@ import { scheduleAfterStartupSignal } from '@/shared/utils/startupTaskScheduling
 import { isTauriRuntime } from '@/infrastructure/runtime';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { useAnchoredPopoverPosition } from '@/shared/utils/useAnchoredPopoverPosition';
+import { sessionWorkspaceId } from '../../session-drivers/sessionFileNavigation';
 import './SessionFilesBadge.scss';
 
 const log = createLogger('SessionFilesBadge');
@@ -341,31 +341,14 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
     }
   }, [clearReviewReadyGlint, latestTurnSnapshot]);
 
-  // Close the popovers when clicking outside.
-  useEffect(() => {
-    if (!isExpanded && !isReviewMenuOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      const clickedBadge = !!badgeRef.current?.contains(target);
-      const clickedFilesPopover = !!filePopoverRef.current?.contains(target);
-      const clickedReviewMenu = !!reviewPopoverRef.current?.contains(target);
-      if (!clickedBadge && !clickedFilesPopover && !clickedReviewMenu) {
-        setIsExpanded(false);
-        setIsReviewMenuOpen(false);
-      }
-    };
-
-    // Delay binding to avoid immediate trigger.
-    const timeoutId = setTimeout(() => {
-      document.addEventListener('mousedown', handleClickOutside);
-    }, 0);
-
-    return () => {
-      clearTimeout(timeoutId);
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isExpanded, isReviewMenuOpen]);
+  useDismissibleLayer({
+    enabled: isExpanded, layerRef: filePopoverRef, branchRefs: [badgeRef],
+    onDismiss: () => setIsExpanded(false),
+  });
+  useDismissibleLayer({
+    enabled: isReviewMenuOpen, layerRef: reviewPopoverRef, branchRefs: [badgeRef],
+    onDismiss: () => setIsReviewMenuOpen(false),
+  });
 
   /**
    * Fetch per-file diff stats with caching.
@@ -409,7 +392,6 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
             const statsResp = await snapshotAPI.getSessionFileDiffStats(
               sessionId,
               file.filePath,
-              currentWorkspace?.rootPath,
             );
             const fileName = file.filePath.split(/[/\\]/).pop() || file.filePath;
 
@@ -473,7 +455,7 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
     } finally {
       setLoadingStats(false);
     }
-  }, [sessionId, t, currentWorkspace?.rootPath]);
+  }, [sessionId, t]);
 
   // Reload stats when the file list changes.
   useEffect(() => {
@@ -605,7 +587,8 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
           false,
           {
             titleKind: 'diff',
-            duplicateKeyPrefix: 'diff'
+            duplicateKeyPrefix: 'diff',
+            workspaceId: sessionWorkspaceId(sessionId) ?? currentWorkspace?.id,
           }
         );
       }, 250);
@@ -614,7 +597,7 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
     } catch (error) {
       log.error('Failed to open diff', { filePath, error });
     }
-  }, [sessionId, currentWorkspace?.rootPath]);
+  }, [sessionId, currentWorkspace?.rootPath, currentWorkspace?.id]);
 
   // Prepare and launch the least costly sufficient Review path.
   const handleReviewClick = useCallback(async (e: React.MouseEvent) => {
@@ -661,6 +644,7 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
         reviewableFilePaths,
         {
           workspacePath: currentWorkspace?.rootPath,
+          workspaceId: currentWorkspace?.id,
           changeStats: {
             fileCount: reviewableFilePaths.length,
             ...(!hasUnknownLineStats
@@ -691,6 +675,7 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
       const reviewThreadTitle = t('sessionFilesBadge.review.threadTitle');
       const launched = await launchPreparedReviewSession({
         parentSessionId: sessionId,
+        workspaceId: currentWorkspace?.id,
         workspacePath: currentWorkspace?.rootPath,
         displayMessage,
         prepared,
@@ -720,7 +705,7 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
     } finally {
       setLaunchingReviewMode(null);
     }
-  }, [confirmDeepReviewLaunch, fileStats, isReviewActionLocked, sessionId, t, currentWorkspace?.rootPath]);
+  }, [confirmDeepReviewLaunch, fileStats, isReviewActionLocked, sessionId, t, currentWorkspace?.id, currentWorkspace?.rootPath]);
 
   const handleQuickActionClick = useCallback(async (action: QuickAction) => {
     if (!sessionId || isSessionProcessing) return;
@@ -807,7 +792,7 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
           </span>
         </Tooltip>
 
-        {isReviewMenuOpen && !isReviewLaunchOrActivityBlocking && createPortal(
+        {isReviewMenuOpen && !isReviewLaunchOrActivityBlocking && createOverlayPortal(
           <Menu
             ref={reviewPopoverRef}
             className="session-files-badge__review-menu-popover"
@@ -901,7 +886,7 @@ export const SessionFilesBadge: React.FC<SessionFilesBadgeProps> = ({
       </button>
       ) : null}
 
-      {showFileStatsSummary && isExpanded && createPortal(
+      {showFileStatsSummary && isExpanded && createOverlayPortal(
         <div
           ref={filePopoverRef}
           className="session-files-badge__popover"

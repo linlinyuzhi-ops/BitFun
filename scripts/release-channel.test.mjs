@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -66,23 +66,20 @@ test('release public key export accepts raw and legacy base64 values', () => {
   assert.throws(() => decodeMinisignPublicKey('not-a-key'));
 });
 
-test('build version projection updates every release-owned version file', () => {
+test('build version projection and verification work without npm workspace lockfiles', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'openbitfun-build-version-'));
   const jsonFiles = [
     'package.json',
-    'package-lock.json',
     'OpenBitFun-Installer/package.json',
-    'OpenBitFun-Installer/package-lock.json',
     'src/web-ui/package.json',
     'src/mobile-web/package.json',
-    'src/mobile-web/package-lock.json',
     'src/miniapp-market-web/package.json',
     'src/skin-market-web/package.json',
   ];
   for (const relative of jsonFiles) {
     const file = path.join(root, relative);
     mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify({ version: '1.0.0', packages: { '': { version: '1.0.0' } } }));
+    writeFileSync(file, JSON.stringify({ version: '1.0.0' }));
   }
   writeFixture(
     root,
@@ -128,6 +125,7 @@ exclude = ["src/apps/relay-server", "OpenBitFun-Installer/src-tauri"]
   const initialLock = spawnSync('cargo', ['generate-lockfile'], {
     cwd: root,
     encoding: 'utf8',
+    windowsHide: true,
   });
   assert.equal(initialLock.status, 0, initialLock.stderr);
 
@@ -136,8 +134,20 @@ exclude = ["src/apps/relay-server", "OpenBitFun-Installer/src-tauri"]
   for (const relative of jsonFiles) {
     const data = JSON.parse(readFileSync(path.join(root, relative), 'utf8'));
     assert.equal(data.version, '1.1.0-beta.2');
-    assert.equal(data.packages[''].version, '1.1.0-beta.2');
   }
+  for (const relative of [
+    'package-lock.json',
+    'OpenBitFun-Installer/package-lock.json',
+    'src/mobile-web/package-lock.json',
+    'tests/e2e/package-lock.json',
+  ]) {
+    assert.equal(existsSync(path.join(root, relative)), false, relative);
+  }
+  const versionCheck = spawnSync(process.execPath, [
+    path.resolve('scripts/verify-release-version-sync.mjs'),
+    '--version', '1.1.0-beta.2',
+  ], { cwd: root, encoding: 'utf8', windowsHide: true });
+  assert.equal(versionCheck.status, 0, versionCheck.stderr);
   assert.match(readFileSync(path.join(root, 'Cargo.toml'), 'utf8'), /1\.1\.0-beta\.2/);
   assert.match(
     readFileSync(path.join(root, 'src/apps/relay-server/Cargo.toml'), 'utf8'),
@@ -170,6 +180,7 @@ exclude = ["src/apps/relay-server", "OpenBitFun-Installer/src-tauri"]
   const lockedMetadata = spawnSync('cargo', ['metadata', '--locked', '--no-deps'], {
     cwd: root,
     encoding: 'utf8',
+    windowsHide: true,
   });
   assert.equal(lockedMetadata.status, 0, lockedMetadata.stderr);
 });

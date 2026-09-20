@@ -27,7 +27,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.*
 import kotlinx.coroutines.flow.*
 import com.openbitfun.mobile.core.transport.RemoteSessionStreamTransport
-import com.openbitfun.mobile.core.transport.SessionStreamReplica
 import kotlinx.serialization.DeserializationStrategy
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
@@ -170,6 +169,46 @@ class RemoteSessionPersistenceTest {
         reopened.dispatch(RemoteSessionIntent.Open("server"))
         assertEquals("All done", assertIs<RemoteSessionUiState.Ready>(reopened.state.value).timeline?.persistedMessages?.last()?.text)
         runCurrent(); reopened.stop()
+    }
+
+    @Test
+    fun replayRebuildsTheTranscriptOnceInsteadOfPerRecord() = runTest {
+        // A long session replays record by record, and rebuilding the whole
+        // transcript on each of them is what made the first seconds after an
+        // open impossible to scroll. Nothing can read the result before
+        // catch-up, so one rebuild and one write is the whole job.
+        val stores = MemoryPersistence()
+        val transport = PersistenceTransport().apply {
+            initialRecords = (0 until 8).map { richRecord("server", "t-$it", it, 1, "completed", "msg $it") }
+        }
+        val store = RemoteSessionStore.create(this, transport, "device-a", stores.stores)
+        store.dispatch(RemoteSessionIntent.Open("server")); runCurrent()
+        assertEquals(1, stores.transcripts.replaces)
+        val timeline = assertIs<RemoteSessionUiState.Ready>(store.state.value).timeline
+        assertEquals("msg 7", timeline?.persistedMessages?.last()?.text)
+        store.stop()
+    }
+
+    @Test
+    fun streamingChunksShareOneTranscriptWriteAndSettleImmediately() = runTest {
+        val stores = MemoryPersistence()
+        val transport = PersistenceTransport().apply {
+            initialRecords = listOf(richRecord("server", "t-1", 0, 1, "completed", "done"))
+        }
+        val store = RemoteSessionStore.create(this, transport, "device-a", stores.stores)
+        store.dispatch(RemoteSessionIntent.Open("server")); runCurrent()
+        val afterOpen = stores.transcripts.replaces
+        (2..6).forEach { revision ->
+            transport.records.emit(richRecord("server", "t-2", 1, revision.toLong(), "inprogress", "chunk $revision"))
+            runCurrent()
+        }
+        assertEquals(afterOpen, stores.transcripts.replaces)
+        advanceTimeBy(600); runCurrent()
+        assertEquals(afterOpen + 1, stores.transcripts.replaces)
+        transport.records.emit(richRecord("server", "t-2", 1, 7, "completed", "chunk done")); runCurrent()
+        assertEquals(afterOpen + 2, stores.transcripts.replaces)
+        assertEquals("chunk done", stores.transcripts.rows.getValue("device-a::server").last().text)
+        store.stop()
     }
 
     @Test
@@ -388,7 +427,7 @@ private class MemoryPersistence {
     val drafts = MemoryDrafts()
     val sessions = MemorySessions()
     val transcripts = MemoryTranscripts()
-    val stores = MobilePersistenceStores(drafts, NoOpChats(), sessions, transcripts, relayStreams = TestRelayStreamStore())
+    val stores = MobilePersistenceStores(drafts, NoOpChats(), sessions, transcripts)
 }
 
 private class MemoryDrafts : DraftStore {
@@ -433,9 +472,10 @@ private class MemorySessions : RemoteSessionListStore {
 private class MemoryTranscripts : RemoteTranscriptStore {
     val rows = mutableMapOf<String, List<PersistedRemoteMessage>>()
     val cursors = mutableMapOf<String, PersistedRemoteCursor>()
+    var replaces = 0
     override fun load(deviceKey: String, sessionId: String) = rows["$deviceKey::$sessionId"].orEmpty()
     override fun append(deviceKey: String, sessionId: String, startSeq: Int, messages: List<PersistedRemoteMessage>) = Unit
-    override fun replace(deviceKey: String, sessionId: String, messages: List<PersistedRemoteMessage>) { rows["$deviceKey::$sessionId"] = messages }
+    override fun replace(deviceKey: String, sessionId: String, messages: List<PersistedRemoteMessage>) { replaces++; rows["$deviceKey::$sessionId"] = messages }
     override fun loadCursor(deviceKey: String, sessionId: String) = cursors["$deviceKey::$sessionId"]
     override fun saveCursor(deviceKey: String, sessionId: String, cursor: PersistedRemoteCursor) { cursors["$deviceKey::$sessionId"] = cursor }
     override fun delete(deviceKey: String, sessionId: String) {
@@ -445,13 +485,12 @@ private class MemoryTranscripts : RemoteTranscriptStore {
 }
 
 private class PersistenceTransport : RemoteCommandTransport, RemoteSessionStreamTransport {
-    override val streamIdentity = "test/device-a"
     var initialRecords = emptyList<JsonObject>()
     val records = MutableSharedFlow<JsonObject>(extraBufferCapacity = 10)
     var streamFailure: ((Throwable) -> Unit)? = null
     var caughtUp: (() -> Unit)? = null
     var subscriptions = 0
-    override suspend fun subscribe(sessionId: String, replica: SessionStreamReplica, onError: (Throwable) -> Unit, onCaughtUp: () -> Unit): Flow<JsonObject> = flow {
+    override suspend fun subscribe(sessionId: String, onError: (Throwable) -> Unit, onCaughtUp: () -> Unit): Flow<JsonObject> = flow {
         subscriptions++
         streamFailure = onError; caughtUp = onCaughtUp
         initialRecords.forEach { emit(it) }
@@ -483,7 +522,7 @@ private class PersistenceTransport : RemoteCommandTransport, RemoteSessionStream
             pollFailure?.let { throw RelayTransportException(it) }
         }
         val json = when (command.cmd) {
-            "get_workspace_info" -> "{\"resp\":\"ok\",\"path\":\"/repo\"}"
+            "get_workspace_info" -> "{\"resp\":\"ok\",\"path\":\"/repo\",\"capabilities\":[\"host_stream_v1\"]}"
             "create_session" -> "{\"resp\":\"ok\",\"session_id\":\"created\",\"title\":\"Created\"}"
             "set_session_model" -> "{\"resp\":\"ok\",\"model_id\":\"model-primary\"}"
             "list_sessions" -> "{\"resp\":\"ok\",\"sessions\":$sessionsJson,\"has_more\":$hasMore}"

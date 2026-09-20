@@ -11,9 +11,8 @@
  * and the text field already accepts it.
  */
 
-import { Button, Icon, IconButton, useDismissibleLayer } from '@openbitfun/ui';
+import { subscribeOverlayInteraction, createOverlayPortal, Button, Icon, IconButton } from '@openbitfun/ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { useI18n } from '@/infrastructure/i18n';
@@ -94,16 +93,27 @@ const DateTimePickerPopover: React.FC<DateTimePickerPopoverProps> = ({
     };
   }, [anchorRef]);
 
-  // Register in the overlay layer stack so an enclosing Dialog (the Todos
-  // editor) does not treat clicks inside this portaled picker as an
-  // outside-pointer-dismiss. The calendar button lives in `anchorRef`, so it is
-  // listed as a branch to keep toggling the picker from dismissing it.
-  useDismissibleLayer({
-    branchRefs: [anchorRef],
-    enabled: true,
-    layerRef: popoverRef,
-    onDismiss: () => onClose(),
-  });
+useEffect(() => {
+    let removeOverlayMousedown0: (() => void) | undefined;
+    let removeOverlayKeydown1: (() => void) | undefined;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (popoverRef.current?.contains(target)) return;
+      if (anchorRef.current?.contains(target)) return;
+      onClose();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+
+    removeOverlayMousedown0 = subscribeOverlayInteraction(popoverRef, 'mousedown', handlePointerDown);
+    removeOverlayKeydown1 = subscribeOverlayInteraction(popoverRef, 'keydown', handleKeyDown);
+    return () => {
+      removeOverlayMousedown0?.();
+      removeOverlayKeydown1?.();
+    };
+  }, [anchorRef, onClose]);
 
   const grid = useMemo(() => buildMonthGrid(monthAnchorMs), [monthAnchorMs]);
   const anchorDate = useMemo(() => new Date(monthAnchorMs), [monthAnchorMs]);
@@ -121,7 +131,7 @@ const DateTimePickerPopover: React.FC<DateTimePickerPopoverProps> = ({
     });
   }, []);
 
-  return createPortal(
+  return createOverlayPortal(
     <div
       ref={popoverRef}
       className="openbitfun-datetime-picker"

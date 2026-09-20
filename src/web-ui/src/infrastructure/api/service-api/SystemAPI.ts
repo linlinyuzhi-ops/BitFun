@@ -6,9 +6,15 @@ import { copyTextToClipboard } from '@/shared/utils/textSelection';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { createLogger } from '@/shared/utils/logger';
 import { productControlAPI } from './ProductControlAPI';
+import {
+  getControllerAppVersion,
+  getControllerAutoUpdateEnabled,
+  setControllerAutoUpdateEnabled,
+} from '../adapters/app-update-adapter';
 
 
 const log = createLogger('SystemAPI');
+const AUTO_UPDATE_CHANGED = 'openbitfun:auto-update-preference-changed';
 
 /** Matches `check_for_updates` / `CheckForUpdatesResponse` from desktop `system_api.rs` (camelCase). */
 export interface CheckForUpdatesResponse {
@@ -44,6 +50,25 @@ export interface SystemInfo {
 }
 
 export class SystemAPI {
+  /** Application updates always belong to the controller, including in Peer mode. */
+  async getLocalAppVersion(): Promise<string> {
+    return getControllerAppVersion();
+  }
+
+  async getAutoUpdateEnabled(): Promise<boolean> {
+    return getControllerAutoUpdateEnabled();
+  }
+
+  async setAutoUpdateEnabled(enabled: boolean): Promise<void> {
+    await setControllerAutoUpdateEnabled(enabled);
+    window.dispatchEvent(new CustomEvent(AUTO_UPDATE_CHANGED, { detail: enabled }));
+  }
+
+  onAutoUpdateEnabledChange(callback: (enabled: boolean) => void): () => void {
+    const listener = (event: Event) => callback((event as CustomEvent<boolean>).detail);
+    window.addEventListener(AUTO_UPDATE_CHANGED, listener);
+    return () => window.removeEventListener(AUTO_UPDATE_CHANGED, listener);
+  }
    
   async getSystemInfo(): Promise<SystemInfo> {
     try {
@@ -68,9 +93,6 @@ export class SystemAPI {
 
    
   async checkForUpdates(): Promise<CheckForUpdatesResponse> {
-    if (import.meta.env.DEV) {
-      throw new Error('Update checks are disabled in development mode');
-    }
     try {
       return await api.invoke('check_for_updates', { 
         request: {} 
@@ -92,9 +114,9 @@ export class SystemAPI {
   }
 
   /** Download and verify without starting the installer. */
-  async downloadUpdate(): Promise<PendingUpdateResponse> {
+  async downloadUpdate(expectedVersion?: string): Promise<PendingUpdateResponse> {
     try {
-      return await api.invoke('download_update', { request: {} }, {
+      return await api.invoke('download_update', { request: expectedVersion ? { expectedVersion } : {} }, {
         timeout: 60 * 60 * 1000,
         retries: 0,
       });

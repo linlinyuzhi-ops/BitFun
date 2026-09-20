@@ -216,6 +216,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
   // Dialog state (previously in TitleBar)
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
   const [showAboutDialog, setShowAboutDialog] = useState(false);
+  const closeAboutDialog = useCallback(() => setShowAboutDialog(false), []);
   const [showWorkspaceStatus, setShowWorkspaceStatus] = useState(false);
   const handleOpenProject = useCallback(async () => {
     try {
@@ -234,7 +235,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
     }
   }, [openWorkspace, t]);
   const handleNewProject = useCallback(() => setShowNewProjectDialog(true), []);
-  const handleShowAbout  = useCallback(() => setShowAboutDialog(true), []);
+  const handleShowAbout = useCallback(() => setShowAboutDialog(true), []);
 
   const handleConfirmNewProject = useCallback(async (parentPath: string, projectName: string) => {
     const normalized = parentPath.replace(/\\/g, '/');
@@ -254,11 +255,13 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
     const onNewProject = () => handleNewProject();
     window.addEventListener('nav:open-project', onOpenProject);
     window.addEventListener('nav:new-project', onNewProject);
+    window.addEventListener('nav:show-about', handleShowAbout);
     return () => {
       window.removeEventListener('nav:open-project', onOpenProject);
       window.removeEventListener('nav:new-project', onNewProject);
+      window.removeEventListener('nav:show-about', handleShowAbout);
     };
-  }, [handleNewProject, handleOpenProject]);
+  }, [handleNewProject, handleOpenProject, handleShowAbout]);
 
   // macOS native menubar events (previously in TitleBar)
   useEffect(() => {
@@ -307,16 +310,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
             : explicitPreferredMode;
 
         const flowChatManager = FlowChatManager.getInstance();
-        const hasHistoricalSessions = await flowChatManager.initialize(
-          currentWorkspace.rootPath,
-          initializationPreferredMode,
-          currentWorkspace.workspaceKind === WorkspaceKind.Remote
-            ? currentWorkspace.connectionId
-            : undefined,
-          currentWorkspace.workspaceKind === WorkspaceKind.Remote
-            ? currentWorkspace.sshHost
-            : undefined
-        );
+        const hasHistoricalSessions = await flowChatManager.initialize(currentWorkspace, initializationPreferredMode);
         if (cancelled) {
           return;
         }
@@ -583,7 +577,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
   // Create one unified project session using the user's default Harness policy.
   const handleCreateFlowChatSession = React.useCallback(async () => {
     try {
-      if (!currentWorkspace?.rootPath) {
+      if (!currentWorkspace?.id) {
         log.warn('Cannot create FlowChat session without an active workspace');
         return;
       }
@@ -608,17 +602,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
     const handler = (e: Event) => {
       const clientId = (e as CustomEvent<{ clientId?: string }>).detail?.clientId?.trim();
       if (!clientId) return;
-      const config = currentWorkspace
-        ? {
-            workspacePath: currentWorkspace.rootPath,
-            ...(currentWorkspace.workspaceKind === WorkspaceKind.Remote && currentWorkspace.connectionId
-              ? { remoteConnectionId: currentWorkspace.connectionId }
-              : {}),
-            ...(currentWorkspace.workspaceKind === WorkspaceKind.Remote && currentWorkspace.sshHost
-              ? { remoteSshHost: currentWorkspace.sshHost }
-              : {}),
-          }
-        : {};
+      const config = currentWorkspace ? flowChatSessionConfigForWorkspace(currentWorkspace) : {};
       void FlowChatManager.getInstance()
         .createAcpChatSession(clientId, config)
         .then(sessionId => openMainSession(sessionId))
@@ -690,10 +674,22 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
     isTransitioning ? 'openbitfun-app-layout--transitioning' : '',
   ].filter(Boolean).join(' ');
 
+  const aboutDialog = (
+    <RetainedMountBoundary present={showAboutDialog}>
+      <Suspense fallback={null}>
+        <AboutDialog
+          isOpen={showAboutDialog}
+          onClose={closeAboutDialog}
+        />
+      </Suspense>
+    </RetainedMountBoundary>
+  );
+
   if (isToolbarMode) {
     return (
       <>
         <DailyAppUpdateGate />
+        {aboutDialog}
         <div
           className={`${containerClassName} openbitfun-app-layout--toolbar-mode`}
           data-testid="app-layout"
@@ -775,14 +771,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
           />
         </Suspense>
       </RetainedMountBoundary>
-      <RetainedMountBoundary present={showAboutDialog}>
-        <Suspense fallback={null}>
-          <AboutDialog
-            isOpen={showAboutDialog}
-            onClose={() => setShowAboutDialog(false)}
-          />
-        </Suspense>
-      </RetainedMountBoundary>
+      {aboutDialog}
       <RetainedMountBoundary present={showWorkspaceStatus}>
         <Suspense fallback={null}>
           <WorkspaceManager

@@ -51,15 +51,15 @@ export class VoiceConversationLedger {
   next() { this.flush(); this.exchange = { id: crypto.randomUUID(), user: '', assistant: '', delegated: false }; }
   flush() {
     const exchange = this.exchange;
-    if (!exchange.user || exchange.delegated || !this.target.workspacePath) return;
+    const workspaceId = this.session?.workspaceId ?? this.session?.config.workspaceId
+      ?? (this.target.kind === 'miniapp' ? undefined : this.target.workspaceId);
+    if (!exchange.user || exchange.delegated || !workspaceId) return;
     // Mark the snapshot consumed synchronously; provider completion can be repeated.
     this.exchange = { ...exchange, user: '' };
     const scope = this.scope;
     const target = this.target;
     const request = { surfaceId: target.surfaceId ?? scope.surfaceId,
-      sessionId: target.sessionId, workspacePath: this.session?.projectWorkspacePath ?? this.session?.config.projectWorkspacePath ?? target.workspacePath!,
-      remoteConnectionId: this.session?.remoteConnectionId ?? this.session?.config.remoteConnectionId,
-      remoteSshHost: this.session?.remoteSshHost ?? this.session?.config.remoteSshHost,
+      sessionId: target.sessionId, workspaceId,
       exchangeId: exchange.id, userText: exchange.user, assistantText: exchange.assistant };
     try { stageVoiceExchange(request); } catch (error) { this.onError(error); }
     this.queue = this.queue.then(async () => {

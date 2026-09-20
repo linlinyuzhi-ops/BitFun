@@ -80,6 +80,38 @@ test('app reset stays below shared component padding and focus styles', async ()
   assert.doesNotMatch(adaptive, /^input:focus-visible,/m, 'generic focus styles must not override text-field focus ownership');
 });
 
+test('settings sheet title stays on the sheet centerline beside the close action', async () => {
+  const harmony = await readFile(path.join(sourceDirectory, 'styles/components/harmony-native.scss'), 'utf8');
+  const headerRule = harmony.match(/\.harmony-sidebar__settings-sheet\s*>\s*\[data-openbitfun-part='header'\]\s*\{[^}]+\}/)?.[0];
+  const headingRule = harmony.match(/\.harmony-sidebar__settings-sheet\s*>\s*\[data-openbitfun-part='header'\]\s*\[data-openbitfun-part='heading'\]\s*\{[^}]+\}/)?.[0];
+  const actionRule = harmony.match(/\.harmony-sidebar__settings-sheet\s*>\s*\[data-openbitfun-part='header'\]\s*\[data-openbitfun-part='header-action'\]\s*\{[^}]+\}/)?.[0];
+  const titleRule = harmony.match(/\.harmony-sidebar__settings-sheet\s+h2\s*\{[^}]+\}/)?.[0];
+  const closeRule = harmony.match(/\.harmony-sidebar__settings-sheet\s*>\s*\[data-openbitfun-part='header'\]\s*\[data-openbitfun-component='mobile-icon-button'\]\s*\{[^}]+\}/)?.[0];
+
+  assert.ok(headerRule, 'missing settings sheet header rule');
+  assert.match(headerRule, /display:\s*grid/);
+  assert.match(headerRule, /grid-template-columns:\s*var\(--openbitfun-space-12\)\s+minmax\(0,\s*1fr\)\s+var\(--openbitfun-space-12\)/);
+  assert.doesNotMatch(headerRule, /padding:\s*0\s+12px\s+0\s+20px/);
+  assert.match(headerRule, /padding:\s*0\s+var\(--openbitfun-space-3\)/);
+  assert.match(headingRule ?? "", /grid-column:\s*2/);
+  assert.match(headingRule ?? "", /text-align:\s*center/);
+  assert.match(actionRule ?? "", /grid-column:\s*3/);
+  assert.match(actionRule ?? "", /justify-self:\s*end/);
+  assert.match(titleRule ?? "", /text-align:\s*center/);
+  assert.doesNotMatch(closeRule ?? "", /margin-left:\s*auto/);
+});
+
+test('left-aligned sheet headers keep flex after MobileSheet centers by default', async () => {
+  const composer = await readFile(path.join(sourceDirectory, 'styles/components/chat-input.scss'), 'utf8');
+  const files = await readFile(path.join(sourceDirectory, 'components/WorkspaceFiles.scss'), 'utf8');
+  const composerHeader = composer.match(/\.chat-composer-sheet\s*>\s*\[data-openbitfun-part='header'\]\s*\{[^}]+\}/)?.[0];
+  const editorHeader = files.match(/\[data-openbitfun-part="header"\]\s*\{[^}]+\}/)?.[0];
+
+  assert.match(composerHeader ?? "", /display:\s*flex/);
+  assert.match(composerHeader ?? "", /text-align:\s*left/);
+  assert.match(editorHeader ?? "", /display:\s*flex/);
+});
+
 test('pairing and settings styles follow component parts instead of obsolete native anatomy', async () => {
   const harmony = await readFile(path.join(sourceDirectory, 'styles/components/harmony-native.scss'), 'utf8');
   const overlays = await readFile(path.join(sourceDirectory, 'components/SessionOverlays.tsx'), 'utf8');
@@ -203,6 +235,27 @@ test('large mobile pages delegate stable UI regions to app components', async ()
   assert.doesNotMatch(sessionPage, /createPortal\b/, 'shared sheets own their portal lifecycle');
 });
 
+test('opening a chat keeps a hydrate status until cache or the host snapshot arrives', async () => {
+  const chatPage = await readFile(path.join(sourceDirectory, 'pages/ChatPage.tsx'), 'utf8');
+  const app = await readFile(path.join(sourceDirectory, 'App.tsx'), 'utf8');
+  const chatStyles = await readFile(path.join(sourceDirectory, 'styles/components/chat.scss'), 'utf8');
+  const messages = await readFile(path.join(sourceDirectory, 'i18n/messages.ts'), 'utf8');
+
+  assert.match(chatPage, /<MobileStatus\b/);
+  assert.match(chatPage, /transcriptHydrating/);
+  assert.match(chatPage, /setTranscriptHydrating\(true\)/);
+  assert.match(chatPage, /cached\.messages\.length\s*>\s*0[\s\S]*setTranscriptHydrating\(false\)/);
+  assert.match(chatPage, /resp\.message_snapshot[\s\S]*setTranscriptHydrating\(false\)/);
+  assert.match(chatPage, /className="chat-page__hydrate"/);
+  assert.match(chatPage, /t\('chat\.loadingSession'\)/);
+  assert.match(app, /t\('chat\.loadingSession'\)/);
+  assert.doesNotMatch(app, /fallback=\{<MobileStatus[^}]*workspace\.loadingInfo/);
+  assert.match(chatStyles, /\.chat-page__hydrate\s*\{[\s\S]*?flex:\s*1;/);
+  assert.match(messages, /loadingSession:\s*'Loading session\.\.\.'/);
+  assert.match(messages, /loadingSession:\s*'正在加载会话\.\.\.'/);
+  assert.match(messages, /loadingSession:\s*'正在加載會話\.\.\.'/);
+});
+
 test('mobile remote control exposes approval commands and responsive composer contracts', async () => {
   const manager = await readFile(path.join(sourceDirectory, 'services/RemoteSessionManager.ts'), 'utf8');
   const chatPage = await readFile(path.join(sourceDirectory, 'pages/ChatPage.tsx'), 'utf8');
@@ -267,6 +320,47 @@ test('mobile transcript keeps one user bubble and projects file cards outside ma
   assert.doesNotMatch(markdownLinkRenderer, /<FileCard/);
   assert.match(markdownStyles, /\.message-file-cards\s*\{[\s\S]*?display:\s*grid;/);
   assert.match(markdownStyles, /\.file-card\s*\{[\s\S]*?inline-size:\s*100%;/);
+});
+
+test('mobile file card failures stay readable and repeatable', async () => {
+  const markdown = await readFile(path.join(sourceDirectory, 'components/ChatMarkdown.tsx'), 'utf8');
+  const markdownStyles = await readFile(path.join(sourceDirectory, 'styles/components/markdown.scss'), 'utf8');
+
+  // The host resolves metadata on demand, so the card must expose both the
+  // failure reason and a way to ask again instead of latching the first error.
+  assert.match(markdown, /const \[attempt, setAttempt\] = useState\(0\);/);
+  assert.match(markdown, /\}, \[path, attempt\]\);/);
+  assert.match(markdown, /const handleRetry = useCallback\(\(\) => \{[\s\S]*?setAttempt\(value => value \+ 1\);[\s\S]*?\}, \[\]\);/);
+  assert.match(markdown, /className="file-card__reason">\{state\.message\}/);
+  assert.match(markdown, /className="file-card__retry"[\s\S]*?t\('devices\.retry'\)/);
+  assert.doesNotMatch(markdown, /data-status="error" title=/);
+
+  const errorCardStyles = markdownStyles.slice(
+    markdownStyles.indexOf(".file-card[data-status='error'] {"),
+    markdownStyles.indexOf('.file-card__icon {'),
+  );
+  assert.match(errorCardStyles, /background:\s*var\(--openbitfun-color-status-danger-surface\);/);
+  assert.doesNotMatch(errorCardStyles, /opacity:/);
+  assert.match(markdownStyles, /\.file-card__reason\s*\{[\s\S]*?-webkit-line-clamp:\s*2;/);
+});
+
+test('chat notices stay readable above the transcript they float over', async () => {
+  const chatStyles = await readFile(path.join(sourceDirectory, 'styles/components/chat.scss'), 'utf8');
+  const feedback = await readFile(path.join(sourceDirectory, 'components/ChatFeedback.tsx'), 'utf8');
+
+  assert.match(feedback, /className="chat-page__toast"/);
+  const toastStyles = chatStyles.slice(
+    chatStyles.indexOf('.chat-page__toast {'),
+    chatStyles.indexOf('@keyframes toastSlideIn'),
+  );
+  // The shared status surface is a 10% tint; a floating notice needs an opaque
+  // base so the transcript behind it cannot bleed through the message text.
+  assert.match(toastStyles, /background-color:\s*var\(--openbitfun-color-surface-raised\);/);
+  assert.match(toastStyles, /background-image:\s*linear-gradient\(var\(--chat-toast-tint\), var\(--chat-toast-tint\)\);/);
+  for (const tone of ['info', 'warning', 'danger']) {
+    assert.match(toastStyles, new RegExp(`&\\[data-tone='${tone}'\\]`));
+  }
+  assert.doesNotMatch(toastStyles, /background:\s*var\(--openbitfun-color-status-(?:info|warning|danger)-surface\)/);
 });
 
 

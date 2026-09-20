@@ -46,7 +46,7 @@ pub(crate) fn validate_current_config_value(value: &Value, context: &str) -> Ope
 }
 
 const INSTALLER_MODEL_ID: &str = "installer:default";
-const INSTALLER_MODEL_CONTEXT_WINDOW: u32 = 200_000;
+const INSTALLER_MODEL_CONTEXT_WINDOW: u32 = 300_000;
 
 fn model_from_installer_handoff(model: InstallerModelHandoff) -> AIModelConfig {
     AIModelConfig {

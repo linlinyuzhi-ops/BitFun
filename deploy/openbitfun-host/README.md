@@ -212,17 +212,18 @@ test "$code" = "404"'
 
 ### 4. Release 镜像
 
-先用旧机 rsync 过来的目录（保留 0.2.14 起的多版本，供旧 Desktop / Dispatch），
-再跑一次 in-repo 同步补最新版。不要对空目录只 sync 一次就当完成。
+先用旧机 rsync 过来的目录，再跑一次 in-repo 同步补最新版。不要对空目录只
+sync 一次就当完成。
 
 1.X 发布前必须更新仓库内同步脚本。新桌面端清单是 `latest-v1.json`，CLI 清单是
-`linux-binaries-v1.json`；保留旧 `latest.json`、`linux-binaries.json` 和 `0.2.*`
-下载目录，避免给旧客户端推送 1.X 或破坏旧下载。GitHub Latest 中的旧清单由
-发布工作流从 v0.2.19 原样保留。完整规则见 [发布指南](../../docs/development/releasing.md)。
+`linux-binaries-v1.json`。GitHub Latest 仍携带从 v0.2.19 原样保留的
+`latest.json` / `linux-binaries.json`，给还在跑 0.2.x 的客户端；镜像不再保留
+0.2.x 目录。完整规则见 [发布指南](../../docs/development/releasing.md)。
 
-Windows 网页安装包文件名以 GitHub `latest-v1.json` 的 `manual_installers` 为准
-（现在是 `OpenBitFun_${version}_windows-x86_64-installer.exe`）。不要再写死
-`openbitfun-installer.exe`。
+网页安装包文件名以 GitHub `latest-v1.json` 的 `manual_installers` 为准
+（Windows 是 `OpenBitFun_${version}_windows-x86_64-installer.exe`，macOS 是
+`OpenBitFun_${version}_{aarch64,x64}.dmg`）。不要再写死 `openbitfun-installer.exe`。
+镜像脚本每 10 分钟看一次 Latest：版本没变就什么都不拉，只清到最近 2 个版本目录。
 
 `release-sync.cron` **就是这台机器的整份 root crontab**。`crontab` 该文件会
 替换所有 root cron。先备份，确认没有其它任务再装。
@@ -267,10 +268,11 @@ OpenBitFun checkout 不会修改已有 crontab。
   `/srv/bitfun-release` 的历史文件，以 `/srv/openbitfun-release` 软链接指向它；
   Nginx 仍使用原 alias。迁移到新机时复制真实文件到新的标准目录，不能只复制
   指向旧路径的软链接。
-- 手动执行一次脚本，等日志出现 `sync complete`，再检查公网下载页、
-  `downloads.json`、`latest-v1.json`、`linux-binaries-v1.json` 及所有平台下载链接。
-  比较切换前后的旧清单 SHA-256，确认 `latest.json`、`linux-binaries.json`
-  保持不变，并验证旧版本下载链接仍可用。
+- 手动执行一次脚本，等日志出现 `sync complete` 或 `nothing to fetch`，再检查
+  公网下载页、`downloads.json`、`latest-v1.json`、`linux-binaries-v1.json`
+  及当前版本的平台下载链接。镜像只保留最近两个版本目录。
+  `latest.json` 和 `linux-binaries.json` 是 0.2.x 客户端的 GitHub 兼容清单，
+  脚本不得改写它们。
 
 锁文件默认是 `/var/lock/openbitfun-release-sync.lock`，不要再指向
 `/root/repos/OpenBitFun-AutoUpdate/sync.lock`，也不要放进 `/srv/openbitfun-release`

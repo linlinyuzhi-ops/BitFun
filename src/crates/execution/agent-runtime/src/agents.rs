@@ -4,7 +4,6 @@ use crate::prompt::UserContextPolicy;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::HashSet;
-use std::path::Path;
 
 pub const STANDARD_HARNESS_PROMPT_TEMPLATE: &str = "agentic_mode";
 pub const STANDARD_HARNESS_CONFIG_ID: &str = "Standard";
@@ -253,7 +252,7 @@ pub enum SubagentListScope {
 #[derive(Debug, Clone)]
 pub struct SubagentQueryContext<'a> {
     pub parent_agent_type: Option<&'a str>,
-    pub workspace_root: Option<&'a Path>,
+    pub workspace_id: Option<&'a str>,
     pub list_scope: SubagentListScope,
     pub include_disabled: bool,
     /// False for remote workspaces until an explicit remote source provider is

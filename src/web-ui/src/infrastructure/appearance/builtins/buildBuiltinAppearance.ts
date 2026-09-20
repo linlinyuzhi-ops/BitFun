@@ -115,8 +115,8 @@ function createThemeTokenValues(palette: AppearancePalette): Record<ThemeTokenNa
     600: colors.accent[600],
   };
   const scrollbar = colors.scrollbar ?? {
-    thumb: palette.type === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.15)',
-    thumbHover: palette.type === 'dark' ? 'rgba(255, 255, 255, 0.24)' : 'rgba(0, 0, 0, 0.3)',
+    thumb: palette.type === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+    thumbHover: palette.type === 'dark' ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
   };
   const button = palette.components?.button;
   const values: Record<ThemeTokenName, ThemeValue> = { ...themes[palette.type] };
@@ -220,8 +220,8 @@ function createChromeThemeTokens(
     if (name.startsWith('color.status.')) values[name] = statusTheme[name];
   }
   const scrollbar = chrome.scrollbar ?? palette.colors.scrollbar ?? {
-    thumb: palette.type === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.15)',
-    thumbHover: palette.type === 'dark' ? 'rgba(255, 255, 255, 0.24)' : 'rgba(0, 0, 0, 0.3)',
+    thumb: palette.type === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+    thumbHover: palette.type === 'dark' ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
   };
 
   Object.assign(values, {
@@ -309,6 +309,8 @@ function createAppearanceOwnedTokens(
     '--openbitfun-component-badge-padding-block': '2px',
     // Annotation selections retain the UIKit cyan across named product themes.
     '--openbitfun-component-conversation-excerpt-accent': String(themes.light['color.accent.default']),
+    // Update glass retains its cyan companion when a dark theme's accent becomes blue.
+    '--openbitfun-component-update-material-cyan': String(themes.light['color.accent.default']),
     '--openbitfun-domain-context-compression': purple[500],
     '--openbitfun-domain-generative-ui': '#06b6d4',
     '--openbitfun-domain-mini-app': purple[500],

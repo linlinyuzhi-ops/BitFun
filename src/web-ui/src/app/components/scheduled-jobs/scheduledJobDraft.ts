@@ -8,14 +8,13 @@
 
 import type {
   CronJob,
-  CronJobCompletionStatus,
+CronJobCompletionStatus,
   CronJobHandling,
-  CronJobTarget,
+  CronJobTargetRequest,
   CronJobTargetKind,
   CronSchedule,
-  CronWorkspaceRef,
+
 } from '@/infrastructure/api';
-import { normalizePath } from '@/shared/utils/pathUtils';
 
 export const MINUTE_IN_MS = 60_000;
 export const HOUR_IN_MS = 60 * MINUTE_IN_MS;
@@ -215,30 +214,16 @@ export function buildScheduleFromDraft(draft: JobDraft): CronSchedule {
   return { kind: 'cron', expr: draft.expr.trim(), tz: draft.tz.trim() || undefined };
 }
 
-export function buildWorkspaceRef(
-  workspacePath?: string,
-  workspaceId?: string,
-  remoteConnectionId?: string | null,
-  remoteSshHost?: string | null,
-): CronWorkspaceRef | null {
-  const normalizedWorkspacePath = normalizePath(workspacePath?.trim() ?? '');
-  if (!normalizedWorkspacePath) {
-    return null;
-  }
-
-  return {
-    workspacePath: normalizedWorkspacePath,
-    workspaceId: workspaceId?.trim() || undefined,
-    remoteConnectionId: remoteConnectionId?.trim() || undefined,
-    remoteSshHost: remoteSshHost?.trim() || undefined,
-  };
+export function buildWorkspaceRef(workspaceId?: string): { workspaceId: string } | null {
+  const id = workspaceId?.trim();
+  return id ? { workspaceId: id } : null;
 }
 
 export function buildTargetFromDraft(
   targetKind: CronJobTargetKind,
   draft: JobDraft,
-  workspace: CronWorkspaceRef,
-): CronJobTarget {
+  workspace: { workspaceId: string },
+): CronJobTargetRequest {
   if (targetKind === 'session') {
     return {
       kind: 'session',

@@ -53,6 +53,8 @@ pub enum PeerHostCapability {
     ToolCatalog,
     /// Mode/workspace-scoped `get_chat_mcp_catalog` is implemented.
     ChatMcpCatalogV1,
+    /// Workspace references can carry the owning host's persisted ID.
+    WorkspaceIdReferencesV1,
     /// `submit_user_answers` is implemented for Runtime-owned questions.
     UserQuestionResponse,
     /// First human interaction disables the unattended question timeout.
@@ -77,6 +79,7 @@ impl PeerHostCapability {
         Self::CancelTool,
         Self::ToolCatalog,
         Self::ChatMcpCatalogV1,
+        Self::WorkspaceIdReferencesV1,
         Self::UserQuestionResponse,
         Self::UserQuestionInteractionV1,
     ];
@@ -99,6 +102,7 @@ impl PeerHostCapability {
             Self::CancelTool => "cancel_tool",
             Self::ToolCatalog => "tool_catalog",
             Self::ChatMcpCatalogV1 => "chat_mcp_catalog_v1",
+            Self::WorkspaceIdReferencesV1 => "workspace_id_references_v1",
             Self::UserQuestionResponse => "user_question_response",
             Self::UserQuestionInteractionV1 => "user_question_interaction_v1",
         }
@@ -125,6 +129,7 @@ const CLI_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::CancelTool,
     PeerHostCapability::ToolCatalog,
     PeerHostCapability::ChatMcpCatalogV1,
+    PeerHostCapability::WorkspaceIdReferencesV1,
     PeerHostCapability::UserQuestionResponse,
     PeerHostCapability::UserQuestionInteractionV1,
 ];

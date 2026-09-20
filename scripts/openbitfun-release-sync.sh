@@ -6,19 +6,14 @@
 #   1. Fetch the selected channel's latest-v1.json from GitHub
 #   2. Mirror the signed Relay image descriptor and Linux binary manifest FIRST
 #      (small trust metadata must not queue behind ~700 MB of Desktop packages)
-#   3. Download every Desktop updater package plus the standalone Windows
-#      installer into release/{version}/
-#   4. Rewrite updater URLs and generate a separate website download manifest
-#   5. Atomically publish versioned and root manifests
-#   6. Remove old version dirs, keeping only the most recent KEEP_VERSIONS
+#   3. If that version is already published, prune to KEEP_VERSIONS and stop
+#   4. Otherwise download the new version, rewrite manifests, then prune
 #
-# The published release/latest-v1.json and release/beta/latest-v1.json files are the
-# stable and beta Tauri updater fallback endpoints.
-# When GitHub is unreachable, the desktop client automatically falls through
-# to https://openbitfun.com/release/latest-v1.json and downloads from this mirror.
-# The published release/downloads.json is for the website. Its Windows URL uses
-# latest-v1.json's manual_installers entry while the updater keeps the versioned
-# Tauri setup.exe URL.
+# Desktop / CLI auto-update reads latest-v1.json and linux-binaries-v1.json.
+# Those files always name the current version, so the updater never needs a
+# retained older directory. downloads.json is website-only and substitutes
+# each manual_installers entry (Windows installer, macOS .dmg) for the
+# corresponding updater package.
 #
 # Cron (every 10 minutes). Run the in-repo script from the OpenBitFun checkout so a
 # new host only needs this repository, not a detached AutoUpdate copy:
@@ -82,10 +77,7 @@ WINDOWS_INSTALLER_FILENAME="openbitfun-installer.exe"
 WINDOWS_INSTALLER_URL=""
 WINDOWS_INSTALLER_SIGNATURE_URL=""
 WEBSITE_DOWNLOADS_MANIFEST="downloads.json"
-# Keep enough releases that the mirror still serves a Desktop build a few
-# versions behind and SSH Dispatch can finish an already-confirmed install even
-# after a newer release becomes current.
-KEEP_VERSIONS=6
+KEEP_VERSIONS=2
 CONNECT_TIMEOUT=30
 MAX_TIME=1800          # per-request ceiling (30 min; installer packages can be large)
 MAX_RETRIES=3
@@ -180,9 +172,8 @@ if entry:
 }
 
 # Build a website-only manifest from the already rewritten updater manifest.
-# All non-Windows targets continue to use their mirrored updater packages. The
-# Windows target alone is replaced with the custom installer URL. The updater
-# URL remains untouched; manual_installers is a mirror/website extension only.
+# Every declared manual_installers entry replaces that platform's updater
+# package; the rest keep the updater URL. The updater manifest is untouched.
 write_website_download_manifest() {
   local output="${VERSION_DIR}/${WEBSITE_DOWNLOADS_MANIFEST}"
   local output_tmp="${output}.part"
@@ -199,6 +190,7 @@ with open(source, encoding="utf-8") as f:
     updater = json.load(f)
 
 version = updater["version"]
+version_base = f"{base}/{version}"
 platforms = {}
 for target, entry in updater.get("platforms", {}).items():
     url = entry.get("url")
@@ -209,12 +201,13 @@ windows = platforms.get("windows-x86_64")
 if windows is None:
     raise SystemExit("latest-v1.json is missing windows-x86_64")
 
-manual = updater.get("manual_installers", {}).get("windows-x86_64")
-if manual:
-    windows["url"] = manual["url"]
-    windows["signatureUrl"] = manual.get("signature_url", manual["url"] + ".sig")
-else:
-    version_base = f"{base}/{version}"
+for target, manual in updater.get("manual_installers", {}).items():
+    if target not in platforms:
+        continue
+    platforms[target]["url"] = manual["url"]
+    platforms[target]["signatureUrl"] = manual.get("signature_url", manual["url"] + ".sig")
+
+if "signatureUrl" not in windows:
     windows["url"] = f"{version_base}/{windows_installer}"
     windows["signatureUrl"] = f"{version_base}/{windows_installer}.sig"
 
@@ -541,6 +534,19 @@ main() {
   }
   log "Latest version: $VERSION"
 
+  PUBLISHED_VERSION=""
+  if [ -f "${WEBSITE_RELEASE_DIR}/latest-v1.json" ]; then
+    PUBLISHED_VERSION=$("$PYTHON" -c \
+      "import json,sys;print(json.load(open(sys.argv[1], encoding='utf-8'))['version'])" \
+      "${WEBSITE_RELEASE_DIR}/latest-v1.json") || PUBLISHED_VERSION=""
+  fi
+  if [ -n "$PUBLISHED_VERSION" ] && [ "$PUBLISHED_VERSION" = "$VERSION" ]; then
+    log "Already mirroring $VERSION; nothing to fetch"
+    prune_old_versions
+    log "=== ${RELEASE_CHANNEL} sync complete: version $VERSION (unchanged) ==="
+    exit 0
+  fi
+
   # Resolve one immutable release directory for every artifact. Independent
   # latest/download requests can cross versions while a release is published.
   RELEASE_ASSET_BASE_URL=$(printf '%s' "$LATEST_JSON" | "$PYTHON" -c "
@@ -620,8 +626,24 @@ for p, info in data.get('platforms', {}).items():
     download_asset "$url" "${VERSION_DIR}/${filename}" || exit 1
   done <<< "$ASSET_LIST"
 
-  # Mirror the manual installer separately while preserving the updater URL.
+  # Mirror declared installers separately; the updater URLs stay in platforms.
   mirror_windows_installer
+  EXTRA_INSTALLERS=$(printf '%s' "$LATEST_JSON" | "$PYTHON" -c "
+import json, sys
+data = json.load(sys.stdin)
+for target, entry in data.get('manual_installers', {}).items():
+    if target == 'windows-x86_64':
+        continue
+    url = entry.get('url')
+    if url:
+        print(url)
+        print(entry.get('signature_url', url + '.sig'))
+")
+  while IFS= read -r url; do
+    [ -z "$url" ] && continue
+    log "  Mirroring installer: ${url##*/}"
+    download_asset "$url" "${VERSION_DIR}/${url##*/}" || exit 1
+  done <<< "$EXTRA_INSTALLERS"
 
   # 6. Rewrite URLs in latest-v1.json to point at openbitfun.com
   LATEST_MANIFEST_TMP="${VERSION_DIR}/latest-v1.json.part"
@@ -653,21 +675,39 @@ print(json.dumps(data, indent=2))
     "${WEBSITE_RELEASE_DIR}/${WEBSITE_DOWNLOADS_MANIFEST}"
   log "Updated ${WEBSITE_RELEASE_DIR}/${WEBSITE_DOWNLOADS_MANIFEST}"
 
-  # 8. Clean up old versions — keep only the latest KEEP_VERSIONS dirs
-  ALL_DIRS=()
-  while IFS= read -r d; do
-    ALL_DIRS+=("$d")
-  done < <(find "$WEBSITE_RELEASE_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '0.2.*' | sort -V)
-  TOTAL=${#ALL_DIRS[@]}
-  if [ "$TOTAL" -gt "$KEEP_VERSIONS" ]; then
-    REMOVE_COUNT=$((TOTAL - KEEP_VERSIONS))
-    for ((i = 0; i < REMOVE_COUNT; i++)); do
-      log "Removing old version: $(basename "${ALL_DIRS[$i]}")"
-      rm -rf "${ALL_DIRS[$i]}"
-    done
-  fi
-
+  prune_old_versions
   log "=== ${RELEASE_CHANNEL} sync complete: version $VERSION ==="
+}
+
+prune_old_versions() {
+  local dirs=() total remove_count i
+  while IFS= read -r d; do
+    dirs+=("$d")
+  done < <("$PYTHON" - "$WEBSITE_RELEASE_DIR" <<'PY'
+import os, re, sys
+root = sys.argv[1]
+names = [name for name in os.listdir(root) if os.path.isdir(os.path.join(root, name))]
+
+def key(name):
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-(.+))?", name)
+    if not match:
+        return (0, 0, 0, 0, name)
+    pre = match.group(4)
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)), 1 if pre is None else 0, pre or "")
+
+for name in sorted(names, key=key):
+    print(os.path.join(root, name))
+PY
+)
+  total=${#dirs[@]}
+  if [ "$total" -le "$KEEP_VERSIONS" ]; then
+    return 0
+  fi
+  remove_count=$((total - KEEP_VERSIONS))
+  for ((i = 0; i < remove_count; i++)); do
+    log "Removing old version: $(basename "${dirs[$i]}")"
+    rm -rf "${dirs[$i]}"
+  done
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

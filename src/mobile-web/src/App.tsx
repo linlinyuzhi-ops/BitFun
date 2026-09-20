@@ -7,7 +7,8 @@ import SessionListPage from './pages/SessionListPage';
 import DevicesPage from './pages/DevicesPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { I18nProvider, useI18n } from './i18n';
-import { RelayHttpClient } from './services/RelayHttpClient';
+import { InvalidationSync } from '../../shared/relay-transport/InvalidationSync';
+import { RelayHttpClient, deviceDisplayName } from './services/RelayHttpClient';
 import {
   RemoteSessionManager,
 } from './services/RemoteSessionManager';
@@ -69,6 +70,35 @@ const AppContent: React.FC = () => {
   const [accountError, setAccountError] = useState<string | null>(null);
   const [automaticDeviceSelection, setAutomaticDeviceSelection] = useState(true);
   const controlTarget = useMobileStore((state) => state.controlTarget);
+
+  useEffect(() => {
+    const client = clientRef.current;
+    if (!client || !sessionMgr) return;
+    const stopSnapshot = client.onDeviceDirectorySnapshot(devices => {
+      if (clientRef.current !== client) return;
+      const target = useMobileStore.getState().controlTarget;
+      const device = devices.find(item => item.device_id === target?.deviceId);
+      if (device && target) useMobileStore.getState().setControlTarget({ ...target, deviceName: deviceDisplayName(device) });
+    });
+    const sync = new InvalidationSync(async () => {
+      const epoch = client.accountEpoch;
+      try {
+        const devices = await client.listDevices();
+        if (clientRef.current !== client || client.accountEpoch !== epoch) return;
+        const target = useMobileStore.getState().controlTarget;
+        const device = devices.find(item => item.device_id === target?.deviceId);
+        if (device && target) useMobileStore.getState().setControlTarget({ ...target, deviceName: deviceDisplayName(device) });
+      } catch { /* Retain the last authoritative name while offline. */ }
+    });
+    const refresh = () => { void sync.invalidate(); };
+    const stop = client.onDeviceDirectoryChanged(refresh);
+    const stopOwner = client.onAccountOwnerChange(refresh);
+    const stopTarget = client.onControlTargetChange(refresh);
+    const visible = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', visible);
+    refresh();
+    return () => { sync.stop(); stop(); stopOwner(); stopTarget(); stopSnapshot(); document.removeEventListener('visibilitychange', visible); };
+  }, [sessionMgr]);
 
   // An authenticated account without a selected desktop has nothing to ping.
   useConnectionHealth(accountDirectoryOpen ? null : sessionMgr);
@@ -463,7 +493,7 @@ const AppContent: React.FC = () => {
     }
     if (currentPage === 'chat' && sessionMgrRef.current && activeSessionId) {
       return (
-        <Suspense fallback={<MobileStatus loading title={t('workspace.loadingInfo')} />}>
+        <Suspense fallback={<div className="chat-page"><MobileStatus className="chat-page__hydrate" loading title={t('chat.loadingSession')} /></div>}>
           <ChatPage
             sessionMgr={sessionMgrRef.current}
             key={activeSessionId}

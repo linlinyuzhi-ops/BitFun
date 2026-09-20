@@ -18,12 +18,14 @@ export interface VoiceCallTranscriptProps {
   header?: ReactNode;
   className?: string;
   compact?: boolean;
+  /** Chat uses FlowChat message tokens; voice retains the inverse call surface. */
+  presentation?: "voice" | "chat";
   /** Requests older records when the reader scrolls toward the start. The host owns paging and retries. */
   onLoadEarlier?: () => void;
 }
 
 /** One reading viewport for both text and voice. The host owns the records. */
-export function VoiceCallTranscript({ entries, status, header, className, compact, onLoadEarlier }: VoiceCallTranscriptProps) {
+export function VoiceCallTranscript({ entries, status, header, className, compact, presentation = "voice", onLoadEarlier }: VoiceCallTranscriptProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const followsLatest = useRef(true);
@@ -77,6 +79,7 @@ export function VoiceCallTranscript({ entries, status, header, className, compac
 
   return <div ref={viewportRef} className={classNames(styles.conversation, compact && styles.compactTranscript, className)}
     data-openbitfun-component="voice-call-panel" data-openbitfun-part="conversation"
+    data-openbitfun-presentation={presentation}
     data-scrolled={scrolled || undefined}
     tabIndex={0}
     onWheel={event => { if (event.deltaY < 0) requestEarlier(); }}

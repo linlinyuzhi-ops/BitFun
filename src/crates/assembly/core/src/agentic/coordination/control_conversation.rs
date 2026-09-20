@@ -43,6 +43,10 @@ pub struct CreateControlConversationRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ControlConversation {
     pub session_id: String,
+    /// Owning workspace record of the control conversation. The directory is
+    /// app-owned (never in the recent list); clients scope the session by ID.
+    pub workspace_id: String,
+    /// Execution root of the conversation; an IO projection, not identity.
     pub workspace_path: String,
 }
 
@@ -95,6 +99,22 @@ impl ConversationCoordinator {
         let _guard = ENSURE_CONTROL.lock().await;
         let manager = self.get_session_manager();
         tokio::fs::create_dir_all(&workspace).await?;
+        // The control conversation runs in an app-owned folder. Register it as a
+        // hidden workspace record so the session, its history reads, and remote
+        // controllers address it by workspace ID rather than by this path.
+        let workspace_service = crate::service::workspace::get_global_workspace_service()
+            .ok_or_else(|| OpenBitFunError::service("Workspace service is unavailable"))?;
+        let workspace_record = workspace_service
+            .track_workspace_activity(
+                workspace.to_path_buf(),
+                crate::service::workspace::WorkspaceCreateOptions {
+                    add_to_recent: false,
+                    auto_set_current: false,
+                    ..Default::default()
+                },
+                crate::service::workspace::WorkspaceActivityMode::TouchOnly,
+            )
+            .await?;
         let state_path = workspace.join("active.json");
         let store = JsonFileStore;
         let _file_guard = store
@@ -128,6 +148,7 @@ impl ConversationCoordinator {
                     "OpenBitFun".to_string(),
                     "OpenBitFun".to_string(),
                     SessionConfig {
+                        workspace_id: Some(workspace_record.id.clone()),
                         workspace_path: Some(workspace_path.clone()),
                         ..SessionConfig::default()
                     },
@@ -151,6 +172,7 @@ impl ConversationCoordinator {
         }
         Ok(ControlConversation {
             session_id,
+            workspace_id: workspace_record.id,
             workspace_path,
         })
     }

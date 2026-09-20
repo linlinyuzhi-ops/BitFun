@@ -1,3 +1,4 @@
+import { requireSessionWorkspaceId } from '../../utils/sessionWorkspace';
 /**
  * Modern FlowChat container.
  * Uses virtual scrolling with Zustand and syncs legacy store state.
@@ -649,14 +650,16 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       return false;
     }
 
+    if (!activeSession?.workspaceId) return false;
     createReviewPlatformPullRequestDetailTab({
+      workspaceId: activeSession.workspaceId,
       workspacePath: activeSession?.workspacePath || workspacePath,
       pullRequestId: pullRequestTarget.pullRequestId,
       pullRequestUrl: pullRequestTarget.webUrl,
       title: `PR #${pullRequestTarget.pullRequestId}`,
     });
     return true;
-  }, [activeSession?.workspacePath, workspacePath]);
+  }, [activeSession?.workspaceId, activeSession?.workspacePath, workspacePath]);
   const {
     searchQuery,
     onSearchChange: setSearchQuery,
@@ -901,6 +904,8 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
   // session object) keeps the context value referentially stable across
   // streaming flushes, which produce a new session object ~30x/second.
   const activeSessionId = activeSession?.sessionId;
+  const activeSessionWorkspaceId = activeSession?.workspaceId
+    || activeSession?.config?.workspaceId;
   const activeSessionWorkspacePath = activeSession?.workspacePath
     || activeSession?.config?.workspacePath;
   const activeSessionRemoteConnectionId = activeSession?.remoteConnectionId
@@ -941,6 +946,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     onToolConfirm: handleToolConfirm,
     onToolReject: handleToolReject,
     sessionId: activeSessionId,
+    workspaceId: activeSessionWorkspaceId,
     workspacePath: activeSessionWorkspacePath,
     remoteConnectionId: activeSessionRemoteConnectionId,
     isHistoricalSession: activeSessionIsHistorical,
@@ -958,6 +964,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     handleToolConfirm,
     handleToolReject,
     activeSessionId,
+    activeSessionWorkspaceId,
     activeSessionWorkspacePath,
     activeSessionRemoteConnectionId,
     activeSessionIsHistorical,
@@ -2410,6 +2417,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     openBtwSessionInAuxPane({
       childSessionId: selection.sessionId,
       parentSessionId: selection.parentSessionId,
+      workspaceId: selection.workspaceId || activeSession.workspaceId || activeSession.config?.workspaceId,
       workspacePath: selection.workspacePath || activeSession.workspacePath,
       sessionKind: 'subagent',
       sessionTitle: selection.displayTitle,
@@ -2448,9 +2456,6 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       return false;
     }
     const scope = getActiveSurfaceScope();
-    const workspacePath = selection.workspacePath || activeSession?.workspacePath;
-    const remoteConnectionId = selection.remoteConnectionId || activeSession?.remoteConnectionId;
-    const remoteSshHost = selection.remoteSshHost || activeSession?.remoteSshHost;
     try {
       const confirmed = await confirmDanger(
         t('flowChatHeader.agentTreeDelete'),
@@ -2458,8 +2463,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
         { confirmText: t('flowChatHeader.agentTreeDelete') },
       );
       if (!confirmed) return false;
-      if (!workspacePath) throw new Error('Agent session workspace path is missing');
-      await deleteSessionTreeBranch({ sessionId: selection.sessionId, workspacePath, remoteConnectionId, remoteSshHost }, scope);
+      await deleteSessionTreeBranch({ sessionId: selection.sessionId, workspaceId: requireSessionWorkspaceId(flowChatStore.getState().sessions.get(selection.sessionId) || activeSession!) }, scope);
       return true;
     } catch (error) {
       if (!isSurfaceChangedError(error)) {
@@ -2725,6 +2729,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
                   <WelcomePanel
                     key={activeSession?.sessionId ?? 'welcome'}
                     sessionMode={activeSession?.mode}
+                    workspaceId={activeSession?.workspaceId || activeSession?.config?.workspaceId}
                     workspacePath={activeSession?.workspacePath}
                     onQuickAction={(command) => {
                       window.dispatchEvent(new CustomEvent('fill-chat-input', {

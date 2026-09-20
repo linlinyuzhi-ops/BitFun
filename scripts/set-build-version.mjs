@@ -13,21 +13,15 @@ export function setBuildVersion(root, version) {
 
   for (const relative of [
     'package.json',
-    'package-lock.json',
     'OpenBitFun-Installer/package.json',
-    'OpenBitFun-Installer/package-lock.json',
     'src/web-ui/package.json',
     'src/mobile-web/package.json',
-    'src/mobile-web/package-lock.json',
     'src/miniapp-market-web/package.json',
     'src/skin-market-web/package.json',
   ]) {
     const file = path.join(root, relative);
     const data = JSON.parse(readFileSync(file, 'utf8'));
     data.version = version;
-    if (data.packages?.['']) {
-      data.packages[''].version = version;
-    }
     writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
   }
 
@@ -92,6 +86,7 @@ function syncCargoLock(root) {
   const result = spawnSync('cargo', ['update', '--workspace'], {
     cwd: root,
     encoding: 'utf8',
+    windowsHide: true,
   });
   if (result.error) {
     throw new Error(`Failed to run cargo update: ${result.error.message}`);

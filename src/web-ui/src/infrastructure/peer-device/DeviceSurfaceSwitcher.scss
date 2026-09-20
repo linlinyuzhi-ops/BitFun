@@ -123,7 +123,8 @@
     font-size: var(--openbitfun-type-micro-font-size);
     white-space: nowrap;
 
-    &.is-busy {
+    &.is-busy,
+    &.is-incompatible {
       background: color-mix(in srgb, var(--openbitfun-color-status-warning-emphasis) 18%, transparent);
       color: var(--openbitfun-color-status-warning-content);
     }

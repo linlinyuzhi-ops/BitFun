@@ -45,6 +45,9 @@ export interface VoiceSessionCallTarget {
   kind: 'control' | 'session';
   surfaceId: string;
   sessionId: string;
+  /** Owning workspace of the bound conversation; required to persist voice history. */
+  workspaceId?: string;
+  /** IO root shown to the realtime model as context; never used as identity. */
   workspacePath: string;
 }
 export type VoiceCallTarget = VoiceMiniAppCallTarget | VoiceSessionCallTarget;
@@ -62,17 +65,12 @@ function latestTurnStatus(session: Session): string {
   return session.dialogTurns[session.dialogTurns.length - 1]?.status ?? 'empty';
 }
 
-function workspaceForSession(
+export function workspaceForSession(
   session: Session,
   workspaces: WorkspaceInfo[],
 ): WorkspaceInfo | undefined {
-  const workspacePath = session.config.projectWorkspacePath ?? session.config.workspacePath;
-  if (!workspacePath) return undefined;
-  return workspaces.find(workspace =>
-    workspace.rootPath === workspacePath
-    && (!session.config.remoteConnectionId
-      || workspace.connectionId === session.config.remoteConnectionId),
-  );
+  const id = session.workspaceId ?? session.config.workspaceId;
+  return id ? workspaces.find(workspace => workspace.id === id) : undefined;
 }
 
 /**

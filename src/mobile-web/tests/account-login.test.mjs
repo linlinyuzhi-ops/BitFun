@@ -17,6 +17,15 @@ async function loadSource(relativePath, imports = {}) {
 const links = await loadSource('../src/services/pairingLink.ts');
 const selection = await loadSource('../src/services/accountDeviceSelection.ts');
 const { selectAccountDevice } = await import(selection.url);
+// The shared build module reads the workspace version from package.json; the
+// transpile loader cannot import JSON, so hand it an equivalent JS module.
+const workspacePackage = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8'));
+const packageJsonStub = `data:text/javascript;base64,${Buffer.from(
+  `export const version = ${JSON.stringify(workspacePackage.version)};`,
+).toString('base64')}`;
+const clientBuild = await loadSource('../../shared/relay-transport/ClientBuild.ts', { '../../../package.json': packageJsonStub });
+const { CLIENT_PROTOCOL_VERSION, CLIENT_VERSION } = await import(clientBuild.url);
+const clientBuildImports = { '../../../shared/relay-transport/ClientBuild': clientBuild.url };
 const offline = { device_id: 'desktop-a', device_name: 'Offline desktop', online: false };
 const online = { device_id: 'desktop-b', device_name: 'Online desktop', online: true };
 const controller = { device_id: 'browser', device_name: 'Browser', online: true };
@@ -84,7 +93,7 @@ test('GitHub login registers the browser store key without generating another id
   const encryption = await loadSource('../src/services/E2EEncryption.ts');
   const { deriveDeviceMessageKey } = await import(encryption.url);
   const { x25519 } = await import('@noble/curves/ed25519.js');
-  const authModule = await loadSource('../src/services/CloudAccountClient.ts', { './E2EEncryption': encryption.url, './pairingLink': links.url });
+  const authModule = await loadSource('../src/services/CloudAccountClient.ts', { './E2EEncryption': encryption.url, './pairingLink': links.url, ...clientBuildImports });
   const { CloudAccountClient } = await import(authModule.url);
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
@@ -92,18 +101,22 @@ test('GitHub login registers the browser store key without generating another id
   globalThis.window = { setTimeout, clearTimeout };
   const browserPrivateKey = new Uint8Array(32).fill(7);
   globalThis.fetch = async (url, options) => {
-    assert.equal(url, 'https://remote.openbitfun.com/v/1.0.1/api/auth/login');
+    assert.equal(url, 'https://remote.openbitfun.com/v/1.0.2/api/auth/login');
     const body = JSON.parse(options.body);
     requests.push(body);
     assert.equal(body.access_token, 'verified-github-token');
     assert.equal(body.device_id, 'browser');
     assert.equal(body.password_hash, undefined);
+    // The login body reports this client's build so the Relay can gate control
+    // compatibility instead of treating the browser as a legacy client.
+    assert.equal(body.clientProtocol, CLIENT_PROTOCOL_VERSION);
+    assert.equal(body.clientVersion, CLIENT_VERSION);
     assert.equal(Buffer.from(body.public_key, 'base64').length, 32);
     return Response.json({ token: 'test-account-token', user_id: '101' });
   };
   try {
-    const first = await new CloudAccountClient('https://remote.openbitfun.com/v/1.0.1').login('verified-github-token', 'browser', browserPrivateKey);
-    const second = await new CloudAccountClient('https://remote.openbitfun.com/v/1.0.1').login('verified-github-token', 'browser', browserPrivateKey);
+    const first = await new CloudAccountClient('https://remote.openbitfun.com/v/1.0.2').login('verified-github-token', 'browser', browserPrivateKey);
+    const second = await new CloudAccountClient('https://remote.openbitfun.com/v/1.0.2').login('verified-github-token', 'browser', browserPrivateKey);
     assert.equal(first.userId, '101');
     assert.deepEqual(first.masterKey, second.masterKey);
     assert.equal(requests[0].public_key, requests[1].public_key);
@@ -132,15 +145,28 @@ test('account UI entry precedes discovery and mounts no remote workspace surface
   assert.match(app, /!accountDirectoryOpen && page !== 'pairing' && sessionMgrRef\.current/);
   assert.equal((app.match(/\{renderDetailPage\(\)\}/g) || []).length, 1, 'one gated detail tree must preserve chat state across layout changes');
   const devices = await readFile(new URL('../src/pages/DevicesPage.tsx', import.meta.url), 'utf8');
-  assert.match(devices, /if \(!d.online \|\| switchingId\) return/);
+  assert.match(devices, /if \(!d\.online \|\| !isDeviceControllable\(d\) \|\| switchingId\) return/);
   assert.match(devices, /automaticSelectionAttemptedRef\.current = true/);
   assert.match(devices, /selectDevice\(target, false\)/, 'initial account selection must not require a new peer command');
   assert.ok(devices.indexOf('await client.sendDeviceRpc') < devices.indexOf('client.setTargetDeviceId(d.device_id)'));
 });
 
+test('alias editing replaces the device row instead of repeating its name', async () => {
+  const devices = await readFile(new URL('../src/pages/DevicesPage.tsx', import.meta.url), 'utf8');
+  const start = devices.indexOf('{editingId === d.device_id ? (');
+  assert.ok(start > 0, 'the alias editor must be a mutually exclusive branch');
+  const elseAt = devices.indexOf(') : (', start);
+  const rowAt = devices.indexOf('<MobileListRow', start);
+  assert.ok(elseAt > start, 'the editing branch needs an else branch for the row');
+  assert.ok(rowAt > elseAt, 'the device row must render only while the alias editor is closed');
+  const editingBranch = devices.slice(start, elseAt);
+  assert.match(editingBranch, /devices-page__alias-editor/);
+  assert.match(editingBranch, /devices\.saveAlias/);
+});
+
 test('authorization follows the central GitHub OAuth URL and rejects lookalike destinations', async () => {
   const encryption = await loadSource('../src/services/E2EEncryption.ts');
-  const authModule = await loadSource('../src/services/CloudAccountClient.ts', { './E2EEncryption': encryption.url, './pairingLink': links.url });
+  const authModule = await loadSource('../src/services/CloudAccountClient.ts', { './E2EEncryption': encryption.url, './pairingLink': links.url, ...clientBuildImports });
   const { CloudAccountClient } = await import(authModule.url);
   const previous = { fetch: globalThis.fetch, window: globalThis.window, setTimeout: globalThis.setTimeout };
   globalThis.window = { setTimeout: previous.setTimeout, clearTimeout };
@@ -166,7 +192,7 @@ test('authorization follows the central GitHub OAuth URL and rejects lookalike d
         return Response.json({ status: 'authorized', tokens: { accessToken: 'verified' } });
       };
       const popup = { location: { href: 'about:blank' } };
-      const result = new CloudAccountClient('https://remote.openbitfun.com/v/1.0.1').authorize(popup, new AbortController().signal);
+      const result = new CloudAccountClient('https://remote.openbitfun.com/v/1.0.2').authorize(popup, new AbortController().signal);
       if (authorizationUrl === 'https://github.com/login/oauth/authorize?state=test' || authorizationUrl === 'https://auth.openbitfun.com/sign-in#ticket=test') {
         assert.equal(await result, 'verified');
         assert.equal(popup.location.href, authorizationUrl.startsWith('https://auth.openbitfun.com') ? authorizationUrl.replace('/sign-in#', '/sign-in?locale=en-US#') : authorizationUrl);
@@ -188,7 +214,7 @@ test('authorization follows the central GitHub OAuth URL and rejects lookalike d
 
 test('official and local invitations share strict device-only targeting', async () => {
   const { currentRelayUrl, pairingRelayUrl, accountDeviceIdFromHash } = await import(links.url);
-  for (const base of ['https://remote.openbitfun.com/v/1.0.1/', 'http://192.168.1.9:9700/']) {
+  for (const base of ['https://remote.openbitfun.com/v/1.0.2/', 'http://192.168.1.9:9700/']) {
     const url = new URL(`${base}#/pair?did=desktop-1`);
     assert.equal(currentRelayUrl(url), base.replace(/\/$/, ''));
     assert.equal(accountDeviceIdFromHash(url.hash), 'desktop-1');
@@ -198,7 +224,7 @@ test('official and local invitations share strict device-only targeting', async 
     }
   }
   for (const base of ['https://evil.example/', 'https://remote.openbitfun.com.evil.example/v/1.0.0/',
-    'https://user@remote.openbitfun.com/v/1.0.1/', 'http://remote.openbitfun.com/v/1.0.1/',
+    'https://user@remote.openbitfun.com/v/1.0.2/', 'http://remote.openbitfun.com/v/1.0.2/',
     'https://remote.openbitfun.com/relay/']) {
     assert.equal(pairingRelayUrl(base), null);
   }
@@ -280,7 +306,7 @@ test('legacy v2 account proof remains readable and scoped for migration', () => 
   accountStore.saveCloudAccountSession(restored, storage);
   assert.deepEqual(JSON.parse(storage.getItem('openbitfun.mobile.account_session.v2')), JSON.parse(legacy));
   for (const [relay, username, controllerId] of [
-    ['https://remote.openbitfun.com/v/1.0.1', '', 'browser-a'],
+    ['https://remote.openbitfun.com/v/1.0.2', '', 'browser-a'],
     [storedAccount.relayUrl, '', 'browser-b'], [storedAccount.relayUrl, '456', 'browser-a'],
   ]) assert.equal(accountStore.loadMatchingCloudAccountSession(relay, username, controllerId, storage), null);
   assert.equal(storage.getItem('openbitfun.mobile.account_session.v2'), legacy);
@@ -316,4 +342,104 @@ test('tab navigation preserves explicit disconnect and migrates only a matching 
   assert.deepEqual(loadMobileNavigation({ ...scope, controllerDeviceId: 'browser-a' }, storage), {
     deviceId: 'desktop-a', disconnected: true, session: undefined,
   });
+});
+
+const encryptionStub = `data:text/javascript;base64,${Buffer.from(
+  'export const toB64 = (bytes) => Buffer.from(bytes).toString("base64");',
+).toString('base64')}`;
+const accountClient = await loadSource('../src/services/CloudAccountClient.ts', {
+  './E2EEncryption': encryptionStub,
+  './pairingLink': links.url,
+  ...clientBuildImports,
+});
+const {
+  CloudAccountClient, CloudAccountRequestError, CloudAccountTransportError,
+  retryableAuthorizationPollError,
+} = await import(accountClient.url);
+
+test('a sign-in poll retries what the next tick can fix and stops at what the relay meant', () => {
+  for (const retryable of [
+    new CloudAccountTransportError('Account request timed out.'),
+    new CloudAccountRequestError('Slow down.', 429),
+    new CloudAccountRequestError('Relay is restarting.', 503),
+  ]) assert.equal(retryableAuthorizationPollError(retryable), true);
+  for (const fatal of [
+    new CloudAccountRequestError('Unknown transaction.', 404),
+    new CloudAccountRequestError('Bad secret.', 401),
+    new Error('Untrusted account authorization URL.'),
+  ]) assert.equal(retryableAuthorizationPollError(fatal), false);
+});
+
+/**
+ * Drives authorize() against a scripted relay on a virtual clock: every wait
+ * returns at once and advances the poll window by what it asked to sleep, so
+ * the whole five-minute window plays out inside the test. The last scripted
+ * answer repeats for as long as the window lasts.
+ */
+async function runAuthorization(pollAnswers) {
+  const realSetTimeout = globalThis.setTimeout;
+  const realNow = Date.now;
+  const previousWindow = globalThis.window;
+  const previousFetch = globalThis.fetch;
+  let clock = realNow();
+  const start = {
+    transactionId: 'tx-1', transactionSecret: 'secret-1',
+    authorizationUrl: 'https://github.com/login/oauth/authorize?client_id=x',
+    expiresAt: Math.floor(clock / 1000) + 300, pollIntervalSeconds: 5,
+  };
+  const polls = [];
+  Date.now = () => clock;
+  globalThis.setTimeout = (fn, ms) => { clock += ms ?? 0; return realSetTimeout(fn, 0); };
+  globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/start')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify(start) };
+    }
+    const answer = pollAnswers[Math.min(polls.length, pollAnswers.length - 1)];
+    polls.push(answer);
+    if (answer.throws) throw answer.throws;
+    return {
+      ok: (answer.httpStatus ?? 200) < 400,
+      status: answer.httpStatus ?? 200,
+      text: async () => JSON.stringify(answer.body ?? {}),
+    };
+  };
+  try {
+    const client = new CloudAccountClient('http://localhost:8787');
+    const outcome = await client
+      .authorize({ location: { href: '' } }, new AbortController().signal)
+      .then((token) => ({ token }), (error) => ({ error }));
+    return { ...outcome, polls };
+  } finally {
+    Date.now = realNow;
+    globalThis.setTimeout = realSetTimeout;
+    globalThis.window = previousWindow;
+    globalThis.fetch = previousFetch;
+  }
+}
+
+test('a dropped connection mid-sign-in is retried instead of ending the attempt', async () => {
+  const flaky = await runAuthorization([
+    { throws: new TypeError('Failed to fetch') },
+    { httpStatus: 503, body: { error: 'Relay is restarting.' } },
+    { body: { status: 'authorized', tokens: { accessToken: 'token-1' } } },
+  ]);
+  assert.equal(flaky.token, 'token-1');
+  assert.equal(flaky.polls.length, 3);
+
+  const refused = await runAuthorization([{ httpStatus: 401, body: { error: 'Bad secret.' } }]);
+  assert.equal(refused.token, undefined);
+  assert.equal(refused.error.status, 401);
+  assert.equal(refused.polls.length, 1);
+
+  const denied = await runAuthorization([{ body: { status: 'denied' } }]);
+  assert.match(denied.error.message, /Sign-in expired\. Try again\./);
+  assert.equal(denied.polls.length, 1);
+
+  // A window that ran out while every poll was failing is a network problem,
+  // and must not be reported as a sign-in the user let expire.
+  const offline = await runAuthorization([{ throws: new TypeError('Failed to fetch') }]);
+  assert.ok(offline.error instanceof CloudAccountTransportError);
+  assert.equal(offline.error.message, 'Could not reach the account service.');
+  assert.equal(offline.polls.length, 60);
 });

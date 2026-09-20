@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { AccountRealtime } from '../../../../../shared/relay-transport/AccountRealtime';
-import { AccountIdentityChangedError, RelayHttpClient } from '../../../../../mobile-web/src/services/RelayHttpClient';
+import { AccountIdentityChangedError, RelayHttpClient, deviceDisplayName } from '../../../../../mobile-web/src/services/RelayHttpClient';
 import { deriveDeviceMessageKey, encrypt, toB64, generateKeyPair } from '../../../../../mobile-web/src/services/E2EEncryption';
 
 const identity = (userId = 'user-a') => ({ token: `token-${userId}`, userId, deviceId: 'browser', masterKey: new Uint8Array(32).fill(userId === 'user-a' ? 7 : 8) });
@@ -9,7 +9,56 @@ function deferred<T>() { let resolve!: (value: T) => void; const promise = new P
 beforeEach(() => { vi.stubGlobal('window', globalThis); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
-describe.each(['https://remote.openbitfun.com/v/1.0.1', 'http://192.168.1.9:9700'])('account device routing on %s', (relayUrl) => {
+describe.each(['https://remote.openbitfun.com/v/1.0.2', 'http://192.168.1.9:9700'])('account device routing on %s', (relayUrl) => {
+  it('answers a superseded directory read with the newest completion and publishes authoritative names', async () => {
+    const client = new RelayHttpClient(relayUrl, identity());
+    const old = deferred<Response>();
+    vi.stubGlobal('fetch', vi.fn().mockReturnValueOnce(old.promise).mockResolvedValueOnce(Response.json([
+      { device_id: 'desktop', device_name: 'technical', device_alias: 'Current alias', online: true },
+    ])));
+    const changed = vi.fn(); client.onDeviceDirectorySnapshot(changed);
+    const superseded = client.listDevices();
+    const newest = await client.listDevices();
+    old.resolve(Response.json([{ device_id: 'desktop', device_name: 'old', online: true }]));
+    // Several surfaces read the directory at once, so a read that another read
+    // superseded still answers: failing its caller would leave that surface on an
+    // empty device list, and answering with its own older payload would regress
+    // the newest directory. The newest completion wins for everyone.
+    expect(await superseded).toEqual(newest);
+    expect(client.resolveDeviceName('desktop', 'saved name')).toBe('Current alias');
+    expect(changed).toHaveBeenCalledOnce();
+    client.setAccountIdentity(identity('user-b'));
+    expect(client.resolveDeviceName('desktop')).toBe('desktop');
+    client.resetConnectionIdentity();
+  });
+  it('preserves additive metadata and gates alias mutations on Relay capabilities', async () => {
+    const client = new RelayHttpClient(relayUrl, identity());
+    const device = { device_id: 'desktop', device_name: 'technical', device_alias: 'Work', device_model: 'Model', device_os: 'Linux', device_os_version: '1', online: false, future: true };
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json([device]))
+      .mockResolvedValueOnce(Response.json({ protocol_version: 1 }))
+      .mockResolvedValueOnce(Response.json({ capabilities: ['device_alias_v1'] }))
+      .mockResolvedValueOnce(Response.json({}));
+    vi.stubGlobal('fetch', fetch);
+    expect(await client.listDevices()).toEqual([device]);
+    expect(deviceDisplayName(device)).toBe('Work');
+    expect(deviceDisplayName({ ...device, device_alias: null })).toBe('technical');
+    await expect(client.updateDeviceAlias('desktop', 'Work')).rejects.toThrow('unsupported');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const changed = vi.fn(); client.onDeviceDirectoryChanged(changed);
+    await client.updateDeviceAlias('desktop', null);
+    expect(fetch.mock.calls[3][1]).toMatchObject({ method: 'PATCH', body: '{"device_alias":null}', headers: { Authorization: 'Bearer token-user-a' } });
+    expect(changed).toHaveBeenCalledOnce();
+    client.resetConnectionIdentity();
+  });
+  it.each([404, 405])('reports unsupported PATCH HTTP %s without fake success', async status => {
+    const client = new RelayHttpClient(relayUrl, identity());
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({ capabilities: ['device_alias_v1'] }))
+      .mockResolvedValueOnce(Response.json({}, { status })));
+    const changed = vi.fn(); client.onDeviceDirectoryChanged(changed);
+    await expect(client.updateDeviceAlias('desktop', 'Work')).rejects.toThrow('unsupported');
+    expect(changed).not.toHaveBeenCalled();
+    client.resetConnectionIdentity();
+  });
   it('rejects an unauthenticated constructor and sends nothing after logout', async () => {
     expect(() => new RelayHttpClient(relayUrl, { ...identity(), token: '' })).toThrow();
     const client = new RelayHttpClient(relayUrl, identity());

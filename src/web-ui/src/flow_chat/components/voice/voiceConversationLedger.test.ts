@@ -5,7 +5,7 @@ import { VoiceConversationLedger } from './voiceConversationLedger';
 const fixture = vi.hoisted(() => ({ stage: vi.fn(), record: vi.fn(), replay: vi.fn(), sessions: new Map() }));
 vi.mock('../../services/controlConversation', () => ({ stageVoiceExchange: fixture.stage, recordVoiceExchange: fixture.record, replayVoiceExchanges: fixture.replay }));
 vi.mock('../../store/FlowChatStore', () => ({ flowChatStore: { getState: () => ({ sessions: fixture.sessions }), subscribe: () => () => {} } }));
-const target = { kind: 'control' as const, surfaceId: 'local', sessionId: 'control', workspacePath: '/control' };
+const target = { kind: 'control' as const, surfaceId: 'local', sessionId: 'control', workspaceId: 'workspace-control', workspacePath: '/control' };
 describe('final voice exchange ledger', () => {
   beforeEach(() => { activateSurface('local'); vi.clearAllMocks(); fixture.sessions.clear(); });
   it('revises provisional ASR in place without persisting it', () => {
@@ -34,8 +34,21 @@ describe('final voice exchange ledger', () => {
     const ledger = new VoiceConversationLedger(target, vi.fn());
     ledger.user('hello'); ledger.assistant('world'); ledger.flush(); ledger.flush();
     expect(fixture.stage).toHaveBeenCalledOnce();
-    expect(fixture.stage.mock.calls[0][0]).toMatchObject({ userText: 'hello', assistantText: 'world', sessionId: 'control' });
+    expect(fixture.stage.mock.calls[0][0]).toMatchObject({ userText: 'hello', assistantText: 'world', sessionId: 'control', workspaceId: 'workspace-control' });
+    expect(fixture.stage.mock.calls[0][0]).not.toHaveProperty('workspacePath');
     await vi.waitFor(() => expect(fixture.record).toHaveBeenCalledOnce());
+  });
+  it('prefers the loaded conversation workspace and never stages without an owner', () => {
+    fixture.sessions.set('control', { workspaceId: 'workspace-live', config: {} });
+    new VoiceConversationLedger(target, vi.fn()).user('hello');
+    const live = new VoiceConversationLedger(target, vi.fn());
+    live.user('hello'); live.assistant('hi'); live.flush();
+    expect(fixture.stage.mock.calls[0][0]).toMatchObject({ workspaceId: 'workspace-live' });
+    fixture.sessions.clear(); fixture.stage.mockClear();
+    const unowned = new VoiceConversationLedger({ ...target, workspaceId: undefined }, vi.fn());
+    unowned.user('hello'); unowned.assistant('hi'); unowned.flush();
+    expect(fixture.stage).not.toHaveBeenCalled();
+    expect(fixture.record).not.toHaveBeenCalled();
   });
   it('does not duplicate a task transcript after a native acknowledgement', async () => {
     const ledger = new VoiceConversationLedger(target, vi.fn());

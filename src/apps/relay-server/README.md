@@ -4,7 +4,7 @@ The official Relay connects devices signed in to the same GitHub identity.
 GitHub identity is shared with the marketplaces. Users sign in
 from OpenBitFun; they do not create a Relay account or deploy a server.
 
-The official endpoint is `https://remote.openbitfun.com/v/1.0.1`. This release is deployed with
+The official endpoint is `https://remote.openbitfun.com/v/1.0.2`. This release is deployed with
 its own process, database, assets, and reverse-proxy location. An existing
 `/relay` deployment remains on its existing binary and data directory.
 
@@ -43,7 +43,7 @@ Relay URL. A private Relay therefore needs a matching client build.
    and `src/mobile-web/src/services/pairingLink.ts`. Native clients have
    matching constants in KMP `core-transport/AccountDeviceLink.kt` and HarmonyOS
    `services/AccountDeviceLink.ets`; update the HarmonyOS account-link parser too.
-   Search for `https://remote.openbitfun.com/v/1.0.1` to verify every runtime
+   Search for `https://remote.openbitfun.com/v/1.0.2` to verify every runtime
    reference and corresponding test before building your distribution.
 3. Decide who owns identity. You can retain the official GitHub identity
    authority, or run the [shared identity service](../../../deploy/miniapp-market/README.md)
@@ -93,7 +93,7 @@ RELAY_PORT=9700 RELAY_DB_PATH=/var/lib/openbitfun-relay-v1/relay.db \
 ```
 
 Use the isolated [v1 Compose project](../../../deploy/relay-v1/README.md).
-Set `RELAY_LISTEN_ADDR=127.0.0.1:19701` with host networking so the service can
+Set `RELAY_LISTEN_ADDR=127.0.0.1:19702` with host networking so the service can
 verify the immediate loopback proxy peer. Invalid listener values fail startup.
 Expose only the TLS reverse proxy. Keep the database and asset paths distinct from older deployments.
 `relay-admin` supports listing and explicitly deleting accounts; GitHub login
@@ -156,8 +156,8 @@ observed source address, and the upstream port must be unreachable externally.
 The Relay trusts forwarded client IPs only from an immediate loopback peer.
 
 ```nginx
-location ^~ /v/1.0.1/ {
-    proxy_pass http://127.0.0.1:19701/;
+location ^~ /v/1.0.2/ {
+    proxy_pass http://127.0.0.1:19702/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $remote_addr;
@@ -195,21 +195,137 @@ location and process.
 | `POST /api/auth/delegate` | Issue a separately keyed, restricted controller credential |
 | `POST /api/auth/provision-device` | Authorized SSH host bootstrap |
 | `GET /api/devices` | Same-account device directory |
+| `PATCH /api/devices/{id}` | Update an account device alias or self-reported metadata |
 | `GET /api/devices/{id}/key` | Same-account device public key |
 | `DELETE /api/devices/{id}` | Explicit device removal and revocation |
-| `GET /v1/updates` | Authenticated Socket.IO account, machine and session scopes |
-| `POST /v1/sessions`, `GET /v1/sessions/{id}` | Opaque session metadata |
-| `GET/POST /v3/sessions/{id}/messages` | Ordered encrypted session history and catch-up |
-| `POST /v1/rpc/payloads`, `GET /v1/rpc/payloads/{id}` | Account-scoped encrypted bulk RPC bodies |
+| `GET /v1/updates` | Authenticated Socket.IO account and machine scopes |
+| `POST /v1/rpc/payloads`, `GET /v1/rpc/payloads/{id}` | Account-scoped encrypted bulk RPC bodies (short-lived) |
+| `POST /v1/sessions`, `GET /v1/sessions/{id}`, `GET/POST /v3/sessions/{id}/messages` | Retired; answer `410 Gone` with `{"error":"relay_session_history_retired"}` |
 
 Realtime clients authenticate the namespace and wait for `auth-ok` before
 registering or calling methods. Machine-owned RPC methods route inside the
 same account; only the selected target socket can acknowledge a request.
 A lost acknowledgement reports an unknown outcome and never replays a mutation.
 Small encrypted messages travel over the live connection; larger RPC bodies use
-short-lived HTTP references. Session history uses durable records, independent
-of those temporary references. Continuous session sequences apply directly;
-missing sequences and reconnects use the same encrypted history API.
+short-lived HTTP references that expire on their own.
+
+### Device-directory compatibility
+
+`GET /api/devices` retains its existing scope: only same-account desktop/session-host
+control targets are listed, including offline devices. Registered mobile and watch
+devices remain hidden; legacy rows without a device kind remain desktop targets.
+The additive nullable fields are:
+
+| Field | Meaning |
+|---|---|
+| `device_alias` | Account-owned user alias, persisted independently of the technical name |
+| `device_model` | Host-reported device model |
+| `device_os` | Host-reported operating-system name |
+| `device_os_version` | Host-reported operating-system version |
+| `client_version` | Client build string reported at login/handshake, null when unreported |
+| `client_protocol` | Client protocol number reported at login/handshake, null when unreported |
+| `compatible` | Relay-computed; whether the requesting token's device may remote-control this device |
+
+`device_name` remains the technical/self-reported name; the Relay never replaces it
+with the alias. New clients display alias, then technical name, then device id as
+fallback. Older clients continue displaying the technical name and can ignore the
+additive response fields. Clients must tolerate absent fields from older Relays.
+
+`PATCH /api/devices/{id}` requires an authenticated full device bearer token and
+returns `204 No Content` on success. A device may change the alias of any device
+in its own account, but may update model/OS metadata only for its own authenticated
+device id. Delegated controller tokens cannot patch devices (`403`); missing or
+other-account targets return `404` without revealing ownership.
+
+- `{"device_alias":"Build host"}` sets the alias; `{"device_alias":null}` clears it.
+- Missing fields mean no change, including a missing alias. An empty object is a
+  no-op, not a request to clear fields.
+- `device_model`, `device_os`, and `device_os_version` accept strings only when
+  present in a PATCH; explicit `null` is rejected rather than clearing metadata.
+- Each alias or metadata string is limited to **256 UTF-8 bytes**, not characters,
+  and must be nonblank and contain no control characters. Use alias `null`, not an
+  empty string, to clear an alias.
+- PATCH uses strict `deny_unknown_fields`: unknown mutation fields, including an
+  arbitrary metadata extension object, are rejected rather than silently ignored
+  and reported as successful. This differs deliberately from extensible response
+  objects, whose unknown fields clients may ignore.
+
+Before sending mutations, clients negotiate capabilities through `GET /api/info`:
+`device_alias_v1` enables alias updates and `device_metadata_v1` enables metadata
+reporting/updates. These are strings in the `capabilities` array;
+`protocol_version` remains `3`. Missing capabilities mean unsupported, regardless
+of package version. Future PATCH fields or behaviors require their own capability
+negotiation before use; clients must not probe old servers with unknown mutations.
+An older Relay returning `404`/`405` must produce an explicit unsupported state,
+not a successful local-only rename.
+
+### Client-build compatibility
+
+Newer clients also report their build so the Relay can refuse a remote-control
+pair it cannot prove compatible. `device_client_build_v1` advertises this: an
+optional `clientVersion` string and `clientProtocol` number travel with the
+realtime handshake and with `POST /api/auth/login`.
+
+- The device row stores the build from the **current** connection. Every login
+  and handshake refreshes both values, including writing `NULL` when the client
+  reports nothing, so a stale build is never left behind. `clientVersion` is
+  limited to 64 UTF-8 bytes with no control characters; a malformed or absent
+  value is treated as unreported rather than rejected, so an older client still
+  connects.
+- Compatibility is decided only from `clientProtocol`, and a report is required
+  rather than merely tolerated: control is allowed only when both sides reported
+  a protocol number and the numbers match. Two legacy clients that report
+  nothing, and any pair where either side never reported, are incompatible.
+- `GET /api/devices` reports the relay-computed `compatible` flag per target,
+  based on the requesting token's device row. Incompatible devices are still
+  listed, never hidden or deleted.
+- A `rpc-call` between incompatible devices is answered with a `failure`
+  acknowledgement — `incompatible client build: remote control requires matching
+  client versions` — and is not dispatched.
+
+Presence `device-presence` entries carry the raw `client_version` and
+`client_protocol` values only; the relay-computed `compatible` flag appears
+exclusively in `GET /api/devices`.
+
+Login and provisioning accept optional model/OS metadata. Omission by an older
+client preserves stored metadata, and neither registration nor reconnect changes
+the alias. Login (and the realtime handshake) additionally report the client
+build described above, which is refreshed rather than preserved. Additive SQLite
+migrations preserve existing device rows; aliases and metadata survive Relay
+restart when the same persistent database is used. Startup resets stale online
+presence, not the alias or technical metadata.
+
+Successful patches notify online same-account clients through the existing
+`device-presence` channel, whose device entries also carry the new fields.
+Notifications are refresh hints, not durable directory state: re-fetch
+`GET /api/devices` after a patch or notification and on reconnect/normal refresh.
+
+### Forwarding only
+
+The relay stores no session content. Session transcripts, terminal output and
+the workspace/session catalog are host-owned streams
+(`services-integrations::remote_connect::host_stream`): a controller reads
+pages on demand with the pairwise-encrypted `read_stream` device RPC, and the
+host pushes an encrypted `host-stream-changed` device event naming only the
+stream id, epoch and newest sequence. Both travel through the same RPC and
+`ephemeral` device-event forwarding as every other command, so the relay never
+sees plaintext and keeps nothing after delivery. When the controlled device is
+offline there is no history to show, by design.
+
+Compatibility on the same connection:
+
+- An older client that still calls the session history routes or requests the
+  Socket.IO `session` scope receives `410 Gone` / an explicit auth failure with
+  the same `relay_session_history_retired` reason, never an empty page.
+- A newer client against an older relay ignores the `update` frames that relay
+  still emits; stream pages and hints do not depend on relay-side state.
+- Hosts advertise `host_stream_v1` in their handshake `capabilities`;
+  controllers check it before opening a stream and report an older host as
+  unsupported instead of probing it with unknown commands.
+- On start-up the service drops the retired `realtime_sessions`,
+  `realtime_messages` and `realtime_account_sequence` tables from an existing
+  database and runs `VACUUM`, so previously stored ciphertext is removed from
+  disk without an operator step.
 
 The old `/ws`, HTTP device `rpc` and `messages` routes are retired. Deploy the
 new client and server together under a separate versioned relay prefix.

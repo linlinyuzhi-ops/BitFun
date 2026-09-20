@@ -24,8 +24,21 @@ import {
   type DeviceSurfaceId,
   type SurfaceScope,
 } from '@/infrastructure/peer-device/deviceSurface';
+import { routeSurfaceEvent } from '@/infrastructure/peer-device/deviceSurfaceRouting';
 
 const log = createLogger('WorkspaceManager');
+
+/**
+ * Host hint that the opened/recent workspace catalog changed behind this
+ * surface's back (a remote controller, IM bot, or another surface opened,
+ * created, or closed a workspace). Mirrors the Rust
+ * `WORKSPACE_CATALOG_CHANGED_EVENT`; the payload carries no catalog data.
+ */
+export const WORKSPACE_CATALOG_CHANGED_EVENT = 'workspace-catalog-changed';
+
+interface WorkspaceCatalogChangedEvent {
+  revision?: number;
+}
 
 function markWorkspaceStartupStepStart(step: string): number {
   const startedAt = nowMs();
@@ -105,6 +118,10 @@ interface WorkspaceSurfaceContainer {
   startupLegacyRemoteWorkspaceSnapshotAvailable: boolean;
   startupLegacyRemoteWorkspaceSnapshotConsumed: boolean;
   startupLegacyRemoteWorkspace: RemoteWorkspaceSnapshot | null;
+  /** A host catalog re-read is running for this surface. */
+  catalogResyncInFlight: boolean;
+  /** A catalog hint arrived while a re-read (or the bootstrap) was running. */
+  catalogResyncPending: boolean;
 }
 
 function createWorkspaceSurfaceContainer(): WorkspaceSurfaceContainer {
@@ -123,6 +140,8 @@ function createWorkspaceSurfaceContainer(): WorkspaceSurfaceContainer {
     startupLegacyRemoteWorkspaceSnapshotAvailable: false,
     startupLegacyRemoteWorkspaceSnapshotConsumed: false,
     startupLegacyRemoteWorkspace: null,
+    catalogResyncInFlight: false,
+    catalogResyncPending: false,
   };
 }
 
@@ -137,6 +156,7 @@ class WorkspaceManager {
   private identityListenerRegistrationPromise: Promise<void> | null = null;
   /** The identity watcher is local-Tauri-only, so its missed-event resync is too. */
   private localIdentityListenerReadyResyncPending = false;
+  private catalogListenerRegistered = false;
 
   private constructor() {
     // The activation commit swaps transport before listeners run, so consumers
@@ -278,6 +298,7 @@ class WorkspaceManager {
     if (event) {
       this.emit(event);
     }
+    this.drainPendingCatalogResync();
   }
 
   private setLoading(loading: boolean): void {
@@ -570,9 +591,7 @@ class WorkspaceManager {
         return null;
       }
 
-      const matches =
-        workspace.id === update.workspaceId ||
-        workspace.rootPath === update.workspacePath;
+      const matches = workspace.id === update.workspaceId;
 
       if (!matches) {
         return workspace;
@@ -618,6 +637,152 @@ class WorkspaceManager {
     };
     if (getActiveSurfaceId() === LOCAL_SURFACE_ID) {
       this.emit({ type: 'workspace:updated', workspace: updatedWorkspace });
+    }
+  }
+
+  /**
+   * Subscribe to host catalog hints. Registration failure only disables the
+   * push path: the surface keeps the catalog from its own operations.
+   */
+  private ensureCatalogChangeListener(): void {
+    if (this.catalogListenerRegistered) {
+      return;
+    }
+    this.catalogListenerRegistered = true;
+    const disable = (error: unknown): void => {
+      this.catalogListenerRegistered = false;
+      log.error('Failed to subscribe workspace catalog updates', { error });
+    };
+    try {
+      listen<WorkspaceCatalogChangedEvent>(WORKSPACE_CATALOG_CHANGED_EVENT, event => {
+        this.handleCatalogChanged(event.payload);
+      }).catch(disable);
+    } catch (error) {
+      disable(error);
+    }
+  }
+
+  /**
+   * Peer hosts mirror this hint to attached controllers, so the raw Tauri bus
+   * may carry hints for several devices. Only the rendered surface re-reads.
+   */
+  private handleCatalogChanged(payload: WorkspaceCatalogChangedEvent): void {
+    const route = routeSurfaceEvent(WORKSPACE_CATALOG_CHANGED_EVENT, payload);
+    if (!route.deliver) {
+      return;
+    }
+    const container = this.activeSurface;
+    if (!container.isInitialized || container.catalogResyncInFlight || container.state.loading) {
+      // The bootstrap, the running re-read, or this surface's own workspace
+      // operation may have started before this change; whichever finishes
+      // first re-reads once more (`updateState` drains the pending flag).
+      container.catalogResyncPending = true;
+      return;
+    }
+    void this.resyncWorkspaceCatalog(container);
+  }
+
+  private drainPendingCatalogResync(): void {
+    const container = this.activeSurface;
+    if (
+      container.catalogResyncPending
+      && container.isInitialized
+      && !container.catalogResyncInFlight
+      && !container.state.loading
+    ) {
+      void this.resyncWorkspaceCatalog(container);
+    }
+  }
+
+  private async resyncWorkspaceCatalog(container: WorkspaceSurfaceContainer): Promise<void> {
+    const surface = this.captureSurface();
+    if (this.surfaceContainer(surface.scope.surfaceId) !== container) {
+      return;
+    }
+    container.catalogResyncInFlight = true;
+    try {
+      do {
+        container.catalogResyncPending = false;
+        const [currentWorkspace, recentWorkspaces, openedWorkspaces] = await Promise.all([
+          globalStateAPI.getCurrentWorkspace(),
+          globalStateAPI.getRecentWorkspaces(),
+          globalStateAPI.getOpenedWorkspaces(),
+        ]);
+        if (!this.isSurfaceUnchanged(surface)) {
+          return;
+        }
+        this.applyHostCatalog(currentWorkspace, recentWorkspaces, openedWorkspaces);
+      } while (container.catalogResyncPending && this.isSurfaceUnchanged(surface));
+    } catch (error) {
+      if (isSurfaceChangedError(error) || !this.isSurfaceUnchanged(surface)) {
+        log.debug('Abandoned workspace catalog resync after a device surface switch');
+        return;
+      }
+      log.warn('Failed to refresh workspace catalog after host change', { error });
+    } finally {
+      container.catalogResyncInFlight = false;
+    }
+  }
+
+  /**
+   * Merge a host catalog snapshot into the rendered surface.
+   *
+   * The host owns membership (which workspaces are opened and recent). This
+   * surface owns its selection: a workspace another controller opened joins
+   * the list but does not steal the active slot, unless this surface had no
+   * usable selection.
+   */
+  private applyHostCatalog(
+    hostCurrentWorkspace: WorkspaceInfo | null,
+    recentWorkspaces: WorkspaceInfo[],
+    openedWorkspaces: WorkspaceInfo[],
+  ): void {
+    const previousOpened = this.state.openedWorkspaces;
+    const orderedOpened = this.preserveOpenedWorkspaceOrder(openedWorkspaces);
+    const nextOpened = this.buildOpenedWorkspaceMap(orderedOpened);
+
+    const previousActiveId = this.state.activeWorkspaceId;
+    const keptActive = previousActiveId ? nextOpened.get(previousActiveId) ?? null : null;
+    const currentWorkspace = keptActive
+      ?? (hostCurrentWorkspace ? nextOpened.get(hostCurrentWorkspace.id) ?? null : null);
+    const activeChanged = (currentWorkspace?.id ?? null) !== previousActiveId;
+
+    const openedNow = orderedOpened.filter(workspace => !previousOpened.has(workspace.id));
+    const closedNow = Array.from(previousOpened.keys()).filter(id => !nextOpened.has(id));
+
+    this.updateState({
+      currentWorkspace,
+      openedWorkspaces: nextOpened,
+      activeWorkspaceId: currentWorkspace?.id ?? null,
+      lastUsedWorkspaceId: this.resolveLastUsedWorkspaceId(
+        currentWorkspace,
+        recentWorkspaces,
+        nextOpened,
+      ),
+      recentWorkspaces,
+    });
+
+    if (openedNow.length > 0 || closedNow.length > 0 || activeChanged) {
+      log.info('Applied host workspace catalog change', {
+        openedCount: openedNow.length,
+        closedCount: closedNow.length,
+        activeWorkspaceId: currentWorkspace?.id ?? null,
+      });
+    }
+    for (const workspace of openedNow) {
+      this.emit({ type: 'workspace:opened', workspace });
+    }
+    for (const workspaceId of closedNow) {
+      this.emit({ type: 'workspace:closed', workspaceId });
+    }
+    if (activeChanged) {
+      this.emit({ type: 'workspace:active-changed', workspace: currentWorkspace });
+    } else if (openedNow.length === 0 && closedNow.length === 0) {
+      this.emit(
+        currentWorkspace
+          ? { type: 'workspace:updated', workspace: currentWorkspace }
+          : { type: 'workspace:recent-updated' },
+      );
     }
   }
 
@@ -682,6 +847,7 @@ class WorkspaceManager {
 
       const identityListenerStartedAt = markWorkspaceStartupStepStart('ensure_identity_listener');
       void this.ensureIdentityChangeListener();
+      this.ensureCatalogChangeListener();
       markWorkspaceStartupStepEnd('ensure_identity_listener', identityListenerStartedAt, {
         blocking: false,
       });
@@ -745,6 +911,9 @@ class WorkspaceManager {
       ) {
         void this.syncWorkspaceStateAfterIdentityListenerReady();
       }
+      // A host catalog hint that arrived while the bootstrap snapshot was in
+      // flight may postdate that snapshot; re-read once now.
+      this.drainPendingCatalogResync();
       startupTrace.markPhase('workspace_initialize_end', {
         durationMs: elapsedMs(initializeStartedAt),
         recentCount: recentWorkspaces.length,
@@ -917,12 +1086,20 @@ class WorkspaceManager {
     }
   }
 
-  public async removeRemoteWorkspace(connectionId: string, remotePath?: string): Promise<void> {
+  /**
+   * Close and forget one remote workspace record by its workspace ID.
+   * Connection IDs and remote paths are not identity: two records may share a
+   * connection, so callers must name the record they mean.
+   */
+  public async removeRemoteWorkspace(workspaceId: string): Promise<void> {
     const surface = this.captureSurface();
     try {
-      const workspace = this.findRemoteWorkspace(connectionId, remotePath);
+      const workspace = this.state.openedWorkspaces.get(workspaceId);
       if (!workspace) {
         return;
+      }
+      if (workspace.workspaceKind !== WorkspaceKind.Remote) {
+        throw new Error(`Workspace ${workspaceId} is not a remote workspace`);
       }
 
       await this.cancelRunningSessionsForWorkspace(workspace);
@@ -958,28 +1135,11 @@ class WorkspaceManager {
       if (!this.isSurfaceUnchanged(surface)) {
         throw error;
       }
-      log.error('Failed to remove remote workspace', { connectionId, remotePath, error });
+      log.error('Failed to remove remote workspace', { workspaceId, error });
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.updateState({ error: errorMessage }, { type: 'workspace:error', error: errorMessage });
       throw error;
     }
-  }
-
-  private findRemoteWorkspace(connectionId: string, remotePath?: string): WorkspaceInfo | undefined {
-    const normalizedRemotePath = remotePath ? normalizeRemoteWorkspacePath(remotePath) : null;
-    for (const [, ws] of this.state.openedWorkspaces) {
-      if (ws.workspaceKind !== WorkspaceKind.Remote) {
-        continue;
-      }
-      if (ws.connectionId !== connectionId) {
-        continue;
-      }
-      if (normalizedRemotePath && normalizeRemoteWorkspacePath(ws.rootPath) !== normalizedRemotePath) {
-        continue;
-      }
-      return ws;
-    }
-    return undefined;
   }
 
   public async createAssistantWorkspace(): Promise<WorkspaceInfo> {
@@ -1334,34 +1494,28 @@ class WorkspaceManager {
       return this.setActiveWorkspace(workspace.id);
     }
 
-    if (isRemoteWorkspace(workspace)) {
-      const connectionId = workspace.connectionId?.trim() ?? '';
-      const connectionName = workspace.connectionName?.trim() || connectionId;
-      if (!connectionId) {
-        throw new Error('Remote workspace is missing connectionId; reconnect via SSH first.');
-      }
-      return this.openRemoteWorkspace({
-        connectionId,
-        connectionName,
-        remotePath: workspace.rootPath,
-        sshHost: workspace.sshHost,
-      });
-    }
-
-    return this.openWorkspace(workspace.rootPath);
+    const surface = this.captureSurface();
+    const selected = await globalStateAPI.openWorkspaceById(workspace.id);
+    const [recent, opened] = await Promise.all([
+      globalStateAPI.getRecentWorkspaces(), globalStateAPI.getOpenedWorkspaces(),
+    ]);
+    this.assertSurfaceUnchanged(surface, 'reopen workspace');
+    this.updateWorkspaceState(selected, recent, opened, false, null,
+      { type: 'workspace:opened', workspace: selected });
+    return selected;
   }
 
   public async scanWorkspaceInfo(): Promise<WorkspaceInfo | null> {
     const surface = this.captureSurface();
     try {
-      if (!this.state.currentWorkspace?.rootPath) {
+      if (!this.state.currentWorkspace?.id) {
         throw new Error('No current workspace available for scanning');
       }
 
       this.setLoading(true);
       this.setError(null);
 
-      const updatedWorkspace = await globalStateAPI.scanWorkspaceInfo(this.state.currentWorkspace.rootPath);
+      const updatedWorkspace = await globalStateAPI.scanWorkspaceInfo(this.state.currentWorkspace.id);
       this.assertSurfaceUnchanged(surface, 'scan workspace info');
 
       if (updatedWorkspace) {

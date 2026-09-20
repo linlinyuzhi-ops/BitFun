@@ -11,6 +11,12 @@ lerna-debug.log*
 node_modules
 **/node_modules
 
+# These packages share pnpm-lock.yaml. Standalone npm packages keep their own lockfile.
+/package-lock.json
+/OpenBitFun-Installer/package-lock.json
+/src/mobile-web/package-lock.json
+/tests/e2e/package-lock.json
+
 # Build outputs - Frontend
 dist
 dist-ssr
@@ -125,3 +131,6 @@ src/apps/mobile/android/.kotlin/
 
 # Local generated workspace output.
 /output/
+
+# Retired implementation-process notes stay local; durable docs live with their owner.
+/docs/superpowers/

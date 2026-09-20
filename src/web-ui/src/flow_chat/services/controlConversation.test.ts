@@ -19,8 +19,7 @@ vi.mock('../store/FlowChatStore', () => ({ flowChatStore: {
 vi.mock('../session-drivers/resolve', () => ({ resolveSessionDriverId: () => 'local' }));
 
 const exchange: VoiceExchange = {
-  surfaceId: 'local', sessionId: 'conversation', workspacePath: '/remote/project',
-  remoteConnectionId: 'ssh-1', remoteSshHost: 'host-1',
+  surfaceId: 'local', sessionId: 'conversation', workspaceId: 'workspace-remote',
   exchangeId: 'exchange-1', userText: 'Remember blue', assistantText: 'Okay',
 };
 const key = (request: VoiceExchange) => 'openbitfun-voice-exchange:'
@@ -65,24 +64,33 @@ describe('voice history recovery', () => {
     await expect(service.createControlConversation('old')).rejects.toThrow('Update the target host');
     expect(fixture.invoke).not.toHaveBeenCalled();
     fixture.resetCapablePeer = true;
-    fixture.invoke.mockResolvedValue({ sessionId: 'new', workspacePath: '/peer/control' });
+    fixture.invoke.mockResolvedValue({ sessionId: 'new', workspaceId: 'workspace-control', workspacePath: '/peer/control' });
     await service.createControlConversation('old');
     expect(fixture.invoke).toHaveBeenCalledWith('create_control_conversation', { request: { expectedSessionId: 'old' } });
-    expect(fixture.history).toHaveBeenCalledWith('new', '/peer/control', undefined, undefined, undefined, { includeInternal: true });
+    expect(fixture.addSession).toHaveBeenCalledWith('new', 'OpenBitFun', 'OpenBitFun', '/peer/control',
+      { isTransient: true, agentBackedTransient: true, workspaceId: 'workspace-control' });
+    expect(fixture.history).toHaveBeenCalledWith('new', { includeInternal: true });
+  });
+
+  it('rejects a host that reports the control conversation without its workspace identity', async () => {
+    fixture.invoke.mockResolvedValue({ sessionId: 'legacy', workspacePath: '/control' });
+    await expect(service.ensureControlConversation()).rejects.toThrow('did not report the control conversation workspace');
+    expect(fixture.addSession).not.toHaveBeenCalled();
+    expect(fixture.history).not.toHaveBeenCalled();
   });
 
   it('serializes initial selection and reset, retains old records, and reuses the in-flight selection', async () => {
     let finishInitial!: (value: unknown) => void;
     fixture.invoke.mockImplementationOnce(() => new Promise(resolve => { finishInitial = resolve; }))
-      .mockResolvedValueOnce({ sessionId: 'new', workspacePath: '/control' });
+      .mockResolvedValueOnce({ sessionId: 'new', workspaceId: 'workspace-control', workspacePath: '/control' });
     const initial = service.ensureControlConversation();
     const created = service.createControlConversation('old');
     const reopened = service.ensureControlConversation();
     expect(fixture.invoke).toHaveBeenCalledTimes(1);
     expect(reopened).toBe(created);
-    finishInitial({ sessionId: 'old', workspacePath: '/control' });
+    finishInitial({ sessionId: 'old', workspaceId: 'workspace-control', workspacePath: '/control' });
     await initial;
-    expect(await created).toEqual({ sessionId: 'new', workspacePath: '/control' });
+    expect(await created).toEqual({ sessionId: 'new', workspaceId: 'workspace-control', workspacePath: '/control' });
     expect(fixture.sessions.has('old')).toBe(true);
     expect(fixture.sessions.has('new')).toBe(true);
     expect(fixture.invoke.mock.calls.map(call => call[0])).toEqual(['ensure_control_conversation', 'create_control_conversation']);
@@ -93,7 +101,7 @@ describe('voice history recovery', () => {
     fixture.invoke.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
     const created = service.createControlConversation('old');
     activateSurface('peer');
-    complete({ sessionId: 'new', workspacePath: '/local/control' });
+    complete({ sessionId: 'new', workspaceId: 'workspace-control', workspacePath: '/local/control' });
     await expect(created).rejects.toThrow();
     expect(fixture.addSession).not.toHaveBeenCalled();
     expect(fixture.history).not.toHaveBeenCalled();
@@ -108,7 +116,7 @@ describe('voice history recovery', () => {
     expect(service.hasPendingVoiceExchanges(exchange.sessionId)).toBe(true);
     await service.replayVoiceExchanges(exchange.sessionId);
     expect(fixture.ensure).toHaveBeenCalledWith({ sessionId: exchange.sessionId,
-      workspacePath: exchange.workspacePath, remoteConnectionId: 'ssh-1', remoteSshHost: 'host-1', includeInternal: true });
+      workspaceId: exchange.workspaceId, includeInternal: true });
     expect(fixture.invoke).toHaveBeenLastCalledWith('record_voice_exchange', { request: {
       sessionId: exchange.sessionId, exchangeId: exchange.exchangeId,
       userText: exchange.userText, assistantText: exchange.assistantText,
@@ -116,6 +124,18 @@ describe('voice history recovery', () => {
     expect(localStorage.getItem(key(exchange))).toBeNull();
     expect(service.hasPendingVoiceExchanges(exchange.sessionId)).toBe(false);
     expect(fixture.history).toHaveBeenCalledOnce();
+  });
+
+  it('upgrades a path-only record from an older build through its loaded conversation', async () => {
+    const { workspaceId: _current, ...legacy } = exchange;
+    localStorage.setItem(key(exchange), JSON.stringify({ ...legacy, workspacePath: '/remote/project', remoteConnectionId: 'ssh-1' }));
+    await expect(service.replayVoiceExchanges(exchange.sessionId)).rejects.toThrow('awaiting recovery');
+    expect(localStorage.getItem(key(exchange))).not.toBeNull();
+    expect(fixture.ensure).not.toHaveBeenCalled();
+    fixture.sessions.set(exchange.sessionId, { dialogTurns: [], workspaceId: 'workspace-remote' });
+    await service.replayVoiceExchanges(exchange.sessionId);
+    expect(fixture.ensure).toHaveBeenCalledWith({ sessionId: exchange.sessionId, workspaceId: 'workspace-remote', includeInternal: true });
+    expect(localStorage.getItem(key(exchange))).toBeNull();
   });
 
   it('does not replay a same-id session on another device', async () => {

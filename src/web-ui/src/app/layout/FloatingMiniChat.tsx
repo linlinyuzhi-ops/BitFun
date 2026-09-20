@@ -17,6 +17,7 @@ import { useRealtimeVoiceCall } from '@/flow_chat/components/voice/RealtimeVoice
 import type { VoiceCallTarget } from '@/flow_chat/components/voice/voiceClientContext';
 import { useConversationDockStore, dockConversationKey, type DockConversation } from '../stores/conversationDockStore';
 import { beginConversationTransfer, endConversationTransfer, isConversationTransfer, dropConversationInDock, returnConversationToWorkbench } from '../services/conversationDockTransfer';
+import { sessionSceneWorkspaceKey } from '../services/sessionSceneTarget';
 import { useMiniAppStore, MINIAPP_COMPOSER_DRAFT_EVENT, MINIAPP_COMPOSER_FOCUS_EVENT, type MiniAppDraftEventDetail, type MiniAppFocusEventDetail } from '../scenes/miniapps/miniAppStore';
 import { useSceneStore } from '../stores/sceneStore';
 import { getMiniAppIdFromSceneId, getMiniAppSceneId } from '../scenes/miniapps/miniAppActivity';
@@ -47,7 +48,7 @@ function DockConversationView({ entry, active, onCollapse, renderHeader, onVoice
     if (scope.surfaceId !== entry.surfaceId) return;
     const result = await createControlConversation(entry.sessionId);
     scope.assertCurrent('open new control conversation');
-    useConversationDockStore.getState().add({ ...result, surfaceId: entry.surfaceId, workspaceKey: result.workspacePath, kind: 'control' });
+    useConversationDockStore.getState().add({ ...result, surfaceId: entry.surfaceId, workspaceKey: sessionSceneWorkspaceKey(result.workspaceId), kind: 'control' });
   }, [entry.surfaceId, entry.sessionId]);
   const draft = useConversationDockStore(state => state.drafts[key]);
   const setDraft = (text: string) => useConversationDockStore.getState().setDraft(key, text);
@@ -69,7 +70,8 @@ function DockConversationView({ entry, active, onCollapse, renderHeader, onVoice
   const voiceTarget = useMemo<VoiceCallTarget | undefined>(() => !session ? undefined : entry.kind === 'miniapp' ? {
     kind: 'miniapp', appId: entry.appId!, appName, claimToken: entry.claimToken!, surfaceId: entry.surfaceId,
     sessionId: entry.sessionId, workspacePath: session.workspacePath,
-  } : { kind: entry.kind, surfaceId: entry.surfaceId, sessionId: entry.sessionId, workspacePath: session.workspacePath || '' }, [entry, session, appName]);
+  } : { kind: entry.kind, surfaceId: entry.surfaceId, sessionId: entry.sessionId,
+    workspaceId: session.workspaceId ?? session.config.workspaceId, workspacePath: session.workspacePath || '' }, [entry, session, appName]);
   const unavailable = <div className="openbitfun-fmc__miniapp-session-pending" role="status"
     data-openbitfun-component="floating-mini-chat" data-openbitfun-part="pending">{t('dock.unavailable')}</div>;
   if (entry.kind === 'control' && session && voiceTarget) return <ConversationViewProvider
@@ -145,7 +147,7 @@ export function FloatingMiniChat() {
       useConversationDockStore.getState().add({ surfaceId, sessionId: 'openbitfun-control', workspaceKey: '', kind: 'control' }, false);
     }
     void ensureControlConversation().then(result => {
-      if (!disposed) useConversationDockStore.getState().add({ ...result, surfaceId, workspaceKey: result.workspacePath, kind: 'control' }, false);
+      if (!disposed) useConversationDockStore.getState().add({ ...result, surfaceId, workspaceKey: sessionSceneWorkspaceKey(result.workspaceId), kind: 'control' }, false);
     }).catch(reason => { if (!disposed && !isSurfaceChangedError(reason)) setError(String(reason instanceof Error ? reason.message : reason)); });
     return () => { disposed = true; };
   }, [dock.open, surfaceId, retry]);
@@ -243,7 +245,8 @@ export function FloatingMiniChat() {
         <button type="button" onClick={() => {
           const target = voice.target;
           if (!target) return;
-          dock.add({ ...target, surfaceId: target.surfaceId ?? surfaceId, workspaceKey: target.workspacePath ?? '' });
+          dock.add({ ...target, surfaceId: target.surfaceId ?? surfaceId,
+            workspaceKey: target.kind !== 'miniapp' && target.workspaceId ? sessionSceneWorkspaceKey(target.workspaceId) : '' });
         }}>
           <Phone size={13} /><OverflowText>{tv('voiceCall.call.title')}</OverflowText>
         </button>
@@ -260,7 +263,7 @@ export function FloatingMiniChat() {
       onClick={() => dock.setOpen(true)} onPointerDown={event => { if (event.button === 0) dock.setOpen(true); }}>
       {live ? <Phone size={16} /> : tv('voiceCall.call.launcherCompactLabel')}
     </LauncherButton>
-    <div ref={panelRef} role="dialog" aria-modal="false" aria-label={t('dock.open')} aria-hidden={!dock.open}
+    <div ref={panelRef} role="dialog" aria-modal="false" aria-label={t('dock.open')} aria-hidden={!dock.open} data-motion="presence"
       {...(!dock.open ? { inert: '' } : {})}
       className={['openbitfun-fmc__panel', dock.open && 'openbitfun-fmc__panel--open', drop && 'openbitfun-fmc__panel--drop'].filter(Boolean).join(' ')}
       data-openbitfun-component="floating-mini-chat" data-openbitfun-part="panel">

@@ -12,10 +12,19 @@ function readSource(relativePath: string): string {
 }
 
 describe('FlowChat transcript rhythm', () => {
+  it('contains descendant spacing within the measured virtual row without clipping controls', () => {
+    const styles = readSource('./VirtualItemRenderer.scss');
+    const wrapper = styles.slice(styles.indexOf('.virtual-item-wrapper {'), styles.indexOf("&[data-item-type='user-message']"));
+
+    // This is a stylesheet contract; browser margin geometry needs real layout.
+    expect(wrapper).toContain('display: flow-root;');
+    expect(wrapper).not.toMatch(/overflow(?:-x|-y)?:\s*(?:hidden|clip|auto|scroll)\s*;/);
+  });
+
   function modelRound(
     turnId: string,
     roundId: string,
-    items: Array<'text' | 'thinking' | { toolName: string }>,
+    items: Array<'text' | 'thinking' | { toolName: string; input?: unknown }>,
   ): VirtualItem {
     return {
       type: 'model-round',
@@ -31,13 +40,26 @@ describe('FlowChat transcript rhythm', () => {
               id: `${roundId}-${index}`,
               type: 'tool',
               toolName: item.toolName,
-              toolCall: { id: `${roundId}-call-${index}`, input: {} },
+              toolCall: { id: `${roundId}-call-${index}`, input: item.input ?? {} },
             }),
       },
       isLastRound: false,
       isTurnComplete: false,
     } as unknown as VirtualItem;
   }
+
+  it('keeps control actions distinct from discovery across model rounds, including deferred calls', () => {
+    const read = modelRound('turn-1', 'read', [{ toolName: 'Read' }]);
+    const discovery = modelRound('turn-1', 'discovery', [{
+      toolName: 'OpenBitFunControl', input: { action: 'get' },
+    }]);
+    const control = modelRound('turn-1', 'control', [{
+      toolName: 'CallDeferredTool', input: { tool_name: 'OpenBitFunControl', args: { action: 'configure' } },
+    }]);
+    expect(isAmbientToolRunContinuationAfter(read, discovery)).toBe(true);
+    expect(isAmbientToolRunContinuationAfter(discovery, control)).toBe(false);
+    expect(isAmbientToolRunContinuationAfter(control, read)).toBe(false);
+  });
 
   it('treats collapsed ambient tool runs as text-like rows', () => {
     const toolStyles = readSource('../../_item-rhythm.scss');
@@ -60,6 +82,26 @@ describe('FlowChat transcript rhythm', () => {
     }
     for (const leaf of ['../FlowToolCard.scss', '../FlowTextBlock.scss', '../../tool-cards/ModelThinkingDisplay.scss']) {
       expect(readSource(leaf)).not.toContain('margin: 0 0 var(--openbitfun-control-flow-chat-flow-item-gap) 0;');
+    }
+  });
+
+  it('gives no item gap to a tool row whose card hides itself', () => {
+    const toolStyles = readSource('../../_item-rhythm.scss');
+
+    // Exploration cards hide themselves once their tool settles in an error
+    // state, so their composition wrapper stays in the DOM at zero height. A
+    // reserved gap there is invisible space: two visible rows with one hidden
+    // item between them would read as 16px, and 24px with two.
+    expect(toolStyles).toMatch(
+      /> \.flowchat-flow-item:has\(> \.flow-tool-card-wrapper:empty\) \{\s*margin-bottom: 0;\s*\}/,
+    );
+    for (const hidingCard of [
+      '../../tool-cards/ReadFileDisplay.tsx',
+      '../../tool-cards/GrepSearchDisplay.tsx',
+      '../../tool-cards/GlobSearchDisplay.tsx',
+      '../../tool-cards/LSDisplay.tsx',
+    ]) {
+      expect(readSource(hidingCard)).toMatch(/if \(status === 'error'\) \{\s*return null;/);
     }
   });
 

@@ -53,6 +53,12 @@ The check detects:
 pnpm install
 ```
 
+The pnpm workspace uses the root `pnpm-lock.yaml` as its dependency lockfile;
+do not commit `package-lock.json` files for workspace packages. The standalone
+`packages/dsh-acp` npm package and `src/apps/extension-host` Bun host retain their
+own lockfiles and preparation commands. Keep generated Tauri `gen/` directories
+and local implementation-process notes out of Git.
+
 ### Common commands
 
 ```bash
@@ -115,11 +121,11 @@ We welcome contributions beyond standard feature or bug-fix PRs. Examples includ
 
 | Contribution area | Location / files | Example |
 | --- | --- | --- |
-| Prompts | `src/crates/assembly/core/src/agentic/agents/prompts/` | Add or refine prompts, and update related logic as needed |
+| Prompts | `src/crates/assembly/agent-content/prompts/agents/` | Add or refine built-in prompts; keep selection and runtime policy in their existing owners |
 | Tools | `src/crates/assembly/core/src/agentic/tools/implementations/`, `src/crates/assembly/core/src/agentic/tools/registry.rs` | Add tool implementations and register them in the tool registry |
-| Subagents | `src/crates/assembly/core/src/agentic/agents/custom_subagents/`, `src/crates/assembly/core/src/agentic/agents/registry.rs` | Add subagent implementations and register them in the subagent registry |
-| Mode contributions | `src/crates/assembly/core/src/agentic/agents/*_mode.rs`, `src/crates/assembly/core/src/agentic/agents/prompts/*_mode.md`, `src/web-ui/src/locales/*/settings/modes.json` | Add/improve Agentic or custom modes and keep prompts + UI copy in sync |
-| Scenario guides for Code Agent and AIIde | `website/src/docs/` | Add workflows, playbooks, and real-world scenario docs (or link them from `README.md`) |
+| Subagents | `src/crates/assembly/core/src/agentic/agents/definitions/`, `src/crates/assembly/core/src/agentic/agents/registry/` | Add subagent definitions and register them with the owning registry |
+| Mode contributions | `src/crates/assembly/core/src/agentic/agents/definitions/`, `src/crates/assembly/agent-content/prompts/agents/`, `src/web-ui/src/locales/` | Keep mode policy, built-in prompts, and owning UI copy in sync |
+| Playbook and scenario guides | `src/shared/interactive-capabilities/catalog.json`, owning app README | Maintain the source catalog and run `pnpm run capabilities:generate`; `website/` consumes the generated catalog |
 
 ### Before you start
 
@@ -175,7 +181,7 @@ Common local checks:
 | Repository metadata or GitHub config | `pnpm run check:repo-hygiene && pnpm run check:github-config && git diff --check` |
 | Frontend runtime or UI | `pnpm run check:web`, plus the nearest focused test when behavior changed |
 | Mobile web | `pnpm --dir src/mobile-web run type-check` |
-| Rust shared runtime or services | `cargo check --workspace`, plus a focused `cargo test` when behavior changed |
+| Rust shared runtime or services | Follow the nearest module `AGENTS.md`: one package/test target and the minimum required features |
 | Desktop/Tauri integration | `cargo check -p openbitfun-desktop` |
 | i18n resources or contract | use the matching i18n row in `AGENTS.md` |
 

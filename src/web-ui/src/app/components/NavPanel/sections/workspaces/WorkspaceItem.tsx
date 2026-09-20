@@ -1,4 +1,4 @@
-import { ActionItem } from '@openbitfun/ui';
+import { subscribeOverlayInteraction, createOverlayPortal, ActionItem } from '@openbitfun/ui';
 import {
   Button,
   ConfirmDialog,
@@ -16,7 +16,6 @@ import {
   OverflowText,
 } from '@openbitfun/ui';
 import React, { lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { createPortal } from 'react-dom';
 import { FolderOpen, FolderSearch, RotateCcw, FileText, ListChecks, ShieldCheck, Network, Server } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { RetainedMountBoundary } from '@/shared/presence';
@@ -40,7 +39,10 @@ import {
   getHistorySessionOpenTransitionSnapshot,
   subscribeHistorySessionOpenTransition,
 } from '@/flow_chat/services/sessionOpenIntent';
-import { findReusableEmptySessionId } from '@/app/utils/projectSessionWorkspace';
+import {
+  findReusableEmptySessionId,
+  flowChatSessionConfigForWorkspace,
+} from '@/app/utils/projectSessionWorkspace';
 import type { AcpClientInfo } from '@/infrastructure/api/service-api/ACPClientAPI';
 import { loadWorkspaceAcpMenuClients } from './workspaceAcpMenuClients';
 import WorkspaceAcpSessionSubmenu from './WorkspaceAcpSessionSubmenu';
@@ -122,7 +124,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
     getWorkspaceGitBasicInfoOptions(workspace, isActive),
     historySessionOpenTransition !== null
   );
-  useGitBasicInfo(workspace.rootPath, gitBasicInfoOptions);
+  useGitBasicInfo({ workspaceId: workspace.id }, gitBasicInfoOptions);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuContextPoint, setMenuContextPoint] = useState<{ x: number; y: number } | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -180,7 +182,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
     && !workspaceIsRemote
     && workspace.workspaceKind === WorkspaceKind.Normal;
   const workspaceSearchIndex = useWorkspaceSearchIndex({
-    workspacePath: canShowSearchIndex ? workspace.rootPath : undefined,
+    workspaceId: canShowSearchIndex ? workspace.id : undefined,
     enabled: canShowSearchIndex,
     isRemote: workspaceIsRemote,
   });
@@ -197,7 +199,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
 
       for (const reason of WORKSPACE_GIT_PENDING_CANCEL_REASONS) {
         for (const source of WORKSPACE_GIT_PENDING_CANCEL_SOURCES) {
-          gitStateManager.cancelPendingRefresh(workspace.rootPath, {
+          gitStateManager.cancelPendingRefresh({ workspaceId: workspace.id }, {
             layers: ['basic'],
             reason,
             source,
@@ -208,7 +210,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
 
     cancelPendingAutoGitRefresh();
     return subscribeHistorySessionOpenTransition(cancelPendingAutoGitRefresh);
-  }, [isActive, workspace.rootPath, workspaceIsRemote]);
+  }, [isActive, workspace.id, workspaceIsRemote]);
 
   useEffect(() => {
     if (!WORKSPACE_SEARCH_AVAILABLE) return;
@@ -463,6 +465,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
   }, []);
 
   useEffect(() => {
+    let removeOverlayMousedown0: (() => void) | undefined;
     if (!menuOpen) return;
     const handleOutside = (event: MouseEvent) => {
       const target = event.target as Node;
@@ -473,8 +476,8 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
         setMenuOpen(false);
       }
     };
-    document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
+    removeOverlayMousedown0 = subscribeOverlayInteraction(menuPopoverRef, 'mousedown', handleOutside);
+    return () => removeOverlayMousedown0?.();
   }, [menuOpen]);
 
   useEffect(() => {
@@ -690,15 +693,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
         return;
       }
       const newSessionId = await flowChatManager.createChatSession(
-        {
-          workspacePath: workspace.rootPath,
-          ...(isRemoteWorkspace(workspace) && workspace.connectionId
-            ? { remoteConnectionId: workspace.connectionId }
-            : {}),
-          ...(isRemoteWorkspace(workspace) && workspace.sshHost
-            ? { remoteSshHost: workspace.sshHost }
-            : {}),
-        },
+        flowChatSessionConfigForWorkspace(workspace),
         resolvedMode
       );
       await openMainSession(newSessionId, {
@@ -726,15 +721,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
     try {
       const sessionId = await flowChatManager.createAcpChatSession(
         client.id,
-        {
-          workspacePath: workspace.rootPath,
-          ...(isRemoteWorkspace(workspace) && workspace.connectionId
-            ? { remoteConnectionId: workspace.connectionId }
-            : {}),
-          ...(isRemoteWorkspace(workspace) && workspace.sshHost
-            ? { remoteSshHost: workspace.sshHost }
-            : {}),
-        },
+        flowChatSessionConfigForWorkspace(workspace),
       );
       await openMainSession(sessionId, {
         workspaceId: workspace.id,
@@ -751,15 +738,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
     try {
       const preferredMode = workspace.workspaceKind === WorkspaceKind.Assistant ? 'Claw' : undefined;
       const sessionId = await flowChatManager.createChatSession(
-        {
-          workspacePath: workspace.rootPath,
-          ...(isRemoteWorkspace(workspace) && workspace.connectionId
-            ? { remoteConnectionId: workspace.connectionId }
-            : {}),
-          ...(isRemoteWorkspace(workspace) && workspace.sshHost
-            ? { remoteSshHost: workspace.sshHost }
-            : {}),
-        },
+        flowChatSessionConfigForWorkspace(workspace),
         preferredMode
       );
 
@@ -770,6 +749,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
 
       await agentAPI.runInitAgentsMd({
         sessionId,
+        workspaceId: workspace.id,
         workspacePath: workspace.rootPath,
         ...(isRemoteWorkspace(workspace) && workspace.connectionId
           ? { remoteConnectionId: workspace.connectionId }
@@ -797,7 +777,6 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
     window.dispatchEvent(new CustomEvent('terminal-create-requested', {
       detail: {
         workingDirectory: workspace.rootPath,
-        workspacePath: workspace.rootPath,
         surfaceId,
         resourceScope: {
           surfaceId,
@@ -926,7 +905,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
               </button>
             </div>
 
-            {menuOpen && createPortal(
+            {menuOpen && createOverlayPortal(
               <Menu
                 ref={menuPopoverRef}
                 className="openbitfun-nav-panel__workspace-item-menu-popover"
@@ -1031,8 +1010,6 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
           <SessionsSection
             workspaceId={workspace.id}
             workspacePath={workspace.rootPath}
-            remoteConnectionId={isRemoteWorkspace(workspace) ? workspace.connectionId : null}
-            remoteSshHost={isRemoteWorkspace(workspace) ? workspace.sshHost : null}
             isActiveWorkspace={isActive}
             isVisible={!sessionsCollapsed}
             useWorkspaceViewPreferences
@@ -1065,10 +1042,8 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
             <WorkspaceSessionBatchModal
               isOpen={sessionBatchModalOpen}
               onClose={() => setSessionBatchModalOpen(false)}
-              workspacePath={workspace.rootPath}
+              workspaceId={workspace.id}
               workspaceLabel={workspaceDisplayName}
-              remoteConnectionId={isRemoteWorkspace(workspace) ? workspace.connectionId : null}
-              remoteSshHost={isRemoteWorkspace(workspace) ? workspace.sshHost : null}
             />
           </Suspense>
         </RetainedMountBoundary>
@@ -1077,11 +1052,8 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
             <ScheduledJobsModal
               isOpen={scheduledJobsModalOpen}
               onClose={() => setScheduledJobsModalOpen(false)}
-              workspacePath={workspace.rootPath}
               workspaceId={workspace.id}
               workspaceKind={workspace.workspaceKind}
-              remoteConnectionId={isRemoteWorkspace(workspace) ? workspace.connectionId : null}
-              remoteSshHost={isRemoteWorkspace(workspace) ? workspace.sshHost : null}
               targetKind="workspace"
               title={t('nav.scheduledJobs.title')}
               targetLabel={workspaceDisplayName}
@@ -1417,7 +1389,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
               </button>
             </div>
 
-            {menuOpen && createPortal(
+            {menuOpen && createOverlayPortal(
               <Menu
                 ref={menuPopoverRef}
                 className="openbitfun-nav-panel__workspace-item-menu-popover"
@@ -1543,8 +1515,6 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
         <SessionsSection
           workspaceId={workspace.id}
           workspacePath={workspace.rootPath}
-          remoteConnectionId={isRemoteWorkspace(workspace) ? workspace.connectionId : null}
-          remoteSshHost={isRemoteWorkspace(workspace) ? workspace.sshHost : null}
           isActiveWorkspace={isActive}
           isVisible={!sessionsCollapsed}
           useWorkspaceViewPreferences
@@ -1600,10 +1570,8 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
           <WorkspaceSessionBatchModal
             isOpen={sessionBatchModalOpen}
             onClose={() => setSessionBatchModalOpen(false)}
-            workspacePath={workspace.rootPath}
+            workspaceId={workspace.id}
             workspaceLabel={workspaceDisplayName}
-            remoteConnectionId={isRemoteWorkspace(workspace) ? workspace.connectionId : null}
-            remoteSshHost={isRemoteWorkspace(workspace) ? workspace.sshHost : null}
           />
         </Suspense>
       </RetainedMountBoundary>
@@ -1612,11 +1580,8 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
           <ScheduledJobsModal
             isOpen={scheduledJobsModalOpen}
             onClose={() => setScheduledJobsModalOpen(false)}
-            workspacePath={workspace.rootPath}
             workspaceId={workspace.id}
             workspaceKind={workspace.workspaceKind}
-            remoteConnectionId={isRemoteWorkspace(workspace) ? workspace.connectionId : null}
-            remoteSshHost={isRemoteWorkspace(workspace) ? workspace.sshHost : null}
             targetKind="workspace"
             title={t('nav.scheduledJobs.title')}
             targetLabel={workspaceDisplayName}

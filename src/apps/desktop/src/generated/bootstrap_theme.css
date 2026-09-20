@@ -94,8 +94,8 @@
     --openbitfun-color-link-hover: #93c5fd;
     --openbitfun-color-number-badge-background: rgba(255, 255, 255, 0.1);
     --openbitfun-color-overlay-scrim: rgba(0, 0, 0, 0.56);
-    --openbitfun-color-scrollbar-thumb: rgba(255, 255, 255, 0.12);
-    --openbitfun-color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.15);
+    --openbitfun-color-scrollbar-thumb: rgba(255, 255, 255, 0.20);
+    --openbitfun-color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.30);
     --openbitfun-color-selection-surface: rgba(255, 255, 255, 0.12);
     --openbitfun-color-status-danger-border: rgba(236, 34, 31, 0.3);
     --openbitfun-color-status-danger-content: #f47f7d;

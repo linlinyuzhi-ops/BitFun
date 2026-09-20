@@ -882,6 +882,7 @@ export const FileOperationToolCard: React.FC<FileOperationToolCardProps> = (prop
         toolItem={props.toolItem}
         planFilePath={planFilePath}
         initialContent={writeOperationContent(props.toolItem)}
+        workspaceId={currentWorkspace?.id}
         workspacePath={currentWorkspace?.rootPath}
         remoteConnectionId={currentWorkspace?.connectionId}
       />

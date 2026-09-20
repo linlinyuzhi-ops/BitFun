@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GitStateManager } from './GitStateManager';
 import type { GitStateLayer } from './types';
@@ -51,7 +52,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-const repositoryPath = 'D:/workspace/OpenBitFun';
+const repositoryPath = { workspaceId: 'workspace-1', repositoryPath: 'D:/workspace/OpenBitFun' };
 
 describe('GitStateManager refresh performance guards', () => {
   let manager: GitStateManager;
@@ -64,7 +65,7 @@ describe('GitStateManager refresh performance guards', () => {
 
     gitApiMocks.isGitRepository.mockResolvedValue(true);
     gitApiMocks.getRepositoryBasic.mockResolvedValue({
-      path: repositoryPath,
+      path: repositoryPath.repositoryPath,
       name: 'OpenBitFun',
       current_branch: 'main',
       is_bare: false,
@@ -72,7 +73,7 @@ describe('GitStateManager refresh performance guards', () => {
       remotes: [],
     });
     gitApiMocks.getRepository.mockResolvedValue({
-      path: repositoryPath,
+      path: repositoryPath.repositoryPath,
       name: 'OpenBitFun',
       current_branch: 'main',
       is_bare: false,
@@ -95,6 +96,51 @@ describe('GitStateManager refresh performance guards', () => {
     GitStateManager.resetInstance();
     vi.useRealTimers();
     vi.clearAllMocks();
+  });
+
+  it('keeps polling paused when another repository subscribes while hidden', async () => {
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    const addListener = vi.spyOn(document, 'addEventListener');
+    const removeListener = vi.spyOn(document, 'removeEventListener');
+    try {
+      const unsubscribe = manager.subscribe(repositoryPath, () => {});
+      hidden.mockReturnValue(true);
+      document.dispatchEvent(new Event('visibilitychange'));
+      const unsubscribeOther = manager.subscribe({ workspaceId: 'workspace-2' }, () => {});
+      await vi.advanceTimersByTimeAsync(4100);
+      expect(gitApiMocks.isGitRepository).not.toHaveBeenCalled();
+      const listeners = addListener.mock.calls.filter(([type]) => type === 'visibilitychange');
+      expect(listeners).toHaveLength(1);
+
+      hidden.mockReturnValue(false);
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(100);
+      expect(gitApiMocks.getRepositoryBasic).toHaveBeenCalledTimes(2);
+      unsubscribe();
+      unsubscribeOther();
+      expect(removeListener).toHaveBeenCalledWith('visibilitychange', listeners[0][1]);
+      await vi.advanceTimersByTimeAsync(4100);
+      expect(gitApiMocks.getRepositoryBasic).toHaveBeenCalledTimes(2);
+    } finally {
+      hidden.mockRestore();
+      addListener.mockRestore();
+      removeListener.mockRestore();
+    }
+  });
+
+  it('does not start polling for an initially hidden document', async () => {
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    try {
+      manager.subscribe(repositoryPath, () => {});
+      await vi.advanceTimersByTimeAsync(4100);
+      expect(gitApiMocks.isGitRepository).not.toHaveBeenCalled();
+      hidden.mockReturnValue(false);
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(100);
+      expect(gitApiMocks.getRepositoryBasic).toHaveBeenCalledTimes(1);
+    } finally {
+      hidden.mockRestore();
+    }
   });
 
   it('refreshes the basic layer without fetching full status', async () => {
@@ -239,7 +285,7 @@ describe('GitStateManager ownership trust', () => {
   let manager: GitStateManager;
 
   const untrustedError = () =>
-    new Error(`git_repository_untrusted: ${repositoryPath}`);
+    new Error(`git_repository_untrusted: ${repositoryPath.repositoryPath}`);
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -366,7 +412,7 @@ describe('GitStateManager ownership trust', () => {
       state: 'trust_required',
       repositoryPath,
       detail: 'detected dubious ownership',
-      manualCommand: `git config --global --add safe.directory '${repositoryPath}'`,
+      manualCommand: `git config --global --add safe.directory '${repositoryPath.repositoryPath}'`,
     });
 
     await expect(refreshBasicAndStatus()).rejects.toThrow('unsupported command');
@@ -409,7 +455,7 @@ describe('GitStateManager ownership trust', () => {
       state: 'trust_required',
       repositoryPath,
       detail: 'detected dubious ownership',
-      manualCommand: `git config --global --add safe.directory ${repositoryPath}`,
+      manualCommand: `git config --global --add safe.directory ${repositoryPath.repositoryPath}`,
     });
     await expect(refreshBasicAndStatus()).rejects.toThrow('unsupported command');
     expect(manager.getState(repositoryPath)).toMatchObject({ repositoryTrustRequired: true });
@@ -440,7 +486,7 @@ describe('GitStateManager ownership trust', () => {
       state: 'trust_required',
       repositoryPath,
       detail: 'detected dubious ownership',
-      manualCommand: `git config --global --add safe.directory ${repositoryPath}`,
+      manualCommand: `git config --global --add safe.directory ${repositoryPath.repositoryPath}`,
     });
     await expect(refreshBasicAndStatus()).rejects.toThrow('unsupported command');
 
@@ -463,5 +509,133 @@ describe('GitStateManager ownership trust', () => {
       isRepository: true,
       repositoryTrustRequired: false,
     });
+  });
+});
+
+/**
+ * A manual checkout reaches the shared cache as a `branch:changed` event — both
+ * the Git scene's branch list and the composer's branch picker emit it. These
+ * tests pin the two properties that let every branch label read from one
+ * variable: the write lands before any Git round trip, and it reaches
+ * subscribers immediately.
+ */
+describe('GitStateManager branch switch propagation', () => {
+  let manager: GitStateManager;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    GitStateManager.resetInstance();
+    manager = GitStateManager.getInstance();
+    manager.setCacheConfig({ basic: 0, status: 0, detailed: 0 });
+
+    gitApiMocks.isGitRepository.mockResolvedValue(true);
+    gitApiMocks.getRepositoryBasic.mockResolvedValue({
+      path: repositoryPath.repositoryPath,
+      name: 'OpenBitFun',
+      current_branch: 'main',
+      is_bare: false,
+      has_changes: false,
+      remotes: [],
+    });
+    gitApiMocks.getStatus.mockResolvedValue({
+      staged: [],
+      unstaged: [],
+      untracked: [],
+      conflicts: [],
+      current_branch: 'main',
+      ahead: 0,
+      behind: 0,
+    });
+    gitApiMocks.getBranches.mockResolvedValue([
+      { name: 'main', current: true, remote: false, ahead: 0, behind: 0 },
+      { name: 'feature', current: false, remote: false, ahead: 0, behind: 0 },
+    ]);
+    gitApiMocks.getCommits.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    manager.dispose();
+    GitStateManager.resetInstance();
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  /** The handler the manager registers for a completed checkout. */
+  function branchChangedHandler(): (event: unknown) => void {
+    const call = gitEventServiceMock.on.mock.calls.find(([type]) => type === 'branch:changed');
+    if (!call) {
+      throw new Error('branch:changed handler was not registered');
+    }
+    return call[1] as (event: unknown) => void;
+  }
+
+  function reportBranchChange(branchName: string): void {
+    branchChangedHandler()({
+      data: { repositoryPath, branch: { name: branchName }, timestamp: new Date() },
+    });
+  }
+
+  async function primeState(): Promise<void> {
+    const settled = manager
+      .refresh(repositoryPath, { layers: ['basic', 'status', 'detailed'], force: true, reason: 'mount' })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    await vi.advanceTimersByTimeAsync(100);
+    const failure = await settled;
+    if (failure) throw failure;
+  }
+
+  it('moves subscribers to the new branch before the refresh lands', async () => {
+    await primeState();
+    expect(manager.getState(repositoryPath)?.currentBranch).toBe('main');
+
+    const seen: (string | null)[] = [];
+    manager.subscribe(
+      repositoryPath,
+      state => { seen.push(state.currentBranch); },
+      { layers: ['basic'], immediate: false },
+    );
+
+    // No Git call is made: the checkout report is the only input at this point.
+    reportBranchChange('feature');
+
+    expect(manager.getState(repositoryPath)?.currentBranch).toBe('feature');
+    expect(seen).toEqual(['feature']);
+  });
+
+  it('moves the cached branch list marker without re-reading the repository', async () => {
+    await primeState();
+    gitApiMocks.getBranches.mockClear();
+
+    reportBranchChange('feature');
+
+    expect(manager.getState(repositoryPath)?.branches?.map(b => [b.name, b.current])).toEqual([
+      ['main', false],
+      ['feature', true],
+    ]);
+    expect(gitApiMocks.getBranches).not.toHaveBeenCalled();
+  });
+
+  // Git outranks the optimistic write: the reconciling refresh the same event
+  // schedules replaces a value the host disagrees with.
+  it('lets the reconciling refresh overwrite a branch Git reports differently', async () => {
+    await primeState();
+
+    reportBranchChange('feature');
+    expect(manager.getState(repositoryPath)?.currentBranch).toBe('feature');
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(manager.getState(repositoryPath)?.currentBranch).toBe('main');
+  });
+
+  it('ignores a branch change report that carries no branch name', async () => {
+    await primeState();
+
+    branchChangedHandler()({ data: { repositoryPath, timestamp: new Date() } });
+
+    expect(manager.getState(repositoryPath)?.currentBranch).toBe('main');
   });
 });

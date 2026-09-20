@@ -21,7 +21,7 @@ describe('shared native scrollbar presentation', () => {
       /::-webkit-scrollbar-thumb\s*\{[^}]*background:\s*var\(--openbitfun-color-scrollbar-thumb\);/s,
     );
     expect(stylesheet).toMatch(
-      /::-webkit-scrollbar-thumb:hover\s*\{[^}]*background:\s*var\(--openbitfun-color-scrollbar-thumb-hover\);/s,
+      /::-webkit-scrollbar-thumb:hover,[^{}]+::-webkit-scrollbar-thumb:active\s*\{[^}]*background:\s*var\(--openbitfun-color-scrollbar-thumb-hover\);/s,
     );
   });
 

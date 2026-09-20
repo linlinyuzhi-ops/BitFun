@@ -7,7 +7,8 @@ import { flowChatStore } from '../store/FlowChatStore';
 import { resolveSessionDriverId } from '../session-drivers/resolve';
 import { isAcpFlowSession } from '../utils/acpSession';
 
-export interface ControlConversation { sessionId: string; workspacePath: string }
+/** `workspaceId` owns the conversation; `workspacePath` is its IO root only. */
+export interface ControlConversation { sessionId: string; workspaceId: string; workspacePath: string }
 const pending = new Map<number, Promise<ControlConversation>>();
 
 export function supportsControlConversation(): boolean {
@@ -57,13 +58,16 @@ function requestControlConversation(expectedSessionId?: string): Promise<Control
       ? await api.invoke<ControlConversation>('ensure_control_conversation')
       : await api.invoke<ControlConversation>('create_control_conversation', { request: { expectedSessionId } });
     scope.assertCurrent('ensure control conversation');
+    if (typeof result.workspaceId !== 'string' || !result.workspaceId) {
+      throw new Error('This host did not report the control conversation workspace. Update the target host.');
+    }
     const existing = flowChatStore.getState().sessions.get(result.sessionId);
     if (!existing) {
       flowChatStore.addExternalSession(result.sessionId, 'OpenBitFun', 'OpenBitFun', result.workspacePath,
-        { isTransient: true, agentBackedTransient: true });
+        { isTransient: true, agentBackedTransient: true, workspaceId: result.workspaceId });
     }
     if (!existing || existing.historyState === 'failed') {
-      await flowChatStore.loadSessionHistory(result.sessionId, result.workspacePath, undefined, undefined, undefined, { includeInternal: true });
+      await flowChatStore.loadSessionHistory(result.sessionId, { includeInternal: true });
     }
     scope.assertCurrent('hydrate control conversation');
     return result;
@@ -73,13 +77,29 @@ function requestControlConversation(expectedSessionId?: string): Promise<Control
 }
 
 export interface VoiceExchange {
-  surfaceId: string; sessionId: string; workspacePath: string;
-  remoteConnectionId?: string; remoteSshHost?: string;
+  surfaceId: string; sessionId: string; workspaceId: string;
   exchangeId: string; userText: string; assistantText: string;
+}
+/** Outbox records written before the workspace-ID contract carry only a path. */
+type PersistedVoiceExchange = Omit<VoiceExchange, 'workspaceId'> & { workspaceId?: string; workspacePath?: string };
+const VOICE_EXCHANGE_FIELDS = ['surfaceId', 'sessionId', 'exchangeId', 'userText', 'assistantText'] as const;
+
+/** Upgrade a retained record to the ID contract; a record we cannot own stays on disk. */
+function upgradePersistedVoiceExchange(record: PersistedVoiceExchange): VoiceExchange {
+  if (typeof record.workspaceId === 'string' && record.workspaceId) {
+    const { workspacePath: _legacyPath, ...current } = record;
+    return { ...current, workspaceId: record.workspaceId };
+  }
+  const session = flowChatStore.getState().sessions.get(record.sessionId);
+  const workspaceId = session?.workspaceId ?? session?.config.workspaceId;
+  if (!workspaceId) throw new Error('Voice history record predates workspace identity and its conversation is not loaded');
+  const { workspacePath: _legacyPath, workspaceId: _missing, ...current } = record;
+  return { ...current, workspaceId };
 }
 const OUTBOX = 'openbitfun-voice-exchange:';
 const volatileOutbox = new Map<string, VoiceExchange>();
-const outboxKey = (request: VoiceExchange) => OUTBOX + JSON.stringify([request.surfaceId, request.sessionId, request.exchangeId]);
+const outboxKey = (request: Pick<VoiceExchange, 'surfaceId' | 'sessionId' | 'exchangeId'>) =>
+  OUTBOX + JSON.stringify([request.surfaceId, request.sessionId, request.exchangeId]);
 const outboxStorage = () => typeof localStorage === 'undefined' ? undefined : localStorage;
 
 /** Keep ordinary text submissions synchronous when no native history needs recovery. */
@@ -107,11 +127,9 @@ export async function recordVoiceExchange(request: VoiceExchange) {
   const scope = getActiveSurfaceScope();
   if (scope.surfaceId !== request.surfaceId) throw new Error('Voice conversation belongs to another device');
   // The host can evict a session or restart while an outbox entry is pending.
-  // Restore through the existing workspace adapter, including SSH identity.
+  // Restore by the owning workspace ID, as restore_session does.
   await agentAPI.ensureCoordinatorSession({
-    sessionId: request.sessionId, workspacePath: request.workspacePath,
-    remoteConnectionId: request.remoteConnectionId, remoteSshHost: request.remoteSshHost,
-    includeInternal: true,
+    sessionId: request.sessionId, workspaceId: request.workspaceId, includeInternal: true,
   });
   scope.assertCurrent('restore voice history session');
   await api.invoke('record_voice_exchange', { request: {
@@ -122,7 +140,7 @@ export async function recordVoiceExchange(request: VoiceExchange) {
   outboxStorage()?.removeItem(outboxKey(request));
   scope.assertCurrent('record voice exchange');
   if (flowChatStore.getState().sessions.has(request.sessionId)) {
-    await flowChatStore.loadSessionHistory(request.sessionId, request.workspacePath, undefined, request.remoteConnectionId, request.remoteSshHost, { includeInternal: true });
+    await flowChatStore.loadSessionHistory(request.sessionId, { includeInternal: true });
   }
 }
 
@@ -143,13 +161,13 @@ export function replayVoiceExchanges(sessionId?: string): Promise<void> {
         const [surface, session] = JSON.parse(key.slice(OUTBOX.length));
         if (surface !== scope.surfaceId || sessionId && sessionId !== session) continue;
         selected = true;
-        const request = JSON.parse(storage!.getItem(key)!) as VoiceExchange;
-        if (!request || outboxKey(request) !== key
-          || !['surfaceId', 'sessionId', 'workspacePath', 'exchangeId', 'userText', 'assistantText']
-            .every(field => typeof request[field as keyof VoiceExchange] === 'string')) {
+        const record = JSON.parse(storage!.getItem(key)!) as PersistedVoiceExchange | null;
+        if (!record || outboxKey(record) !== key
+          || !VOICE_EXCHANGE_FIELDS.every(field => typeof record[field] === 'string')
+          || !(typeof record.workspaceId === 'string' || typeof record.workspacePath === 'string')) {
           throw new Error('Invalid voice history record retained for recovery');
         }
-        requests.set(key, request);
+        requests.set(key, upgradePersistedVoiceExchange(record));
       } catch (error) { if (selected) failures.push(error); }
     }
     for (const request of requests.values()) {

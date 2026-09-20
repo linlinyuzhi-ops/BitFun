@@ -16,6 +16,7 @@ import { type LineRange } from '@/shared/editor/LineRange';
 import path from 'path-browserify';
 import { createLogger } from '@/shared/utils/logger';
 import { hasNonFileUriScheme } from '@/shared/utils/pathUtils';
+import { sessionWorkspaceId } from '../../../flow_chat/session-drivers/sessionFileNavigation';
 
 import './ChatPane.scss';
 import { ConversationViewProvider } from '@/flow_chat/contexts/ConversationViewProvider';
@@ -106,6 +107,8 @@ const ChatPaneInner: React.FC<ChatPaneProps> = ({
     fileTabManager.openFile({
       filePath: absoluteFilePath,
       fileName,
+      // The conversation's session owns the referenced file.
+      workspaceId: sessionWorkspaceId(flowChatStore.getActiveSession()?.sessionId),
       workspacePath,
       jumpToRange: lineRange,
       scope: sessionRef ? { surfaceId: sessionRef.surfaceId, workspacePath, remoteConnectionId: flowChatStore.getState().sessions.get(sessionRef.sessionId)?.remoteConnectionId } : undefined,

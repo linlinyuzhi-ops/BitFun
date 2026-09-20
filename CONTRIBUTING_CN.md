@@ -50,6 +50,11 @@ pnpm run check:build-prereqs -- --fix  # 尝试自动修复缺失的前置依赖
 pnpm install
 ```
 
+pnpm 工作区统一使用根目录的 `pnpm-lock.yaml`，不要为工作区包提交
+`package-lock.json`。独立的 `packages/dsh-acp` npm 包与
+`src/apps/extension-host` Bun 宿主保留各自的锁文件和准备命令。
+Tauri 生成的 `gen/` 目录以及本地实施过程记录不进入 Git。
+
 ### 常用命令
 
 ```bash
@@ -105,11 +110,11 @@ DevTools；`Cmd/Ctrl + Shift + I` 切换 OpenBitFun 元素检查器，`Cmd/Ctrl 
 
 | 贡献方向 | 位置/文件 | 示例说明 |
 | --- | --- | --- |
-| Prompts | `src/crates/assembly/core/src/agentic/agents/prompts/` | 新增或优化提示词，并按需更新相关逻辑 |
+| Prompts | `src/crates/assembly/agent-content/prompts/agents/` | 新增或优化内置提示词；选择逻辑与运行时策略仍由现有模块负责 |
 | Tools | `src/crates/assembly/core/src/agentic/tools/implementations/`、`src/crates/assembly/core/src/agentic/tools/registry.rs` | 新增工具实现，并在工具注册表中注册 |
-| Subagents | `src/crates/assembly/core/src/agentic/agents/custom_subagents/`、`src/crates/assembly/core/src/agentic/agents/registry.rs` | 新增子代理实现，并在子代理注册表中注册 |
-| 模式贡献 | `src/crates/assembly/core/src/agentic/agents/*_mode.rs`、`src/crates/assembly/core/src/agentic/agents/prompts/*_mode.md`、`src/web-ui/src/locales/*/settings/modes.json` | 新增/优化 Agentic 或自定义 Agent 模式的逻辑与提示词，并同步前端模式文案 |
-| Code Agent 与 AIIde 场景指南 | `website/src/docs/` | 补充流程、playbook 与真实场景说明（或从 `README.md` 链接） |
+| Subagents | `src/crates/assembly/core/src/agentic/agents/definitions/`、`src/crates/assembly/core/src/agentic/agents/registry/` | 新增子代理定义，并在所属注册表中注册 |
+| 模式贡献 | `src/crates/assembly/core/src/agentic/agents/definitions/`、`src/crates/assembly/agent-content/prompts/agents/`、`src/web-ui/src/locales/` | 同步模式策略、内置提示词及所属界面文案 |
+| Playbook 与场景指南 | `src/shared/interactive-capabilities/catalog.json`、所属应用 README | 维护源目录并运行 `pnpm run capabilities:generate`；`website/` 消费生成的目录 |
 
 ### 开始前
 
@@ -161,7 +166,7 @@ Repository Object Sizes 检查会拒绝超过 5 MiB 的 Git 文件对象，包�
 | 仓库元信息或 GitHub 配置 | `pnpm run check:repo-hygiene && pnpm run check:github-config && git diff --check` |
 | 前端运行时或 UI | `pnpm run check:web`；行为变化时再加最近的 focused test |
 | Mobile web | `pnpm --dir src/mobile-web run type-check` |
-| Rust 共享 runtime 或 services | `cargo check --workspace`；行为变化时再加 focused `cargo test` |
+| Rust 共享 runtime 或 services | 遵循最近模块的 `AGENTS.md`，选择单个包/测试目标和最小所需 feature |
 | Desktop/Tauri 集成 | `cargo check -p openbitfun-desktop` |
 | i18n 资源或契约 | 使用 `AGENTS.md` 中匹配的 i18n 验证行 |
 

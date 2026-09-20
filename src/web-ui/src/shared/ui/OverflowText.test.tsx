@@ -97,10 +97,11 @@ describe('overflow text full-content access', () => {
     expect(tooltip()).toBeNull();
   });
 
-  it('keeps the command tooltip open when portal enter precedes native trigger leave', () => {
+  it('uses solid ellipsis for long commands and keeps the tooltip open across portal entry', () => {
     render(<CommandToolCard action="Run" command={longLabel} emptyCommand="Empty" isExpanded={false} status="completed" />);
     expect(host.querySelector('[title]')).toBeNull();
     const label = host.querySelector('[data-openbitfun-part="command"] [data-overflow]')!;
+    expect(label.getAttribute('data-overflow-style')).toBe('ellipsis');
     const trigger = label.closest('[data-overflow-trigger]') ?? label;
     hover(trigger);
     reveal();

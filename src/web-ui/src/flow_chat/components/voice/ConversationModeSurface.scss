@@ -1,3 +1,5 @@
+@use '../../markdown-typography' as markdownTypography;
+
 .openbitfun-conversation-mode-surface {
   flex: 1;
   min-width: 0;
@@ -190,10 +192,17 @@
   }
 }
 .openbitfun-conversation-mode-surface__composer-content { min-height: 0; overflow: hidden; }
-.openbitfun-conversation-mode-surface__transcript .markdown-renderer {
+.openbitfun-conversation-mode-surface__transcript {
+  .markdown-renderer { white-space: normal; }
+
+  &[data-openbitfun-presentation='chat'] {
+    @include markdownTypography.apply;
+  }
+}
+
+.openbitfun-conversation-mode-surface__transcript[data-openbitfun-presentation='voice'] .markdown-renderer {
   color: inherit;
   font: inherit;
-  white-space: normal;
   :is(p, h1, h2, h3, h4, h5, h6, strong, em, li) { color: inherit; }
 }
 .openbitfun-conversation-mode-surface__history {

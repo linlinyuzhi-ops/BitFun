@@ -46,7 +46,6 @@
     align-items: center;
     gap: var(--openbitfun-space-1);
     padding: var(--openbitfun-space-1) var(--openbitfun-space-2);
-    border-bottom: var(--openbitfun-border-width-default) solid var(--openbitfun-color-border-subtle);
     min-inline-size: 0;
   }
 
@@ -101,14 +100,29 @@
   }
 
   &__section {
+    position: relative;
     display: flex;
     flex-direction: column;
     min-block-size: var(--openbitfun-control-height-sm);
     overflow: hidden;
+
+    &::before {
+      position: absolute;
+      inset-inline: var(--openbitfun-space-2);
+      top: 0;
+      z-index: var(--openbitfun-layer-decoration);
+      height: 1px;
+      background: var(--openbitfun-color-border-default);
+      content: '';
+      pointer-events: none;
+    }
   }
 
-  &__section--terminals {
-    border-top: var(--openbitfun-border-width-default) solid var(--openbitfun-color-border-subtle);
+  // This section is pinned to the bottom of a flexible split. At fractional
+  // desktop scale factors, its 1px top rule can rasterize across two device
+  // pixels. Use a hairline here so it matches the one-device-pixel rules above.
+  &__section--terminals::before {
+    height: 0.5px;
   }
 
   &__section-toggle {

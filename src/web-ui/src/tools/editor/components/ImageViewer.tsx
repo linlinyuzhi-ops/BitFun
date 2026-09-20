@@ -1,4 +1,5 @@
 import { useEditorDocument } from '../services/EditorDocument';
+import { standaloneEditorFileAccess } from '../services/editorFileAccess';
 /**
  * Image Viewer Component
  * 
@@ -6,9 +7,9 @@ import { useEditorDocument } from '../services/EditorDocument';
  * @module components/ImageViewer
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { ZoomIn, ZoomOut, RotateCw, Maximize2 } from 'lucide-react';
-import { OverflowText, Button, Icon, IconButton, Toolbar, ToolbarGroup, ToolbarSeparator, Tooltip } from '@openbitfun/ui';
+import { Portal, OverflowText, Button, Icon, IconButton, Toolbar, ToolbarGroup, ToolbarSeparator, Tooltip } from '@openbitfun/ui';
 import { createLogger } from '@/shared/utils/logger';
 
 import { useI18n } from '@/infrastructure/i18n';
@@ -23,6 +24,8 @@ export interface ImageViewerProps {
   isActiveTab?: boolean;
   /** File name */
   fileName?: string;
+  /** Owning workspace ID for viewers rendered without an EditorDocument. */
+  workspaceId?: string;
   /** Workspace path (for relative path resolution) */
   workspacePath?: string;
   /** CSS class name */
@@ -35,10 +38,13 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   filePath,
   fileName,
   imageSource,
+  workspaceId,
   isActiveTab = true,
   className = ''
 }) => {
   const documentSession = useEditorDocument();
+  const standaloneFiles = useMemo(() => standaloneEditorFileAccess(workspaceId), [workspaceId]);
+  const documentFiles = documentSession?.files ?? standaloneFiles;
   const { t } = useI18n('tools');
   const [retryKey, setRetryKey] = useState(0);
   const [imageUrl, setImageUrl] = useState<string>('');
@@ -48,6 +54,14 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
   const [rotation, setRotation] = useState(0);
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
+  const expanded = isFullscreen && isActiveTab;
+  const wasExpanded = useRef(false);
+  useLayoutEffect(() => {
+    if (wasExpanded.current && !expanded && isActiveTab) fullscreenButtonRef.current?.focus({ preventScroll: true });
+    wasExpanded.current = expanded;
+  }, [expanded, isActiveTab]);
   const [loadedOrigin, setLoadedOrigin] = useState<{ filePath: string; imageSource: typeof imageSource; documentSession: typeof documentSession }>();
   const originCurrent = loadedOrigin?.filePath === filePath && loadedOrigin.imageSource === imageSource && loadedOrigin.documentSession === documentSession;
   const [fileSize, setFileSize] = useState<number>(0);
@@ -97,8 +111,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
         setLoading(true);
         setError(null);
 
-        const workspaceAPI = documentSession?.files ?? (await import('@/infrastructure/api')).workspaceAPI;
-        const result = await workspaceAPI.readFileContent(filePath);
+        const result = await documentFiles.readFileContent(filePath);
 
         if (cancelled) return;
         const mimeType = getMimeType(filePath);
@@ -119,7 +132,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
 
     void loadImage();
     return () => { cancelled = true; };
-  }, [filePath, getMimeType, imageSource, t, documentSession, retryKey]);
+  }, [filePath, getMimeType, imageSource, t, documentFiles, documentSession, retryKey]);
 
   const errorRef = useRef(error);
   errorRef.current = error;
@@ -177,12 +190,18 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
     setIsFullscreen(prev => !prev);
   }, []);
 
-  return (
+  const content = (
     <div
-      className={`openbitfun-image-viewer ${className} ${isFullscreen ? 'fullscreen' : ''}`}
+      ref={surfaceRef}
+      role={expanded ? 'dialog' : undefined}
+      aria-modal={expanded || undefined}
+      aria-label={expanded ? fileName || filePath : undefined}
+      tabIndex={expanded ? -1 : undefined}
+      data-openbitfun-native-webview-occlusion={expanded || undefined}
+      className={`openbitfun-image-viewer ${className} ${expanded ? 'fullscreen' : ''}`}
       data-openbitfun-component="image-viewer"
       data-openbitfun-part="root"
-      data-openbitfun-state={isFullscreen ? 'fullscreen' : undefined}
+      data-openbitfun-state={expanded ? 'fullscreen' : undefined}
     >
       <Toolbar
         className="openbitfun-image-viewer__toolbar"
@@ -261,6 +280,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
                 placement="top"
               >
                 <IconButton
+                  ref={fullscreenButtonRef}
                   aria-label={isFullscreen ? t('editor.imageViewer.exitFullscreen') : t('editor.imageViewer.enterFullscreen')}
                   size="sm"
                   variant="quiet"
@@ -313,6 +333,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({
       </div>
     </div>
   );
+  return expanded ? <Portal modal surfaceRef={surfaceRef} onDismiss={() => setIsFullscreen(false)}>{content}</Portal> : content;
 };
 
 export default ImageViewer;

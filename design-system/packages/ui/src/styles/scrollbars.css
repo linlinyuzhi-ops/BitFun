@@ -28,7 +28,8 @@
     border-radius: var(--openbitfun-scrollbar-radius);
   }
 
-  :where([data-openbitfun-design-system-root], [data-openbitfun-design-system-root] *, [data-openbitfun-scrollbar-visibility])::-webkit-scrollbar-thumb:hover {
+  :where([data-openbitfun-design-system-root], [data-openbitfun-design-system-root] *, [data-openbitfun-scrollbar-visibility])::-webkit-scrollbar-thumb:hover,
+  :where([data-openbitfun-design-system-root], [data-openbitfun-design-system-root] *, [data-openbitfun-scrollbar-visibility])::-webkit-scrollbar-thumb:active {
     background: var(--openbitfun-color-scrollbar-thumb-hover);
   }
 
@@ -76,7 +77,8 @@
     }
 
     :where([data-openbitfun-design-system-root], [data-openbitfun-design-system-root] *, [data-openbitfun-scrollbar-visibility])::-webkit-scrollbar-thumb,
-    :where([data-openbitfun-design-system-root], [data-openbitfun-design-system-root] *, [data-openbitfun-scrollbar-visibility])::-webkit-scrollbar-thumb:hover {
+    :where([data-openbitfun-design-system-root], [data-openbitfun-design-system-root] *, [data-openbitfun-scrollbar-visibility])::-webkit-scrollbar-thumb:hover,
+    :where([data-openbitfun-design-system-root], [data-openbitfun-design-system-root] *, [data-openbitfun-scrollbar-visibility])::-webkit-scrollbar-thumb:active {
       background: CanvasText;
     }
   }

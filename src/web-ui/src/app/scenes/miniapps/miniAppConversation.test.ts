@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '@/flow_chat/types/flow-chat';
 import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
 import { dockConversationKey, useConversationDockStore } from '@/app/stores/conversationDockStore';
+import { sessionSceneWorkspaceKey } from '@/app/services/sessionSceneTarget';
 import { useMiniAppStore } from './miniAppStore';
 import { followMiniAppConversation, openMiniAppConversation, openMiniAppFromConversation, resolveMiniAppConversation, syncMiniAppConversations } from './miniAppConversation';
 
@@ -9,8 +10,15 @@ const fixture = vi.hoisted(() => ({ sessions: new Map<string, Session>(), openSc
 vi.mock('@/flow_chat/store/FlowChatStore', () => ({ flowChatStore: { getState: () => ({ sessions: fixture.sessions }) } }));
 vi.mock('@/app/stores/sceneStore', () => ({ useSceneStore: { getState: () => ({ openScene: fixture.openScene }) } }));
 
+/** MiniApp sessions are owned by a workspace record; the dock groups them by that record's ID, never by a folder path. */
 function bind(appId: string, sessionId = appId, surfaceId = 'local') {
-  fixture.sessions.set(sessionId, { sessionId, workspacePath: `/apps/${appId}`, config: {}, dialogTurns: [] } as unknown as Session);
+  fixture.sessions.set(sessionId, {
+    sessionId,
+    workspaceId: `workspace-${appId}`,
+    workspacePath: `/apps/${appId}`,
+    config: {},
+    dialogTurns: [],
+  } as unknown as Session);
   useMiniAppStore.getState().claimComposer(appId, { surfaceId, token: `${appId}#1`, sessionId });
 }
 
@@ -86,7 +94,8 @@ describe('MiniApp and conversation navigation', () => {
 
   it('returns to the owning application and rejects references from other devices', () => {
     bind('slides'); const entry = resolveMiniAppConversation('slides')!;
-    expect(entry.workspaceKey).toContain('/apps/slides');
+    expect(entry.workspaceKey).toBe(sessionSceneWorkspaceKey('workspace-slides'));
+    expect(entry.workspaceKey).not.toContain('/apps/slides');
     openMiniAppFromConversation(entry);
     expect(fixture.openScene).toHaveBeenCalledExactlyOnceWith('miniapp:slides');
     activateSurface('peer');

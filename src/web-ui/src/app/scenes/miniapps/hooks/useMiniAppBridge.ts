@@ -369,18 +369,12 @@ export function useMiniAppBridge(
                   sessionKind: 'miniapp',
                   isTransient: true,
                   agentBackedTransient: true,
+                  workspaceId: result.workspaceId,
                 },
               );
               if (!result.created) {
                 try {
-                  await flowChatStore.loadSessionHistory(
-                    result.sessionId,
-                    result.workspacePath,
-                    undefined,
-                    undefined,
-                    undefined,
-                    { includeInternal: true },
-                  );
+                  await flowChatStore.loadSessionHistory(result.sessionId, { includeInternal: true });
                 } catch (error) {
                   // The binding is still valid even if UI history hydration
                   // fails; keep the bubble on the exact topic session.

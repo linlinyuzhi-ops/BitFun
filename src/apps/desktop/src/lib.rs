@@ -1064,7 +1064,7 @@ pub async fn run() {
                 let app_handle_for_menu = app.handle().clone();
                 let app_state: tauri::State<'_, api::app_state::AppState> = app.state();
                 let config_service = app_state.config_service.clone();
-                let workspace_path = app_state.workspace_path.clone();
+                let workspace_id = app_state.workspace_id.clone();
                 let macos_edit_menu_mode = app_state.macos_edit_menu_mode.clone();
 
                 tokio::spawn(async move {
@@ -1073,7 +1073,7 @@ pub async fn run() {
                         .await
                         .unwrap_or_else(|_| "zh-CN".to_string());
 
-                    let has_workspace = workspace_path.read().await.is_some();
+                    let has_workspace = workspace_id.read().await.is_some();
                     let mode = if has_workspace {
                         crate::macos_menubar::MenubarMode::Workspace
                     } else {
@@ -1736,6 +1736,8 @@ pub async fn run() {
             api::remote_connect_api::account_get_credential_hint,
             api::remote_connect_api::account_token_expired,
             api::remote_connect_api::account_list_devices,
+            api::remote_connect_api::account_update_device_alias,
+            api::remote_connect_api::account_relay_capabilities,
             api::remote_connect_api::account_delete_device,
             api::remote_connect_api::account_device_rpc,
             api::remote_connect_api::account_subscribe_session,
@@ -2319,8 +2321,8 @@ async fn deliver_event_to_webview(
         attach_session_event_cursor(&mut projected.payload, cursor);
     }
 
-    if let (Some(publisher), Some(session_id)) = (
-        api::remote_connect_api::session_publisher().await,
+    if let (Some(hub), Some(session_id)) = (
+        api::remote_connect_api::host_stream_hub().await,
         projected
             .payload
             .get("sessionId")
@@ -2342,12 +2344,12 @@ async fn deliver_event_to_webview(
                     .and_then(serde_json::Value::as_str)
                 {
                     openbitfun_core::service::remote_connect::synchronize_session_record_turn(
-                        &publisher, session_id, turn,
+                        &hub, session_id, turn,
                     )
                     .await
                 } else if name == "agentic://session-history-changed" {
                     openbitfun_core::service::remote_connect::synchronize_session_records(
-                        &publisher, session_id,
+                        &hub, session_id,
                     )
                     .await
                 } else {
@@ -2356,11 +2358,11 @@ async fn deliver_event_to_webview(
             }
             .await
             {
-                log::error!("Unable to synchronize durable session records: {error}");
+                log::error!("Unable to synchronize host session records: {error}");
             }
         }
         if policy.persist_control {
-            if let Err(error) = publisher
+            if let Err(error) = hub
                 .append(
                     session_id.to_owned(),
                     projected.event_name.clone(),
@@ -2368,7 +2370,7 @@ async fn deliver_event_to_webview(
                 )
                 .await
             {
-                log::error!("Unable to persist session control event: {error}");
+                log::error!("Unable to publish session control event: {error}");
             }
         }
     }
@@ -2380,8 +2382,8 @@ async fn deliver_event_to_webview(
         log::error!("Failed to emit event: {:?}", e);
     }
 
-    // Session events are delivered once through the durable account log.
-    // Do not duplicate every payload on the per-controller ephemeral channel.
+    // Session events reach controllers through host streams they read on
+    // demand. Do not duplicate every payload on the per-controller ephemeral channel.
 }
 
 /// Update the rate EMA from a flush that produced `flushed_chars` characters.
@@ -2621,6 +2623,11 @@ fn init_services(app_handle: tauri::AppHandle, default_log_level: log::LevelFilt
             );
         }
 
+        // Workspaces opened by remote controllers, IM bots, or Peer Mode
+        // controllers change the host catalog without a webview command;
+        // the webview re-reads its opened/recent lists on this hint.
+        service::workspace::start_workspace_catalog_publication(emitter.clone());
+
         let event_system = infrastructure::events::get_global_event_system();
         event_system.set_emitter(emitter).await;
     });
@@ -2716,7 +2723,8 @@ fn spawn_workspace_search_feature_listener(app_handle: tauri::AppHandle) {
 
     let app_state: tauri::State<'_, api::AppState> = app_handle.state();
     let workspace_search_service = app_state.workspace_search_service.clone();
-    let workspace_path = app_state.workspace_path.clone();
+    let workspace_id = app_state.workspace_id.clone();
+    let workspace_service = app_state.workspace_service.clone();
 
     tokio::spawn(async move {
         let mut feature_enabled =
@@ -2757,14 +2765,17 @@ fn spawn_workspace_search_feature_listener(app_handle: tauri::AppHandle) {
                         continue;
                     }
 
-                    let current_workspace = workspace_path.read().await.clone();
+                    let selected_id = workspace_id.read().await.clone();
+                    let current_workspace = if let Some(id) = selected_id {
+                        workspace_service.get_workspace(&id).await
+                    } else {
+                        None
+                    };
                     if let Some(current_workspace) = current_workspace {
-                        let workspace_str = current_workspace.to_string_lossy().to_string();
-                        if !openbitfun_core::service::remote_ssh::workspace_state::is_remote_path(
-                            workspace_str.trim(),
-                        )
-                        .await
+                        if current_workspace.workspace_kind
+                            != openbitfun_core::service::workspace::WorkspaceKind::Remote
                         {
+                            let current_workspace = current_workspace.root_path;
                             match workspace_search_service.open_repo(&current_workspace).await {
                                 Ok(_) => {
                                     workspace_search_service.schedule_auto_index(

@@ -18,6 +18,11 @@
   --openbitfun-agent-companion-gap: 8px;
   --openbitfun-agent-companion-pet-width: 96px;
   --openbitfun-agent-companion-pet-height: 96px;
+  /* Room reserved above and below the dock, mirrored by WINDOW_VERTICAL_BUFFER
+     in the component, which grows the host window to hold it. Without it a
+     bubble that lifts (hover, attention pulse) is clipped by the bubble slot
+     and by the window edge. */
+  --openbitfun-agent-companion-vertical-buffer: 3px;
 
   width: 100vw;
   height: 100vh;
@@ -52,12 +57,16 @@
   &__dock {
     position: relative;
     flex: 0 1 auto;
-    min-height: 0;
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: flex-end;
     gap: var(--openbitfun-agent-companion-gap);
+    /* The pet is centered in a slot one buffer taller than it, so it keeps the
+       same clearance from the window edge as a bubble. */
+    min-height: calc(
+      var(--openbitfun-agent-companion-pet-height) + var(--openbitfun-agent-companion-vertical-buffer) * 2
+    );
     width: max-content;
     max-height: 100vh;
     pointer-events: none;
@@ -209,6 +218,9 @@
     max-width: 180px;
     min-height: 0;
     max-height: 100vh;
+    /* The slot clips (`overflow: hidden`), so the buffer has to sit inside it:
+       a bubble lifting out of its own box then keeps its border visible. */
+    padding-block: var(--openbitfun-agent-companion-vertical-buffer);
     display: flex;
     flex-direction: column;
     align-items: flex-end;
@@ -218,7 +230,13 @@
     pointer-events: auto;
 
     &--single {
-      height: min(var(--openbitfun-agent-companion-pet-height), 100vh);
+      height: min(
+        calc(
+          var(--openbitfun-agent-companion-pet-height)
+          + var(--openbitfun-agent-companion-vertical-buffer) * 2
+        ),
+        100vh
+      );
       overflow-y: hidden;
     }
   }

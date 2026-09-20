@@ -1,6 +1,6 @@
+import { useDeviceDirectory, resolveDeviceName, isDeviceControllable, deviceClientVersion } from '@/infrastructure/account/deviceDirectory';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { OverflowText, Button, Card, CardBody, CardFooter, CardHeader, Icon, IconButton, ScrollArea } from '@openbitfun/ui';
-import { createPortal } from 'react-dom';
+import { subscribeOverlayInteraction, createOverlayPortal, OverflowText, Button, Card, CardBody, CardFooter, CardHeader, Icon, IconButton, ScrollArea } from '@openbitfun/ui';
 import { ChevronLeft, ChevronRight, MessageCircle, Monitor, Server, Smartphone, Undo2 } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
@@ -70,6 +70,7 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
   onOpenChange,
   onManageDevices,
 }) => {
+  useDeviceDirectory();
   const { t } = useI18n('common');
   const { success, warning } = useNotification();
   const peerContext = usePeerDeviceModeOptional();
@@ -97,7 +98,7 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
         ]);
         if (disposed || request !== generation) return;
         setSwitchTargets({ accountId, localId: local.device_id, devices: [
-          { ...local, online: true, last_seen_at: null },
+          { ...local, ...devices.find(device => device.device_id === local.device_id), online: true, last_seen_at: null },
           ...devices.filter(device => device.online && device.device_id !== local.device_id)
             .sort((a, b) => a.device_id.localeCompare(b.device_id)),
         ] });
@@ -127,11 +128,14 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
   const connectPreview = async () => {
     if (!peerContext || !availableTargets || !previewTarget || !isPreviewing || switchingRef.current || returningLocal) return;
     const target = previewTarget;
+    // A confirmed-incompatible peer is shown so its state is legible, but it is
+    // never a control target. This machine is never gated by its own flag.
+    if (target.device_id !== availableTargets.localId && !isDeviceControllable(target)) return;
     switchingRef.current = true;
     setSwitchingDevice(true);
     try {
       if (target.device_id === availableTargets.localId) await peerContext.switchToLocal('manual');
-      else await peerContext.switchToDevice(target.device_id, target.device_name);
+      else await peerContext.switchToDevice(target.device_id, resolveDeviceName(target.device_id, target.device_alias ?? target.device_name ?? target.device_id));
     } catch (error) {
       warning(error instanceof Error ? error.message : String(error));
     } finally {
@@ -156,7 +160,7 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
   const previewDevices: DeviceOverviewDevice[] = availableTargets?.devices.map(target =>
     target.device_id === currentId ? overview.primaryDevice
       : overview.devices.find(device => device.id === target.device_id) ?? {
-        id: target.device_id, name: target.device_name, kind: 'desktop',
+        id: target.device_id, name: resolveDeviceName(target.device_id, target.device_alias ?? target.device_name ?? target.device_id), kind: 'desktop',
         local: target.device_id === availableTargets.localId, activities: [], backgroundTaskCount: 0,
       }) ?? [overview.primaryDevice];
   const previewIndex = Math.max(0, availableTargets?.devices.findIndex(
@@ -174,6 +178,7 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
   });
 
   useEffect(() => {
+    let removeOverlayKeydown0: (() => void) | undefined;
     if (!open) return undefined;
     void refresh();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -182,8 +187,8 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
         triggerRef.current?.focus();
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    removeOverlayKeydown0 = subscribeOverlayInteraction(popoverRef, 'keydown', onKeyDown);
+    return () => removeOverlayKeydown0?.();
   }, [onOpenChange, open, refresh]);
 
   const handleReturnLocal = useCallback(async () => {
@@ -303,7 +308,7 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
         )}
       </button>
 
-      {open && createPortal(
+      {open && createOverlayPortal(
         <>
           <div
             className="openbitfun-nav-panel__footer-backdrop"
@@ -370,17 +375,38 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
                 <div className="openbitfun-device-overview__carousel-viewport">
                   <div className="openbitfun-device-overview__carousel-track"
                     style={{ transform: `translateX(-${previewIndex * 100}%)` }}>
-                    {previewDevices.map((device, index) => (
+                    {previewDevices.map((device, index) => {
+                      const slideTarget = availableTargets?.devices[index];
+                      // A confirmed-incompatible peer stays in the carousel so its
+                      // state is legible, but it never becomes a control target.
+                      const incompatible = Boolean(slideTarget
+                        && slideTarget.device_id !== availableTargets?.localId
+                        && !isDeviceControllable(slideTarget));
+                      const incompatibleVersion = slideTarget ? deviceClientVersion(slideTarget) : null;
+                      const incompatibleNotice = incompatibleVersion
+                        ? t('deviceOverview.deviceClientIncompatibleWithVersion', { version: incompatibleVersion })
+                        : t('deviceOverview.deviceClientIncompatible');
+                      return (
                       <div className="openbitfun-device-overview__carousel-slide" key={availableTargets?.devices[index]?.device_id ?? device.id}
                         aria-hidden={index !== previewIndex}>
                         <div className="openbitfun-device-overview__device-switcher">
                           <DeviceArtwork device={device} />
                           {index === previewIndex && isPreviewing && (
                             <div className="openbitfun-device-overview__connect-overlay">
-                              <Button variant="outline" size="sm" disabled={switchingDevice || returningLocal}
-                                onClick={() => { void connectPreview(); }}>
-                                {t('deviceOverview.connectDevice')}
-                              </Button>
+                              {incompatible ? (
+                                <span
+                                  className="openbitfun-device-overview__incompatible"
+                                  data-testid="nav-device-status-incompatible"
+                                  title={incompatibleNotice}
+                                >
+                                  {incompatibleNotice}
+                                </span>
+                              ) : (
+                                <Button variant="outline" size="sm" disabled={switchingDevice || returningLocal}
+                                  onClick={() => { void connectPreview(); }}>
+                                  {t('deviceOverview.connectDevice')}
+                                </Button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -388,10 +414,13 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
                           {device.name}
                         </span>
                         <span className="openbitfun-device-overview__activity">
-                          {index === previewIndex && !isPreviewing ? deviceActivity(overview.primaryDevice) : '\u00a0'}
+                          {index === previewIndex && !isPreviewing
+                            ? (incompatible ? incompatibleNotice : deviceActivity(overview.primaryDevice))
+                            : '\u00a0'}
                         </span>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="openbitfun-device-overview__carousel-controls">

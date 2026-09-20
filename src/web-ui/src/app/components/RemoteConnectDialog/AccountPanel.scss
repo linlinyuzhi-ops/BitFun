@@ -15,8 +15,16 @@
   }
 
   &__error-banner {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--openbitfun-space-2);
     flex-shrink: 0;
     padding: var(--openbitfun-space-3) var(--openbitfun-space-8) 0;
+  }
+
+  &__error-action {
+    align-self: flex-start;
   }
 
   &__login-card {
@@ -196,9 +204,39 @@
   }
 
   &__device-meta {
+    /* Plain inline flow: the model/OS text must wrap inside the row instead of
+       overflowing it, which a wrapping flex row cannot guarantee for a
+       max-content child. */
+    display: block;
     color: var(--openbitfun-color-content-muted);
     font-size: var(--openbitfun-type-body-sm-font-size);
     line-height: var(--openbitfun-type-body-sm-line-height);
+    overflow-wrap: break-word;
+  }
+
+  &__device-status {
+    color: var(--openbitfun-color-content-secondary);
+  }
+
+  &__device-incompatible {
+    color: var(--openbitfun-color-status-warning-content);
+    font-size: var(--openbitfun-type-body-sm-font-size);
+    line-height: var(--openbitfun-type-body-sm-line-height);
+    overflow-wrap: break-word;
+  }
+
+  &__device-alias-editor {
+    display: flex;
+    align-items: center;
+    gap: var(--openbitfun-space-2);
+    min-width: 0;
+
+    > [data-openbitfun-component='icon-button'] { flex-shrink: 0; }
+  }
+
+  &__device-alias-input {
+    flex: 1 1 auto;
+    min-inline-size: 0;
   }
 
   &__loading-overlay {

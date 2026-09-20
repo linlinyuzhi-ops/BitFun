@@ -14,9 +14,11 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const gitApiMock = vi.hoisted(() => ({
   isGitRepository: vi.fn(),
   getStatus: vi.fn(),
+  getRepositoryBasic: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
     t: (key: string, values?: Record<string, unknown>) => values?.count ?? key,
   }),
@@ -54,15 +56,33 @@ vi.mock('@/app/scenes/my-agent/useAgentIdentityDocument', () => ({
   useAgentIdentityDocument: () => ({ document: { name: '' } }),
 }));
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
+// WelcomePanel now reads Git state through useGitState (which subscribes to
+// the shared GitStateManager and participates in its 2 s polling interval)
+// instead of hitting gitAPI directly. Return deterministic state so the
+// render tests do not race against real timers or Tauri APIs.
+vi.mock('@/tools/git/hooks/useGitState', () => ({
+  useGitState: () => ({
+    state: null,
+    isLoading: false,
+    error: null,
+    refresh: vi.fn(),
+    refreshBasic: vi.fn(),
+    refreshStatus: vi.fn(),
+    refreshDetailed: vi.fn(),
+    isRepository: true,
+    repositoryTrustRequired: false,
+    currentBranch: 'main',
+    ahead: 0,
+    behind: 0,
+    hasChanges: false,
+    staged: [],
+    unstaged: [],
+    untracked: [],
+    conflicts: [],
+    branches: undefined,
+    commits: undefined,
+  }),
+}));
 
 describe('WelcomePanel Git summary loading', () => {
   let container: HTMLDivElement;
@@ -72,16 +92,6 @@ describe('WelcomePanel Git summary loading', () => {
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
-    gitApiMock.isGitRepository.mockReset();
-    gitApiMock.getStatus.mockReset();
-    gitApiMock.getStatus.mockResolvedValue({
-      current_branch: 'main',
-      staged: [],
-      unstaged: [],
-      untracked: [],
-      ahead: 0,
-      behind: 0,
-    });
   });
 
   afterEach(() => {
@@ -95,38 +105,14 @@ describe('WelcomePanel Git summary loading', () => {
     container.remove();
   });
 
-  it('does not request Git status after the panel unmounts during repository detection', async () => {
-    const repositoryProbe = deferred<boolean>();
-    gitApiMock.isGitRepository.mockReturnValue(repositoryProbe.promise);
-
+  it('renders the git branch chip when a workspace is open', async () => {
     await act(async () => {
       root.render(<WelcomePanel sessionMode='Standard' />);
     });
 
-    expect(gitApiMock.isGitRepository).toHaveBeenCalledWith('D:/workspace/OpenBitFun');
-
-    act(() => {
-      root.unmount();
-    });
-
-    await act(async () => {
-      repositoryProbe.resolve(true);
-      await repositoryProbe.promise;
-    });
-
-    expect(gitApiMock.getStatus).not.toHaveBeenCalled();
-  });
-
-  it('loads Git status when the panel remains mounted', async () => {
-    gitApiMock.isGitRepository.mockResolvedValue(true);
-
-    await act(async () => {
-      root.render(<WelcomePanel sessionMode='Standard' />);
-    });
-
-    expect(gitApiMock.getStatus).toHaveBeenCalledWith('D:/workspace/OpenBitFun', 'welcome_panel');
     expect(container.querySelector('[data-openbitfun-product-part="workspaceAction"]')).not.toBeNull();
     expect(container.querySelector('[data-openbitfun-product-part="gitAction"]')).not.toBeNull();
+    expect(container.querySelector('[data-openbitfun-product-part="gitAction"]')?.textContent).toContain('main');
   });
 
   it('does not render the retired panda mascot', async () => {
@@ -139,7 +125,6 @@ describe('WelcomePanel Git summary loading', () => {
   });
 
   it('portals the workspace menu outside the scrollable welcome panel', async () => {
-    gitApiMock.isGitRepository.mockResolvedValue(false);
     await act(async () => {
       root.render(<WelcomePanel sessionMode='Standard' />);
     });
@@ -150,7 +135,7 @@ describe('WelcomePanel Git summary loading', () => {
     await act(async () => trigger?.querySelector<HTMLElement>('[data-openbitfun-part="label"]')?.click());
 
     const menu = document.querySelector<HTMLElement>('[data-openbitfun-product-part="workspaceMenu"]');
-    expect(menu?.parentElement?.getAttribute('data-openbitfun-overlay-host')).toBe('true');
+    expect(menu?.closest('[data-openbitfun-overlay-host]')?.getAttribute('data-openbitfun-overlay-host')).toBe('true');
     expect(menu?.style.visibility).toBe('visible');
 
     await act(async () => trigger?.querySelector<HTMLElement>('[data-openbitfun-part="trailing-icon"]')?.click());
@@ -180,7 +165,6 @@ describe('WelcomePanel Git summary loading', () => {
     style.textContent = snapshot.cssText;
     document.head.appendChild(style);
 
-    gitApiMock.isGitRepository.mockResolvedValue(false);
     await act(async () => root.render(<WelcomePanel sessionMode="Standard" />));
 
     const rule = Array.from(style.sheet!.cssRules).find(candidate =>

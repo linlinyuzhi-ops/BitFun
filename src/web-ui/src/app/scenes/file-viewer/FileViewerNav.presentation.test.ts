@@ -9,6 +9,10 @@ const navSource = readFileSync(resolve(__dirname, '../workspace-resources/Worksp
   /\r\n/g,
   '\n',
 );
+const filesPanelSource = readFileSync(
+  resolve(__dirname, '../../components/panels/FilesPanel.tsx'),
+  'utf8',
+).replace(/\r\n/g, '\n');
 
 function compileRules(stylesheetPath: string): CSSStyleRule[] {
   const styleElement = document.createElement('style');
@@ -24,6 +28,9 @@ function compileRules(stylesheetPath: string): CSSStyleRule[] {
 const navRules = compileRules(resolve(__dirname, 'FileViewerNav.scss'));
 const filesPanelRules = compileRules(
   resolve(__dirname, '../../components/panels/FilesPanel.scss'),
+);
+const searchResultsRules = compileRules(
+  resolve(__dirname, '../../../tools/file-system/components/FileSearchResults.scss'),
 );
 
 function declarations(rules: CSSStyleRule[], selector: string): CSSStyleDeclaration {
@@ -59,5 +66,63 @@ describe('FileViewerNav surface ownership', () => {
     ]) {
       expect(declarations(filesPanelRules, selector).background).toBe('transparent');
     }
+  });
+
+  it('insets the divider above both resource sections evenly', () => {
+    const sectionDivider = declarations(
+      navRules,
+      '.openbitfun-file-viewer-nav__section::before',
+    );
+
+    expect(sectionDivider.getPropertyValue('inset-inline')).toBe('var(--openbitfun-space-2)');
+    expect(sectionDivider.height).toBe('1px');
+    expect(sectionDivider.background).toBe('var(--openbitfun-color-border-default)');
+    expect(declarations(navRules, '.openbitfun-file-viewer-nav__workspace').borderBottomWidth)
+      .toBe('');
+    expect(navSource).toContain(
+      'className="openbitfun-file-viewer-nav__section openbitfun-file-viewer-nav__section--terminals"',
+    );
+  });
+
+  it('insets the divider above search main content at each panel width', () => {
+    expect(filesPanelSource).toContain(
+      "viewMode === 'search' ? ' openbitfun-files-panel__main-content--search' : ''",
+    );
+
+    const searchDivider = declarations(
+      filesPanelRules,
+      '.openbitfun-files-panel__main-content--search::before',
+    );
+    expect(searchDivider.getPropertyValue('inset-inline')).toBe('var(--openbitfun-space-2)');
+    expect(searchDivider.height).toBe('1px');
+    expect(searchDivider.background).toBe('var(--openbitfun-color-border-default)');
+
+    const searchContainer = declarations(filesPanelRules, '.openbitfun-files-panel__search');
+    expect(searchContainer.borderBottomWidth).toBe('');
+  });
+
+  it('uses the same divider treatment for search controls, results, and terminals', () => {
+    const dividers = [
+      declarations(filesPanelRules, '.openbitfun-files-panel__main-content--search::before'),
+      declarations(searchResultsRules, '.openbitfun-search-results__header::after'),
+      declarations(navRules, '.openbitfun-file-viewer-nav__section::before'),
+    ];
+
+    for (const divider of dividers) {
+      expect(divider.getPropertyValue('inset-inline')).toBe('var(--openbitfun-space-2)');
+      expect(divider.height).toBe('1px');
+      expect(divider.background).toBe('var(--openbitfun-color-border-default)');
+      expect(divider.zIndex).toBe('var(--openbitfun-layer-decoration)');
+      expect(divider.pointerEvents).toBe('none');
+    }
+  });
+
+  it('compensates the bottom-pinned terminal divider for fractional pixel scaling', () => {
+    const terminalDivider = declarations(
+      navRules,
+      '.openbitfun-file-viewer-nav__section--terminals::before',
+    );
+
+    expect(terminalDivider.height).toBe('0.5px');
   });
 });

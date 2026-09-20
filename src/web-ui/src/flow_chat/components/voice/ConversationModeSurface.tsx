@@ -21,8 +21,9 @@ interface ConversationModeSurfaceProps {
   /** Host chrome, including the logo control, is shown only in text mode. */
   renderHeader?: (modeSwitch: ReactNode) => ReactNode;
   onVoiceViewChange?: (visible: boolean) => void;
-  /** A persistent transcript opts into the integrated identity; children become its composer. */
-  transcript?: ReactNode;
+  /** A persistent transcript opts into the integrated identity; children become its composer.
+   * A render function can follow the mode without remounting the reading viewport. */
+  transcript?: ReactNode | ((mode: 'chat' | 'voice') => ReactNode);
   /** Secondary action in the compact conversation header. */
   headerAction?: ReactNode;
   requiresTextInput?: boolean;
@@ -137,7 +138,8 @@ export function ConversationModeSurface({
                 : 'voiceCall.call.identity.start')}
           disabled={!isVoiceMode && requiresTextInput || !ownsCall && (voiceStartDisabled || phase !== 'idle')}
           onClick={handleModeSwitch} />}
-        {integrated ? transcript : isVoiceMode && <RealtimeVoiceCallPanel embedded={Boolean(renderHeader)} onClose={onCloseVoice} onBack={() => setShowVoice(false)} />}
+        {integrated ? (typeof transcript === 'function' ? transcript(isVoiceMode ? 'voice' : 'chat') : transcript)
+          : isVoiceMode && <RealtimeVoiceCallPanel embedded={Boolean(renderHeader)} onClose={onCloseVoice} onBack={() => setShowVoice(false)} />}
         {integrated && ownsCall && <VoiceCallControls phase={phase} muted={controller.muted}
           compact={!isVoiceMode}
           labels={{ back: t('voiceCall.call.switchToChat'), close: t('voiceCall.call.close'), mute: t('voiceCall.call.mute'),

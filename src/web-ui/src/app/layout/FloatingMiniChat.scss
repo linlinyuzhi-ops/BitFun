@@ -2,8 +2,10 @@
 @use '@/shared/styles/surface-recipes' as surfaces;
 
 $fmc-ease: cubic-bezier(0.23, 1, 0.32, 1);
+$fmc-close-ease: cubic-bezier(0.4, 0, 1, 1);
 $fmc-open-duration: 0.22s;
-$fmc-close-duration: 0.16s;
+$fmc-close-duration: 0.18s;
+$fmc-collapsed-transform: translate(12px, 12px) scale(0.9);
 $panel-width: 480px;
 $panel-height: 680px;
 
@@ -18,12 +20,25 @@ $panel-height: 680px;
 .openbitfun-fmc__button {
   position: relative;
   z-index: 2;
+  opacity: 1;
+  visibility: visible;
   pointer-events: auto;
+  // Crossfade with the panel on the same timeline, including quick reversals.
+  transition:
+    opacity $fmc-close-duration linear,
+    visibility 0s linear,
+    color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+    background-color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
 
   .openbitfun-fmc--open & {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
+    transition:
+      opacity $fmc-open-duration linear,
+      visibility 0s linear $fmc-open-duration,
+      color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+      background-color var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
   }
 }
 
@@ -51,18 +66,18 @@ $panel-height: 680px;
     bottom: 16px;
   }
 
-  // Pre-open state: collapsed into the button position. The collapsed panel
-  // still overlaps the trigger, so it is hidden outright once the close
-  // animation ends rather than relying on pointer-events alone.
+  // Keep transcript layout fixed; only the shell contracts toward the launcher.
+  // Accelerate out while fading linearly so there is no early stop followed by
+  // a second disappearance. Remove it from layout only after both finish.
   transform-origin: bottom right;
   opacity: 0;
-  transform: translateY(8px) scale(0.96);
+  transform: $fmc-collapsed-transform;
   visibility: hidden;
   pointer-events: none;
   transition:
     display $fmc-close-duration,
-    opacity $fmc-close-duration $fmc-ease,
-    transform $fmc-close-duration $fmc-ease,
+    opacity $fmc-close-duration linear,
+    transform $fmc-close-duration $fmc-close-ease,
     visibility 0s linear $fmc-close-duration,
     background-color 700ms $fmc-ease,
     color 700ms $fmc-ease,
@@ -74,12 +89,12 @@ $panel-height: 680px;
   &--open {
     display: flex;
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate(0, 0) scale(1);
     visibility: visible;
     pointer-events: auto;
     transition:
       display $fmc-open-duration,
-      opacity $fmc-open-duration $fmc-ease,
+      opacity $fmc-open-duration linear,
       transform $fmc-open-duration $fmc-ease,
       visibility 0s linear 0s,
       background-color 700ms $fmc-ease,
@@ -89,7 +104,7 @@ $panel-height: 680px;
 
     @starting-style {
       opacity: 0;
-      transform: translateY(8px) scale(0.96);
+      transform: $fmc-collapsed-transform;
     }
   }
 
@@ -303,6 +318,8 @@ $panel-height: 680px;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .openbitfun-fmc__button,
+  .openbitfun-fmc--open .openbitfun-fmc__button,
   .openbitfun-fmc__panel,
   .openbitfun-fmc__miniapp-suggestion {
     transition: none;

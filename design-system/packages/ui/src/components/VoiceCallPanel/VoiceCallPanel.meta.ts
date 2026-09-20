@@ -21,6 +21,9 @@ export const voiceCallPanelMeta = {
   tokens: [
     "color.content.onDark", "color.content.onLight",
     "type.heading.panel", "type.body.lg", "type.modifier.leading.tight",
+    "type.flow.body", "type.flow.control", "type.flow.support",
+    "color.content.primary", "color.content.secondary", "color.action.quiet.hover",
+    "control.flowChat.cardRadius",
     "space.3", "space.6", "space.8", "radius.lg",
   ],
 } as const satisfies ComponentMeta;

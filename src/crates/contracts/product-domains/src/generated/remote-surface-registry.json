@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:14f5edbe63a604b8",
+  "digest": "fnv1a64:86d6295909ba287d",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -24,6 +24,7 @@
       "cancel_tool",
       "tool_catalog",
       "chat_mcp_catalog_v1",
+      "workspace_id_references_v1",
       "user_question_response",
       "user_question_interaction_v1"
     ],
@@ -43,6 +44,7 @@
       "cancel_tool",
       "tool_catalog",
       "chat_mcp_catalog_v1",
+      "workspace_id_references_v1",
       "user_question_response",
       "user_question_interaction_v1"
     ],
@@ -57,6 +59,7 @@
       "cancel_tool",
       "tool_catalog",
       "chat_mcp_catalog_v1",
+      "workspace_id_references_v1",
       "user_question_response",
       "user_question_interaction_v1"
     ]
@@ -255,6 +258,18 @@
       }
     },
     {
+      "id": "account_relay_capabilities",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      }
+    },
+    {
       "id": "account_status",
       "surface": "tauri_command",
       "remoteWorkspace": "WorkspaceAgnostic",
@@ -292,6 +307,18 @@
     },
     {
       "id": "account_unsubscribe_session",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      }
+    },
+    {
+      "id": "account_update_device_alias",
       "surface": "tauri_command",
       "remoteWorkspace": "WorkspaceAgnostic",
       "peer": {

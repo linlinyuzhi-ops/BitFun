@@ -386,6 +386,7 @@
     --openbitfun-overlay-menu-item-padding-inline: var(--openbitfun-space-2);
     --openbitfun-overlay-menu-item-radius: var(--openbitfun-radius-base);
     --openbitfun-overlay-menu-max-block-size: 480px;
+    --openbitfun-overlay-menu-row-gap: 2px;
     --openbitfun-overlay-menu-scrollbar-gap: 2px;
     --openbitfun-overlay-menu-section-gap: var(--openbitfun-space-2);
     --openbitfun-overlay-menu-surface-padding: var(--openbitfun-space-2);
@@ -823,8 +824,8 @@
     --openbitfun-color-link-hover: #005fcc;
     --openbitfun-color-number-badge-background: rgba(0, 0, 0, 0.08);
     --openbitfun-color-overlay-scrim: rgba(16, 26, 39, 0.20);
-    --openbitfun-color-scrollbar-thumb: rgba(0, 0, 0, 0.10);
-    --openbitfun-color-scrollbar-thumb-hover: rgba(0, 0, 0, 0.10);
+    --openbitfun-color-scrollbar-thumb: rgba(0, 0, 0, 0.20);
+    --openbitfun-color-scrollbar-thumb-hover: rgba(0, 0, 0, 0.30);
     --openbitfun-color-selection-surface: rgba(0, 0, 0, 0.08);
     --openbitfun-color-status-danger-border: rgba(236, 34, 31, 0.3);
     --openbitfun-color-status-danger-content: #bd1b19;
@@ -981,8 +982,8 @@
     --openbitfun-color-link-hover: #93c5fd;
     --openbitfun-color-number-badge-background: rgba(255, 255, 255, 0.1);
     --openbitfun-color-overlay-scrim: rgba(0, 0, 0, 0.56);
-    --openbitfun-color-scrollbar-thumb: rgba(255, 255, 255, 0.12);
-    --openbitfun-color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.15);
+    --openbitfun-color-scrollbar-thumb: rgba(255, 255, 255, 0.20);
+    --openbitfun-color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.30);
     --openbitfun-color-selection-surface: rgba(255, 255, 255, 0.12);
     --openbitfun-color-status-danger-border: rgba(236, 34, 31, 0.3);
     --openbitfun-color-status-danger-content: #f47f7d;
@@ -1090,8 +1091,6 @@
     --openbitfun-color-key-hint-background: #cccccc;
     --openbitfun-color-key-hint-content: #343434;
     --openbitfun-color-number-badge-background: #e6e6e6;
-    --openbitfun-color-scrollbar-thumb: #b3b3b3;
-    --openbitfun-color-scrollbar-thumb-hover: #b3b3b3;
     --openbitfun-color-selection-surface: #cccccc;
     --openbitfun-color-status-danger-content: #8e1413;
     --openbitfun-color-status-info-content: #1c4c99;
@@ -1158,8 +1157,6 @@
     --openbitfun-color-key-hint-background: #343434;
     --openbitfun-color-key-hint-content: #d0d0d0;
     --openbitfun-color-number-badge-background: #343434;
-    --openbitfun-color-scrollbar-thumb: #505050;
-    --openbitfun-color-scrollbar-thumb-hover: #6b6b6b;
     --openbitfun-color-selection-surface: #505050;
     --openbitfun-color-status-danger-content: #f7a7a5;
     --openbitfun-color-status-info-content: #abcbff;

@@ -217,7 +217,9 @@ describe('Remote Connect safety contracts', () => {
     expect(refreshFlow).toContain('!deviceRoutingReadyRef.current');
     expect(refreshFlow).toContain('DEVICE_LIST_FAILURE_THRESHOLD');
     expect(refreshFlow.indexOf('!deviceRoutingReadyRef.current')).toBeLessThan(
-      refreshFlow.indexOf('markRelayUnreachable()'),
+      // The call passes the failure so it can be classified; only the order of
+      // the healthy-routing guard against this call is contracted here.
+      refreshFlow.indexOf('markRelayUnreachable('),
     );
   });
 

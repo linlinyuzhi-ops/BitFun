@@ -97,8 +97,8 @@ export const openBitFunTokyoNightPalette: AppearancePalette = {
     }),
 
     scrollbar: {
-      thumb: tokyoScrollbar(0.15),
-      thumbHover: tokyoScrollbar(0.28),
+      thumb: tokyoScrollbar(0.2),
+      thumbHover: tokyoScrollbar(0.3),
     },
   },
 

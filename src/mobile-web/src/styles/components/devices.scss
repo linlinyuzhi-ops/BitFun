@@ -139,6 +139,28 @@
   }
 }
 
+/* Occupies the row's slot while renaming, so the device name is edited in
+   place instead of being repeated under the row. */
+.devices-page__alias-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-gap-2);
+  padding: var(--openbitfun-space-2) var(--openbitfun-space-3);
+  border: var(--openbitfun-border-width-default) solid var(--openbitfun-color-border-subtle);
+  border-radius: var(--openbitfun-radius-md);
+  background: var(--openbitfun-color-surface-panel);
+  box-shadow: var(--openbitfun-shadow-xs);
+}
+
+.devices-page__alias-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-gap-2);
+  padding: var(--size-gap-2) var(--size-gap-4) var(--size-gap-3);
+
+  .devices-page__alias-editor & { padding: 0; }
+}
+
 .devices-page__device-spinner {
   flex-shrink: 0;
   width: 16px;

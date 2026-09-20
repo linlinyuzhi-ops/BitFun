@@ -1010,8 +1010,6 @@ $_section-header-height: 22px;
   }
 
   &__workspace-menu-workspaces {
-    display: flex;
-    flex-direction: column;
     max-height: 240px;
     overscroll-behavior: contain;
   }
@@ -1841,6 +1839,19 @@ $_section-header-height: 22px;
   > button {
     pointer-events: auto;
   }
+}
+
+.openbitfun-device-overview__incompatible {
+  max-width: calc(100% - var(--openbitfun-space-4) * 2);
+  padding: var(--openbitfun-space-1) var(--openbitfun-space-2);
+  border-radius: var(--openbitfun-radius-sm);
+  background: var(--openbitfun-color-action-quiet-hover);
+  color: var(--openbitfun-color-status-warning-content);
+  font-size: var(--openbitfun-type-meta-font-size);
+  line-height: var(--openbitfun-type-modifier-leading-ui-line-height);
+  text-align: center;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
 }
 
 .openbitfun-device-overview__artwork {

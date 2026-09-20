@@ -10,6 +10,7 @@ const repo = requireArg(args, 'repo');
 const out = requireArg(args, 'out');
 const requiredPlatforms = parseListArg(args['required-platforms'] || '');
 const manualAssetsDir = args['manual-assets-dir'];
+const installerAssetsDir = args['installer-assets-dir'];
 
 if (!existsSync(assetsDir)) {
   fail(`Assets directory does not exist: ${assetsDir}`);
@@ -56,19 +57,47 @@ const manifest = {
   platforms,
 };
 
+const manualInstallers = {};
+
 if (manualAssetsDir) {
-  const installerName = `OpenBitFun_${version}_windows-x86_64-installer.exe`;
-  const installerPath = join(manualAssetsDir, installerName);
+  addManualInstaller('windows-x86_64', join(manualAssetsDir, `OpenBitFun_${version}_windows-x86_64-installer.exe`));
+}
+
+// The macOS updater artifact is a .app.tar.gz: an update payload with no
+// installer UI, which a browser unpacks into a bare .app wherever downloads
+// land. The signed .dmg published beside it is the thing a person installs.
+// Declaring it here is what lets the website and the mirror offer it instead of
+// deriving the filename themselves and silently missing a rename.
+if (installerAssetsDir) {
+  const dmgPaths = new Map(
+    walkFiles(installerAssetsDir)
+      .filter((file) => file.endsWith('.dmg'))
+      .map((file) => [basename(file), file])
+  );
+  for (const [platform, arch] of [['darwin-aarch64', 'aarch64'], ['darwin-x86_64', 'x64']]) {
+    const installerName = `OpenBitFun_${version}_${arch}.dmg`;
+    const installerPath = dmgPaths.get(installerName);
+    if (!installerPath) {
+      fail(`Missing macOS installer ${installerName} under ${installerAssetsDir}`);
+    }
+    addManualInstaller(platform, installerPath);
+  }
+}
+
+if (Object.keys(manualInstallers).length > 0) {
+  manifest.manual_installers = manualInstallers;
+}
+
+function addManualInstaller(platform, installerPath) {
   const signaturePath = `${installerPath}.sig`;
   if (!existsSync(installerPath) || !existsSync(signaturePath)) {
     fail(`Missing signed manual installer pair: ${installerPath} and ${signaturePath}`);
   }
-  const assetUrl = `https://github.com/${repo}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(installerName)}`;
-  manifest.manual_installers = {
-    'windows-x86_64': {
-      url: assetUrl,
-      signature_url: `${assetUrl}.sig`,
-    },
+  const assetName = basename(installerPath);
+  const assetUrl = `https://github.com/${repo}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(assetName)}`;
+  manualInstallers[platform] = {
+    url: assetUrl,
+    signature_url: `${assetUrl}.sig`,
   };
 }
 

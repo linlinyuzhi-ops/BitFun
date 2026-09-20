@@ -208,7 +208,7 @@ function createModelDraft(
     modelName: trimmedModelName,
     manualRequestFormat: overrides?.manualRequestFormat ?? baseConfig?.provider,
     category: overrides?.category ?? baseConfig?.category ?? 'general_chat',
-    contextWindow: overrides?.contextWindow ?? baseConfig?.context_window ?? 200000,
+    contextWindow: overrides?.contextWindow ?? baseConfig?.context_window ?? 300000,
     maxTokens: overrides?.maxTokens ?? baseConfig?.max_tokens,
     reasoning,
     reasoningProjectionCatalog: overrides?.reasoningProjectionCatalog ?? reasoning.catalog,
@@ -381,7 +381,7 @@ function modelDraftHasUnsavedChanges(
     normalizeComparableString(draft.modelName) !== normalizeComparableString(persisted.model_name) ||
     (isOpenCodeApiKeyConfig(persisted) && draft.manualRequestFormat !== persisted.provider) ||
     draft.category !== (persisted.category ?? 'general_chat') ||
-    draft.contextWindow !== (persisted.context_window || 200000) ||
+    draft.contextWindow !== (persisted.context_window || 300000) ||
     draft.maxTokens !== persisted.max_tokens ||
     stableJson(draft.reasoning) !== stableJson(canonicalReasoningConfig(persisted))
   );
@@ -756,7 +756,7 @@ const ModelSettingsPage: React.FC = () => {
   const createDraftsFromConfigs = (configs: AIModelConfigType[]) => (
     configs.map(config => createModelDraft(config.model_name, config, {
       configId: config.id,
-      contextWindow: config.context_window || 200000,
+      contextWindow: config.context_window || 300000,
       maxTokens: config.max_tokens,
       reasoning: canonicalReasoningConfig(config),
     }))
@@ -962,7 +962,7 @@ const ModelSettingsPage: React.FC = () => {
       base_url: resolvedBaseUrl,
       request_url: config.request_url || resolveRequestUrl(resolvedBaseUrl, resolvedProvider, resolvedModelName),
       model_name: resolvedModelName,
-      context_window: config.context_window || 200000,
+      context_window: config.context_window || 300000,
       max_tokens: config.max_tokens,
       temperature: config.temperature,
       top_p: config.top_p,
@@ -1108,7 +1108,7 @@ const ModelSettingsPage: React.FC = () => {
         api_key: '',
         model_name: '',
         enabled: true,
-        context_window: 200000,
+        context_window: 300000,
         category: 'multimodal',
         capabilities: getCapabilitiesByCategory('multimodal'),
         recommended_for: [],
@@ -1481,7 +1481,7 @@ const ModelSettingsPage: React.FC = () => {
       model_name: '',
       provider: template.format,
       enabled: true,
-      context_window: 200000,
+      context_window: 300000,
       category: 'multimodal',
       capabilities: getCapabilitiesByCategory('multimodal'),
       recommended_for: [],
@@ -1512,7 +1512,7 @@ const ModelSettingsPage: React.FC = () => {
       model_name: '',
       provider: 'openai',  
       enabled: true,
-      context_window: 200000,
+      context_window: 300000,
       category: 'multimodal',
       capabilities: getCapabilitiesByCategory('multimodal'),
       recommended_for: [],
@@ -1553,7 +1553,7 @@ const ModelSettingsPage: React.FC = () => {
         model_name: '',
         provider: config.provider,
         enabled: true,
-        context_window: config.context_window || 200000,
+        context_window: config.context_window || 300000,
         max_tokens: config.max_tokens,
         category: config.category || 'general_chat',
         capabilities: config.capabilities || getCapabilitiesByCategory(config.category || 'general_chat'),
@@ -1590,7 +1590,7 @@ const ModelSettingsPage: React.FC = () => {
       setEditingConfig({ ...config, name: getProviderDisplayName(config) });
       setSelectedModelDrafts([
         createModelDraft(config.model_name, config, {
-          contextWindow: config.context_window || 200000,
+          contextWindow: config.context_window || 300000,
           maxTokens: config.max_tokens,
           reasoning: canonicalReasoningConfig(config),
         })

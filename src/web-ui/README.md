@@ -9,6 +9,26 @@ This directory contains OpenBitFun’s **Web UI** (React + TypeScript). The same
 - **Desktop**: loaded via **Tauri**
 - **Server/Web**: built into static assets and served by the backend
 
+## MCP configuration
+
+In Desktop, open **Settings → Tools → MCP** to add or edit a user-level server
+with a form. Choose a server URL (Streamable HTTP) or a start command (stdio).
+Arguments are separate entries; environment variables and request headers use
+name/value rows. Saved values remain hidden until edited. These values use the
+existing configuration-file storage, not a new credential vault.
+
+New servers and JSON imports are saved disabled. Review them, then use **Enable
+and start** in the list. Imports accept `mcpServers` JSON, preview each entry,
+and require a different ID for an existing name. Editing a running service uses
+**Save and apply**, which can reconnect it. Connection errors and successful
+configuration writes are reported separately.
+
+Per-server and full-configuration JSON editors remain available. Unknown fields
+are retained, unsupported form shapes stay editable in JSON, and concurrent
+configuration changes cannot silently overwrite one another. This management
+surface edits the local Desktop user's configuration; project-scoped editing,
+Peer Device management, and standalone Web management are not exposed by it.
+
 ## Floating conversations
 
 The bottom-right window opens the persistent OpenBitFun control conversation in
@@ -63,6 +83,8 @@ use Desktop or a capable peer host.
 
 ## Directory structure
 
+Dependency versions are locked by the repository-root `pnpm-lock.yaml`.
+
 ```
 src/web-ui/
 ├── README.md                     # This file
@@ -70,7 +92,6 @@ src/web-ui/
 ├── LOGGING.md                    # Logging & debugging notes
 ├── index.html                    # Entry HTML
 ├── package.json                  # Dependencies & scripts
-├── package-lock.json             # Locked dependency versions
 ├── public/                       # Static assets
 ├── src/                          # Frontend source
 │   ├── app/                      # Main app UI

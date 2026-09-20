@@ -6,30 +6,24 @@
 .user-message-item-shell {
   @include transcriptLayout.content-column;
 
-  --_user-message-border-width: var(--openbitfun-border-width-default);
   --_user-message-radius: calc(var(--openbitfun-control-flow-chat-card-radius) + 2px);
-  --_user-message-padding-inline: max(0px, calc(var(--_user-message-radius) - var(--_user-message-border-width)));
+  --_user-message-padding-inline: var(--_user-message-radius);
 
   position: relative;
   margin: 0.06rem 0 var(--openbitfun-control-flow-chat-flow-item-gap);
-
-  &:has(> .user-message-item--failed) {
-    --_user-message-border-width: 0px;
-  }
 }
 
 .user-message-item {
   box-sizing: border-box;
   /*
 * The shell owns the same reading column as replies. Extend the bubble by
-   * its radius so the horizontal edges' tangent points meet that column.
-   * Padding subtracts the border width to put message text on the same axis.
+   * its radius so the rounded surface and message text meet that column.
    */
   width: fit-content;
   max-width: min(72%, 48rem);
   padding: 0.46rem var(--_user-message-padding-inline);
   background: var(--openbitfun-color-identity-user-surface);
-  border: var(--_user-message-border-width) solid color-mix(in srgb, var(--openbitfun-color-border-default) 72%, transparent);
+  border: none;
   border-radius: var(--_user-message-radius);
   margin-block: 0;
   margin-inline: auto calc(-1 * var(--_user-message-radius));
@@ -44,13 +38,7 @@
 
   &:hover {
     background: var(--openbitfun-color-identity-user-surface-hover);
-    border-color: color-mix(in srgb, var(--openbitfun-color-border-subtle) 56%, transparent);
   }
-
-  &:focus-within {
-    border-color: color-mix(in srgb, color-mix(in srgb, var(--openbitfun-color-accent-hover) 40%, transparent) 68%, var(--openbitfun-color-border-default));
-  }
-
 }
 
 .user-message-item--editing {
@@ -68,9 +56,18 @@
   font-variant-numeric: tabular-nums;
   line-height: var(--openbitfun-type-flow-meta-line-height);
   white-space: nowrap;
-  opacity: 1;
+  opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  margin-inline-end: auto;
+  transition:
+    opacity var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
+    visibility var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
+}
+
+.user-message-item-shell:hover .user-message-item__timestamp,
+.user-message-item-shell:focus-within .user-message-item__timestamp {
+  opacity: 1;
+  visibility: visible;
 }
 
 .user-message-item__meta {
@@ -88,6 +85,7 @@
 .user-message-item__main {
   display: flex;
   align-items: flex-start;
+  justify-content: center;
   gap: var(--openbitfun-control-flow-chat-inline-gap);
 }
 
@@ -118,9 +116,15 @@
 
 .user-message-item__actions {
   @include transcriptLayout.metadata-actions;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
+}
+
+.user-message-item-shell:hover .user-message-item__actions,
+.user-message-item-shell:focus-within .user-message-item__actions {
   opacity: 1;
   pointer-events: auto;
-  /* Controls remain available without requiring hover or keyboard focus. */
 }
 
 .user-message-item__blocks {
@@ -128,7 +132,9 @@
 }
 
 .user-message-item__content {
-  flex: 1;
+  flex: 0 1 auto;
+  width: fit-content;
+  max-width: 100%;
   font-size: var(--openbitfun-type-flow-control-font-size);
   font-weight: var(--openbitfun-type-flow-control-font-weight);
   line-height: var(--openbitfun-type-flow-body-line-height);
@@ -167,12 +173,16 @@
     align-items: flex-start;
     column-gap: var(--openbitfun-control-flow-chat-inline-gap);
     row-gap: 0.28em;
-    flex: 1;
+    flex: 0 1 auto;
+    width: fit-content;
+    max-width: 100%;
     min-width: 0;
   }
 
   .user-message-item__failed-body {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
+    width: fit-content;
+    max-width: 100%;
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -182,7 +192,7 @@
 
   .user-message-item__content {
     flex: 0 1 auto;
-    width: max-content;
+    width: fit-content;
     max-width: 100%;
     color: var(--openbitfun-color-content-muted);
     font-size: var(--_failed-font-size);

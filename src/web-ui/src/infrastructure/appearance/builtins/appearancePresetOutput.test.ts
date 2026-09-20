@@ -383,7 +383,7 @@ describe('builtin appearance preset output', () => {
       '--openbitfun-color-border-default': 'rgba(16, 26, 39, 0.15)',
       '--openbitfun-color-surface-subtle': 'rgba(16, 26, 39, 0.03)',
       '--openbitfun-color-action-quiet-hover': '#f3f3f5',
-      '--openbitfun-color-scrollbar-thumb': 'rgba(16, 26, 39, 0.15)',
+      '--openbitfun-color-scrollbar-thumb': 'rgba(0, 0, 0, 0.2)',
       '--openbitfun-component-config-page-section-background': '#f3f3f5',
       '--openbitfun-component-config-page-section-border': 'transparent',
       '--openbitfun-component-config-page-section-border-width': '0',
@@ -435,17 +435,17 @@ describe('builtin appearance preset output', () => {
           "type": "light",
         },
         {
-          "hash": "84df9245dff376b4169cb0c44109d9c44e48b2312d33df71f3d7d4ca384e82bb",
+          "hash": "c7d60d578a7e71dbef355a5feb5588437a51d6af30aaca33bb2eb7f07f8e4554",
           "id": "openbitfun-monochrome",
           "type": "light",
         },
         {
-          "hash": "0bbe55d609c2f15b58da7d0aca7c23bc145aaadc96a9394a558c7eda8d4d4566",
+          "hash": "fdd6c7693b7ad627e9d05842ebaaceaf342bd269d6a0d3a76ac3360b377dc830",
           "id": "openbitfun-slate",
           "type": "dark",
         },
         {
-          "hash": "1b5fb0a08134bdaaa9022f453532cffff4231df97dbcdc3a757cf2401b1cc638",
+          "hash": "44d681ba137355f1db61559e01e190cb805b25f1e62fc396e7ebe834a429cf3a",
           "id": "openbitfun-dark",
           "type": "dark",
         },
@@ -470,7 +470,7 @@ describe('builtin appearance preset output', () => {
           "type": "dark",
         },
         {
-          "hash": "7016e6d424172f8ed84a4263263c09491ab905a829f26f970aad4a48d723b05d",
+          "hash": "ab337e00902219e4b56980511d12d761b08f5fc6913329a8c5c555b44a652a1c",
           "id": "openbitfun-tokyo-night",
           "type": "dark",
         },

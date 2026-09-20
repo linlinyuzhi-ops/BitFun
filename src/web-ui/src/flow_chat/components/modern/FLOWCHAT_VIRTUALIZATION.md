@@ -1,5 +1,14 @@
 # FlowChat Virtualization
 
+## Measured row spacing
+
+`VirtualItemRenderer` establishes a `flow-root` on the measured wrapper so
+descendant block margins remain inside its border box. A row replaced by virtual
+padding must retain its full occupied height, including trailing item spacing.
+Do not substitute clipping overflow: user-message decorations and controls can
+extend outside the reading column. The rhythm test protects this stylesheet
+contract; it does not prove browser layout or end-to-end scroll stability.
+
 ## Interrupted turn continuity
 
 Cancelled rounds remain in the ordinary transcript. The display projection removes
@@ -179,10 +188,12 @@ embedded transcripts without a rail keep their own layout. The scroller remains
 full width.
 The shared content-padding token defaults to 0.75rem on wide and narrow surfaces,
 keeping the reading column compact while leaving room for decoration and targets.
-The bubble extends into that gutter by its corner radius. Its horizontal border
-tangent points define the same leading and trailing edges as user text, timestamps,
-reply prose, and completion metadata. Inner padding is the radius minus the border
-width; borderless failed messages keep the same tangent points and content axis.
+The borderless bubble extends into that gutter by its corner radius, and its inner
+padding matches that radius so user text, timestamps, reply prose, and completion
+metadata keep the same content axis. Content-fit bubbles have an 8rem minimum that
+is capped by the 72% message-width limit on narrow surfaces. Content below that
+minimum stays shrink-wrapped and centered; content that reaches the available line
+width retains leading text alignment and wraps normally.
 Both metadata rows align the last icon frame with the content's trailing edge,
 retaining 28px hit targets and the same compact action gap. Each action cluster
 wraps as a whole when space is limited. A half-space-1 gap groups user metadata
@@ -263,11 +274,13 @@ package.
 
 ## Annotation markers
 
-The shared conversation-excerpt inventory projects sent presentation metadata,
-pending-queue attachments and device-scoped composer drafts into indexes keyed by
+The shared conversation-excerpt inventory projects pending-queue attachments and
+device-scoped composer drafts into indexes keyed by
 source session and Turn. Each transcript consumes its own stable index; embedded panes do not select the parent
-transcript. Draft removal clears pending marks, and sent metadata retains their
-numbers. The number is additive presentation metadata, never annotation identity;
+transcript. Removing a draft attachment or consuming its queued message clears its
+source marks and highlights. Sent metadata retains the message snapshot and its
+number, but never recreates source marks when history loads or streams.
+The number is additive presentation metadata, never annotation identity;
 legacy excerpts without it remain readable. New numbers follow the loaded session
 family's saved, queued and pending annotations, not a cross-controller global counter.
 
@@ -282,7 +295,7 @@ their ends match. It validates the frozen text anchor, clips partially visible a
 to the row's visible bounds, omits fully hidden anchors, observes only
 mounted rows and releases observers on unmount. It changes neither transcript text
 nor row keys, row height, or scroll position. Persistent CSS highlights follow the
-draft, queued and sent annotation inventory and release their row-owned ranges on
+draft and queued annotation inventory and release their row-owned ranges on
 unmount. Images and an annotation-count capsule share the composer attachment strip.
 The capsule opens a hover/focus/click detail list with individual edit/remove actions.
 Source superscripts and detail edit actions open `ConversationExcerptDialog`;
@@ -294,11 +307,13 @@ their persisted comment as plain text in a bounded ScrollArea, even when a pendi
 copy has the same annotation ID. Viewing has only source navigation and the
 Dialog close control; it exposes neither an editor nor a save/re-add action.
 
-Editing a pending annotation updates its owning draft and visible attachment;
-queued edits update the frozen prompt, display fallback and presentation together.
-Sending or unsupported legacy queue payloads remain intact and report why editing
-is unavailable. A source mark becomes read-only once it no longer has a pending
-owner, and a stale editor cannot create a follow-up after its owner disappears.
+Editing or deleting a pending annotation from the source-marker dialog updates its
+owning draft and visible attachment; queued changes update the frozen prompt,
+display fallback and presentation together. The attachment editor shares the delete
+action. Deletion discards unsaved comment changes and closes the dialog.
+Sending or unsupported legacy queue payloads remain intact and report why changing
+them is unavailable. Source marks disappear once they no longer have a pending
+owner, and a stale editor cannot recreate or delete a consumed annotation.
 Locate uses the existing viewport navigation owner, and explicitly saves changed
 draft text before closing. Device activation fences apply to both writes and
 navigation.

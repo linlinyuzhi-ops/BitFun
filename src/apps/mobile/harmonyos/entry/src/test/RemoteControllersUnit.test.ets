@@ -1,4 +1,4 @@
-import { FakeDurableSessionManager, durableRecord } from './LocalTestFixtures';
+import { FakeHostSessionManager, hostRecord } from './LocalTestFixtures';
 import { describe, it, expect } from '@ohos/hypium';
 import { RemoteI18n } from '../main/ets/i18n/RemoteI18n';
 import { ChatSessionController, ChatSessionSnapshot } from '../main/ets/services/ChatSessionController';
@@ -2419,12 +2419,38 @@ export default function remoteControllersUnitTest() {
       expect(projection.chats.map((item: RemoteSession) => item.id).join(',')).assertEqual('chat-1,chat-2');
       // A trailing slash is the same workspace, so both code sessions land in
       // the one bucket the sidebar renders under that project.
-      const bucket = SessionListProjector.sessionsForProject(projection, '/workspace/openbitfun/');
+      const bucket = SessionListProjector.sessionsForProject(projection, { path: '/workspace/openbitfun/' });
       expect(bucket.map((item: RemoteSession) => item.id).join(',')).assertEqual('code-1,code-2');
       expect(projection.projects.map((item: RecentWorkspaceEntry) => item.path).join(','))
         .assertEqual('/workspace/openbitfun');
       expect(projection.hasActiveFilter).assertFalse();
-      expect(SessionListProjector.sessionsForProject(projection, '/nowhere').length).assertEqual(0);
+      expect(SessionListProjector.sessionsForProject(projection, { path: '/nowhere' }).length).assertEqual(0);
+    });
+
+    it('keys project sections by workspace ID and attributes pre-ID sessions through the resolver', 0, () => {
+      const identified = inputs([
+        session('code-1', 'Fix layout', 'code', '/workspace/openbitfun'),
+        session('code-2', 'Trailing slash', 'code', '/workspace/openbitfun/'),
+        session('code-3', 'Renamed root', 'code', '/moved')
+      ]);
+      identified.workspaceId = 'ws-main';
+      identified.recentWorkspaces = [
+        { workspaceId: 'ws-main', path: '/workspace/openbitfun', name: 'OpenBitFun', lastOpened: '', workspaceKind: 'normal' },
+        { workspaceId: 'ws-notes', path: '/workspace/notes', name: 'Notes', lastOpened: '', workspaceKind: 'assistant' }
+      ];
+      identified.sessions[2].workspaceIdentity = { workspaceId: 'ws-main', path: '/moved' };
+      const projection = SessionListProjector.project(identified);
+      expect(projection.projects.length).assertEqual(1);
+      expect(projection.projects[0].workspaceId || '').assertEqual('ws-main');
+      // The ID alone selects the section, whatever path the reference carries.
+      const byId = SessionListProjector.sessionsForProject(projection, { workspaceId: 'ws-main', path: '/elsewhere' });
+      expect(byId.map((item: RemoteSession) => item.id).join(',')).assertEqual('code-1,code-2,code-3');
+      // A pre-ID reference still finds the section through its unique catalog row.
+      const byPath = SessionListProjector.sessionsForProject(projection, { path: '/workspace/openbitfun/' });
+      expect(byPath.map((item: RemoteSession) => item.id).join(',')).assertEqual('code-1,code-2,code-3');
+      expect(SessionListProjector.sessionsForProject(projection, { workspaceId: 'ws-unknown', path: '/workspace/openbitfun' }).length)
+        .assertEqual(0);
+      expect(SessionListProjector.sectionKeyFor(projection.projects[0])).assertEqual('workspace:7:ws-main');
     });
 
     it('drops projects a filter has emptied', 0, () => {
@@ -2989,7 +3015,7 @@ export default function remoteControllersUnitTest() {
 
   describe('ChatSessionController', () => {
     it('ignores durable records delivered after observer stop', 0, async () => {
-      const manager = new FakeDurableSessionManager();
+      const manager = new FakeHostSessionManager();
       const snapshots: ChatSessionSnapshot[] = [];
       const controller = new ChatSessionController(manager, {
         onSnapshot: (value: ChatSessionSnapshot) => { snapshots.push(value); },
@@ -2997,21 +3023,21 @@ export default function remoteControllersUnitTest() {
       });
       controller.start('session', { pollVersion: 0, knownMessageCount: 0, knownModelCatalogVersion: 0 });
       controller.stop();
-      await manager.emit(durableRecord('session', 1, 'must not render'));
+      await manager.emit(hostRecord('session', 1, 'must not render'));
       expect(snapshots.length).assertEqual(0);
     });
     it('upserts a stable item through active and completed states without duplicate transcript rows', 0, async () => {
-      const manager = new FakeDurableSessionManager();
+      const manager = new FakeHostSessionManager();
       const snapshots: ChatSessionSnapshot[] = [];
       const controller = new ChatSessionController(manager, {
         onSnapshot: (value: ChatSessionSnapshot) => { snapshots.push(value); },
         onError: (_error: Object) => {}, canPoll: () => true
       });
       controller.start('session', { pollVersion: 0, knownMessageCount: 0, knownModelCatalogVersion: 0 });
-      await manager.emit(durableRecord('session', 1, 'partial'));
+      await manager.emit(hostRecord('session', 1, 'partial'));
       expect(snapshots[snapshots.length - 1].activeTurn?.text).assertEqual('partial');
-      await manager.emit(durableRecord('session', 2, 'complete', 'completed'));
-      await manager.emit(durableRecord('session', 1, 'stale'));
+      await manager.emit(hostRecord('session', 2, 'complete', 'completed'));
+      await manager.emit(hostRecord('session', 1, 'stale'));
       const latest = snapshots[snapshots.length - 1];
       expect(latest.activeTurn).assertUndefined();
       expect(latest.messageSnapshot?.length).assertEqual(2);

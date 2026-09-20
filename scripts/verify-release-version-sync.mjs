@@ -5,14 +5,11 @@ const args = parseArgs(process.argv.slice(2));
 const expected = args.version || readJsonVersion('package.json');
 const versions = new Map([
   ['package.json', readJsonVersion('package.json')],
-  ['package-lock.json', readJsonVersion('package-lock.json')],
   ['Cargo.toml', readTomlVersion('Cargo.toml', /version = "([^"]+)" # x-release-please-version/)],
   ['OpenBitFun-Installer/package.json', readJsonVersion('OpenBitFun-Installer/package.json')],
-  ['OpenBitFun-Installer/package-lock.json', readJsonVersion('OpenBitFun-Installer/package-lock.json')],
   ['OpenBitFun-Installer/src-tauri/Cargo.toml', readTomlVersion('OpenBitFun-Installer/src-tauri/Cargo.toml', /^version = "([^"]+)"/m)],
   ['src/web-ui/package.json', readJsonVersion('src/web-ui/package.json')],
   ['src/mobile-web/package.json', readJsonVersion('src/mobile-web/package.json')],
-  ['src/mobile-web/package-lock.json', readJsonVersion('src/mobile-web/package-lock.json')],
   ['src/miniapp-market-web/package.json', readJsonVersion('src/miniapp-market-web/package.json')],
   ['src/skin-market-web/package.json', readJsonVersion('src/skin-market-web/package.json')],
   ['src/apps/relay-server/Cargo.toml', readTomlVersion('src/apps/relay-server/Cargo.toml', /version = "([^"]+)" # x-release-please-version/)],

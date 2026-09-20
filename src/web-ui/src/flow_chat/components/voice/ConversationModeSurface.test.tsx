@@ -6,6 +6,7 @@ import React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { VoiceCallTranscript } from '@openbitfun/ui';
 
 import { ConversationModeSurface } from './ConversationModeSurface';
 import type { VoiceMiniAppCallTarget } from './voiceClientContext';
@@ -199,36 +200,45 @@ describe('ConversationModeSurface', () => {
       vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
       vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
     });
-    const renderIntegrated = (requiresTextInput = false) => root.render(
+    const transcript = (mode: 'chat' | 'voice') => <VoiceCallTranscript presentation={mode} entries={[
+      { id: 'user', role: 'user', content: 'Request' },
+      { id: 'assistant', role: 'assistant', content: 'History' },
+    ]} />;
+    const renderIntegrated = (requiresTextInput = false, modeAware = false) => root.render(
       <ConversationModeSurface voiceTarget={miniAppTarget} renderHeader={() => <header />}
-        requiresTextInput={requiresTextInput} transcript={<div data-testid="continuous-record">History</div>}>
+        requiresTextInput={requiresTextInput} transcript={modeAware ? transcript : transcript('voice')}>
         <input data-testid="continuous-draft" defaultValue="Unsent draft" />
       </ConversationModeSurface>,
     );
     const identity = () => container.querySelector<HTMLButtonElement>('[data-openbitfun-part="identity"] button[aria-expanded]')!;
     const back = () => container.querySelector<HTMLButtonElement>('[data-openbitfun-part="voiceHeader"] button[aria-label="voiceCall.call.switchToChat"]')!;
 
-    it('keeps one logo, transcript and composer mounted through entry, return and hangup', async () => {
-      await act(async () => renderIntegrated());
+    it.each([false, true])('keeps the reading viewport through entry, return and hangup (mode-aware: %s)', async modeAware => {
+      await act(async () => renderIntegrated(false, modeAware));
       const logo = container.querySelector('canvas');
-      const record = container.querySelector('[data-testid="continuous-record"]');
+      const record = container.querySelector('[data-openbitfun-part="conversation"]');
+      const userMessage = container.querySelector('[data-transcript-id="user"]');
+      expect(record?.getAttribute('data-openbitfun-presentation')).toBe(modeAware ? 'chat' : 'voice');
       const input = container.querySelector<HTMLInputElement>('input')!;
       await act(async () => identity().click());
       expect(mocks.controller.start).toHaveBeenCalledWith(miniAppTarget);
       mocks.controller.phase = 'live'; mocks.controller.target = miniAppTarget;
-      await act(async () => renderIntegrated());
+      await act(async () => renderIntegrated(false, modeAware));
+      expect(record?.getAttribute('data-openbitfun-presentation')).toBe('voice');
       expect(identity().hidden).toBe(true);
       expect(container.querySelector('[data-openbitfun-part="voiceHeader"]')?.getAttribute('aria-hidden')).toBe('false');
       expect(back().querySelector('.lucide-arrow-left')).not.toBeNull();
       expect(container.querySelector('[data-openbitfun-part="composer"]')?.getAttribute('aria-hidden')).toBe('true');
       await act(async () => back().click());
+      expect(record?.getAttribute('data-openbitfun-presentation')).toBe(modeAware ? 'chat' : 'voice');
       expect(mocks.controller.end).not.toHaveBeenCalled();
       expect(identity().hidden).toBe(false);
       expect(identity().getAttribute('aria-label')).toBe('voiceCall.call.identity.ongoing');
       mocks.controller.phase = 'idle'; mocks.controller.target = null;
-      await act(async () => renderIntegrated());
+      await act(async () => renderIntegrated(false, modeAware));
       expect(container.querySelector('canvas')).toBe(logo);
-      expect(container.querySelector('[data-testid="continuous-record"]')).toBe(record);
+      expect(container.querySelector('[data-openbitfun-part="conversation"]')).toBe(record);
+      expect(container.querySelector('[data-transcript-id="user"]')).toBe(userMessage);
       expect(container.querySelector('input')).toBe(input);
       expect(input.value).toBe('Unsent draft');
     });

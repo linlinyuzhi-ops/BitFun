@@ -76,8 +76,14 @@ vi.mock('../../../infrastructure/api', () => ({
 
 vi.mock('../../../infrastructure/contexts/WorkspaceContext', () => ({
   useWorkspaceContext: () => ({
-    currentWorkspace: { rootPath: 'D:/workspace/project' },
+    currentWorkspace: { id: 'workspace-1', workspaceKind: 'local', rootPath: 'D:/workspace/project' },
   }),
+}));
+
+// The session-driver registry pulls in the local driver and its runtime
+// services; this badge only needs the session's workspace ID from it.
+vi.mock('../../session-drivers/sessionFileNavigation', () => ({
+  sessionWorkspaceId: (sessionId: string | undefined) => (sessionId === 'session-1' ? 'workspace-1' : undefined),
 }));
 
 vi.mock('../../../shared/notification-system', () => ({
@@ -213,7 +219,7 @@ describe('SessionFilesBadge', () => {
     expect(toggle?.querySelector('[data-openbitfun-name="chevron-up"]')).not.toBeNull();
 
     const filesPopover = dom.window.document.querySelector<HTMLElement>('.session-files-badge__popover');
-    expect(filesPopover?.parentElement?.getAttribute('data-openbitfun-overlay-host')).toBe('true');
+    expect(filesPopover?.closest('[data-openbitfun-overlay-host]')?.getAttribute('data-openbitfun-overlay-host')).toBe('true');
     expect(filesPopover?.style.visibility).toBe('visible');
     expect(dom.window.document.body.textContent).toContain('2 files');
 
@@ -255,7 +261,7 @@ describe('SessionFilesBadge', () => {
     });
 
     const reviewPopover = dom.window.document.querySelector<HTMLElement>('.session-files-badge__review-menu-popover');
-    expect(reviewPopover?.parentElement?.getAttribute('data-openbitfun-overlay-host')).toBe('true');
+    expect(reviewPopover?.closest('[data-openbitfun-overlay-host]')?.getAttribute('data-openbitfun-overlay-host')).toBe('true');
     expect(reviewPopover?.style.visibility).toBe('visible');
     expect(dom.window.document.body.textContent).toContain('Review');
     expect(dom.window.document.body.textContent).not.toContain('Review: Strict');

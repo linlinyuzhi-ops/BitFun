@@ -34,6 +34,12 @@ const BUBBLE_GAP = 6;
 const BUBBLE_WIDTH = 180;
 const BUBBLE_OUTPUT_TYPEWRITER_INTERVAL_MS = 28;
 const WINDOW_EDGE_BUFFER = 4;
+/**
+ * Room kept above and below the dock. A bubble lifts on hover and pulses on
+ * attention, so its own box must stay that far away from the window edge or the
+ * border gets clipped.
+ */
+const WINDOW_VERTICAL_BUFFER = 3;
 const POINTER_HOVER_POLL_INTERVAL_MS = 120;
 const PET_LOOK_HOLD_MS = 960;
 /** Clicks shorter/smaller than this use `show_main_window`; beyond it we start dragging. */
@@ -426,19 +432,23 @@ export const AgentCompanionDesktopPet: React.FC = () => {
     const bubbleCount = visibleTasks.length;
     const bubbleElements = Array.from(bubblesRef.current?.children ?? [])
       .slice(0, MAX_VISIBLE_BUBBLES);
+    // Sum of the bubbles themselves: the slot's own vertical buffer is chrome
+    // the component adds back below, so it must not be measured twice.
     const visibleBubbleHeight = bubbleElements.reduce(
       (sum, child) => sum + child.getBoundingClientRect().height,
       0,
     ) + Math.max(0, bubbleElements.length - 1) * BUBBLE_GAP;
-    const measuredBubbleHeight = bubblesRef.current?.scrollHeight ?? 0;
     const targetBubbleHeight = bubbleCount === 1
       ? activePetSize.height
-      : bubbleCount > MAX_VISIBLE_BUBBLES
-        ? visibleBubbleHeight
-        : measuredBubbleHeight;
-    const nextHeight = bubbleCount > 0
-      ? Math.max(activePetSize.height, Math.min(WINDOW_MAX_HEIGHT, targetBubbleHeight))
-      : activePetSize.height;
+      : visibleBubbleHeight;
+    // The buffer is chrome around the content, so it is added after clamping:
+    // the window still never exceeds WINDOW_MAX_HEIGHT.
+    const nextHeight = (bubbleCount > 0
+      ? Math.max(
+        activePetSize.height,
+        Math.min(WINDOW_MAX_HEIGHT - WINDOW_VERTICAL_BUFFER * 2, targetBubbleHeight),
+      )
+      : activePetSize.height) + WINDOW_VERTICAL_BUFFER * 2;
     const measuredBubbleWidth = bubbleCount > 0 ? BUBBLE_WIDTH : 0;
     const measuredDockWidth = bubbleCount > 0
       ? measuredBubbleWidth + WINDOW_HORIZONTAL_GAP + activePetSize.width + WINDOW_EDGE_BUFFER
@@ -963,6 +973,7 @@ export const AgentCompanionDesktopPet: React.FC = () => {
     '--openbitfun-agent-companion-pet-width': `${activePetSize.width}px`,
     '--openbitfun-agent-companion-pet-height': `${activePetSize.height}px`,
     '--openbitfun-agent-companion-gap': `${WINDOW_HORIZONTAL_GAP}px`,
+    '--openbitfun-agent-companion-vertical-buffer': `${WINDOW_VERTICAL_BUFFER}px`,
   } as React.CSSProperties;
   const isSingleTask = visibleTasks.length === 1;
   const hasAttentionTask = visibleTasks.some(task => task.state === 'attention');

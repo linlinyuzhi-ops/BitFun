@@ -266,6 +266,7 @@ const MiniAppScene: React.FC<MiniAppSceneProps> = ({ appId }) => {
             app={app}
             appName={appName}
             appearanceMode={appearanceMode}
+            workspaceId={workspace?.id}
             workspacePath={workspacePath || undefined}
             remoteConnectionId={workspace?.connectionId}
             remoteSshHost={workspace?.sshHost}
