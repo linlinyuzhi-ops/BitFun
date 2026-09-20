@@ -56,9 +56,15 @@ const TodoItemRow: React.FC<TodoItemRowProps> = ({
   const { t, formatDate } = useI18n(['scenes/todos', 'shared']);
 
   const timeLabel = atMs != null ? formatTimeOfDay(atMs, formatDate) : null;
+  // A manual Todo is completed by hand, so its countdown tracks the planned
+  // completion (deadline) rather than the schedule's run time: a run that has
+  // already fired must not read as overdue before the deadline arrives.
+  const countdownTargetMs = job.handling === 'manual'
+    ? job.plannedCompletionAtMs
+    : atMs;
   const relativeLabel = statusLabel
     ?? (isRunning ? t('shared:statuses.running') : null)
-    ?? (atMs != null ? formatCountdown(atMs, nowMs, t) : null);
+    ?? (countdownTargetMs != null ? formatCountdown(countdownTargetMs, nowMs, t) : null);
 
   const rowState = [
     isSelected ? 'selected' : null,

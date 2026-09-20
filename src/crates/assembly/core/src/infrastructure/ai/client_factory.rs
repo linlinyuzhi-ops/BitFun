@@ -319,6 +319,7 @@ impl AIClientFactory {
 
         let mut ai_config = AIConfig::try_from(model_config.clone())
             .map_err(|e| anyhow!("AI configuration conversion failed: {}", e))?;
+        ai_config.user_agent_identity = global_config.ai.request_product_name.clone();
         let skip_ssl_verify = ai_config.skip_ssl_verify;
         let proxy_config = if global_config.ai.proxy.enabled {
             Some(global_config.ai.proxy.clone())
@@ -509,7 +510,11 @@ async fn apply_configured_auth(
     proxy_config: Option<openbitfun_core_types::ProxyConfig>,
     skip_ssl_verify: bool,
 ) -> Result<Option<i64>> {
-    let options = SubscriptionHttpOptions::new(proxy_config, skip_ssl_verify);
+    let options = SubscriptionHttpOptions::new(
+            proxy_config,
+            skip_ssl_verify,
+            ai_config.user_agent_identity.clone(),
+        );
     apply_subscription_auth_with_options(auth, ai_config, &options).await
 }
 
@@ -636,6 +641,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         }
     }
 

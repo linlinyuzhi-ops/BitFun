@@ -59,8 +59,8 @@ struct DeviceAuthorizationResponse {
     code_verifier: String,
 }
 
-fn user_agent() -> String {
-    crate::providers::shared::product_user_agent()
+fn user_agent(options: &SubscriptionHttpOptions) -> String {
+    crate::providers::shared::product_user_agent(options.user_agent_identity.as_deref())
 }
 
 fn device_poll_interval(value: &serde_json::Value) -> u64 {
@@ -113,7 +113,7 @@ async fn exchange_code(
     ];
     let resp = client
         .post(format!("{ISSUER}/oauth/token"))
-        .header(reqwest::header::USER_AGENT, user_agent())
+        .header(reqwest::header::USER_AGENT, user_agent(options))
         .header(reqwest::header::ACCEPT, "application/json")
         .form(&params)
         .send()
@@ -138,7 +138,7 @@ async fn refresh(refresh_token: &str, options: &SubscriptionHttpOptions) -> Resu
     ];
     let resp = client
         .post(format!("{ISSUER}/oauth/token"))
-        .header(reqwest::header::USER_AGENT, user_agent())
+        .header(reqwest::header::USER_AGENT, user_agent(options))
         .header(reqwest::header::ACCEPT, "application/json")
         .form(&params)
         .send()
@@ -155,7 +155,7 @@ async fn refresh(refresh_token: &str, options: &SubscriptionHttpOptions) -> Resu
 async fn request_device_code(options: &SubscriptionHttpOptions) -> Result<DeviceCodeResponse> {
     let response = http_client(options)?
         .post(DEVICE_USER_CODE_URL)
-        .header(reqwest::header::USER_AGENT, user_agent())
+        .header(reqwest::header::USER_AGENT, user_agent(options))
         .json(&serde_json::json!({ "client_id": CLIENT_ID }))
         .send()
         .await
@@ -188,7 +188,7 @@ async fn poll_device_authorization(
     loop {
         let response = http_client(options)?
             .post(DEVICE_TOKEN_URL)
-            .header(reqwest::header::USER_AGENT, user_agent())
+            .header(reqwest::header::USER_AGENT, user_agent(options))
             .json(&serde_json::json!({
                 "device_auth_id": device.device_auth_id,
                 "user_code": device.user_code,
@@ -463,7 +463,7 @@ pub(crate) async fn resolve(options: &SubscriptionHttpOptions) -> Result<Resolve
         headers.insert("ChatGPT-Account-ID".to_string(), account);
     }
     headers.insert("originator".to_string(), "openbitfun".to_string());
-    headers.insert("User-Agent".to_string(), user_agent());
+    headers.insert("User-Agent".to_string(), user_agent(options));
     if let Some(residency) = jwt::chatgpt_compute_residency(&access) {
         headers.insert("x-openai-internal-codex-residency".to_string(), residency);
     }
@@ -512,6 +512,6 @@ mod tests {
             build_authorize_url(&Pkce::generate(), "state", &redirect_uri(CALLBACK_PORT))
                 .contains("originator=openbitfun")
         );
-        assert!(user_agent().starts_with("OpenBitFun/"));
+        assert!(user_agent(&crate::subscription_auth::SubscriptionHttpOptions::default()).starts_with("OpenBitFun/"));
     }
 }

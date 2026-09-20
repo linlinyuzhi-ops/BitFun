@@ -26,12 +26,14 @@ pub(crate) fn normalize_generic_reasoning_effort(value: &str) -> Option<&'static
 
 /// Attribution for APIs that accept third-party harnesses under their own name.
 #[cfg(feature = "subscription-auth")]
-pub(crate) fn product_user_agent() -> String {
+pub(crate) fn product_user_agent(identity: Option<&str>) -> String {
+    let name = identity.map(str::trim).filter(|value| !value.is_empty());
     format!(
-        "OpenBitFun/{} ({}; {})",
-        env!("CARGO_PKG_VERSION"),
-        std::env::consts::OS,
-        std::env::consts::ARCH
+        "{}/{version} ({os}; {arch})",
+        name.unwrap_or("OpenBitFun"),
+        version = env!("CARGO_PKG_VERSION"),
+        os = std::env::consts::OS,
+        arch = std::env::consts::ARCH
     )
 }
 

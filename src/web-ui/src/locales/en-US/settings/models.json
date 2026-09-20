@@ -404,6 +404,15 @@
     "save": "Save Proxy Configuration",
     "saveSuccess": "Proxy configuration saved. Restart OpenBitFun to apply it"
   },
+  "requestProductName": {
+    "title": "Request Product Name",
+    "description": "Product name carried in AI request headers",
+    "label": "Request header product name",
+    "hint": "Used for User-Agent and other request headers. Leave empty to use the default name OpenBitFun",
+    "placeholder": "Leave empty to use OpenBitFun",
+    "save": "Save Request Product Name",
+    "saveSuccess": "Request product name saved"
+  },
   "streamIdleTimeout": {
     "title": "Streaming Timeout",
     "effectiveNextRound": "Changes take effect next turn.",

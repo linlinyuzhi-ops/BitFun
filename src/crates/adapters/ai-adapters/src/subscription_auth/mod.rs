@@ -66,13 +66,19 @@ pub enum SubscriptionLoginMethod {
 pub struct SubscriptionHttpOptions {
     proxy_config: Option<ProxyConfig>,
     skip_ssl_verify: bool,
+    user_agent_identity: Option<String>,
 }
 
 impl SubscriptionHttpOptions {
-    pub fn new(proxy_config: Option<ProxyConfig>, skip_ssl_verify: bool) -> Self {
+    pub fn new(
+        proxy_config: Option<ProxyConfig>,
+        skip_ssl_verify: bool,
+        user_agent_identity: Option<String>,
+    ) -> Self {
         Self {
             proxy_config,
             skip_ssl_verify,
+            user_agent_identity,
         }
     }
 }

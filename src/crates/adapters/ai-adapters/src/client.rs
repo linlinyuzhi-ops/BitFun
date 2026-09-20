@@ -85,7 +85,11 @@ impl AIClient {
         proxy_config: Option<ProxyConfig>,
         stream_options: StreamOptions,
     ) -> Self {
-        let client = http::create_http_client(proxy_config, config.skip_ssl_verify);
+        let client = http::create_http_client(
+            proxy_config,
+            config.skip_ssl_verify,
+            config.user_agent_identity.as_deref(),
+        );
         Self {
             client,
             config,
@@ -715,6 +719,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
     }
 
@@ -1132,6 +1137,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "max",
@@ -1165,6 +1171,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "on",
@@ -1197,6 +1204,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "budget",
@@ -1279,6 +1287,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         });
 
         let gemini_tools = GeminiMessageConverter::convert_tools(Some(vec![ToolDefinition {
@@ -1326,6 +1335,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "on",
@@ -1363,6 +1373,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "max",
@@ -1402,6 +1413,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "off",
@@ -1439,6 +1451,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&relayed_reasoning_preset(
             "max",
@@ -1480,6 +1493,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&relayed_reasoning_preset(
             "off",
@@ -1657,6 +1671,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "invalid",
@@ -1696,6 +1711,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "on",
@@ -1733,6 +1749,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "none",
@@ -1774,6 +1791,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "high",
@@ -1814,6 +1832,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "on",
@@ -1853,6 +1872,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "on",
@@ -1892,6 +1912,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "high",
@@ -1933,6 +1954,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         });
 
         let request_body = anthropic::request::build_request_body(
@@ -1967,6 +1989,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "max",
@@ -2008,6 +2031,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&relayed_reasoning_preset(
             "max",
@@ -2050,6 +2074,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&relayed_reasoning_preset(
             "off",
@@ -2090,6 +2115,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "off",
@@ -2128,6 +2154,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "high",
@@ -2168,6 +2195,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&relayed_reasoning_preset(
             "low",
@@ -2210,6 +2238,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "on",
@@ -2248,6 +2277,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         });
 
         let request_body = anthropic::request::build_request_body(
@@ -2282,6 +2312,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "off",
@@ -2320,6 +2351,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         })
         .with_reasoning_preset(&reasoning_preset(
             "high",

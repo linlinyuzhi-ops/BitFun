@@ -838,11 +838,11 @@ pub(crate) async fn refresh_profile(options: &SubscriptionHttpOptions) -> Result
     Ok(())
 }
 
-fn inference_headers() -> HashMap<String, String> {
+fn inference_headers(options: &SubscriptionHttpOptions) -> HashMap<String, String> {
     HashMap::from([
         (
             "User-Agent".to_string(),
-            crate::providers::shared::product_user_agent(),
+            crate::providers::shared::product_user_agent(options.user_agent_identity.as_deref()),
         ),
         ("x-opencode-client".to_string(), "openbitfun".to_string()),
     ])
@@ -897,7 +897,7 @@ pub(crate) async fn resolve_for_model(
         credential = ensure_fresh(options).await?;
     }
     let route = route_for_model(plan, configured_format, model, credential.metadata.as_ref())?;
-    let mut extra_headers = inference_headers();
+    let mut extra_headers = inference_headers(options);
     extra_headers.extend(route.headers.clone());
     Ok(ResolvedCredential {
         api_key: credential.access,

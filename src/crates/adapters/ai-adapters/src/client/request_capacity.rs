@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn credential_scope_is_shared_across_models_but_isolated_across_accounts_and_hosts() {
-        let client = crate::client::http::create_http_client(None, false);
+        let client = crate::client::http::create_http_client(None, false, None);
         let scope =
             |url, key| RequestCapacity::for_request(&client.post(url).bearer_auth(key)).unwrap();
         let first = scope("https://capacity.example/v1/chat/completions", "fixture-a");

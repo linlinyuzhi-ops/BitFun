@@ -1050,6 +1050,7 @@ async fn create_transient_ai_client_for_config(
         openbitfun_core::infrastructure::subscription_auth::SubscriptionHttpOptions::new(
             proxy_config.clone(),
             skip_ssl_verify,
+            None,
         );
 
     openbitfun_core::infrastructure::ai::client_factory::apply_subscription_auth_with_options(
@@ -5400,6 +5401,7 @@ pub async fn start_subscription_login(
     let options = openbitfun_core::infrastructure::subscription_auth::SubscriptionHttpOptions::new(
         proxy_config,
         false,
+        None,
     );
     openbitfun_core::infrastructure::subscription_auth::start_login_with_method_and_options(
         request.provider,
@@ -5451,6 +5453,7 @@ pub async fn refresh_subscription_account(
     let options = openbitfun_core::infrastructure::subscription_auth::SubscriptionHttpOptions::new(
         proxy_config,
         false,
+        None,
     );
     openbitfun_core::infrastructure::subscription_auth::refresh_account_with_options(
         request.provider,

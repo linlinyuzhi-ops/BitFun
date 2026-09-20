@@ -398,6 +398,37 @@ describe('buildTodoBuckets', () => {
     ).toBe(true);
   });
 
+  it('does not mark a manual task overdue before its planned completion', () => {
+    const pastRunAtMs = nowMs - 2 * HOUR_IN_MS;
+    const job = makeJob({
+      schedule: { kind: 'at', at: new Date(pastRunAtMs).toISOString() },
+      handling: 'manual',
+      manualDueAtMs: pastRunAtMs,
+      plannedCompletionAtMs: nowMs + 4 * HOUR_IN_MS,
+      state: { consecutiveFailures: 0, coalescedRunCount: 0 },
+    });
+
+    const { upcoming } = buildTodoBuckets([job], { nowMs, rangeEndMs });
+
+    // The run already fired, but the deadline has not arrived yet.
+    expect(upcoming[0].isOverdue).toBe(false);
+  });
+
+  it('marks a manual task overdue once its planned completion has passed', () => {
+    const pastRunAtMs = nowMs - 2 * HOUR_IN_MS;
+    const job = makeJob({
+      schedule: { kind: 'at', at: new Date(pastRunAtMs).toISOString() },
+      handling: 'manual',
+      manualDueAtMs: pastRunAtMs,
+      plannedCompletionAtMs: nowMs - HOUR_IN_MS,
+      state: { consecutiveFailures: 0, coalescedRunCount: 0 },
+    });
+
+    const { upcoming } = buildTodoBuckets([job], { nowMs, rangeEndMs });
+
+    expect(upcoming[0].isOverdue).toBe(true);
+  });
+
   it('reports an unparseable expression as invalid with its error', () => {
     const job = makeJob({ schedule: { kind: 'cron', expr: 'not a cron' } });
 
@@ -530,6 +561,41 @@ describe('isDueToday', () => {
     });
     expect(isDueToday(job, nowMs)).toBe(false);
   });
+
+  it('is due today for a manual task whose deadline is today', () => {
+    const job = makeJob({
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      handling: 'manual',
+      plannedCompletionAtMs: localMs(2026, 8, 12, 18, 0),
+    });
+    expect(isDueToday(job, nowMs)).toBe(true);
+  });
+
+  it('is not due today for a manual task whose deadline is later', () => {
+    const job = makeJob({
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      handling: 'manual',
+      plannedCompletionAtMs: localMs(2026, 8, 13, 18, 0),
+    });
+    expect(isDueToday(job, nowMs)).toBe(false);
+  });
+
+  it('is not due today for an overdue manual task', () => {
+    const job = makeJob({
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      handling: 'manual',
+      plannedCompletionAtMs: localMs(2026, 8, 11, 18, 0),
+    });
+    expect(isDueToday(job, nowMs)).toBe(false);
+  });
+
+  it('is not due today for a manual task without a deadline', () => {
+    const job = makeJob({
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      handling: 'manual',
+    });
+    expect(isDueToday(job, nowMs)).toBe(false);
+  });
 });
 
 describe('filterJobsByTab', () => {
@@ -564,5 +630,55 @@ describe('filterJobsByTab', () => {
   it('returns every job for the all tab', () => {
     const result = filterJobsByTab([pending, inProgress, completed], 'all', nowMs);
     expect(result).toHaveLength(3);
+  });
+
+  it('keeps an in-progress manual task out of the in-progress tab when it is due today', () => {
+    const dueTodayManual = makeJob({
+      id: 'manual_due_today',
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      handling: 'manual',
+      completionStatus: 'in_progress',
+      plannedCompletionAtMs: localMs(2026, 8, 12, 18, 0),
+    });
+    const result = filterJobsByTab([dueTodayManual, inProgress], 'inProgress', nowMs);
+    expect(result.map((job) => job.id)).toEqual(['in_progress']);
+  });
+
+  it('keeps an in-progress manual task in the in-progress tab when it is not due today', () => {
+    const laterManual = makeJob({
+      id: 'manual_later',
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      handling: 'manual',
+      completionStatus: 'in_progress',
+      plannedCompletionAtMs: localMs(2026, 8, 13, 18, 0),
+    });
+    const overdueManual = makeJob({
+      id: 'manual_overdue',
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      handling: 'manual',
+      completionStatus: 'in_progress',
+      plannedCompletionAtMs: localMs(2026, 8, 11, 18, 0),
+    });
+    const result = filterJobsByTab([laterManual, overdueManual], 'inProgress', nowMs);
+    expect(result.map((job) => job.id).sort()).toEqual(['manual_later', 'manual_overdue']);
+  });
+
+  it('shows a manual task whose deadline is today in the today tab', () => {
+    const dueTodayManual = makeJob({
+      id: 'manual_due_today',
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      handling: 'manual',
+      completionStatus: 'in_progress',
+      plannedCompletionAtMs: localMs(2026, 8, 12, 18, 0),
+    });
+    const laterManual = makeJob({
+      id: 'manual_later',
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      handling: 'manual',
+      completionStatus: 'in_progress',
+      plannedCompletionAtMs: localMs(2026, 8, 13, 18, 0),
+    });
+    const result = filterJobsByTab([dueTodayManual, laterManual], 'today', nowMs);
+    expect(result.map((job) => job.id)).toEqual(['manual_due_today']);
   });
 });

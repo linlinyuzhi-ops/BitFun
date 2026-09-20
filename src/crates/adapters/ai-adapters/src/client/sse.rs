@@ -581,7 +581,7 @@ mod tests {
     const CONCURRENCY_ERROR: &str = r#"{"error":{"message":"You've reached your concurrent request limit. Please wait for your ongoing requests to finish and try again.","type":"access_terminated_error"}}"#;
 
     async fn limited_scope(name: &str) -> Arc<RequestCapacity> {
-        let client = crate::client::http::create_http_client(None, false);
+        let client = crate::client::http::create_http_client(None, false, None);
         let scope = RequestCapacity::for_request(
             &client
                 .post("https://stream-recovery.example/v1")
@@ -839,7 +839,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/chat/completions", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let client = crate::client::http::create_http_client(None, false);
+        let client = crate::client::http::create_http_client(None, false, None);
         let body = serde_json::json!({"model": "fixture"});
         let open = || {
             execute_sse_request(
@@ -898,7 +898,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/chat/completions", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let client = crate::client::http::create_http_client(None, false);
+        let client = crate::client::http::create_http_client(None, false, None);
         let body = serde_json::json!({"model": "fixture"});
 
         let error = execute_sse_request(
@@ -976,7 +976,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/chat/completions", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let client = crate::client::http::create_http_client(None, false);
+        let client = crate::client::http::create_http_client(None, false, None);
         let error = execute_sse_request(
             "OpenAI Streaming API",
             &url,
@@ -1021,7 +1021,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/chat/completions", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let client = crate::client::http::create_http_client(None, false);
+        let client = crate::client::http::create_http_client(None, false, None);
         let body = serde_json::json!({});
         let open = || {
             execute_sse_request(
@@ -1149,7 +1149,7 @@ mod tests {
                 .expect("retry fixture should run");
         });
         let url = format!("http://{address}/chat/completions");
-        let client = crate::client::http::create_http_client(None, false);
+        let client = crate::client::http::create_http_client(None, false, None);
         let request_body = serde_json::json!({"model": "configured-model"});
 
         let result = execute_sse_request(
@@ -1187,7 +1187,7 @@ mod tests {
                 .expect("retry-after fixture should run");
         });
         let url = format!("http://{address}/chat/completions");
-        let client = crate::client::http::create_http_client(None, false);
+        let client = crate::client::http::create_http_client(None, false, None);
         let request_body = serde_json::json!({"model": "configured-model"});
 
         let result = execute_sse_request(

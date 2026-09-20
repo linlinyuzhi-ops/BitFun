@@ -50,6 +50,7 @@ async fn build_transient_client(
         openbitfun_core::infrastructure::subscription_auth::SubscriptionHttpOptions::new(
             proxy_config.clone(),
             skip_ssl_verify,
+            None,
         );
 
     openbitfun_core::infrastructure::ai::client_factory::apply_subscription_auth_with_options(

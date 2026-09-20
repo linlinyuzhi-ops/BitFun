@@ -641,6 +641,10 @@ pub struct AIConfig {
     pub skip_ssl_verify: bool,
     pub custom_request_body: Option<Value>,
     pub custom_request_body_mode: Option<String>,
+    /// Product name sent in request headers (User-Agent / attribution). `None`
+    /// or empty falls back to the built-in "OpenBitFun" name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_agent_identity: Option<String>,
 }
 
 /// Provider-neutral options that vary per model request rather than per model

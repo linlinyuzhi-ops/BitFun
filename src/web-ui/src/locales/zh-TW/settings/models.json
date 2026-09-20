@@ -404,6 +404,15 @@
     "save": "儲存代理設定",
     "saveSuccess": "代理設定已儲存，重新啟動 OpenBitFun 後生效"
   },
+  "requestProductName": {
+    "title": "請求名稱",
+    "description": "呼叫大型模型時請求頭中攜帶的產品名稱",
+    "label": "請求頭產品名稱",
+    "hint": "用於 User-Agent 等請求頭。留空使用預設名稱 OpenBitFun",
+    "placeholder": "留空使用 OpenBitFun",
+    "save": "儲存請求名稱",
+    "saveSuccess": "請求名稱已儲存"
+  },
   "streamIdleTimeout": {
     "title": "流式超時",
     "effectiveNextRound": "修改後下一次對話生效",

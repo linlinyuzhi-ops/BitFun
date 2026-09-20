@@ -1026,6 +1026,11 @@ pub struct AIConfig {
     /// Global proxy configuration.
     pub proxy: ProxyConfig,
 
+    /// Product name sent in AI request headers (User-Agent / originator).
+    /// Empty or null uses the built-in "OpenBitFun" name.
+    #[serde(default)]
+    pub request_product_name: Option<String>,
+
     /// Streaming idle timeout in seconds; `None` means wait indefinitely.
     #[serde(default = "default_stream_idle_timeout")]
     pub stream_idle_timeout_secs: Option<u64>,
@@ -1949,6 +1954,7 @@ impl Default for AIConfig {
             swarm_max_concurrency: default_swarm_max_concurrency(),
             subagent_batch_execution_policy: default_subagent_batch_execution_policy(),
             proxy: ProxyConfig::default(),
+            request_product_name: None,
             stream_idle_timeout_secs: default_stream_idle_timeout(),
             stream_ttft_timeout_secs: default_stream_ttft_timeout(),
             tool_execution_timeout_secs: default_tool_execution_timeout(),

@@ -437,6 +437,11 @@ const ModelSettingsPage: React.FC = () => {
   const [streamIdleTimeoutInput, setStreamIdleTimeoutInput] = useState('');
   const [streamTtftTimeoutInput, setStreamTtftTimeoutInput] = useState('');
   const [savedStreamTimeouts, setSavedStreamTimeouts] = useState({ idle: '', ttft: '' });
+  const [requestProductNameInput, setRequestProductNameInput] = useState('');
+  const [savedRequestProductName, setSavedRequestProductName] = useState('');
+  const [isRequestProductNameSaving, setIsRequestProductNameSaving] = useState(false);
+  const [requestProductNameSaveError, setRequestProductNameSaveError] = useState<string | null>(null);
+  const requestProductNameSavingRef = React.useRef(false);
   const [isStreamTimeoutSaving, setIsStreamTimeoutSaving] = useState(false);
   const [isProxySaving, setIsProxySaving] = useState(false);
   const [streamTimeoutSaveError, setStreamTimeoutSaveError] = useState<string | null>(null);
@@ -527,6 +532,7 @@ const ModelSettingsPage: React.FC = () => {
   const isProxyDirty = stableJson(proxyConfig) !== stableJson(savedProxyConfig);
   const isStreamTimeoutDirty = streamIdleTimeoutInput !== savedStreamTimeouts.idle
     || streamTtftTimeoutInput !== savedStreamTimeouts.ttft;
+  const isRequestProductNameDirty = requestProductNameInput !== savedRequestProductName;
 
   const getCustomRequestBodyTrimHint = useCallback((provider?: string): string => {
     switch (provider) {
@@ -593,11 +599,12 @@ const ModelSettingsPage: React.FC = () => {
     setIsConfigLoading(true);
     setConfigLoadError(false);
     try {
-      const [models, proxy, streamIdleTimeoutSecs, streamTtftTimeoutSecs] = await Promise.all([
+      const [models, proxy, streamIdleTimeoutSecs, streamTtftTimeoutSecs, requestProductName] = await Promise.all([
         configManager.getConfig<AIModelConfigType[]>('ai.models'),
         configManager.getConfig<ProxyConfig>('ai.proxy'),
         configManager.getConfig<number | null>('ai.stream_idle_timeout_secs'),
         configManager.getConfig<number | null>('ai.stream_ttft_timeout_secs'),
+        configManager.getConfig<string | null>('ai.request_product_name'),
       ]);
       setAiModels(models || []);
       await loadModelCatalog();
@@ -610,6 +617,9 @@ const ModelSettingsPage: React.FC = () => {
       setStreamIdleTimeoutInput(idle);
       setStreamTtftTimeoutInput(ttft);
       setSavedStreamTimeouts({ idle, ttft });
+      const resolvedRequestProductName = requestProductName != null ? String(requestProductName) : '';
+      setRequestProductNameInput(resolvedRequestProductName);
+      setSavedRequestProductName(resolvedRequestProductName);
     } catch (error) {
       log.error('Failed to load AI config', error);
       setConfigLoadError(true);
@@ -2102,6 +2112,32 @@ const ModelSettingsPage: React.FC = () => {
     }
   };
 
+  const handleSaveRequestProductName = async (): Promise<boolean> => {
+    if (!isRequestProductNameDirty) return true;
+    if (requestProductNameSavingRef.current) return false;
+
+    requestProductNameSavingRef.current = true;
+    setIsRequestProductNameSaving(true);
+    setRequestProductNameSaveError(null);
+    try {
+      const trimmed = requestProductNameInput.trim();
+      await configManager.setConfig('ai.request_product_name', trimmed ? trimmed : null);
+      setRequestProductNameInput(trimmed);
+      setSavedRequestProductName(trimmed);
+      setRequestProductNameSaveError(null);
+      notification.success(t('requestProductName.saveSuccess'));
+      return true;
+    } catch (error) {
+      log.error('Failed to save request product name', error);
+      setRequestProductNameSaveError(t('messages.saveFailed'));
+      notification.error(t('messages.saveFailed'));
+      return false;
+    } finally {
+      requestProductNameSavingRef.current = false;
+      setIsRequestProductNameSaving(false);
+    }
+  };
+
   const preserveEditingDraftAndClose = () => {
     setDraftCloseConfirmOpen(false);
     setIsEditing(false);
@@ -2142,6 +2178,10 @@ const ModelSettingsPage: React.FC = () => {
     setStreamTtftTimeoutInput(savedStreamTimeouts.ttft);
     setStreamTimeoutSaveError(null);
   }, [savedStreamTimeouts]);
+  const discardRequestProductNameDraft = useCallback(() => {
+    setRequestProductNameInput(savedRequestProductName);
+    setRequestProductNameSaveError(null);
+  }, [savedRequestProductName]);
 
   useSettingsDraft({
     id: 'model-stream-timeouts',
@@ -2151,6 +2191,15 @@ const ModelSettingsPage: React.FC = () => {
     saving: isStreamTimeoutSaving,
     save: handleSaveStreamTimeouts,
     discard: discardStreamTimeoutDraft,
+  });
+  useSettingsDraft({
+    id: 'model-request-product-name',
+    pageId: 'ai.models',
+    label: t('requestProductName.title'),
+    dirty: isRequestProductNameDirty,
+    saving: isRequestProductNameSaving,
+    save: handleSaveRequestProductName,
+    discard: discardRequestProductNameDraft,
   });
   useSettingsDraft({
     id: 'model-network-proxy',
@@ -3935,6 +3984,40 @@ const ModelSettingsPage: React.FC = () => {
         >
           <span />
         </ConfigPageSection>}
+
+        <ConfigPageSection
+          title={t('requestProductName.title')}
+          description={t('requestProductName.description')}
+        >
+          <ConfigPageRow
+            label={t('requestProductName.label')}
+            description={t('requestProductName.hint')}
+            align="center"
+          >
+            <Input
+              value={requestProductNameInput}
+              onChange={(e) => setRequestProductNameInput(e.target.value)}
+              placeholder={t('requestProductName.placeholder')}
+              size="sm"
+            />
+          </ConfigPageRow>
+          <ConfigActionBar
+            status={isRequestProductNameSaving
+              ? 'saving'
+              : requestProductNameSaveError
+                ? 'error'
+                : isRequestProductNameDirty
+                  ? 'unsaved'
+                  : 'saved'}
+            statusMessage={requestProductNameSaveError}
+            saving={isRequestProductNameSaving}
+            saveDisabled={!isRequestProductNameDirty}
+            discardDisabled={!isRequestProductNameDirty}
+            saveLabel={t('requestProductName.save')}
+            onSave={() => void handleSaveRequestProductName()}
+            onDiscard={discardRequestProductNameDraft}
+          />
+        </ConfigPageSection>
 
         <ConfigPageSection
           title={t('streamIdleTimeout.title')}

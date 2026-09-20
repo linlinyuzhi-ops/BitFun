@@ -156,6 +156,7 @@ impl TryFrom<AIModelConfig> for AIConfig {
             skip_ssl_verify: other.skip_ssl_verify,
             custom_request_body,
             custom_request_body_mode: other.custom_request_body_mode,
+            user_agent_identity: None,
         })
     }
 }

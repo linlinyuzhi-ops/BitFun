@@ -295,9 +295,14 @@ export function buildTodoBuckets(
         job,
         atMs,
         isNextRun: atMs === scheduledAtMs,
-        // A run that is executing is late only in the clock sense; surfacing it
-        // as overdue misreports healthy work as a problem.
-        isOverdue: atMs < nowMs && !running,
+        // A manual Todo is only late once its planned completion has passed; a
+        // run that fired early must not label the task as overdue before the
+        // deadline. Non-manual jobs stay late relative to their run time.
+        isOverdue: job.handling === 'manual'
+          ? job.plannedCompletionAtMs != null
+            && job.plannedCompletionAtMs < nowMs
+            && !running
+          : atMs < nowMs && !running,
         isRunning: running && atMs === scheduledAtMs,
       };
       if (atMs <= listBoundaryMs) {
@@ -387,14 +392,23 @@ function endOfLocalDayMs(nowMs: number): number {
  * Whether an unfinished Todo is due today: its planned completion is today or
  * already overdue, or — when no planned completion is set — it has a run
  * scheduled for today.
+ *
+ * A manual Todo is "due today" only when today is exactly its deadline: a
+ * deadline that has not arrived yet (or has already passed) keeps it out of the
+ * today tier, and an in-progress one then belongs to the in-progress tab.
  */
 export function isDueToday(job: CronJob, nowMs: number): boolean {
   if (job.completionStatus === 'completed') return false;
-  if (job.plannedCompletionAtMs != null) {
-    return job.plannedCompletionAtMs <= endOfLocalDayMs(nowMs);
-  }
   const startMs = startOfLocalDayMs(nowMs);
   const endMs = endOfLocalDayMs(nowMs);
+  if (job.handling === 'manual') {
+    return job.plannedCompletionAtMs != null
+      && job.plannedCompletionAtMs >= startMs
+      && job.plannedCompletionAtMs <= endMs;
+  }
+  if (job.plannedCompletionAtMs != null) {
+    return job.plannedCompletionAtMs <= endMs;
+  }
   try {
     return scheduleOccurrencesInRange(
       job.schedule,
@@ -425,7 +439,12 @@ export function filterJobsByTab(jobs: CronJob[], tab: TodoTab, nowMs: number): C
       filtered = jobs.filter((job) => isDueToday(job, nowMs));
       break;
     case 'inProgress':
-      filtered = jobs.filter((job) => job.completionStatus === 'in_progress');
+      // A manual Todo that is due today belongs to the today tab only; the
+      // in-progress tab keeps every other in-progress job.
+      filtered = jobs.filter((job) => (
+        job.completionStatus === 'in_progress'
+        && !(job.handling === 'manual' && isDueToday(job, nowMs))
+      ));
       break;
     case 'pending':
       filtered = jobs.filter((job) => job.completionStatus !== 'completed');

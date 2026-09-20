@@ -4,9 +4,16 @@ use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
 use reqwest::{Client, NoProxy, Proxy};
 
+/// User-Agent product name for AI requests, defaulting to the built-in name.
+fn request_identity(configured: Option<&str>) -> &str {
+    let trimmed = configured.map(str::trim).filter(|value| !value.is_empty());
+    trimmed.unwrap_or("OpenBitFun")
+}
+
 pub(crate) fn create_http_client(
     proxy_config: Option<ProxyConfig>,
     skip_ssl_verify: bool,
+    user_agent_identity: Option<&str>,
 ) -> Client {
     openbitfun_services_core::tls_provider::ensure_ring_crypto_provider();
     let mut builder = Client::builder()
@@ -14,7 +21,7 @@ pub(crate) fn create_http_client(
         .connect_timeout(std::time::Duration::from_secs(
             AIClient::STREAM_CONNECT_TIMEOUT_SECS,
         ))
-        .user_agent("OpenBitFun/1.0")
+        .user_agent(format!("{}/1.0", request_identity(user_agent_identity)))
         .pool_idle_timeout(std::time::Duration::from_secs(
             AIClient::HTTP_POOL_IDLE_TIMEOUT_SECS,
         ))

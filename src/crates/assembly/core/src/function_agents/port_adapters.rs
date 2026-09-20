@@ -168,6 +168,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            user_agent_identity: None,
         }))
     }
 
