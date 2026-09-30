@@ -69,9 +69,9 @@ const NotificationButton: React.FC<NotificationButtonProps> = ({
       <MenuItem
         className={className || undefined}
         leading={activeNotification?.variant === 'loading' ? (
-          <LucideLoaderCircle width="14" height="14" stroke="currentColor" className="openbitfun-notification-btn__spinner" aria-hidden="true" />
+          <Icon glyph={LucideLoaderCircle} size="sm" className="openbitfun-notification-btn__spinner" aria-hidden="true" />
         ) : unreadCount > 0 ? (
-          <BellDot size={14} className="openbitfun-notification-btn__icon--has-message" aria-hidden="true" />
+          <Icon glyph={BellDot} size="sm" className="openbitfun-notification-btn__icon--has-message" aria-hidden="true" />
         ) : (
           <Icon name="bell" size="sm" aria-hidden="true" />
         )}
@@ -161,21 +161,22 @@ const NotificationButton: React.FC<NotificationButtonProps> = ({
       ) : navFooterHoverIconSwap ? (
         unreadCount > 0 ? (
           <span className="openbitfun-nav-panel__footer-btn-icon-swap" aria-hidden="true">
-            <BellDot
-              size={15}
+            <Icon
+              glyph={BellDot}
+              size="sm"
               className="openbitfun-notification-btn__icon--has-message openbitfun-nav-panel__footer-btn-icon-swap-default"
             />
-            <BellRing size={15} className="openbitfun-nav-panel__footer-btn-icon-swap-hover" />
+            <Icon glyph={BellRing} size="sm" className="openbitfun-nav-panel__footer-btn-icon-swap-hover" />
           </span>
         ) : (
           <span className="openbitfun-nav-panel__footer-btn-icon-swap" aria-hidden="true">
             <Icon name="bell" size="sm" className="openbitfun-nav-panel__footer-btn-icon-swap-default" />
-            <BellRing size={15} className="openbitfun-nav-panel__footer-btn-icon-swap-hover" />
+            <Icon glyph={BellRing} size="sm" className="openbitfun-nav-panel__footer-btn-icon-swap-hover" />
           </span>
         )
       ) : (
         unreadCount > 0
-          ? <BellDot size={14} className="openbitfun-notification-btn__icon--has-message" />
+          ? <Icon glyph={BellDot} size="sm" className="openbitfun-notification-btn__icon--has-message" />
           : <Icon name="bell" size="sm" />
       )}
     </button>

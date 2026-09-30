@@ -271,6 +271,15 @@ impl RemoteCommandRuntimeHost for CoreRemoteCommandRuntimeHost<'_> {
         }
     }
 
+    async fn manage_dialog_queue(
+        &self,
+        request: openbitfun_runtime_ports::DialogQueueRequest,
+    ) -> std::result::Result<openbitfun_runtime_ports::DialogQueueSnapshot, String> {
+        CoreServiceAgentRuntime::remote_dialog_host(self.dispatcher)?
+            .manage_dialog_queue(request)
+            .await
+    }
+
     async fn submit_dialog(
         &self,
         request: RemoteDialogSubmissionRequest<Self::ImageContext>,

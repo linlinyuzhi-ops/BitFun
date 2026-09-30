@@ -2365,8 +2365,26 @@ async fn ensure_session_loaded_for_selector_update(
             include_internal,
         )
         .await
-        .map_err(|error| format!("Failed to restore session before selector update: {error}"))?;
+        .map_err(selector_update_restore_error)?;
     Ok(())
+}
+
+/// Keeps a Session restore failure readable without burying its stable code.
+///
+/// Callers recognize `session_in_use` and `outcome_unknown` by the message
+/// prefix, so wrapping those two in prose would make a recognizable state look
+/// like a generic failure. Every other reason keeps the selector-update context.
+fn selector_update_restore_error(error: DesktopSessionApplicationError) -> String {
+    let carries_stable_code = matches!(
+        error,
+        DesktopSessionApplicationError::SessionInUse(_)
+            | DesktopSessionApplicationError::OutcomeUnknown(_)
+    );
+    let message = error.to_string();
+    if carries_stable_code {
+        return message;
+    }
+    format!("Failed to restore session before selector update: {message}")
 }
 
 #[tauri::command]
@@ -2452,6 +2470,18 @@ pub async fn ensure_coordinator_session(
         )
         .await
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn manage_dialog_queue(
+    runtime: State<'_, DesktopRuntimeContext>,
+    request: openbitfun_runtime_ports::DialogQueueRequest,
+) -> Result<openbitfun_runtime_ports::DialogQueueSnapshot, String> {
+    runtime
+        .agent_runtime()
+        .manage_dialog_queue(request)
+        .await
+        .map_err(|e| e.into_message())
 }
 
 #[tauri::command]
@@ -4951,6 +4981,37 @@ mod tests {
             request.action,
             SetSubagentTimeoutActionDTO::Disable
         ));
+    }
+
+    #[test]
+    fn selector_update_restore_error_keeps_the_stable_session_in_use_code() {
+        let message = selector_update_restore_error(DesktopSessionApplicationError::SessionInUse(
+            "Session is already open for writing: session-1".to_string(),
+        ));
+        assert_eq!(
+            message,
+            "session_in_use: Session is already open for writing: session-1"
+        );
+    }
+
+    #[test]
+    fn selector_update_restore_error_keeps_the_stable_outcome_unknown_code() {
+        let message = selector_update_restore_error(
+            DesktopSessionApplicationError::OutcomeUnknown("commit may have landed".to_string()),
+        );
+        assert_eq!(message, "outcome_unknown: commit may have landed");
+    }
+
+    #[test]
+    fn selector_update_restore_error_keeps_the_selector_update_context_for_other_reasons() {
+        let message = selector_update_restore_error(DesktopSessionApplicationError::Validation(
+            "workspace_id is required when the session is not loaded".to_string(),
+        ));
+        assert_eq!(
+            message,
+            "Failed to restore session before selector update: \
+             workspace_id is required when the session is not loaded"
+        );
     }
 }
 

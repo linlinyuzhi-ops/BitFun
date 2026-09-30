@@ -3,6 +3,7 @@ package com.openbitfun.mobile.core.feature.session
 import com.openbitfun.mobile.core.domain.ChatSessionCursor
 import com.openbitfun.mobile.core.domain.ChatSyncPhase
 import com.openbitfun.mobile.core.domain.ChatTimelineState
+import com.openbitfun.mobile.core.domain.ChatTranscriptOrigin
 import com.openbitfun.mobile.core.protocol.RemoteDefaultModels
 import com.openbitfun.mobile.core.protocol.RemoteModelCatalog
 import com.openbitfun.mobile.core.protocol.RemoteModelConfig
@@ -111,4 +112,5 @@ private fun timeline(
     ),
     selectedModelId = selectedModelId,
     activeTurnAnchorId = "",
+    origin = ChatTranscriptOrigin.HOST,
 )

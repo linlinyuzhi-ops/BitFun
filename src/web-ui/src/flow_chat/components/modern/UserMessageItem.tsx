@@ -6,8 +6,9 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { withConversationExcerptFallback } from '@/shared/utils/conversationExcerpt';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
-import { RotateCcw, Loader2 } from 'lucide-react';
+import { CircleAlert, RotateCcw, Loader2 } from 'lucide-react';
 import type { DialogTurn, FlowUserSteeringItem } from '../../types/flow-chat';
+import type { ImageContext } from '@/shared/types/context';
 import { flowChatManager } from '../../services/FlowChatManager';
 import { useFlowChatContext } from './FlowChatContext';
 import { useActiveSession } from '../../store/modernFlowChatStore';
@@ -26,7 +27,7 @@ import { globalEventBus } from '@/infrastructure/event-bus';
 import { shouldIgnoreCardToggleClick } from '@/shared/utils/textSelection';
 import { observeElementResize } from '@/shared/utils/sharedResizeObserver';
 import { formatContextForPrompt } from '@/shared/utils/contextPrompt';
-import { Dialog, DialogClose, Tooltip, Icon, IconButton } from '@openbitfun/ui';
+import { Button, Dialog, DialogClose, Tooltip, Icon, IconButton } from '@openbitfun/ui';
 import { confirmDanger } from '@/infrastructure/confirm-dialog';
 import { ToolProcessingDots } from '@openbitfun/ui/flow-chat';
 import { UserMessageEditComposer } from './UserMessageEditComposer';
@@ -46,6 +47,7 @@ import { resolveSessionDriverId } from '../../session-drivers/resolve';
 import { absoluteSessionTurnIndexForId } from '../../utils/flowChatTurnOrdinal';
 import {
   composerPresentationToAccessibleText,
+  composerPresentationToClipboardText,
   composerPresentationContexts,
   composerPresentationSessionReferences,
   composerPresentationToEditorText,
@@ -55,9 +57,13 @@ import {
   type ComposerPresentation,
 } from '../../utils/composerPresentation';
 import { restoreImageContextsFromPayload } from '../../utils/imageContextRestoration';
+import { writeComposerClipboardPayload } from '../../utils/composerClipboard';
+import { buildImagePayload } from '../../utils/imagePayload';
 import { UserMessagePresentationContent, UserMessageTextContent } from './UserMessagePresentationContent';
 import { UserMessageImage } from './UserMessageImage';
 import { useSubmittedMessageMotion } from './useSubmittedMessageMotion';
+import { finishSubmittedMessagePreview } from '../../services/submittedMessagePresentation';
+import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import './UserMessageItem.scss';
 
 const log = createLogger('UserMessageItem');
@@ -68,6 +74,8 @@ interface UserMessageItemProps {
   absoluteTurnIndex?: number;
   turnStatus?: DialogTurn['status'];
   steeringStatus?: FlowUserSteeringItem['status'];
+  submissionPhase?: 'forming' | 'failed';
+  submissionError?: string;
 }
 
 function buildPresentationRerunPayload(presentation: ComposerPresentation): {
@@ -100,7 +108,7 @@ function buildPresentationRerunPayload(presentation: ComposerPresentation): {
 }
 
 export const UserMessageItem = React.memo<UserMessageItemProps>(
-  ({ message, turnId, absoluteTurnIndex, turnStatus, steeringStatus }) => {
+  ({ message, turnId, absoluteTurnIndex, turnStatus, steeringStatus, submissionPhase, submissionError }) => {
     const { t, formatDate } = useI18n('flow-chat');
     const {
       sessionId,
@@ -161,6 +169,15 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
         imageDisplayData: messageImages,
       }),
     ], [composerPresentation, message?.id, message?.timestamp, messageImages, turnId]);
+    // The edit composer only owns text and keeps its attachments outside the
+    // editor, so an edit-rerun resubmits the original images instead of losing
+    // them with the rolled-back Turn.
+    const restoredImageContexts = useMemo(
+      () => restoredComposerContexts.filter(
+        (context): context is ImageContext => context.type === 'image',
+      ),
+      [restoredComposerContexts],
+    );
     const isUsageReportMessage = message?.metadata?.localCommandKind === 'usage_report';
     const isGoalLoadingMessage = Boolean(message?.metadata?.threadGoalKickoff);
     const isThreadGoalContinuationCheck = Boolean(message?.metadata?.threadGoalContinuation);
@@ -185,7 +202,8 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
     const resolvedTurnStatus = dialogTurn?.status ?? turnStatus;
     const isFailed = resolvedTurnStatus === 'error';
     const resolvedSessionId = sessionId ?? currentSession?.sessionId;
-    useSubmittedMessageMotion(shellRef, resolvedSessionId, turnId, message?.id, isFailed || isEditing);
+    useSubmittedMessageMotion(shellRef, resolvedSessionId, turnId, message?.id,
+      isFailed || isEditing || submissionPhase === 'failed', submissionPhase);
     const sessionMachine = useSessionStateMachine(resolvedSessionId ?? null);
     const sessionExecutionState = sessionMachine && sessionMachine.sessionId === resolvedSessionId
       ? sessionMachine.currentState
@@ -273,6 +291,12 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
     const copyText = composerPresentation
       ? composerPresentationToAccessibleText(composerPresentation)
       : messageContent;
+    // The readable value stays in text/plain while the canonical token text
+    // rides along in the HTML flavor, so pasting a copied message back into the
+    // composer rebuilds its capsules instead of leaving their source text.
+    const copyTokens = composerPresentation
+      ? composerPresentationToClipboardText(composerPresentation)
+      : messageContent;
     
     // Check whether content overflows. Uses the shared ResizeObserver instead
     // of a per-message window resize listener: observer callbacks run after
@@ -305,13 +329,13 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
     const handleCopy = useCallback(async (e: React.MouseEvent) => {
       e.stopPropagation(); // Prevent toggle via bubbling.
       try {
-        await navigator.clipboard.writeText(copyText);
+        await writeComposerClipboardPayload({ text: copyText, tokens: copyTokens });
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       } catch (error) {
         log.error('Failed to copy', error);
       }
-    }, [copyText]);
+    }, [copyText, copyTokens]);
 
     const handleRollback = useCallback(async (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -405,7 +429,10 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
           originalContent: messageContent,
           editedContent,
           agentType: currentSession?.mode,
-          rerun: (content, agentType, sessionMutationLeaseId) => {
+          rerun: async (content, agentType, sessionMutationLeaseId) => {
+            const imagePayload = await buildImagePayload(restoredImageContexts);
+            const attachments = imagePayload ?? {};
+
             if (!editedPresentation) {
               return flowChatManager.sendMessage(
                 content,
@@ -413,7 +440,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
                 undefined,
                 agentType,
                 undefined,
-                { sessionMutationLeaseId },
+                { ...attachments, sessionMutationLeaseId },
               );
             }
 
@@ -426,6 +453,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
               undefined,
               {
                 userMessageMetadata: payload.userMessageMetadata,
+                ...attachments,
                 sessionMutationLeaseId,
               },
             );
@@ -447,6 +475,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
       editDraft,
       isEditSubmitting,
       messageContent,
+      restoredImageContexts,
       resolvedSessionId,
       setEditSubmitting,
       t,
@@ -474,7 +503,10 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
         contexts: restoredComposerContexts,
         ...(composerPresentation ? { composerPresentation } : {}),
       });
-    }, [composerPresentation, messageContent, restoredComposerContexts]);
+      if (submissionPhase === 'failed' && resolvedSessionId) {
+        finishSubmittedMessagePreview(getActiveSurfaceScope(), resolvedSessionId, turnId);
+      }
+    }, [composerPresentation, messageContent, restoredComposerContexts, submissionPhase, resolvedSessionId, turnId]);
 
     const handleOpenUsageReport = useCallback((report: SessionUsageReport, initialTab?: SessionUsagePanelTab) => {
       void import('../../services/openSessionUsageReport').then(({ openSessionUsagePanel }) => {
@@ -555,14 +587,15 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
         <div
           data-openbitfun-product-component="user-message-item"
           data-openbitfun-product-part="root"
-          data-openbitfun-state={[expanded && 'expanded', isFailed && 'failed'].filter(Boolean).join(' ') || undefined}
+          data-openbitfun-state={[expanded && 'expanded', isFailed && 'failed', submissionPhase].filter(Boolean).join(' ') || undefined}
           ref={containerRef}
-          className={`user-message-item ${expanded ? 'user-message-item--expanded' : ''}${isFailed ? ' user-message-item--failed' : ''}${isEditing ? ' user-message-item--editing' : ''}`}
+          className={`user-message-item ${expanded ? 'user-message-item--expanded' : ''}${isFailed ? ' user-message-item--failed' : ''}${isEditing ? ' user-message-item--editing' : ''}${submissionPhase === 'forming' ? ' user-message-item--forming' : ''}${submissionPhase === 'failed' ? ' user-message-item--submission-failed' : ''}`}
           data-testid="chat-user-message"
           data-turn-id={turnId}
-          data-status={resolvedTurnStatus || ''}
-          data-failed={isFailed ? 'true' : 'false'}
+          data-status={submissionPhase === 'failed' ? 'error' : resolvedTurnStatus || ''}
+          data-failed={isFailed || submissionPhase === 'failed' ? 'true' : 'false'}
         >
+        <span className="user-message-item__surface" aria-hidden="true" />
         {isEditing ? (
           <div className="user-message-item__edit-layout">
             <UserMessageEditComposer
@@ -669,13 +702,22 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
               closeOnPointerOutside={false}
               onClick={event => { if (event.target === event.currentTarget) setLightboxImage(null); }}
             >
-              <DialogClose className="user-message-item__lightbox-close" icon={<Icon name="xmark" size="lg" style={{ width: 20, height: 20 }} />} />
+              <DialogClose className="user-message-item__lightbox-close" icon={<Icon name="xmark" size="md" />} />
               <img src={lightboxImage} alt="Preview" onClick={(e) => e.stopPropagation()} />
             </Dialog>
           )}
         </div>
 
-        <div className="user-message-item__meta" data-openbitfun-product-component="user-message-item" data-openbitfun-product-part="meta">
+        {submissionPhase === 'failed' && (
+          <div className="user-message-item__submission-error" role="alert">
+            <Icon glyph={CircleAlert} size="sm" className="user-message-item__submission-error-icon" />
+            <span title={submissionError}>{t('error.sendFailed')}</span>
+            <Button type="button" variant="outline" size="sm" onClick={handleFillToInput}>
+              {t('message.continueEditing')}
+            </Button>
+          </div>
+        )}
+        {!submissionPhase && <div className="user-message-item__meta" data-openbitfun-product-component="user-message-item" data-openbitfun-product-part="meta">
           {!isEditing && sentTime && sentAtLabel && sentTimestamp !== null && (
             <time
               className="user-message-item__timestamp"
@@ -738,7 +780,7 @@ export const UserMessageItem = React.memo<UserMessageItemProps>(
               ) : null}
             </div>
           )}
-        </div>
+        </div>}
 
       </div>
     );

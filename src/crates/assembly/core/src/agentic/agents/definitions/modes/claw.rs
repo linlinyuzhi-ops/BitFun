@@ -52,9 +52,9 @@ impl ClawMode {
                 "TodoWrite".to_string(),
                 "get_todo".to_string(),
                 // Browser, terminal, and routing metadata live under ControlHub.
-                // Local desktop/system control is delegated to the ComputerUse
-                // agent/tool instead of being surfaced as a ControlHub domain.
+                // Desktop control runs directly through its own native tool.
                 "ControlHub".to_string(),
+                "ComputerUse".to_string(),
                 "OpenBitFunControl".to_string(),
                 "PublishAppearance".to_string(),
                 "PageDeploy".to_string(),
@@ -88,6 +88,10 @@ impl Agent for ClawMode {
 
     fn default_tools(&self) -> Vec<String> {
         self.default_tools.clone()
+    }
+
+    fn tool_exposure_overrides(&self) -> &crate::agentic::agents::AgentToolPolicyOverrides {
+        crate::agentic::agents::direct_computer_use_policy()
     }
 
     fn user_context_policy(&self) -> UserContextPolicy {

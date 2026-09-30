@@ -15,13 +15,26 @@
   height: auto;
   min-height: 0;
   min-width: 0;
-  max-width: 900px;
+  max-width: var(--openbitfun-control-flow-chat-transcript-max-width);
   z-index: var(--openbitfun-layer-overlay);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 0 var(--openbitfun-space-2);
+  /*
+   * The composer card is a panel of the transcript, so it takes the transcript
+   * content inset. A space-2 inset here stopped the card 4px short of the text
+   * and tool-card column it sits under.
+   *
+   * This zone is centred on the panel, so the transcript scroller has to
+   * reserve its scrollbar gutter on both edges; a one-sided gutter would centre
+   * the reading column half a scrollbar to the leading side of this card.
+   */
+  padding: 0 var(--openbitfun-control-flow-chat-content-padding-inline);
   pointer-events: auto !important;
+
+  @media (max-width: 768px) {
+    padding-inline: var(--openbitfun-control-flow-chat-content-padding-inline-mobile);
+  }
 
   // Reserve the composer's actual height so the transcript ends above it.
   &.openbitfun-chat-input-drop-zone--conversation {
@@ -473,7 +486,7 @@
 
     .session-file-modifications-bar {
       width: 100%;
-      max-width: 900px;
+      max-width: var(--openbitfun-control-flow-chat-transcript-max-width);
     }
 
     & > * {

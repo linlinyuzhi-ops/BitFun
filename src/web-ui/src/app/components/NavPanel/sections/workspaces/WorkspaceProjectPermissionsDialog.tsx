@@ -422,7 +422,7 @@ export const WorkspaceProjectPermissionsDialog: React.FC<WorkspaceProjectPermiss
             loading={rulesSaving}
             disabled={!rulesValid || rulesRevision === null || isBusy}
             onClick={() => void handleSaveRules()}
-            leadingIcon={<Icon glyph={Save} />}
+            leadingIcon={<Icon glyph={Save} size="sm" />}
           >
             {t('projectPermissions.saveRules')}
           </Button>

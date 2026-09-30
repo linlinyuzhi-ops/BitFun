@@ -62,12 +62,16 @@ internal class AccountViewModel(application: Application) : AndroidViewModel(app
     private var directoryJob: Job? = null
     private var workspaceJob: Job? = null
     private var activeTarget: String? = null
+    // The selected device the user disconnected from. The selection stays so the
+    // card can offer it again, but account churn must not bind it back.
+    private var releasedTarget: String? = null
 
     init {
         viewModelScope.launch {
             store.state.collect { current ->
                 val target = (current as? AccountUiState.Ready)?.selectedDeviceId
-                if (target != activeTarget) bindTarget(target)
+                if (target != releasedTarget) releasedTarget = null
+                if (target != activeTarget && target != releasedTarget) bindTarget(target)
             }
         }
         store.dispatch(AccountIntent.Restore)
@@ -75,6 +79,10 @@ internal class AccountViewModel(application: Application) : AndroidViewModel(app
 
     fun dispatch(intent: AccountIntent) {
         store.dispatch(intent)
+    }
+
+    fun notifyAuthorizationCallback() {
+        store.notifyAuthorizationCallback()
     }
 
     /** The handle General Chat reads the account's synced models through. */
@@ -100,7 +108,8 @@ internal class AccountViewModel(application: Application) : AndroidViewModel(app
      * a way back.
      */
     fun selectDevice(deviceId: String) {
-        if (deviceId == activeTarget) {
+        if (deviceId == activeTarget || deviceId == releasedTarget) {
+            releasedTarget = null
             bindTarget(deviceId)
         } else {
             // Clear the outgoing projection before publishing the new selection.
@@ -120,6 +129,7 @@ internal class AccountViewModel(application: Application) : AndroidViewModel(app
     }
 
     fun disconnectDevice() {
+        releasedTarget = activeTarget
         bindTarget(null)
     }
 

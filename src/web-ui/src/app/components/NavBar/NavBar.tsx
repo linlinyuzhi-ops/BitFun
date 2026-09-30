@@ -15,7 +15,7 @@ import { useNavSceneStore } from '../../stores/navSceneStore';
 import { getSceneNavTitleKey } from '../../scenes/nav-registry';
 import { useI18n } from '../../../infrastructure/i18n';
 import { createLogger } from '@/shared/utils/logger';
-import { isMacOSDesktopRuntime, supportsNativeWindowDragging } from '@/infrastructure/runtime';
+import { isMacOSDesktopRuntime, startNativeWindowDragging, supportsNativeWindowDragging } from '@/infrastructure/runtime';
 import './NavBar.scss';
 import { Icon, OverflowText, Tooltip } from '@openbitfun/ui';
 
@@ -65,14 +65,9 @@ const NavBar: React.FC<NavBarProps> = ({
     if (target.closest(INTERACTIVE_SELECTOR)) return;
     if (timeSinceLastMouseDown < 500 && timeSinceLastMouseDown > 50) return;
 
-    void (async () => {
-      try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        await getCurrentWindow().startDragging();
-      } catch (error) {
-        log.debug('startDragging failed', error);
-      }
-    })();
+    void startNativeWindowDragging().catch(error => {
+      log.debug('startDragging failed', error);
+    });
   }, [canDragWindow]);
 
   const handleBarDoubleClick = useCallback((e: React.MouseEvent) => {
@@ -96,7 +91,7 @@ const NavBar: React.FC<NavBarProps> = ({
             onClick={onExpandNav}
             aria-label={t('header.expandLeftPanel')}
           >
-            <Icon name="sidebar-left" size="sm" style={{ width: 13, height: 13 }} />
+            <Icon name="sidebar-left" size="sm" />
           </button>
         </Tooltip>
       </div>
@@ -114,7 +109,7 @@ const NavBar: React.FC<NavBarProps> = ({
           onClick={onExpandNav}
           aria-label={t('header.collapseLeftPanel')}
         >
-          <Icon name="sidebar-left" size="sm" style={{ width: 13, height: 13 }} />
+          <Icon name="sidebar-left" size="sm" />
         </button>
       </Tooltip>
 

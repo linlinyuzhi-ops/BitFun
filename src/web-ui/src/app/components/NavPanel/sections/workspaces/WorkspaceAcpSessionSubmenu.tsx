@@ -171,7 +171,7 @@ const WorkspaceAcpSessionSubmenu = forwardRef<HTMLDivElement, WorkspaceAcpSessio
         <MenuItem
           ref={triggerRef}
           className={`openbitfun-nav-panel__workspace-acp-menu-trigger${open ? ' is-open' : ''}`}
-          leading={<Icon name="user" />}
+          leading={<Icon name="user" size="sm" />}
           shortcut={<Icon name="chevron-right" size="sm" aria-hidden="true" />}
           aria-haspopup="menu"
           aria-expanded={open}
@@ -186,6 +186,7 @@ const WorkspaceAcpSessionSubmenu = forwardRef<HTMLDivElement, WorkspaceAcpSessio
           <Menu
             ref={setSubmenuRef}
             className="openbitfun-nav-panel__workspace-item-menu-popover openbitfun-nav-panel__workspace-acp-submenu"
+            inlineSize="content"
             aria-label={label}
             data-placement={layout?.placement}
             data-testid="nav-workspace-menu-acp-submenu"
@@ -197,7 +198,7 @@ const WorkspaceAcpSessionSubmenu = forwardRef<HTMLDivElement, WorkspaceAcpSessio
             }}
           >
             {loading ? (
-              <MenuItem leading={<Loader2 size={13} aria-hidden="true" />} disabled>
+              <MenuItem leading={<Loader2 className="openbitfun-nav-panel__menu-loading-icon" aria-hidden="true" />} disabled>
                 {t('app.loading')}
               </MenuItem>
             ) : clients.map(client => {
@@ -205,7 +206,7 @@ const WorkspaceAcpSessionSubmenu = forwardRef<HTMLDivElement, WorkspaceAcpSessio
               return (
                 <MenuItem
                   key={client.id}
-                  leading={<Icon name="user" />}
+                  leading={<Icon name="user" size="sm" />}
                   onClick={() => onSelect(client)}
                   data-testid="nav-workspace-menu-create-acp-session"
                   data-acp-client-id={client.id}

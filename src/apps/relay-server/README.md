@@ -110,24 +110,46 @@ They are implemented in the shared Relay service, not in the agent loop.
 | Authentication request body | 16 KiB; oversized bodies return 413 |
 | Buffered HTTP request bodies | 512 MiB total reserved before buffering; overload returns 503 |
 | Concurrent HTTP API requests | 2,048; overload returns 503 |
-| Body read / device RPC handler | 15 seconds / 130 seconds |
-| HTTP request rate | 6,000/minute per source IP; device APIs also per account; overload returns 429 |
+| Body read / API handler | 15 seconds / 130 seconds |
+| HTTP request rate | 6,000/minute per source IP, and per account on the device API; overload returns 429 |
 | GitHub authorization start / poll | 10 / 120 per minute per IP |
-| Identity exchanges | 10/minute per IP; 64 concurrent outbound identity requests |
-| WebSocket upgrades | 120/minute per IP; 4,096 active sockets globally |
-| WebSocket authentication | Must complete within 10 seconds |
-| WebSocket ingress | 16 KiB per message/frame; 4 KiB read buffer per connection |
-| WebSocket messages | 12,000/minute per connection |
-| WebSocket outgoing queue | 128 messages per socket, 256 MiB total queued/writing bytes |
-| Slow WebSocket writes | Close after a 15-second write timeout |
-| RPC response memory | 256 MiB covering queued payloads and serialized replies, retained until read or disconnect |
-| Pending device RPCs | 2,048 globally; 64 per account; cancellation releases capacity |
+| Identity verification | 10 attempts/minute per IP; 3-second connect and 5-second response timeout; 64 concurrent outbound requests |
+| WebSocket connections | 4,096 active sockets per Relay process; a further handshake is rejected with `connection capacity exceeded` |
+| WebSocket connect / heartbeat | Namespace connect must finish within 15 seconds; ping every 15 seconds with a 45-second pong timeout; 30-second acknowledgement lifetime |
+| WebSocket frames | 256 KiB per message; larger encrypted bodies use the short-lived HTTP payload lane |
+| WebSocket outgoing queue | 128 queued messages per socket, plus 256 MiB of outbound message memory server-wide; a frame that cannot be queued within 2 seconds is dropped |
+| RPC memory budgets | 64 MiB server-wide and 16 MiB per account, reserved against the estimated serialized size of in-flight calls; an exhausted budget answers `server RPC memory budget busy` or `account RPC memory budget busy` instead of queueing |
+| Pending device RPCs | 2,048 globally, 64 per account, with a 256 MiB response budget: legacy HTTP-to-WebSocket bridge limits, kept in the shared crate but not driven by any current server route |
 | Registered devices / active credentials | 64 / 256 per account; database-atomic admission |
 | Device RPC ciphertext | 48 MiB, with JSON envelope allowance |
+| Published Pages | 100 MiB per page, 10 MiB per file, 4,096 files per page; 1 GiB content-addressed asset store and 256 MiB in-memory asset volume by default |
+| Page data | 4 MiB per blob, 2,048 blobs and 64 MiB mutable bytes per page, 10,000 blobs and 256 MiB mutable bytes per account; 20 MiB per page database, 1,000 rows and 2 MiB per query |
+| Page functions | 64 concurrent workers globally, 16 per user, 8 per page; 3,000 requests/minute per user and 600 per page; 1 MiB request body |
 
 Existing devices can reconnect at the registration limit. Idempotent token
 replays remain valid at the credential limit. Limits never delete a user's
 session, device, workspace, or other product data.
+
+Every value in this table is a compile-time constant of the shared service.
+Only deployment-level knobs are configurable: the `RELAY_*` settings below, the
+container's CPU, memory, PID and file-descriptor limits, and the reverse proxy's
+`limit_req`, `limit_conn`, body size and timeouts. A deployment that quotes a
+larger limit than its container or proxy allows will fail at the smaller one.
+
+### Scaling
+
+One Relay process owns its sockets, rooms, presence, payload store, asset store
+and SQLite database in-process, and the Socket.IO build has no external adapter.
+A second instance cannot route to the first instance's sockets, so horizontal
+scaling needs per-account stickiness at the proxy; the 4,096-socket ceiling is
+per process, not per deployment.
+
+Two paths cost work per connection rather than per message. Connect and
+disconnect pass one global gate that is held across the device row's SQLite
+round trips, and every open socket re-validates its credential every five
+seconds. Both are linear in concurrent sockets, and they matter when a whole
+fleet reconnects at once — a Relay restart is the event that produces that
+load, so size and test against a mass reconnect, not only steady traffic.
 
 Bearer authentication precedes body buffering on device APIs. Device discovery,
 public-key lookup, message routing, and RPC correlation all enforce account
@@ -325,7 +347,10 @@ Compatibility on the same connection:
 - On start-up the service drops the retired `realtime_sessions`,
   `realtime_messages` and `realtime_account_sequence` tables from an existing
   database and runs `VACUUM`, so previously stored ciphertext is removed from
-  disk without an operator step.
+  disk without an operator step. A version that is still serving clients cannot
+  be patched after the fact: bound its growing log by hand until it reaches the
+  retirement switch, as described in the
+  [v1 deployment guide](../../../deploy/relay-v1/README.md#keeping-a-legacy-10x-deployment-alive).
 
 The old `/ws`, HTTP device `rpc` and `messages` routes are retired. Deploy the
 new client and server together under a separate versioned relay prefix.

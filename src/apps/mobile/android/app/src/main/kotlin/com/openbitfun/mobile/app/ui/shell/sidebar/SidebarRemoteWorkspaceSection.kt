@@ -107,14 +107,14 @@ internal fun SidebarRemoteWorkspaceSection(
                 stringResource(R.string.sidebar_devices),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = openBitFunColors.sidebar.muted,
             )
             Box(Modifier.weight(1f))
             if (!connected && projectedDevices.isEmpty()) {
                 Text(
                     stringResource(R.string.sidebar_workspaces_offline),
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.outline,
+                    color = openBitFunColors.sidebar.subtle,
                     modifier = Modifier.padding(end = 8.dp),
                 )
             }
@@ -133,7 +133,7 @@ internal fun SidebarRemoteWorkspaceSection(
                 else Icon(
                     painterResource(R.drawable.ic_symbol_arrow_clockwise),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = openBitFunColors.sidebar.muted,
                     modifier = Modifier.size(17.dp),
                 )
             }
@@ -274,7 +274,7 @@ private fun SidebarActiveDeviceBody(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(stringResource(R.string.sidebar_workspaces), fontSize = 14.sp,
-            fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.Medium, color = openBitFunColors.sidebar.muted,
             modifier = Modifier.weight(1f))
         if (onAddWorkspace != null) {
             androidx.compose.material3.IconButton(onClick = onAddWorkspace,
@@ -291,7 +291,7 @@ private fun SidebarActiveDeviceBody(
         Text(
             stringResource(R.string.sidebar_legacy_workspace_catalog),
             fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = openBitFunColors.sidebar.muted,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }
@@ -306,7 +306,7 @@ private fun SidebarActiveDeviceBody(
         Text(
             stringResource(R.string.sidebar_empty_workspaces),
             fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = openBitFunColors.sidebar.muted,
             modifier = Modifier.fillMaxWidth().padding(start = 10.dp, top = 6.dp, bottom = 6.dp),
         )
     } else {
@@ -360,9 +360,9 @@ private fun SidebarActiveDeviceBody(
                         painterResource(R.drawable.ic_symbol_folder),
                         contentDescription = null,
                         tint = if (entry.selected) {
-                            MaterialTheme.colorScheme.onSurface
+                            openBitFunColors.sidebar.ink
                         } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                            openBitFunColors.sidebar.muted
                         },
                         modifier = Modifier.size(21.dp),
                     )
@@ -374,7 +374,7 @@ private fun SidebarActiveDeviceBody(
                         } else {
                             FontWeight.Normal
                         },
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = openBitFunColors.sidebar.ink,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
@@ -396,7 +396,7 @@ private fun SidebarActiveDeviceBody(
                             else R.drawable.ic_symbol_chevron_down,
                         ),
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = openBitFunColors.sidebar.muted,
                         modifier = Modifier.size(13.dp),
                     )
                 }
@@ -413,7 +413,7 @@ private fun SidebarActiveDeviceBody(
                             Text(
                                 stringResource(R.string.sidebar_workspace_empty_sessions),
                                 fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = openBitFunColors.sidebar.muted,
                                 modifier = Modifier.fillMaxWidth()
                                     .padding(start = 26.dp, top = 6.dp, bottom = 6.dp),
                             )
@@ -464,14 +464,14 @@ private fun DeviceLoadingRow(startPadding: Dp = 10.dp) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CircularProgressIndicator(
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = openBitFunColors.sidebar.muted,
             strokeWidth = 1.5.dp,
             modifier = Modifier.size(14.dp),
         )
         Text(
             stringResource(R.string.sidebar_device_loading),
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = openBitFunColors.sidebar.muted,
         )
     }
 }
@@ -488,13 +488,13 @@ private fun WorkspaceFailedRow(onRetry: () -> Unit) {
         Text(
             stringResource(R.string.sidebar_workspace_load_failed),
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = openBitFunColors.sidebar.muted,
             modifier = Modifier.weight(1f),
         )
         Text(
             retryLabel,
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = openBitFunColors.sidebar.ink,
             modifier = Modifier
                 .clickable(role = Role.Button, onClick = onRetry)
                 .semantics { contentDescription = retryLabel },
@@ -516,13 +516,13 @@ private fun DeviceFailedRow(onRetry: () -> Unit) {
         Text(
             stringResource(R.string.sidebar_device_load_failed),
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = openBitFunColors.sidebar.muted,
             modifier = Modifier.weight(1f),
         )
         Text(
             retryLabel,
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = openBitFunColors.sidebar.ink,
             modifier = Modifier
                 .clickable(role = Role.Button, onClick = onRetry)
                 .semantics { contentDescription = retryLabel },
@@ -550,19 +550,19 @@ private fun ConnectDesktopRow(onConnect: () -> Unit) {
         Icon(
             painterResource(R.drawable.ic_symbol_desktop),
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = openBitFunColors.sidebar.muted,
             modifier = Modifier.size(22.dp),
         )
         Text(
             connectLabel,
             fontSize = 15.sp,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = openBitFunColors.sidebar.ink,
             modifier = Modifier.weight(1f),
         )
         Icon(
             painterResource(R.drawable.ic_symbol_chevron_right),
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = openBitFunColors.sidebar.muted,
             modifier = Modifier.size(13.dp),
         )
     }
@@ -589,7 +589,7 @@ private fun RemoteSessionRow(
             .fillMaxWidth()
             .height(44.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(if (selected) MaterialTheme.colorScheme.surfaceVariant else openBitFunColors.transparent)
+            .background(if (selected) openBitFunColors.sidebar.selection else openBitFunColors.transparent)
             .onGloballyPositioned { coordinates ->
                 anchorBounds = coordinates.boundsInWindow().toIntRect()
             }
@@ -614,14 +614,14 @@ private fun RemoteSessionRow(
         Icon(
             painterResource(icon),
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = openBitFunColors.sidebar.muted,
             modifier = Modifier.size(19.dp),
         )
         Text(
             sessionTitle,
             fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = openBitFunColors.sidebar.ink,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
@@ -634,7 +634,7 @@ private fun RemoteSessionRow(
                 Icon(
                     painterResource(R.drawable.ic_symbol_ellipsis),
                     contentDescription = stringResource(R.string.session_actions),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = openBitFunColors.sidebar.muted,
                     modifier = Modifier.size(18.dp),
                 )
             }
@@ -680,7 +680,7 @@ private fun MoreRow(
         Text(
             moreLabel,
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = openBitFunColors.sidebar.muted,
         )
     }
 }

@@ -9,7 +9,6 @@ use log::info;
 use crate::agentic::coordination;
 use crate::agentic::events;
 use crate::agentic::execution;
-use crate::agentic::goal_mode::ThreadGoalTokenSubscriber;
 use crate::agentic::persistence;
 use crate::agentic::session;
 use crate::agentic::tools;
@@ -114,10 +113,6 @@ pub async fn init_agentic_system_for_profile_with_runtime_ownership(
         Arc::new(session::SessionContextUsageSubscriber::new(
             session_manager.clone(),
         )),
-    );
-    event_router.subscribe_internal(
-        "thread_goal_tokens".to_string(),
-        Arc::new(ThreadGoalTokenSubscriber),
     );
 
     let tool_registry = tools::registry::get_global_tool_registry();

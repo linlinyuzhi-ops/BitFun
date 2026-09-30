@@ -556,7 +556,28 @@ const ModelSettingsPage: React.FC = () => {
 
   const loadModelCatalog = useCallback(async () => {
     try {
-      setModelCatalog(await aiApi.getModelCatalog());
+      // Host-owned facts (configured models, defaults, session selection) come
+      // from the rendered host. The provider templates and the reasoning
+      // catalog describe the public models.dev catalog instead, so this
+      // controller composes them from its own snapshot: shipping a peer's copy
+      // would put a multi-MiB body on the connection for every settings open,
+      // and that data is identical by construction. Per-model reasoning
+      // projections stay host-computed, so they still describe the host config
+      // that is being edited.
+      const [hostCatalog, localCatalogs] = await Promise.all([
+        aiApi.getModelCatalog(),
+        aiApi.getLocalModelsDevCatalogs().catch((error: unknown) => {
+          log.warn('Failed to load local models.dev catalogs', { error });
+          return null;
+        }),
+      ]);
+      setModelCatalog(localCatalogs
+        ? {
+            ...hostCatalog,
+            provider_catalog: localCatalogs.provider_catalog,
+            models_dev_reasoning_catalog: localCatalogs.models_dev_reasoning_catalog,
+          }
+        : hostCatalog);
     } catch (error) {
       setModelCatalog(null);
       log.warn('Failed to load model reasoning catalog', { error });
@@ -2876,7 +2897,8 @@ const ModelSettingsPage: React.FC = () => {
         <div className="openbitfun-model-settings__form openbitfun-model-settings__form--modal" data-openbitfun-component="model-settings" data-openbitfun-part="form">
           <div className="openbitfun-model-settings__form-content" data-openbitfun-component="model-settings" data-openbitfun-part="formBody">
             <ConfigPageSection
-              title={isProviderScopedEditing ? t('editProviderSubtitle') : t('editSubtitle')}
+              title={isProviderScopedEditing ? t('editProviderSettingsTitle') : t('editSettingsTitle')}
+              description={isProviderScopedEditing ? t('editProviderSubtitle') : t('editSubtitle')}
               className="openbitfun-model-settings__edit-section"
               fieldSurface="default"
             >
@@ -3175,6 +3197,7 @@ const ModelSettingsPage: React.FC = () => {
           {!authIsSubscription && (
             <ConfigPageSection
               title={t('advancedSettings.title')}
+              description={t('advancedSettings.description')}
               className="openbitfun-model-settings__edit-section"
               fieldSurface="default"
             >
@@ -3846,7 +3869,7 @@ const ModelSettingsPage: React.FC = () => {
           className="openbitfun-model-settings__models-section"
           bodySurface={false}
           title={tDefault('sections.providers')}
-          description={t('subtitle')}
+          description={t('providersDescription')}
           extra={(
             <Tooltip content={t('actions.addProvider')}>
               <IconButton

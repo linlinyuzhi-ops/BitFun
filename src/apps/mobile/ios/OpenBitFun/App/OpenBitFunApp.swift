@@ -5,10 +5,13 @@ struct OpenBitFunApp: App {
     @State private var showStartupBrand = !MobileLaunchConfiguration.streamingRegressionPreview
         && MobileLaunchConfiguration.designPreviewScenario() == nil
         && StartupRevealPreference.claim()
+    @State private var showColdStart = false
+    @State private var coldStartConsumed = false
     @State private var notificationOnboardingOpen = false
     @StateObject private var model = MobileLaunchConfiguration.makeModel()
     @Environment(\.scenePhase) private var scenePhase
     private let designPreviewScenario = MobileLaunchConfiguration.designPreviewScenario()
+    private static var coldStartProcessClaimed = false
 
     var body: some Scene {
         WindowGroup {
@@ -22,13 +25,22 @@ struct OpenBitFunApp: App {
             } else {
                 ZStack {
                     MobileShellView(model: model)
-                        .accessibilityHidden(showStartupBrand)
+                        .accessibilityHidden(showStartupBrand || showColdStart)
                     if showStartupBrand {
                         StartupBrandReveal { showStartupBrand = false }
                     }
                 }
-                    .task(id: showStartupBrand) {
-                        if !showStartupBrand {
+                    .overlayPreferenceValue(ColdStartHomeMarkPreference.self) { anchor in
+                        if showColdStart {
+                            GeometryReader { geometry in
+                                ColdStartHomeTransition(target: anchor.map { geometry[$0] }) { showColdStart = false }
+                            }
+                        }
+                    }
+                    .onAppear { resolveColdStart() }
+                    .onChange(of: model.launchAccountRestored) { _ in resolveColdStart() }
+                    .task(id: showStartupBrand || showColdStart || !coldStartConsumed) {
+                        if !showStartupBrand && !showColdStart && coldStartConsumed {
                             notificationOnboardingOpen = await TaskCompletionNotifier.shouldOfferOnboarding()
                         }
                     }
@@ -43,12 +55,28 @@ struct OpenBitFunApp: App {
                         Text(model.localized("允许 OpenBitFun 在任务完成时发送通知。你可以稍后在系统设置中更改。"))
                     }
                     .onChange(of: scenePhase) { phase in
-                        if phase == .background { showStartupBrand = false }
+                        if phase == .background { Self.coldStartProcessClaimed = true; coldStartConsumed = true; showStartupBrand = false; showColdStart = false }
                         model.handleScenePhase(phase)
+                    }
+                    .onOpenURL { _ in
+                        // The auth page redirects to this scheme after the
+                        // browser completes. The shared account poller is
+                        // already waiting; opening the URL brings this scene
+                        // foreground and the next poll is immediate.
+                        model.notifyAuthorizationCallback()
                     }
                     .environment(\.locale, Locale(identifier: model.appLanguage.rawValue))
             }
         }
     }
 
+    private func resolveColdStart() {
+        guard !coldStartConsumed else { return }
+        if showStartupBrand { Self.coldStartProcessClaimed = true; coldStartConsumed = true; return }
+        guard !Self.coldStartProcessClaimed else { coldStartConsumed = true; return }
+        guard let signedIn = model.launchAccountRestored else { return }
+        Self.coldStartProcessClaimed = true
+        coldStartConsumed = true
+        showColdStart = signedIn && !model.remoteSessionSelected
+    }
 }

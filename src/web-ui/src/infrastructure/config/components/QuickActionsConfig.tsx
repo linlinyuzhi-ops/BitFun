@@ -388,7 +388,7 @@ const QuickActionsConfig: React.FC = () => {
       <ConfigPageContent data-openbitfun-component="quick-actions-config" data-openbitfun-part="content" className="quick-actions-config__content">
 
         {/* ── Built-in actions ──────────────────────────────────────────── */}
-        <ConfigPageSection title={t('sections.builtin.title')}>
+        <ConfigPageSection title={t('sections.builtin.title')} description={t('sections.builtin.description')}>
           <div data-openbitfun-component="quick-actions-config" data-openbitfun-part="list" className="quick-actions-config__list">
             {builtinActions.map(action => (
               <ActionRow
@@ -408,6 +408,7 @@ const QuickActionsConfig: React.FC = () => {
         {/* ── Custom actions ────────────────────────────────────────────── */}
         <ConfigPageSection
           title={t('sections.custom.title')}
+          description={t('sections.custom.description')}
           extra={
             <Button
               size="sm"

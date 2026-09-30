@@ -152,6 +152,7 @@ const SERVICES_INTEGRATIONS_TOKIO_FEATURES = new Map([
   ['miniapp-storage', ['fs', 'time']],
   ['miniapp-runtime', ['fs', 'io-util', 'net', 'process', 'rt', 'sync', 'time']],
   ['miniapp-market', ['fs', 'io-util', 'net', 'process', 'rt', 'sync', 'time']],
+  ['skillhub', ['fs', 'io-util']],
   ['plugin-source', ['fs', 'rt', 'sync', 'time']],
   ['hook-import', ['fs', 'sync']],
   ['remote-connect', ['fs', 'io-util', 'net', 'process', 'rt', 'sync', 'time']],
@@ -198,7 +199,7 @@ const CORE_TOKIO_AGGREGATES = new Set([
   'tools-mcp',
 ]);
 const AGENT_RUNTIME_TOKIO_FEATURES = new Map([
-  ['native-hook-runtime', ['io-util', 'macros', 'process', 'rt', 'time']],
+  ['native-hook-runtime', ['io-util', 'macros', 'process', 'rt', 'sync', 'time']],
   ['agent-runtime', ['io-util', 'macros', 'process', 'rt', 'sync', 'time']],
 ]);
 
@@ -1061,6 +1062,7 @@ export function findServicesIntegrationsReqwestFeatureViolations(pkg) {
     ['browser-control', ['reqwest/json']],
     ['mcp', ['reqwest/json', 'reqwest/stream']],
     ['miniapp-market', ['reqwest/json', 'reqwest/query', 'reqwest/stream']],
+    ['skillhub', ['reqwest/json', 'reqwest/query', 'reqwest/stream']],
     ['miniapp-runtime', ['reqwest/stream']],
     ['models-dev', ['reqwest/system-proxy']],
     ['remote-connect', ['reqwest/json', 'reqwest/multipart', 'reqwest/query']],

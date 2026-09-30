@@ -1,9 +1,11 @@
 import { InvalidationSync } from '../../../shared/relay-transport/InvalidationSync';
 import type { RelayFailureAction } from '../../../shared/relay-transport/RelayFailure';
+import { DeviceSystemMark } from '../components/DeviceSystemMark';
 import { deviceFailurePresentation } from '../services/deviceFailureCopy';
 import {
   ChevronLeft as LucideChevronLeft,
   Monitor as LucideMonitor,
+  Pencil as LucidePencil,
   RefreshCw as LucideRefreshCw,
   UserRoundSearch as LucideUserRoundSearch,
 } from 'lucide-react';
@@ -59,10 +61,6 @@ const RefreshIcon = () => (
   <LucideRefreshCw width="16" height="16" stroke="currentColor" aria-hidden="true" />
 );
 
-const DeviceIcon = () => (
-  <LucideMonitor width="20" height="20" stroke="currentColor" aria-hidden="true" />
-);
-
 const NoIdentityIcon = () => (
   <LucideUserRoundSearch width="40" height="40" stroke="currentColor" aria-hidden="true" />
 );
@@ -79,7 +77,10 @@ const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBac
   const [error, setError] = useState<{ message: string; action: RelayFailureAction | null } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [aliasDraft, setAliasDraft] = useState('');
-  const [aliasSupported, setAliasSupported] = useState(false);
+  // `unknown` means the relay has not answered yet and must never be rendered as
+  // an unsupported relay: doing so flashed the notice on every page entry.
+  const [aliasCapability, setAliasCapability] = useState<'unknown' | 'supported' | 'unsupported'>('unknown');
+  const aliasSupported = aliasCapability === 'supported';
   const mountedRef = useRef(true);
   const identityRequestRef = useRef(0);
   const devicesRequestRef = useRef(0);
@@ -128,7 +129,18 @@ const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBac
     );
     try {
       const epoch = client.accountEpoch;
-      void client.supportsDeviceAlias().then(supported => { if (isCurrent() && client.accountEpoch === epoch) setAliasSupported(supported); }).catch(() => { if (isCurrent()) setAliasSupported(false); });
+      void client.supportsDeviceAlias()
+        .then(supported => {
+          if (isCurrent() && client.accountEpoch === epoch) {
+            setAliasCapability(supported ? 'supported' : 'unsupported');
+          }
+        })
+        .catch(error => {
+          // A failed capability read is not evidence that the relay lacks the
+          // capability, so it keeps the previous answer. Relay reachability is
+          // reported by the directory request itself.
+          if (isCurrent()) console.warn('[DevicesPage] relay alias capability unavailable', error);
+        });
       const list = await client.listDevices();
       if (!isCurrent()) return;
       setDevices(list);
@@ -290,7 +302,7 @@ const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBac
                 </div>
               </div>
             ) : (
-              <>
+              <div className="devices-page__device-line">
               <MobileListRow
                 appearance="surface"
                 className={[
@@ -301,7 +313,11 @@ const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBac
                 ].filter(Boolean).join(' ')}
                 disabled={!clickable}
                 onClick={() => clickable && selectDevice(d)}
-                leading={<span className="devices-page__device-icon"><DeviceIcon /></span>}
+                leading={(
+                  <span className="devices-page__device-icon">
+                    <DeviceSystemMark deviceKind={d.device_kind} os={d.device_os} size={20} />
+                  </span>
+                )}
                 label={(
                   <span className="devices-page__device-name-row">
                     <span className="devices-page__device-name">
@@ -334,10 +350,18 @@ const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBac
 
                 selected={isCurrent}
               />
-              <div className="devices-page__alias-actions">
-                <MobileButton size="sm" disabled={!aliasSupported} onClick={() => { setEditingId(d.device_id); setAliasDraft(d.device_alias ?? ''); }}>{t('devices.editAlias')}</MobileButton>
+              {/* Renaming is an action on the row, so it sits on the row's own line
+                  instead of a block under it: one line per device at every width. */}
+              <MobileIconButton
+                appearance="plain"
+                className="devices-page__device-edit"
+                disabled={!aliasSupported}
+                icon={<LucidePencil width="18" height="18" stroke="currentColor" aria-hidden="true" />}
+                aria-label={t('devices.editAlias')}
+                title={t('devices.editAlias')}
+                onClick={() => { setEditingId(d.device_id); setAliasDraft(d.device_alias ?? ''); }}
+              />
               </div>
-              </>
             )}
             </div>
           );
@@ -445,7 +469,7 @@ const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBac
         </MobileBanner>
       )}
 
-      {!aliasSupported && <MobileBanner>{t('devices.aliasUnsupported')}</MobileBanner>}
+      {aliasCapability === 'unsupported' && <MobileBanner>{t('devices.aliasUnsupported')}</MobileBanner>}
       <div className="devices-page__body">
         {renderBody()}
       </div>

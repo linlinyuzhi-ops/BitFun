@@ -5374,9 +5374,23 @@ pub async fn get_model_configs(
     }
 }
 
+/// Model catalog of the host that renders the current surface.
+///
+/// The models.dev bodies never travel: they describe the public models.dev
+/// catalog, which every host refreshes for itself, and only Model Settings reads
+/// them — through `get_local_models_dev_catalogs`, which stays on this machine.
 #[tauri::command]
 pub async fn get_ai_model_catalog() -> Result<openbitfun_core::AIModelCatalog, String> {
-    openbitfun_core::get_ai_model_catalog().await
+    openbitfun_core::get_remote_model_catalog().await
+}
+
+/// This machine's own models.dev projections, for a controller rendering the
+/// Model Settings surface while a peer is selected. Declared controller-local in
+/// the Product Operation Registry, so it never reaches a peer host.
+#[tauri::command]
+pub async fn get_local_models_dev_catalogs(
+) -> Result<openbitfun_core::LocalModelsDevCatalogs, String> {
+    openbitfun_core::get_local_models_dev_catalogs().await
 }
 
 #[tauri::command]

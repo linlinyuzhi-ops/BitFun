@@ -87,6 +87,7 @@ export interface PeerHostCapabilities {
    */
   readonly userQuestionResponse: boolean | null;
   readonly userQuestionInteraction?: boolean;
+  readonly dialogQueueV1?: boolean;
   /**
    * Which kind of host answered `peer_mode_ping` (`"desktop"` | `"cli"`).
    * `null` = the host did not advertise `host_type` (even older host, or the
@@ -521,6 +522,7 @@ export class PeerConnectionManager {
       workspaceIdReferencesV1: caps?.workspace_id_references_v1 === true,
       userQuestionResponse,
       userQuestionInteraction: caps?.user_question_interaction_v1 === true,
+      dialogQueueV1: caps?.dialog_queue_v1 === true,
       hostKind,
     };
   }
@@ -754,6 +756,7 @@ function capabilitiesEqual(
     a.workspaceIdReferencesV1 === b.workspaceIdReferencesV1 &&
     a.userQuestionResponse === b.userQuestionResponse &&
     a.userQuestionInteraction === b.userQuestionInteraction &&
+    a.dialogQueueV1 === b.dialogQueueV1 &&
     a.hostKind === b.hostKind;
 }
 

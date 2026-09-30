@@ -22,6 +22,7 @@ use super::PeerHostKind;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PeerHostCapability {
+    DialogQueueV1,
     /// `start_dialog_turn` / `start_acp_dialog_turn` may be retried with the
     /// same `(sessionId, turnId)`; the host coalesces duplicate attempts.
     IdempotentDialogSubmit,
@@ -64,6 +65,7 @@ pub enum PeerHostCapability {
 impl PeerHostCapability {
     /// Every capability id, in wire order.
     pub const ALL: &'static [PeerHostCapability] = &[
+        Self::DialogQueueV1,
         Self::IdempotentDialogSubmit,
         Self::InlineImageAttachmentsV1,
         Self::BtwInitialModelSelectionV1,
@@ -87,6 +89,7 @@ impl PeerHostCapability {
     /// The key used in the `peer_mode_ping` `capabilities` object.
     pub const fn key(self) -> &'static str {
         match self {
+            Self::DialogQueueV1 => "dialog_queue_v1",
             Self::IdempotentDialogSubmit => "idempotent_dialog_submit",
             Self::InlineImageAttachmentsV1 => "inline_image_attachments_v1",
             Self::ControlConversationV1 => "control_conversation_v1",
@@ -119,6 +122,7 @@ const DESKTOP_CAPABILITIES: &[PeerHostCapability] = PeerHostCapability::ALL;
 /// The CLI peer host has no MiniApp runtime, WSL connection setup, host-native
 /// ProductControl providers, or presentation surface.
 const CLI_CAPABILITIES: &[PeerHostCapability] = &[
+    PeerHostCapability::DialogQueueV1,
     PeerHostCapability::ControlConversationV1,
     PeerHostCapability::ControlConversationResetV1,
     PeerHostCapability::IdempotentDialogSubmit,

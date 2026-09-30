@@ -153,6 +153,10 @@ impl Tool for SkillTool {
     }
 
     fn is_concurrency_safe(&self, _input: Option<&Value>) -> bool {
+        false
+    }
+
+    fn invalidates_tool_preflight(&self) -> bool {
         true
     }
 
@@ -298,6 +302,8 @@ impl Tool for SkillTool {
                     .await?
             }
         };
+
+        crate::native_hooks::activate_skill_hooks(&skill_data, context).await?;
 
         if let Some(arguments) = input.get("arguments").and_then(Value::as_str) {
             skill_data.content = expand_prompt_template_arguments_with_names(

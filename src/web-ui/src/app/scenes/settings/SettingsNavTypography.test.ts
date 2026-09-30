@@ -73,7 +73,10 @@ describe('SettingsNav typography and layout ownership', () => {
     expect(content.getPropertyValue('padding-inline-end')).toBe('var(--openbitfun-space-2)');
     expect(content.getPropertyValue('gap')).toBe('');
     expect(item.getPropertyValue('padding-inline-start')).toBe(
-      'calc(var(--openbitfun-layout-navigation-panel-item-padding-inline) + 30px)',
+      'calc(var(--openbitfun-layout-navigation-panel-item-padding-inline) + var(--openbitfun-control-icon-button-xs-size) + var(--openbitfun-space-2))',
+    );
+    expect(readSettingsNavStylesheet()).not.toContain(
+      'padding-inline-start: calc(var(--openbitfun-layout-navigation-panel-item-padding-inline) + 30px)',
     );
     expect(rules.some((rule) => rule.selectorText.includes('.openbitfun-settings-nav__category'))).toBe(false);
     expect(readSettingsNavStylesheet()).not.toContain('element-bg-soft');

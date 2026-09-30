@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Icon } from '@openbitfun/ui';
 import { workspaceAPI } from '@/infrastructure/api/service-api/WorkspaceAPI';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
-import { useI18n } from '@/infrastructure/i18n';
+import { i18nService, useI18n } from '@/infrastructure/i18n';
+import { ImageLightbox, type ImageLightboxState } from '@/shared/ui/ImageLightbox';
 import type { ImageContext } from '@/types/context';
 import { getMimeTypeFromFilename } from '../utils/imageUtils';
 
@@ -15,6 +16,8 @@ export function ChatInputImagePreview({ image, surfaceEpoch }: {
   const path = image.imagePath;
   const [loaded, setLoaded] = useState<{ path: string; epoch: number; source: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The attachment owns the overlay for the bytes it resolved.
+  const [preview, setPreview] = useState<ImageLightboxState | null>(null);
   const source = embedded || (loaded?.path === path && loaded.epoch === surfaceEpoch ? loaded.source : undefined);
 
   useEffect(() => {
@@ -36,10 +39,25 @@ export function ChatInputImagePreview({ image, surfaceEpoch }: {
     return () => { cancelled = true; };
   }, [embedded, path, image.mimeType, surfaceEpoch]);
 
+  useEffect(() => {
+    // A surface switch invalidates the bytes behind an open preview.
+    setPreview(null);
+  }, [surfaceEpoch]);
+
   return source && !error ? (
-    <img className="openbitfun-chat-input__image-chip-thumb"
-      data-openbitfun-component="chat-input" data-openbitfun-part="imagePreview"
-      src={source} alt={image.imageName} onError={() => setError(image.imageName)} />
+    <>
+      <button
+        type="button"
+        className="openbitfun-chat-input__image-chip-preview"
+        aria-label={i18nService.t('components:imageLightbox.label')}
+        onClick={() => setPreview({ source, alt: image.imageName })}
+      >
+        <img className="openbitfun-chat-input__image-chip-thumb"
+          data-openbitfun-component="chat-input" data-openbitfun-part="imagePreview"
+          src={source} alt={image.imageName} onError={() => setError(image.imageName)} />
+      </button>
+      <ImageLightbox image={preview} onClose={() => setPreview(null)} />
+    </>
   ) : (
     <div className="openbitfun-chat-input__image-chip-thumb openbitfun-chat-input__image-chip-thumb--placeholder"
       data-openbitfun-component="chat-input" data-openbitfun-part="imagePreview"

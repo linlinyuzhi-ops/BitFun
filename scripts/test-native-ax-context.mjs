@@ -24,7 +24,8 @@ try {
     fixture.on('exit', code => { clearTimeout(timeout); reject(new Error(`AX fixture exited ${code}`)); });
     fixture.stdout.on('data', chunk => { if (String(chunk).includes('READY')) { clearTimeout(timeout); resolve(); } });
   });
-  await run('cargo', ['test', '-p', 'openbitfun-desktop', '--lib', 'native_ax_fixture_round_trips_tree_and_cached_targets', '--', '--ignored'], {
+  const nativeArgs = ['native_ax_fixture_round_trips_tree_and_cached_targets', '--ignored'];
+  await run(process.env.OPENBITFUN_TEST_BINARY || 'cargo', process.env.OPENBITFUN_TEST_BINARY ? nativeArgs : ['test', '-p', 'openbitfun-desktop', '--lib', nativeArgs[0], '--', ...nativeArgs.slice(1)], {
     ...process.env, OPENBITFUN_AX_FIXTURE_PID: String(fixture.pid),
   });
 } finally {

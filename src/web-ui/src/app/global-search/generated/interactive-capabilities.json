@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "6587344a6b5e75a80457ea4ba2670bf37cf3038bdb436089ae402eb7b5a5a025",
+  "digest": "d2710a9488e6f021e11ece435e8d067a9285903c26f20f5bc0b586ac46d67e6d",
   "ownerDigest": "c0e5c187cf62bc6ed06196ce8520b3eb427bf268cf24659b72d2552fb1d99c54",
   "searchAcceptance": [
     {
@@ -138,11 +138,11 @@
     "features": 22,
     "settings": 21,
     "userFacing": 43,
-    "documentedItems": 320,
+    "documentedItems": 322,
     "controlCoverage": {
       "direct": 48,
-      "delegated": 61,
-      "interactive": 211,
+      "delegated": 62,
+      "interactive": 212,
       "unsupported": 0
     }
   },
@@ -4773,7 +4773,9 @@
         "browser-discovery",
         "launch-connect",
         "default-cdp",
-        "agent-actions"
+        "agent-actions",
+        "control-session-preview",
+        "stop-control-session"
       ],
       "kind": "query",
       "risk": "read",
@@ -5095,6 +5097,97 @@
       "capabilityId": "feature.computer-use",
       "itemIds": [
         "agent-actions"
+      ],
+      "kind": "delegate",
+      "risk": "execute",
+      "executionHost": "workspaceHost",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": true
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": true
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "delegateTools": [
+        "ComputerUse"
+      ],
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.execution"
+      }
+    },
+    {
+      "id": "feature.computer-use:open:control-session-preview",
+      "capabilityId": "feature.computer-use",
+      "itemIds": [
+        "control-session-preview"
+      ],
+      "kind": "open",
+      "risk": "ui",
+      "executionHost": "presentationSurface",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1",
+            "product_control_presentation_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "openReason": "unstructuredInteraction",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.execution"
+      }
+    },
+    {
+      "id": "feature.computer-use:delegate:stop-control-session",
+      "capabilityId": "feature.computer-use",
+      "itemIds": [
+        "stop-control-session"
       ],
       "kind": "delegate",
       "risk": "execute",
@@ -21712,12 +21805,14 @@
       "highlightsZh": [
         "启用或停用 Computer Use",
         "连接或断开受支持的浏览器",
-        "检查并打开系统权限设置"
+        "检查并打开系统权限设置",
+        "查看当前控制目标与预览，并随时停止控制"
       ],
       "highlightsEn": [
         "Enable or disable Computer Use",
         "Connect or disconnect a supported browser",
-        "Inspect and open OS permission settings"
+        "Inspect and open OS permission settings",
+        "Inspect the current control target and preview, and stop control at any time"
       ],
       "items": [
         {
@@ -21804,6 +21899,36 @@
               "After authorization, use the latest screenshot or element-location result to click, type, scroll, and inspect the visible interface"
             ]
           }
+        },
+        {
+          "id": "control-session-preview",
+          "titleZh": "在控制状态卡片查看当前目标、模式与授权画面预览",
+          "titleEn": "Inspect the current target, mode, and authorized capture preview in the control card",
+          "control": {
+            "kind": "open",
+            "reasonCode": "unstructuredInteraction",
+            "reasonZh": "“在控制状态卡片查看当前目标、模式与授权画面预览”需要活动会话及用户展开卡片；预览仅包含当前授权目标和虚拟指针。设置入口仅用于配置，不会启动控制。远程设备需要对应 Desktop 宿主支持，不可回退到本机画面。",
+            "reasonEn": "“Inspect the current target, mode, and authorized capture preview in the control card” requires an active session and expanding its card; the preview contains only the authorized target and virtual pointer. The settings entry only configures the feature and does not start control. Remote devices require a supporting Desktop host, without falling back to local capture."
+          }
+        },
+        {
+          "id": "stop-control-session",
+          "titleZh": "停止当前桌面控制会话并释放捕获与输入资源",
+          "titleEn": "Stop the current desktop-control session and release capture and input resources",
+          "control": {
+            "kind": "delegate",
+            "tools": [
+              "ComputerUse"
+            ],
+            "workflowZh": [
+              "通过 ComputerUse control_status 确认当前会话的目标、所有者与模式；没有活动会话时不要启动新会话",
+              "使用 ComputerUse stop_control 释放该工具拥有的会话；用户也可在执行端控制卡片点击停止，按钮只针对显示的会话代次，不停止后来创建的会话"
+            ],
+            "workflowEn": [
+              "Use ComputerUse control_status to inspect the current target, owner, and mode; do not start a session when none is active",
+              "Use ComputerUse stop_control to release the tool-owned session. Users can also stop from the executing Desktop control card; its button addresses the displayed generation rather than a subsequently created session."
+            ]
+          }
         }
       ],
       "stepsZh": [
@@ -21850,9 +21975,11 @@
         "启用或停用 Computer Use",
         "连接或断开受支持的浏览器",
         "检查并打开系统权限设置",
+        "查看当前控制目标与预览，并随时停止控制",
         "Enable or disable Computer Use",
         "Connect or disconnect a supported browser",
         "Inspect and open OS permission settings",
+        "Inspect the current control target and preview, and stop control at any time",
         "检查 Computer Use 可用性、辅助功能和屏幕录制授权状态",
         "Check Computer Use availability plus accessibility and screen-recording permission status",
         "请求桌面控制所需的系统权限",
@@ -21867,6 +21994,10 @@
         "Enable the default CDP setup and restart the browser when required",
         "授权后让智能体截图、点击、输入、滚动并读取可见界面",
         "After authorization, let agents capture, click, type, scroll, and inspect the visible interface",
+        "在控制状态卡片查看当前目标、模式与授权画面预览",
+        "Inspect the current target, mode, and authorized capture preview in the control card",
+        "停止当前桌面控制会话并释放捕获与输入资源",
+        "Stop the current desktop-control session and release capture and input resources",
         "打开桌面控制设置",
         "带我配置浏览器控制",
         "Open desktop-control settings",
@@ -21875,7 +22006,11 @@
         "先让 ComputerUse 检查当前可用动作和授权；缺少系统权限时明确引导用户授权",
         "授权后使用最新截图或元素定位结果执行点击、输入、滚动和可见界面读取",
         "Ask ComputerUse to inspect available actions and permissions first; surface missing operating-system permissions explicitly",
-        "After authorization, use the latest screenshot or element-location result to click, type, scroll, and inspect the visible interface"
+        "After authorization, use the latest screenshot or element-location result to click, type, scroll, and inspect the visible interface",
+        "通过 ComputerUse control_status 确认当前会话的目标、所有者与模式；没有活动会话时不要启动新会话",
+        "使用 ComputerUse stop_control 释放该工具拥有的会话；用户也可在执行端控制卡片点击停止，按钮只针对显示的会话代次，不停止后来创建的会话",
+        "Use ComputerUse control_status to inspect the current target, owner, and mode; do not start a session when none is active",
+        "Use ComputerUse stop_control to release the tool-owned session. Users can also stop from the executing Desktop control card; its button addresses the displayed generation rather than a subsequently created session."
       ],
       "docsUrl": "https://playbook.openbitfun.com/capabilities/feature.computer-use/"
     },

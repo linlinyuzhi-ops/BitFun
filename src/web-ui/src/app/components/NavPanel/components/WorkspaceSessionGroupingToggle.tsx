@@ -28,6 +28,7 @@ const WorkspaceSessionGroupingToggle: React.FC = () => {
         icon={(
           <Icon
             glyph={ViewIcon}
+            size="sm"
             data-session-view-icon={grouping}
           />
         )}

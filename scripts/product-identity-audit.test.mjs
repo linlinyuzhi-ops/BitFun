@@ -104,6 +104,35 @@ test('allows only the exact legacy data-directory ignore entry', () => {
   assert.ok(violations.every((violation) => violation.rule === 'retired-product-name'));
 });
 
+test('allows the published attribution identifiers only when they carry every retired token on the line', () => {
+  const attributedEmail = `318544290+${retiredLowerName}-ai@users.noreply.github.com`;
+  const attributedProfileUrl = `https://github.com/${retiredLowerName}-ai`;
+
+  for (const line of [
+    attributedEmail,
+    attributedProfileUrl,
+    `  Co-authored-by: OpenBitFun <${attributedEmail}>`,
+    `Co-authored-by: OpenBitFun <${attributedEmail}>`,
+    `  Generated with [OpenBitFun](${attributedProfileUrl})`,
+    `Generated with [OpenBitFun](${attributedProfileUrl})`,
+    `        assert!(skill.contains("Generated with [OpenBitFun](${attributedProfileUrl})"));`,
+    `            .contains("Co-authored-by: OpenBitFun <${attributedEmail}>"));`,
+  ]) {
+    assert.deepEqual(violationsFor(line), [], line);
+  }
+
+  for (const line of [
+    `const attribution = "${attributedEmail}"; // ${retiredLowerName}`,
+    `// ${retiredLowerName} repository ${attributedProfileUrl}`,
+    `Co-authored-by: ${retiredName} <${attributedEmail}>`,
+  ]) {
+    assert.ok(
+      violationsFor(line).some((violation) => violation.rule === 'retired-product-name'),
+      line,
+    );
+  }
+});
+
 test('limits retired identity data to the one-time production migration boundary', () => {
   for (const file of [
   ]) {
@@ -148,6 +177,20 @@ test('limits retired identity data to the one-time production migration boundary
       'src/apps/data-migrator/ui/app.js',
     ),
     [],
+  );
+  assert.deepEqual(
+    violationsFor(
+      `{"url": "https://github.com/example/${retiredLowerName}/releases/download/v0.2.19/${retiredLowerName}_0.2.19_windows-x86_64-setup.exe"}`,
+      'scripts/fixtures/legacy-update-feeds/latest.json',
+    ),
+    [],
+  );
+  assert.equal(
+    violationsFor(
+      `const sourceLabel = "${retiredName}";`,
+      'scripts/fixtures/example.json',
+    ).length,
+    1,
   );
   assert.equal(
     violationsFor(

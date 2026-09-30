@@ -362,12 +362,6 @@ $skills-installed-columns: minmax(0, 1.6fr) minmax(0, 0.9fr) minmax(120px, 0.85f
   gap: var(--openbitfun-space-2);
 }
 
-.skills-card__availability-label {
-  color: var(--openbitfun-color-content-secondary);
-  font-size: var(--openbitfun-type-meta-font-size);
-  line-height: var(--openbitfun-type-meta-line-height);
-}
-
 .skills-card__status-unavailable {
   color: var(--openbitfun-color-content-muted);
   font-size: var(--openbitfun-type-label-sm-font-size);

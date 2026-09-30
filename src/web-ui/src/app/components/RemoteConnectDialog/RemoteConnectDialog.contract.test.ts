@@ -146,6 +146,10 @@ describe('Remote Connect safety contracts', () => {
       navPanelStyleSource.indexOf("&[data-openbitfun-device-kind='message-app'] {"),
       navPanelStyleSource.indexOf('.openbitfun-nav-panel__footer-device-status-attached-count'),
     );
+    const footerBrandColorStyle = navPanelStyleSource.slice(
+      navPanelStyleSource.indexOf('.openbitfun-nav-panel__footer-device-status-attached {'),
+      navPanelStyleSource.indexOf('.openbitfun-nav-panel__footer-device-status-attached-group'),
+    );
     const overviewMessageBrandStart = navPanelStyleSource.indexOf(
       "&[data-openbitfun-device-kind='message-app'] .openbitfun-device-overview__device-icon {",
     );
@@ -167,7 +171,7 @@ describe('Remote Connect safety contracts', () => {
     expect(connectedBrandStyle).not.toContain('background:');
     expect(footerMessageBrandStyle).toContain('border: 0');
     expect(footerMessageBrandStyle).toContain('background: transparent');
-    expect(footerMessageBrandStyle).toContain('--openbitfun-color-content-primary');
+    expect(footerBrandColorStyle).toContain('--openbitfun-color-content-primary');
     expect(overviewMessageBrandStyle).toContain('background: transparent');
     expect(overviewMessageBrandStyle).toContain('--openbitfun-color-content-primary');
     expect(dialogSource).not.toContain('<Send size={28} />');

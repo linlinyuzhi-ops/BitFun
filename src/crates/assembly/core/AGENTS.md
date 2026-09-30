@@ -212,6 +212,26 @@ or test-target layout. Workspace checks and product-wide tests are CI-backed and
 are not the default Core precheck. For documentation-only changes, run
 `git diff --check`.
 
+For disk-backed history paging and legacy sessions without a catalog:
+`cargo test --locked -p openbitfun-core --no-default-features --features remote-connect,git --lib history_page_`.
+Also run the `staged_revert_catalog_projection` and `load_relay_session_turns_`
+filters for the same target when changing visibility. Paging must not parse
+unrelated turn bodies or rewrite history. To compare real-file first-page work
+against full materialization locally, use the same target with
+`history_page_benchmark -- --ignored --nocapture`; it checks content equivalence
+and reports timings without asserting a machine-dependent latency in CI.
+
+For host-stream history reads and abandoned execution after a runtime restart:
+`cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib load_relay_session_turns_`.
+The observer must preserve terminal history and another process's writer lease;
+absence from one coordinator's memory alone never proves execution stopped.
+
+For built-in provider overlay, trusted endpoint validation, and reasoning catalog changes:
+
+```bash
+cargo test -p openbitfun-core --no-default-features --features ai-adapter-runtime --lib infrastructure::ai::
+```
+
 Configuration persistence, account settings import, backup restore, legacy
 field/deletion compatibility, local-change notifications, and save/reload/model
 concurrency regressions have feature-free fixtures:
@@ -263,6 +283,13 @@ Skill discovery, installation provenance, and local/remote registry regressions:
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib agentic::tools::implementations::skills::
 ```
 
+Skill hook activation, session cleanup, and tool preflight/permission ordering:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib native_hooks
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib agentic::tools::pipeline::tool_pipeline::tests
+```
+
 For configured OpenCode discovery and explicit skill loading, include their owner feature and tool tests:
 
 ```bash
@@ -279,6 +306,7 @@ IM bot reply routing, account-device observation, and interaction delivery:
 
 ```bash
 cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib service::remote_connect::bot::
+cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib service::remote_connect::bot::weixin::tests
 ```
 
 Pages account publication and tool gates (including remote directory rejection):
@@ -308,4 +336,26 @@ For remote search ID binding without a live SSH connection:
 
 ```bash
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git,ssh-remote --lib service::search::remote::identity_tests
+```
+
+For host-owned user queue admission, cancellation, steering receipts and client disconnects:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features remote-connect,git --lib host_queue_
+```
+
+For Computer Use control host admission, cancellation leases, control entrypoints,
+permission projection and provider-neutral tool contracts:
+
+```bash
+cargo test -p openbitfun-core --no-default-features --features agent-runtime,git,tools-computer-use --lib computer_use_tool::tests
+```
+
+These mock-host tests do not validate native capture, background input or remote
+GUI behavior; native fixtures remain owned by the Desktop Computer Use guide.
+
+For plain-prompt goal activation and remote goal storage routing:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git,remote-workspace --lib thread_goal_
 ```

@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +38,7 @@ import com.openbitfun.mobile.app.R
 import com.openbitfun.mobile.app.ui.remote.SessionActionPopup
 import com.openbitfun.mobile.app.ui.remote.SessionActionSheet
 import com.openbitfun.mobile.app.ui.remote.SessionDetailsSheet
+import com.openbitfun.mobile.app.ui.theme.openBitFunColors
 import com.openbitfun.mobile.core.feature.account.AccountDeviceUi
 import com.openbitfun.mobile.core.feature.connection.ConnectionPhase
 import com.openbitfun.mobile.core.feature.connection.RemoteControlSource
@@ -84,7 +87,7 @@ internal fun AppSidebar(
     searchOpen: Boolean,
     onQueryChange: (String) -> Unit,
     onToggleSearch: () -> Unit,
-    onScanDesktop: () -> Unit,
+    onConnectDesktop: () -> Unit,
     onRetryRemoteDevice: () -> Unit,
     onRefreshRemoteDevices: () -> Unit,
     refreshingRemoteDevices: Boolean,
@@ -107,71 +110,81 @@ internal fun AppSidebar(
     var remoteActionAnchor by remember { mutableStateOf(IntRect.Zero) }
     var remoteDetailsSessionId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    Box(modifier = modifier.fillMaxSize().testTag(SIDEBAR_TEST_TAG)) {
-        // No spacedBy: the MiniApps row carries its own 4dp/8dp rhythm, and a
-        // column-level gap on top of it would push the section header away.
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(start = 20.dp, end = 20.dp, top = 0.dp, bottom = 16.dp),
-        ) {
-            if (signedIn) {
-                SidebarAuthenticatedHeader(searchOpen, query, onQueryChange, onToggleSearch)
-            } else {
-                Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge)
-            }
-
-            com.openbitfun.mobile.app.ui.miniapps.MiniAppsButton(sidebar = true)
-
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 142.dp)) {
-                    SidebarRemoteWorkspaceSection(
-                        connectionPhase = connectionPhase,
-                        controlSource = remoteControlSource,
-                        devices = remoteDevices,
-                        selectedDeviceId = remoteSelectedDeviceId,
-                        deviceName = remoteDeviceName,
-                        remoteState = remoteState,
-                        workspaceState = workspaceState,
-                        workspaceDirectory = workspaceDirectory,
-                        selectedSessionId = remoteSelectedSessionId.takeIf { remoteActive },
-                        onConnect = onScanDesktop,
-                        onRetryActive = onRetryRemoteDevice,
-                        onRefreshDevices = onRefreshRemoteDevices,
-                        refreshingDevices = refreshingRemoteDevices,
-                        directoryRefreshError = directoryRefreshError,
-                        onSelectDevice = onSelectRemoteDevice,
-                        onOpenSession = onOpenRemoteSession,
-                        onOpenActions = { row, anchor ->
-                            remoteActionAnchor = anchor
-                            remoteActionSession = row
-                        },
-                        onCreateInWorkspace = onCreateRemoteInWorkspace,
-                        onOpenWorkspace = onOpenRemoteWorkspace,
-                        onExpandWorkspace = onExpandRemoteWorkspace,
-                        onRetryWorkspaceSessions = onRetryRemoteWorkspaceSessions,
-                        onAddWorkspace = onAddRemoteWorkspace,
-                        onWorkspaceTool = onWorkspaceTool,
-                    )
-            }
-
-        }
-
-        // Over the list, not after it: the 84dp tail the list reserves is what
-        // keeps the last conversation from ending up underneath this.
+    // The rail is chrome, not another page: it paints the desktop client's
+    // `surface.chrome` itself and hands every unstyled descendant the matching
+    // ink, so nothing inside has to remember which layer it is on.
+    CompositionLocalProvider(LocalContentColor provides openBitFunColors.sidebar.ink) {
         Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+            modifier = modifier
+                .fillMaxSize()
+                .background(openBitFunColors.sidebar.background)
+                .testTag(SIDEBAR_TEST_TAG),
         ) {
-            if (signedIn) {
-                SidebarAuthenticatedFooter({ onWorkspaceTool("", null, false) }, onOpenSettings)
-            } else {
-                SidebarSignedOutFooter(
-                    showScan = connectionPhase != ConnectionPhase.CONNECTED,
-                    onScanDesktop = onScanDesktop,
-                    onOpenAccount = onOpenAccount,
-                )
+            // No spacedBy: the MiniApps row carries its own 4dp/8dp rhythm, and a
+            // column-level gap on top of it would push the section header away.
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 20.dp, end = 20.dp, top = 0.dp, bottom = 16.dp),
+            ) {
+                if (signedIn) {
+                    SidebarAuthenticatedHeader(searchOpen, query, onQueryChange, onToggleSearch)
+                } else {
+                    Text(
+                        stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = openBitFunColors.sidebar.ink,
+                    )
+                }
+
+                com.openbitfun.mobile.app.ui.miniapps.MiniAppsButton(sidebar = true)
+
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 142.dp)) {
+                        SidebarRemoteWorkspaceSection(
+                            connectionPhase = connectionPhase,
+                            controlSource = remoteControlSource,
+                            devices = remoteDevices,
+                            selectedDeviceId = remoteSelectedDeviceId,
+                            deviceName = remoteDeviceName,
+                            remoteState = remoteState,
+                            workspaceState = workspaceState,
+                            workspaceDirectory = workspaceDirectory,
+                            selectedSessionId = remoteSelectedSessionId.takeIf { remoteActive },
+                            onConnect = onConnectDesktop,
+                            onRetryActive = onRetryRemoteDevice,
+                            onRefreshDevices = onRefreshRemoteDevices,
+                            refreshingDevices = refreshingRemoteDevices,
+                            directoryRefreshError = directoryRefreshError,
+                            onSelectDevice = onSelectRemoteDevice,
+                            onOpenSession = onOpenRemoteSession,
+                            onOpenActions = { row, anchor ->
+                                remoteActionAnchor = anchor
+                                remoteActionSession = row
+                            },
+                            onCreateInWorkspace = onCreateRemoteInWorkspace,
+                            onOpenWorkspace = onOpenRemoteWorkspace,
+                            onExpandWorkspace = onExpandRemoteWorkspace,
+                            onRetryWorkspaceSessions = onRetryRemoteWorkspaceSessions,
+                            onAddWorkspace = onAddRemoteWorkspace,
+                            onWorkspaceTool = onWorkspaceTool,
+                        )
+                }
+
+            }
+
+            // Over the list, not after it: the 84dp tail the list reserves is what
+            // keeps the last conversation from ending up underneath this.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+            ) {
+                if (signedIn) {
+                    SidebarAuthenticatedFooter({ onWorkspaceTool("", null, false) }, onOpenSettings)
+                } else {
+                    SidebarSignedOutFooter(onOpenAccount = onOpenAccount)
+                }
             }
         }
     }

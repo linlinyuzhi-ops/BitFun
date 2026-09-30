@@ -51,6 +51,9 @@
     "copyLink": "复制链接",
     "copyFilePath": "复制文件路径"
   },
+  "imageLightbox": {
+    "label": "图片预览"
+  },
   "mermaidBlock": {
     "renderFailed": "图表渲染失败",
     "codeIncomplete": "代码不完整，等待更多内容...",
@@ -326,6 +329,7 @@
     }
   },
   "tooltip": {
+    "openDetails": "打开详情",
     "copy": "复制",
     "copied": "已复制",
     "close": "关闭",
@@ -540,6 +544,13 @@
     "devWingExpand": "展开开发工具"
   },
   "canvas": {
+    "resizePanes": "调整窗格宽度",
+    "chatPane": "聊天",
+    "contentPane": "内容",
+    "swapPanes": "交换左右窗格",
+    "hidePanel": "隐藏面板",
+    "maximizePanel": "面板全屏",
+    "restorePanel": "退出面板全屏",
     "noContentOpen": "暂未打开任何内容",
     "filesCount": "{{count}} 个文件",
     "searchPlaceholder": "搜索文件名或路径...",

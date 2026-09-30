@@ -14,6 +14,7 @@ name = "openbitfun-desktop"
 path = "src/main.rs"
 
 [build-dependencies]
+cc = { workspace = true }
 tauri-build = { workspace = true }
 serde_json = { workspace = true }
 
@@ -25,9 +26,9 @@ openbitfun-relay-service = { path = "../../crates/services/relay-service" }
 openbitfun-agent-runtime = { path = "../../crates/execution/agent-runtime", features = ["agent-runtime"] }
 openbitfun-runtime-ports = { path = "../../crates/contracts/runtime-ports", features = ["agent-api", "permission", "workspace-ports"] }
 openbitfun-product-domains = { path = "../../crates/contracts/product-domains", features = ["appearance-market"] }
-openbitfun-services-integrations = { path = "../../crates/services/services-integrations", features = ["canvas-runtime", "miniapp-market", "remote-ssh-concrete", "speech-realtime"] }
+openbitfun-services-integrations = { path = "../../crates/services/services-integrations", features = ["canvas-runtime", "miniapp-market", "skillhub", "remote-ssh-concrete", "speech-realtime"] }
 openbitfun-core-types = { path = "../../crates/contracts/core-types" }
-openbitfun-agent-tools = { path = "../../crates/execution/tool-contracts", features = ["element-token"] }
+openbitfun-agent-tools = { path = "../../crates/execution/tool-contracts", features = ["element-token", "computer-use-contract"] }
 openbitfun-transport = { path = "../../crates/adapters/transport", features = ["tauri-adapter"] }
 openbitfun-events = { path = "../../crates/contracts/events" }
 openbitfun-webdriver = { path = "../../crates/adapters/webdriver" }
@@ -101,7 +102,7 @@ foreign-types = { workspace = true }
 libc = { workspace = true }
 objc2 = { workspace = true, features = ["exception"] }
 objc2-foundation = { workspace = true, features = ["std", "NSArray", "NSData", "NSDictionary", "NSError", "NSString"] }
-objc2-app-kit = { workspace = true }
+objc2-app-kit = { workspace = true, features = ["std", "libc", "NSWorkspace", "NSRunningApplication"] }
 objc2-vision = { workspace = true, features = ["std", "VNRecognizeTextRequest", "VNRequest", "VNObservation", "VNRequestHandler", "VNUtils", "VNTypes", "objc2-core-foundation"] }
 
 [target.'cfg(windows)'.dependencies]
@@ -123,9 +124,11 @@ windows = { workspace = true, features = [
   "Win32_Graphics_Dxgi",
   "Win32_Graphics_Dxgi_Common",
   "Win32_Graphics_Gdi",
+  "Win32_Security",
   "Win32_Storage_FileSystem",
   "Win32_System_LibraryLoader",
   "Win32_System_SystemServices",
+  "Win32_System_Threading",
   "Win32_Storage_Xps",
   "Win32_System_Com",
   "Win32_System_Ole",
@@ -154,8 +157,16 @@ default = []
 devtools = ["tauri/devtools", "openbitfun-webdriver/embedded"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
-atspi = { workspace = true }
+atspi = { workspace = true, features = ["zbus"] }
+gstreamer = { workspace = true }
+gstreamer-app = { workspace = true }
 leptess = { workspace = true }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "computer_use_native_roundtrip"
+path = "tests/computer_use_native_roundtrip.rs"
+harness = false
+required-features = ["devtools"]

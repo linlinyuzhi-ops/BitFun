@@ -119,8 +119,12 @@
   }
 
   &__item {
-    // Match MainNav child rows: parent icon slot (22px) + row gap (8px).
-    padding-inline-start: calc(var(--openbitfun-layout-navigation-panel-item-padding-inline) + 30px);
+    // Match MainNav child rows: parent icon-button slot + row gap.
+    padding-inline-start: calc(
+      var(--openbitfun-layout-navigation-panel-item-padding-inline)
+      + var(--openbitfun-control-icon-button-xs-size)
+      + var(--openbitfun-space-2)
+    );
   }
 
   &__item-label {

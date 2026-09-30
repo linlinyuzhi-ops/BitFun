@@ -5,6 +5,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.openbitfun.mobile.app.ui.shell.StartupBrandReveal
+import com.openbitfun.mobile.app.ui.shell.ColdStartHomeTransition
+import com.openbitfun.mobile.app.ui.shell.LocalColdStartTarget
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.semantics
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -23,12 +33,16 @@ import com.openbitfun.mobile.app.viewmodel.AppThemeMode
 
 class MainActivity : ComponentActivity() {
     private var showStartupBrand by mutableStateOf(true)
+    private var showColdStart by mutableStateOf(false)
+    private var allowColdStart by mutableStateOf(false)
     override fun onCreate(savedInstanceState: Bundle?) {
         AppLocaleController.applySaved(this)
         super.onCreate(savedInstanceState)
-        showStartupBrand = savedInstanceState == null
+        val coldStartCandidate = !processLaunchClaimed
             && !intent.getBooleanExtra(DESIGN_PREVIEW_EXTRA, false)
-            && StartupRevealPreference.claim(this)
+        processLaunchClaimed = true
+        showStartupBrand = coldStartCandidate && StartupRevealPreference.claim(this)
+        allowColdStart = coldStartCandidate && !showStartupBrand
         enableEdgeToEdge()
         setContent {
             if (intent.getBooleanExtra(DESIGN_PREVIEW_EXTRA, false)) {
@@ -44,11 +58,30 @@ class MainActivity : ComponentActivity() {
                 AppThemeMode.DARK -> true
             }
             OpenBitFunTheme(dark = dark) {
-                Box {
-                    MobileScreen()
+                val target = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+                var origin by remember { mutableStateOf(Offset.Zero) }
+                Box(Modifier.onGloballyPositioned { origin = it.positionInRoot() }) {
+                    CompositionLocalProvider(LocalColdStartTarget provides target) {
+                        Box(Modifier.semantics {
+                            if (showStartupBrand || showColdStart) hideFromAccessibility()
+                        }) {
+                        MobileScreen(onAccountRestored = { signedIn ->
+                            if (allowColdStart) {
+                                allowColdStart = false
+                                showColdStart = signedIn
+                            }
+                        })
+                        }
+                    }
                     if (showStartupBrand) StartupBrandReveal { showStartupBrand = false }
+                    val bounds = target.value
+                    if (showColdStart) {
+                        ColdStartHomeTransition(bounds?.translate(-origin)) { showColdStart = false }
+                    }
                 }
-                if (!showStartupBrand) com.openbitfun.mobile.app.ui.shell.NotificationOnboarding()
+                if (!showStartupBrand && !showColdStart && !allowColdStart) {
+                    com.openbitfun.mobile.app.ui.shell.NotificationOnboarding()
+                }
             }
         }
     }
@@ -58,8 +91,16 @@ class MainActivity : ComponentActivity() {
         if (!intent.getBooleanExtra(DESIGN_PREVIEW_EXTRA, false)) accountModel().setBackground(false)
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        accountModel().notifyAuthorizationCallback()
+    }
+
     override fun onStop() {
         showStartupBrand = false
+        showColdStart = false
+        allowColdStart = false
         if (!intent.getBooleanExtra(DESIGN_PREVIEW_EXTRA, false)) accountModel().setBackground(true)
         super.onStop()
     }
@@ -68,6 +109,7 @@ class MainActivity : ComponentActivity() {
         com.openbitfun.mobile.app.viewmodel.AccountViewModel.Factory)[com.openbitfun.mobile.app.viewmodel.AccountViewModel::class.java]
 
     private companion object {
+        var processLaunchClaimed = false
         const val DESIGN_PREVIEW_EXTRA = "openbitfun.design_preview"
         const val DESIGN_SCENARIO_EXTRA = "openbitfun.design_scenario"
     }

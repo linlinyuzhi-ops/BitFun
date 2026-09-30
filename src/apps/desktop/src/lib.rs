@@ -36,6 +36,8 @@ pub mod startup_trace;
 pub mod tray;
 mod webview_recovery;
 mod window_state_support;
+#[cfg(target_os = "windows")]
+mod window_webview_geometry;
 
 use openbitfun_agent_runtime::sdk::{attach_session_event_cursor, SessionEventJournal};
 use openbitfun_core::agentic::tools::computer_use_capability::set_computer_use_desktop_available;
@@ -1183,6 +1185,8 @@ pub async fn run() {
         })
         .on_window_event({
             move |window, event| {
+                #[cfg(target_os = "windows")]
+                window_webview_geometry::handle_event(window, event);
                 if window.label() == "main"
                     && !MAIN_WINDOW_USES_TRANSIENT_GEOMETRY.load(Ordering::SeqCst)
                     && matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_))
@@ -1282,6 +1286,7 @@ pub async fn run() {
             api::agentic_api::interrupt_dialog_turn,
             api::agentic_api::recover_interrupted_dialog_turn,
             api::agentic_api::steer_dialog_turn,
+            api::agentic_api::manage_dialog_queue,
             api::agentic_api::control_deep_review_queue,
             api::agentic_api::cancel_session,
             api::agentic_api::set_subagent_timeout,
@@ -1427,12 +1432,16 @@ pub async fn run() {
             stop_file_watch,
             get_watched_paths,
             get_clipboard_files,
+            get_clipboard_image,
             api::browser_file_drop_api::resolve_browser_dropped_file_paths,
             api::file_drop_preview_api::set_file_drop_preview_target,
             paste_files,
             get_config,
             get_configs,
             computer_use_get_status,
+            computer_use_control_status,
+            computer_use_control_stop,
+            computer_use_control_preview,
             computer_use_request_permissions,
             computer_use_open_system_settings,
             set_config,
@@ -1639,6 +1648,7 @@ pub async fn run() {
             get_global_config_status,
             get_model_configs,
             get_ai_model_catalog,
+            get_local_models_dev_catalogs,
             project_ai_model_reasoning_catalog,
             get_models_dev_catalog_status,
             refresh_models_dev_catalog_now,
@@ -2068,10 +2078,6 @@ async fn init_agentic_system() -> anyhow::Result<(
                 session_manager.clone(),
             ),
         ),
-    );
-    event_router.subscribe_internal(
-        "thread_goal_tokens".to_string(),
-        Arc::new(openbitfun_core::agentic::goal_mode::ThreadGoalTokenSubscriber),
     );
 
     log::info!("Token usage service initialized and subscriber registered");
@@ -2988,4 +2994,11 @@ mod event_loop_driver_tests {
         driver.abort();
         producer.abort();
     }
+}
+
+/// Opt-in native regression entry; requires a disposable fixture launched by
+/// scripts/test-macos-control-roundtrip.mjs and a pumping macOS main run loop.
+#[cfg(all(feature = "devtools", target_os = "macos"))]
+pub async fn run_native_computer_use_roundtrip_fixture() {
+    computer_use::native_control_roundtrip::run().await;
 }

@@ -10,6 +10,7 @@
 import React, { useCallback, useState, useMemo, useEffect, useRef, useSyncExternalStore } from 'react';
 import { subscribeOverlayInteraction, createOverlayPortal, OverflowText,
   Icon,
+  IconButton,
   KeyHint,
   Menu,
   MenuItem,
@@ -20,6 +21,7 @@ import { subscribeOverlayInteraction, createOverlayPortal, OverflowText,
   NavigationPanelBody,
   NavigationPanelContent,
   NavigationPanelHeader,
+  NavigationPanelItem,
   ScrollArea,
   Tooltip,
 } from '@openbitfun/ui';
@@ -193,8 +195,6 @@ const MainNav: React.FC = () => {
   }, [sshRemote]);
 
   useEffect(() => {
-    let removeOverlayMousedown0: (() => void) | undefined;
-    let removeOverlayKeydown1: (() => void) | undefined;
     if (!workspaceMenuOpen) return;
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node | null;
@@ -206,8 +206,8 @@ const MainNav: React.FC = () => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !isImeOwnedKeyboardEvent(event)) closeWorkspaceMenu();
     };
-    removeOverlayMousedown0 = subscribeOverlayInteraction(workspaceMenuRef, 'mousedown', handleClickOutside);
-    removeOverlayKeydown1 = subscribeOverlayInteraction(workspaceMenuRef, 'keydown', handleEscape);
+    const removeOverlayMousedown0 = subscribeOverlayInteraction(workspaceMenuRef, 'mousedown', handleClickOutside);
+    const removeOverlayKeydown1 = subscribeOverlayInteraction(workspaceMenuRef, 'keydown', handleEscape);
     return () => {
       removeOverlayMousedown0?.();
       removeOverlayKeydown1?.();
@@ -265,26 +265,26 @@ const MainNav: React.FC = () => {
       style={{ top: workspaceMenuPos.top, left: workspaceMenuPos.left }}
     >
       <MenuItem
-        leading={<Icon glyph={FolderOpen} />}
+        leading={<Icon glyph={FolderOpen} size="sm" />}
         onClick={() => { closeWorkspaceMenu(); void handleOpenProject(); }}
       >
         {t('header.openProject')}
       </MenuItem>
       <MenuItem
-        leading={<Icon glyph={FolderPlus} />}
+        leading={<Icon glyph={FolderPlus} size="sm" />}
         onClick={() => { closeWorkspaceMenu(); handleNewProject(); }}
       >
         {t('header.newProject')}
       </MenuItem>
       <MenuItem
-        leading={<Icon name="user" size="xs" />}
+        leading={<Icon name="user" size="sm" />}
         onClick={handleOpenAssistantManager}
         data-testid="nav-session-group-add-assistant"
       >
         {t('nav.workspaces.actions.newAssistant')}
       </MenuItem>
       <MenuItem
-        leading={<Icon glyph={Server} />}
+        leading={<Icon glyph={Server} size="sm" />}
         onClick={handleOpenRemoteSSH}
       >
         {t('ssh.remote.connect')}
@@ -306,7 +306,7 @@ const MainNav: React.FC = () => {
                 return (
                   <MenuItem data-overflow-trigger
                     key={workspace.id}
-                    leading={<Icon glyph={FolderOpen} />}
+                    leading={<Icon glyph={FolderOpen} size="sm" />}
                     role="menuitemradio"
                     checked={isCurrent}
                     metadata={isCurrent ? <Icon name="check-line" size="xs" /> : undefined}
@@ -331,7 +331,7 @@ const MainNav: React.FC = () => {
               })
             )}
           </MenuList>
-        </ScrollArea>
+          </ScrollArea>
       </MenuSection>
     </Menu>,
     getAppearanceOverlayHost()
@@ -417,9 +417,9 @@ const MainNav: React.FC = () => {
         <div data-testid="nav-sections" className="openbitfun-nav-panel__sections-slot">
         <div data-openbitfun-component="nav-panel" data-openbitfun-part="topActions" className="openbitfun-nav-panel__top-actions">
           <Tooltip content={assistantManagerLabel} placement="right" followCursor>
-            <button data-overflow-trigger
-              type="button"
-              className={[
+            <NavigationPanelItem
+              className="openbitfun-nav-panel__top-action-item openbitfun-nav-panel__top-action-item--root"
+              triggerClassName={[
                 'openbitfun-nav-panel__top-action-btn',
                 isAssistantManagerActive ? 'is-active' : '',
               ].filter(Boolean).join(' ')}
@@ -430,18 +430,21 @@ const MainNav: React.FC = () => {
               onClick={handleOpenAssistantManager}
               aria-label={assistantManagerLabel}
               data-testid="nav-assistant-manager"
+              leading={(
+                <span className="openbitfun-nav-panel__top-action-icon-slot">
+                  <Icon name="user" size="sm" />
+                </span>
+              )}
+              selected={isAssistantManagerActive}
             >
-              <span className="openbitfun-nav-panel__top-action-icon-slot" aria-hidden="true">
-                <Icon name="user" size="sm" />
-              </span>
-              <OverflowText>{assistantManagerLabel}</OverflowText>
-            </button>
+              {assistantManagerLabel}
+            </NavigationPanelItem>
           </Tooltip>
 
           <Tooltip content={t('nav.tooltips.todos')} placement="right" followCursor>
-            <button data-overflow-trigger
-              type="button"
-              className={[
+            <NavigationPanelItem
+              className="openbitfun-nav-panel__top-action-item openbitfun-nav-panel__top-action-item--root"
+              triggerClassName={[
                 'openbitfun-nav-panel__top-action-btn',
                 isTaskBoardActive ? 'is-active' : '',
               ].filter(Boolean).join(' ')}
@@ -451,14 +454,16 @@ const MainNav: React.FC = () => {
               data-openbitfun-state={isTaskBoardActive ? 'active' : ''}
               onClick={handleOpenTodos}
               aria-label={taskBoardLabel}
-              aria-pressed={isTaskBoardActive}
               data-testid="nav-todos-btn"
+              leading={(
+                <span className="openbitfun-nav-panel__top-action-icon-slot">
+                  <Icon name="clock" size="sm" />
+                </span>
+              )}
+              selected={isTaskBoardActive}
             >
-              <span className="openbitfun-nav-panel__top-action-icon-slot" aria-hidden="true">
-                <Icon name="clock" size="sm" />
-              </span>
-              <OverflowText>{taskBoardLabel}</OverflowText>
-            </button>
+              {taskBoardLabel}
+            </NavigationPanelItem>
           </Tooltip>
 
           <div className="openbitfun-nav-panel__miniapp-navigation" data-openbitfun-component="nav-panel" data-openbitfun-part="miniAppFooter">
@@ -472,9 +477,9 @@ const MainNav: React.FC = () => {
 
           <div className="openbitfun-nav-panel__top-action-expand" data-openbitfun-component="nav-panel" data-openbitfun-part="extensionGroup" data-openbitfun-state={isExtensionsOpen ? 'open' : ''} data-testid="agent-skill-panel">
             <Tooltip content={extensionsLabel} placement="right" followCursor>
-              <button data-overflow-trigger
-                type="button"
-                className={[
+              <NavigationPanelItem
+                className="openbitfun-nav-panel__top-action-item openbitfun-nav-panel__top-action-item--root"
+                triggerClassName={[
                   'openbitfun-nav-panel__top-action-btn',
                   'openbitfun-nav-panel__top-action-btn--expand',
                   isExtensionsOpen ? 'is-open' : '',
@@ -487,27 +492,28 @@ const MainNav: React.FC = () => {
                 aria-expanded={isExtensionsOpen}
                 aria-label={extensionsLabel}
                 data-testid="agent-skill-entry"
+                leading={(
+                  <span
+                    className="openbitfun-nav-panel__top-action-icon-slot openbitfun-nav-panel__top-action-expand-icons"
+                  >
+                    <Icon
+                      name="extension"
+                      size="sm"
+                      className="openbitfun-nav-panel__top-action-expand-icon-default"
+                    />
+                    <Icon
+                      name="chevron-down"
+                      size="sm"
+                      className={[
+                        'openbitfun-nav-panel__top-action-expand-icon-chevron',
+                        isExtensionsOpen ? 'is-open' : '',
+                      ].filter(Boolean).join(' ')}
+                    />
+                  </span>
+                )}
               >
-                <span
-                  className="openbitfun-nav-panel__top-action-icon-slot openbitfun-nav-panel__top-action-expand-icons"
-                  aria-hidden="true"
-                >
-                  <Icon
-                    name="extension"
-                    size="sm"
-                    className="openbitfun-nav-panel__top-action-expand-icon-default"
-                  />
-                  <Icon
-                    name="chevron-down"
-                    size="sm"
-                    className={[
-                      'openbitfun-nav-panel__top-action-expand-icon-chevron',
-                      isExtensionsOpen ? 'is-open' : '',
-                    ].filter(Boolean).join(' ')}
-                  />
-                </span>
-                <OverflowText>{extensionsLabel}</OverflowText>
-              </button>
+                {extensionsLabel}
+              </NavigationPanelItem>
             </Tooltip>
 
             <div
@@ -518,9 +524,9 @@ const MainNav: React.FC = () => {
             >
               <div className="openbitfun-nav-panel__top-action-sublist-inner">
                 <Tooltip content={agentsTooltip} placement="right" followCursor>
-                  <button data-overflow-trigger
-                    type="button"
-                    className={[
+                  <NavigationPanelItem
+                    className="openbitfun-nav-panel__top-action-item openbitfun-nav-panel__top-action-item--sub"
+                    triggerClassName={[
                       'openbitfun-nav-panel__top-action-btn',
                       'openbitfun-nav-panel__top-action-btn--sub',
                       isAgentsActive ? 'is-active' : '',
@@ -532,18 +538,21 @@ const MainNav: React.FC = () => {
                     onClick={handleOpenAgents}
                     aria-label={agentsTooltip}
                     data-testid="agent-tab"
+                    leading={(
+                      <span className="openbitfun-nav-panel__top-action-icon-slot">
+                        <Icon glyph={Users} size="sm" />
+                      </span>
+                    )}
+                    selected={isAgentsActive}
                   >
-                    <span className="openbitfun-nav-panel__top-action-icon-slot" aria-hidden="true">
-                      <Icon glyph={Users} size="sm" />
-                    </span>
-                    <OverflowText>{t('nav.items.agents')}</OverflowText>
-                  </button>
+                    {t('nav.items.agents')}
+                  </NavigationPanelItem>
                 </Tooltip>
 
                 <Tooltip content={skillsTooltip} placement="right" followCursor>
-                  <button data-overflow-trigger
-                    type="button"
-                    className={[
+                  <NavigationPanelItem
+                    className="openbitfun-nav-panel__top-action-item openbitfun-nav-panel__top-action-item--sub"
+                    triggerClassName={[
                       'openbitfun-nav-panel__top-action-btn',
                       'openbitfun-nav-panel__top-action-btn--sub',
                       isSkillsActive ? 'is-active' : '',
@@ -555,18 +564,21 @@ const MainNav: React.FC = () => {
                     onClick={handleOpenSkills}
                     aria-label={skillsTooltip}
                     data-testid="skill-tab"
+                    leading={(
+                      <span className="openbitfun-nav-panel__top-action-icon-slot">
+                        <Icon name="book-open" size="sm" />
+                      </span>
+                    )}
+                    selected={isSkillsActive}
                   >
-                    <span className="openbitfun-nav-panel__top-action-icon-slot" aria-hidden="true">
-                      <Icon name="extension" size="sm" />
-                    </span>
-                    <OverflowText>{t('nav.items.skills')}</OverflowText>
-                  </button>
+                    {t('nav.items.skills')}
+                  </NavigationPanelItem>
                 </Tooltip>
 
                 <Tooltip content={ecosystemCompatibilityTooltip} placement="right" followCursor>
-                  <button data-overflow-trigger
-                    type="button"
-                    className={[
+                  <NavigationPanelItem
+                    className="openbitfun-nav-panel__top-action-item openbitfun-nav-panel__top-action-item--sub"
+                    triggerClassName={[
                       'openbitfun-nav-panel__top-action-btn',
                       'openbitfun-nav-panel__top-action-btn--sub',
                       isEcosystemCompatibilityActive ? 'is-active' : '',
@@ -578,12 +590,7 @@ const MainNav: React.FC = () => {
                     onClick={handleOpenEcosystemCompatibility}
                     aria-label={ecosystemCompatibilityTooltip}
                     data-testid="ecosystem-compatibility-tab"
-                  >
-                    <span className="openbitfun-nav-panel__top-action-icon-slot" aria-hidden="true">
-                      <Icon glyph={Network} size="sm" />
-                    </span>
-                    <OverflowText>{t('nav.items.ecosystemCompatibility')}</OverflowText>
-                    {hasUnseenEcosystemCompatibility ? (
+                    actionContent={hasUnseenEcosystemCompatibility ? (
                       <span
                         className="openbitfun-nav-panel__top-action-unseen"
                         data-openbitfun-component="nav-panel"
@@ -591,7 +598,15 @@ const MainNav: React.FC = () => {
                         aria-hidden="true"
                       />
                     ) : null}
-                  </button>
+                    leading={(
+                      <span className="openbitfun-nav-panel__top-action-icon-slot">
+                        <Icon glyph={Network} size="sm" />
+                      </span>
+                    )}
+                    selected={isEcosystemCompatibilityActive}
+                  >
+                    {t('nav.items.ecosystemCompatibility')}
+                  </NavigationPanelItem>
                 </Tooltip>
               </div>
             </div>
@@ -609,18 +624,18 @@ const MainNav: React.FC = () => {
                   <WorkspaceSessionFilterMenu />
                   <div className="openbitfun-nav-panel__workspace-action-wrap">
                     <Tooltip content={addSessionGroupTooltip} placement="right" followCursor disabled={workspaceMenuOpen}>
-                      <button
+                      <IconButton
                         ref={workspaceMenuButtonRef}
-                        type="button"
                         className={`openbitfun-nav-panel__section-action${workspaceMenuOpen ? ' is-active' : ''}`}
                         aria-label={addSessionGroupTooltip}
                         aria-haspopup="menu"
                         aria-expanded={workspaceMenuOpen}
                         onClick={toggleWorkspaceMenu}
                         data-testid="nav-workspace-add-btn"
-                      >
-                        <Icon glyph={FolderPlus} size="sm" />
-                      </button>
+                        icon={<Icon glyph={FolderPlus} size="sm" />}
+                        size="xs"
+                        variant="quiet"
+                      />
                     </Tooltip>
                   </div>
                 </>

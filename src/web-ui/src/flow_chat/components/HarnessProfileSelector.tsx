@@ -178,8 +178,6 @@ export const HarnessProfileSelector: React.FC<HarnessProfileSelectorProps> = ({
   }, [finishSelection, onStartNewSession, t]);
 
   useEffect(() => {
-    let removeOverlayPointerdown0: (() => void) | undefined;
-    let removeOverlayKeydown1: (() => void) | undefined;
     if (!open) return;
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -193,8 +191,8 @@ export const HarnessProfileSelector: React.FC<HarnessProfileSelectorProps> = ({
       if (event.key === 'Escape') close();
     };
 
-    removeOverlayPointerdown0 = subscribeOverlayInteraction(menuRef, 'pointerdown', handlePointerDown);
-    removeOverlayKeydown1 = subscribeOverlayInteraction(menuRef, 'keydown', handleKeyDown);
+    const removeOverlayPointerdown0 = subscribeOverlayInteraction(menuRef, 'pointerdown', handlePointerDown);
+    const removeOverlayKeydown1 = subscribeOverlayInteraction(menuRef, 'keydown', handleKeyDown);
     return () => {
       removeOverlayPointerdown0?.();
       removeOverlayKeydown1?.();
@@ -419,7 +417,7 @@ export const HarnessProfileSelector: React.FC<HarnessProfileSelectorProps> = ({
                         leading={<HarnessProfileMark profile={id} />}
                         metadata={(
                           <span className="openbitfun-harness-selector__profile-status">
-                            {connected ? <Icon name="check-line" size="sm" style={{ width: 13, height: 13 }} aria-hidden /> : null}
+                            {connected ? <Icon name="check-line" size="sm" aria-hidden /> : null}
                             {id === 'other' ? (
                               <>
                                 <span className="openbitfun-harness-selector__agent-count">
@@ -479,7 +477,7 @@ export const HarnessProfileSelector: React.FC<HarnessProfileSelectorProps> = ({
                         leading={<Icon name="user" size="md" aria-hidden />}
                         metadata={(
                           <span className="openbitfun-harness-selector__profile-status">
-                            {connected ? <Icon name="check-line" size="sm" style={{ width: 13, height: 13 }} aria-hidden /> : null}
+                            {connected ? <Icon name="check-line" size="sm" aria-hidden /> : null}
                             {agent.available === false
                               ? t('chatInput.harness.unavailable')
                               : null}

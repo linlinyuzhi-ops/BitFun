@@ -171,7 +171,7 @@
     overflow: hidden;
     padding: 0;
     border: var(--openbitfun-border-width-default) solid var(--openbitfun-color-border-subtle);
-    border-radius: var(--openbitfun-overlay-menu-surface-radius);
+    border-radius: var(--openbitfun-control-select-radius);
     color: var(--openbitfun-color-action-neutral-content);
     background: var(--openbitfun-color-surface-panel);
     box-shadow: var(--openbitfun-shadow-menu);

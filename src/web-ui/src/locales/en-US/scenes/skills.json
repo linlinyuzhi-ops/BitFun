@@ -231,6 +231,8 @@
       "globalToggleLabel": "Toggle global availability for {{name}}"
     },
     "scanIncomplete": "Some skills could not be scanned. Available skills are still listed.",
+    "unsupportedSkills": "Some skills require unsupported capabilities and were not loaded.",
+    "unsupportedField": "This host does not support the skill's {{field}} declaration. The skill was not loaded.",
     "diagnosticsUnavailable": "This host does not report skill scan diagnostics."
   },
   "deleteModal": {

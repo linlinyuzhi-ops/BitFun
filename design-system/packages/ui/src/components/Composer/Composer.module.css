@@ -64,10 +64,8 @@
   }
 
   .surface:focus-within {
-    border-color: var(--openbitfun-color-field-border-focus);
-    box-shadow:
-      var(--openbitfun-shadow-composer),
-      0 0 0 var(--openbitfun-focus-width) var(--openbitfun-color-focus-ring);
+    border-color: var(--openbitfun-color-field-border-active);
+    box-shadow: var(--openbitfun-shadow-composer);
   }
 
   .root[data-invalid="true"] > .surface {

@@ -333,6 +333,10 @@ describe('FlowChatManager initialization', () => {
       projectWorkspaceId: workspaceFixture('/project', 'ssh-user@server', 'server').id,
       workspaceHostname: 'server',
     });
+    // Legacy record: it predates execution-workspace stamping, so it has no
+    // session workspace ID and is attributed through its project scope only.
+    session.workspaceId = undefined;
+    delete (session as { config?: Record<string, unknown> }).config.workspaceId;
     storeMocks.store = {
       registerPersistUnreadCompletionCallback: vi.fn(),
       getSurfaceGeneration: vi.fn(() => 0),

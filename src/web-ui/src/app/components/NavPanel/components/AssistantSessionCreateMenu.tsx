@@ -49,8 +49,6 @@ const AssistantSessionCreateMenu: React.FC<AssistantSessionCreateMenuProps> = ({
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   useEffect(() => {
-    let removeOverlayMousedown0: (() => void) | undefined;
-    let removeOverlayKeydown1: (() => void) | undefined;
     if (!menuOpen) return;
 
     const handleMouseDown = (event: MouseEvent) => {
@@ -67,8 +65,8 @@ const AssistantSessionCreateMenu: React.FC<AssistantSessionCreateMenuProps> = ({
       if (event.key === 'Escape' && !isImeOwnedKeyboardEvent(event)) closeMenu();
     };
 
-    removeOverlayMousedown0 = subscribeOverlayInteraction(menuRef, 'mousedown', handleMouseDown);
-    removeOverlayKeydown1 = subscribeOverlayInteraction(menuRef, 'keydown', handleEscape);
+    const removeOverlayMousedown0 = subscribeOverlayInteraction(menuRef, 'mousedown', handleMouseDown);
+    const removeOverlayKeydown1 = subscribeOverlayInteraction(menuRef, 'keydown', handleEscape);
     return () => {
       removeOverlayMousedown0?.();
       removeOverlayKeydown1?.();
@@ -125,6 +123,7 @@ const AssistantSessionCreateMenu: React.FC<AssistantSessionCreateMenuProps> = ({
         <Menu
           ref={menuRef}
           className="openbitfun-nav-panel__assistant-session-menu"
+          inlineSize="content"
           aria-label={chooseAssistantLabel}
           data-testid="nav-assistant-session-menu"
           style={{
@@ -138,7 +137,7 @@ const AssistantSessionCreateMenu: React.FC<AssistantSessionCreateMenuProps> = ({
             return (
               <MenuItem data-overflow-trigger
                 key={workspace.id}
-                leading={<Icon name="plus" size="xs" aria-hidden="true" />}
+                leading={<Icon name="plus" size="sm" aria-hidden="true" />}
                 aria-label={t('nav.sessions.newAssistantSessionFor', { assistantName })}
                 onClick={() => {
                   closeMenu();

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { Session } from '@/flow_chat/types/flow-chat';
+import { isWorktreeIsolatedSession } from '@/flow_chat/utils/sessionOrdering';
 
 export type WorkspaceSessionGrouping = 'grouped' | 'all';
 export type WorkspaceSessionOrdering = 'updated' | 'status' | 'created' | 'name';
@@ -130,8 +131,7 @@ export function deriveWorkspaceSessionSource(session: Session): WorkspaceSession
 }
 
 export function deriveWorkspaceSessionWorktree(session: Session): WorkspaceSessionWorktree {
-  const target = session.config.executionTarget;
-  return target && target.kind !== 'local' ? 'worktree' : 'main';
+  return isWorktreeIsolatedSession(session) ? 'worktree' : 'main';
 }
 
 const STATUS_ORDER: Record<WorkspaceSessionStatus, number> = {
