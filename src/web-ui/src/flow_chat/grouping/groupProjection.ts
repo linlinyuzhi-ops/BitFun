@@ -5,7 +5,7 @@ import { getFlowGroupCategory, getFlowGroupStateIds } from './types';
 import { canContinueFlowGroup, flowGroupPolicies, hasPendingFlowGroupClassification, joinedFlowGroupCategory, meetsFlowGroupThreshold } from './policies';
 import { flowGroupLifecycle } from './lifecycle';
 import { buildInlineFlowGroupData, getModelRoundFlowGroups, getProjectedModelRoundGroups,
-  flowGroupCompanionStart, hasModelRoundLeadingControls, isFlowGroupCompanion, projectedFlowGroup } from './roundGroups';
+  flowGroupCompanionStart, hasModelRoundLeadingControls, isFlowGroupCompanion, isModelRoundGroupingDisabled, projectedFlowGroup } from './roundGroups';
 
 function sourceGroupIds(group: FlowGroupData): readonly string[] {
   if (group.sourceGroupIds) return getFlowGroupStateIds(group);
@@ -115,7 +115,7 @@ export function projectAdjacentFlowGroups(items: readonly VirtualItem[], options
       continue;
     }
 
-    const disabled = item.data.renderHints?.disableExploreGrouping === true;
+    const disabled = isModelRoundGroupingDisabled(item.data);
     turnComplete = options.isTurnComplete ?? item.isTurnComplete;
     if (disabled || hasModelRoundLeadingControls(item.data)) boundary();
     const index = projected.length;

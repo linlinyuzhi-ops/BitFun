@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -422,7 +425,17 @@ internal fun MobileScreen(onAccountRestored: (Boolean) -> Unit = {}) {
     }
 
     val content: @Composable () -> Unit = {
-        Scaffold(
+        if (controlSummary.source == RemoteControlSource.NONE && readyAccount == null) {
+            // The compact signed-out welcome surface owns the full window,
+            // including the gesture/navigation area. Keeping it outside the
+            // Scaffold prevents Scaffold's content insets from leaving a
+            // platform-colored strip below the welcome dock.
+            WelcomeHome(
+                signedIn = false,
+                onLogin = { shell.openAccount(signedIn = false) },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else Scaffold(
             // The manifest asks for `adjustResize`, but an edge-to-edge window
             // is never resized by it — the keyboard simply draws on top, and
             // what it draws on top of is the composer. Adding the IME to the
@@ -430,13 +443,17 @@ internal fun MobileScreen(onAccountRestored: (Boolean) -> Unit = {}) {
             // keeps the input bar above the keyboard. `union` rather than a
             // second padding: the IME inset already contains the navigation
             // bar's, and adding them would leave a gap the height of the bar.
-            contentWindowInsets = ScaffoldDefaults.contentWindowInsets.union(WindowInsets.ime),
+            contentWindowInsets = (if (shell.surface == MobileSurface.REMOTE && routedSessionId != null) {
+                // The conversation owns the bottom strip: its viewport reaches
+                // the screen edge while the fixed composer clears navigation.
+                ScaffoldDefaults.contentWindowInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+            } else ScaffoldDefaults.contentWindowInsets).union(WindowInsets.ime),
             // HarmonyOS hides the platform title bar. Each product surface owns
             // its 44dp controls and title row, so a Material TopAppBar here would
             // add a second header above every conversation and remote page.
             topBar = {},
         ) { insets ->
-            Box(Modifier.padding(insets)) {
+            Box(Modifier.padding(insets).consumeWindowInsets(insets)) {
                 when (shell.surface) {
                     MobileSurface.REMOTE -> when (controlSummary.source) {
                         RemoteControlSource.ACCOUNT_DEVICE -> AccountRemoteScreen(

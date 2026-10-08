@@ -26,6 +26,8 @@
       "petLabel": "宠物形象",
       "petDescription": "可导入 Petdex ZIP 形象包，或选择预置形象",
       "petPlaceholder": "选择宠物形象",
+      "current": "当前使用",
+      "previewUnavailable": "预览不可用",
       "groupPreset": "预置",
       "groupImported": "已导入",
       "import": "导入",

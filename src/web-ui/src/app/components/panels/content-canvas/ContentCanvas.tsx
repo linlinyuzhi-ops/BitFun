@@ -14,7 +14,7 @@ import type { AnchorPosition } from './types';
 import type { CanvasStoreMode } from './stores/canvasStore';
 import { selectActiveBtwSessionTab, type BtwSessionPanelData } from '@/flow_chat/services/btwSessionPane';
 import { useCurrentWorkspace } from '@/infrastructure/contexts/WorkspaceContext';
-import { openMainSession } from '@/flow_chat/services/sessionActivation';
+import { activateMainSession } from '@/flow_chat/services/sessionActivation';
 import { isSamePath } from '@/shared/utils/pathUtils';
 import './ContentCanvas.scss';
 import { flowChatStore } from '@/flow_chat/store/FlowChatStore';
@@ -136,7 +136,9 @@ export const ContentCanvas: React.FC<ContentCanvasProps> = ({
     }
 
     lastSyncedBtwTabIdRef.current = activeBtwSessionTab.id;
-    void openMainSession(activeBtwSessionData.parentSessionId);
+    // Selecting auxiliary content synchronizes its parent without revealing or
+    // changing the user's navigation panel.
+    void activateMainSession(activeBtwSessionData.parentSessionId);
   }, [
     activeBtwSessionData?.parentSessionId,
     activeBtwSessionData?.projectWorkspaceId,

@@ -70,6 +70,7 @@ import { mobileTextareaMeta } from "./mobile/MobileTextarea/MobileTextarea.meta"
 import { askUserMeta } from "./flow-chat/ask-user/AskUser.meta";
 import { chatComposerMeta } from "./flow-chat/composer/ChatComposer.meta";
 import { thinkingBlockMeta, flowGroupMeta, exploreGroupMeta, contextLoadGroupMeta, flowChatRuntimeStatusMeta } from "./flow-chat/conversation/ConversationBlocks.meta";
+import { flowChatTurnMetricsMeta } from './flow-chat/conversation/FlowChatTurnMetrics.meta';
 import { ambientToolCardMeta } from "./flow-chat/tool-cards/AmbientToolCard.meta";
 import { controlHubToolCardMeta, listModelsToolCardMeta } from "./flow-chat/tool-cards/RuntimeToolCards.meta";
 import { semanticToolCardMetas } from "./flow-chat/tool-cards/SemanticToolCards.meta";
@@ -134,6 +135,7 @@ export const componentRegistry = [
   exploreGroupMeta,
   contextLoadGroupMeta,
   flowChatRuntimeStatusMeta,
+  flowChatTurnMetricsMeta,
   commandToolCardMeta,
   toolRelationRowMeta,
   composerMeta,

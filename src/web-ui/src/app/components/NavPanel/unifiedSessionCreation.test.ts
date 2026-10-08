@@ -124,12 +124,13 @@ describe('unified project session creation', () => {
     expect(mainNav).not.toContain("activateProductAction('settings.external-sources.open')");
   });
 
-  it('keeps the settings gear and places update checks in its utility menu, independently of About', () => {
+  it('keeps the settings gear and places update checks before Settings in its utility menu, independently of About', () => {
     const footerActions = source('./components/PersistentFooterActions.tsx');
     const appearanceQuickSwitch = source('./components/AppearanceQuickSwitchMenuItem.tsx');
     const floatingIndex = footerActions.indexOf('data-testid="nav-settings-floating-item"');
     const notificationIndex = footerActions.indexOf('<NotificationButton menuItem');
     const appearanceIndex = footerActions.indexOf('<AppearanceQuickSwitchMenuItem');
+    const updateIndex = footerActions.indexOf('<UpdateMenuItems');
     const openSettingsIndex = footerActions.indexOf('data-testid="nav-settings-open-item"');
     const aboutIndex = footerActions.indexOf('data-testid="nav-settings-about-item"');
 
@@ -143,10 +144,9 @@ describe('unified project session creation', () => {
     expect(floatingIndex).toBeGreaterThan(-1);
     expect(notificationIndex).toBeGreaterThan(floatingIndex);
     expect(appearanceIndex).toBeGreaterThan(notificationIndex);
-    expect(openSettingsIndex).toBeGreaterThan(appearanceIndex);
+    expect(updateIndex).toBeGreaterThan(appearanceIndex);
+    expect(openSettingsIndex).toBeGreaterThan(updateIndex);
     expect(aboutIndex).toBeGreaterThan(openSettingsIndex);
-    expect(footerActions.indexOf('<UpdateMenuItems')).toBeGreaterThan(openSettingsIndex);
-    expect(footerActions.indexOf('<UpdateMenuItems')).toBeLessThan(aboutIndex);
     expect(footerActions.slice(footerActions.indexOf('onClick={handleShowAbout}'), aboutIndex)).not.toContain('UpdateIndicator');
     expect(footerActions).toContain("useSettingsStore.getState().openPage('application.appearance')");
     expect(footerActions).not.toContain('GithubStarButton');

@@ -242,6 +242,7 @@ const PersistentFooterActions: React.FC = () => {
                     onOpenAppearanceSettings={handleOpenAppearanceSettings}
                   />
                   <MenuSeparator />
+                  <UpdateMenuItems onCloseMenu={closeMenu} />
                   <MenuItem
                     leading={<Icon name="gear" size="sm" aria-hidden="true" />}
                     onClick={handleOpenSettings}
@@ -249,7 +250,6 @@ const PersistentFooterActions: React.FC = () => {
                   >
                     {t('nav.settingsMenu.openSettings')}
                   </MenuItem>
-                  <UpdateMenuItems onCloseMenu={closeMenu} />
                   <MenuItem
                     leading={<Icon name="info" size="sm" aria-hidden="true" />}
                     onClick={handleShowAbout}

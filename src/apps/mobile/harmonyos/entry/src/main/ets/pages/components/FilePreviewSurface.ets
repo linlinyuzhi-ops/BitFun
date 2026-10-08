@@ -33,6 +33,7 @@ import {
   SOFT,
   TRANSPARENT,
 } from './Theme';
+import { WindowInsetsBinding } from '../../services/WindowSystemBarService';
 
 @ComponentV2
 export struct FilePreviewSurface {
@@ -40,6 +41,12 @@ export struct FilePreviewSurface {
   private readonly markdownScroller: Scroller = new Scroller();
   private readonly syntaxHighlightCache: CodeSyntaxHighlightCache = new CodeSyntaxHighlightCache();
   private restoreScrollTimerId: number = 0;
+  /**
+   * The surface's own bottom edge, in vp. The preview scrollers run to the
+   * screen edge — content rolls under the navigation indicator while it is
+   * moving — and their tail padding is what rests the last line above the bar.
+   */
+  @Local insets: WindowInsetsBinding = new WindowInsetsBinding();
   @Local imageOriginalSizeTarget: string = '';
   @Param state: FilePreviewState = new FilePreviewState();
   @Param remoteAvailable: boolean = true;
@@ -54,7 +61,15 @@ export struct FilePreviewSurface {
   @Event onOpenLink: (reference: string, label: string) => void = (_reference: string, _label: string) => {};
   @Event onToggleExpanded: () => void = () => {};
 
+  aboutToAppear(): void {
+    const context = this.getUIContext().getHostContext();
+    if (context) {
+      this.insets.bind(this.getUIContext(), context);
+    }
+  }
+
   aboutToDisappear(): void {
+    this.insets.unbind();
     this.clearRestoreScrollTimer();
   }
 
@@ -340,7 +355,7 @@ export struct FilePreviewSurface {
           .fontColor(INK)
           .fontFamily('monospace')
           .textSelectable(TextSelectableMode.SELECTABLE_UNFOCUSABLE)
-          .padding({ left: 12, right: 12, top: 14, bottom: 24 })
+          .padding({ left: 12, right: 12, top: 14, bottom: this.insets.tailSpacing(24) })
           .constraintSize({ minWidth: '100%' })
       }
       .scrollable(ScrollDirection.FREE)
@@ -371,7 +386,7 @@ export struct FilePreviewSurface {
         }
       })
         .width('100%')
-        .padding({ left: 16, right: 16, top: 16, bottom: 28 })
+        .padding({ left: 16, right: 16, top: 16, bottom: this.insets.tailSpacing(28) })
     }
     .scrollable(ScrollDirection.Vertical)
     .scrollBar(BarState.Auto)

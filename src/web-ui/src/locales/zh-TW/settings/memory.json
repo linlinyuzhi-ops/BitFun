@@ -1,18 +1,17 @@
 {
   "title": "記憶",
   "subtitle": "控制智能體如何從會話中產生及使用記憶",
-  "scopeNotice": "設定、候選會話與記憶檔案均屬於目前執行主機；其他裝置的記憶獨立儲存",
   "sections": {
     "basic": {
-      "title": "基礎",
+      "title": "記憶",
       "description": "關閉記憶會保留已有資料；如需清空，請在「記憶操作」中單獨執行"
     },
     "models": {
-      "title": "模型",
+      "title": "記憶模型",
       "description": "未單獨指定時，抽取跟隨主模型，整理跟隨抽取模型"
     },
     "advanced": {
-      "title": "進階設定",
+      "title": "記憶處理",
       "description": "限制記憶處理的會話範圍與工作量；通常無需修改"
     },
     "extraction": {

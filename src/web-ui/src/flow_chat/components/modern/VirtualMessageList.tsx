@@ -224,6 +224,8 @@ export interface VirtualMessageListRef {
 
 export interface VirtualMessageListProps {
   items?: VirtualItem[];
+  /** Session catalog identity, independent from the current history window. */
+  latestTurnId?: string;
   isViewportActive?: boolean;
   presentationMode?: 'tail' | 'history-window';
   viewportMode?: 'live-tail' | 'history-reading';
@@ -376,6 +378,7 @@ function isElementVisibleInScroller(element: HTMLElement, scroller: HTMLElement)
 
 const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessageListProps>(({
   items,
+  latestTurnId,
   isViewportActive = true,
   presentationMode = 'tail',
   viewportMode = presentationMode === 'history-window' ? 'history-reading' : 'live-tail',
@@ -2689,6 +2692,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, VirtualMessa
                 key={row.key}
                 item={item}
                 index={row.index}
+                isLatestTurn={item.turnId === latestTurnId}
                 endsBeforeUserTurn={nextItem?.type === 'user-message'}
                 continuesAmbientToolRunAfter={isAmbientToolRunContinuationAfter(item, nextItem, pendingPermissionToolCallIds)}
                 measureRef={virtualizer.measureRowElement}

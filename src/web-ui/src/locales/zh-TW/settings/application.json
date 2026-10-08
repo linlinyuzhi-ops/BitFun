@@ -186,13 +186,13 @@
     "sections": {
       "terminal": "終端",
       "defaultTerminal": "默認終端",
-      "terminalHint": "新建終端機使用所選 Shell，已開啟的終端機繼續使用原來的 Shell"
+      "terminalHint": "新建終端機使用所選 Shell，已開啟的終端機繼續使用原來的 Shell",
+      "terminalHintWithCmdFallback": "新建終端機使用所選 Shell，已開啟的終端機繼續使用原來的 Shell；智能體執行命令時實際使用 PowerShell"
     },
     "controls": {
       "refreshTooltip": "重新整理可用終端列表",
       "autoDetect": "自動檢測 (推薦)",
       "description": "用於新建終端機，以及本機工作區中智能體執行的命令",
-      "cmdFallbackMessage": "智能體執行命令時實際使用 PowerShell。",
       "placeholder": "選擇默認終端",
       "noShells": "未檢測到可用的終端"
     },

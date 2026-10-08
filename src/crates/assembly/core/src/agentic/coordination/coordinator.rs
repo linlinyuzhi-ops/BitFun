@@ -12,9 +12,7 @@ use super::{
     turn_settlement::TurnSettlementTracker,
     BackgroundSubagentOutcomeStore, BackgroundSubagentWaitMode, BackgroundSubagentWaitResult,
 };
-use crate::agentic::agents::{
-    get_agent_registry, is_swarm_planner_agent_type, ExternalSubagentModelBinding,
-};
+use crate::agentic::agents::{get_agent_registry, ExternalSubagentModelBinding};
 use crate::agentic::context_profile::ContextProfilePolicy;
 use crate::agentic::core::{
     InternalReminderKind, Message, MessageContent, MessageSemanticKind, ProcessingPhase, Session,
@@ -92,9 +90,6 @@ use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use dashmap::DashMap;
 use log::{debug, error, info, warn};
 use openbitfun_agent_runtime::deep_review::FocusedReviewAssignment;
-use openbitfun_agent_runtime::output_surface::{
-    supports_inline_markdown_images_for_source, TOOL_CONTEXT_INLINE_MARKDOWN_IMAGE_DISPLAY_KEY,
-};
 use openbitfun_agent_runtime::permission::{
     AUTO_APPROVE_ASK_CONTEXT_KEY, PERMISSION_MODE_CONTEXT_KEY,
 };
@@ -134,7 +129,7 @@ use tokio_util::sync::CancellationToken;
 
 const MANUAL_COMPACTION_COMMAND: &str = "/compact";
 const CONTEXT_COMPRESSION_TOOL_NAME: &str = "ContextCompression";
-const TASK_TOOL_NAME: &str = "Task";
+const AGENT_SPAWN_TOOL_NAME: &str = "AgentSpawn";
 const DEFAULT_SUBAGENT_MAX_CONCURRENCY: usize = 5;
 const DEFAULT_SWARM_MAX_CONCURRENCY: usize = 16;
 const MAX_SUBAGENT_MAX_CONCURRENCY: usize = 64;
@@ -3902,9 +3897,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             append_skill_agent_listing_diff_reminders(
                 &mut prepended_messages,
                 diff.render_skill_listing_update(),
-                (!is_swarm_planner_agent_type(agent_type))
-                    .then(|| diff.render_agent_listing_update())
-                    .flatten(),
+                diff.render_agent_listing_update(),
             );
             if diff.is_empty() {
                 SkillAgentSnapshotPersistence::None
@@ -4340,7 +4333,10 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 attempt_id: None,
                 attempt_index: None,
                 tool_event: ToolEventData::Started {
-                    identity: ToolEventIdentity::direct(tool_call_id.clone(), TASK_TOOL_NAME),
+                    identity: ToolEventIdentity::direct(
+                        tool_call_id.clone(),
+                        AGENT_SPAWN_TOOL_NAME,
+                    ),
                     params: tool_params.clone(),
                     timeout_seconds: None,
                 },
@@ -4443,7 +4439,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                                 tool_event: ToolEventData::Completed {
                                     identity: ToolEventIdentity::direct(
                                         tool_call_id.clone(),
-                                        TASK_TOOL_NAME,
+                                        AGENT_SPAWN_TOOL_NAME,
                                     ),
                                     result: data.clone(),
                                     result_for_assistant: Some(assistant_text.clone()),
@@ -4465,7 +4461,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                             ToolEventData::Cancelled {
                                 identity: ToolEventIdentity::direct(
                                     tool_call_id.clone(),
-                                    TASK_TOOL_NAME,
+                                    AGENT_SPAWN_TOOL_NAME,
                                 ),
                                 reason: error_text.clone(),
                                 duration_ms: Some(duration_ms),
@@ -4478,7 +4474,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                             ToolEventData::Failed {
                                 identity: ToolEventIdentity::direct(
                                     tool_call_id.clone(),
-                                    TASK_TOOL_NAME,
+                                    AGENT_SPAWN_TOOL_NAME,
                                 ),
                                 error_detail: None,
                                 error: error_text.clone(),
@@ -4514,7 +4510,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                     String::new(),
                     vec![ToolCall {
                         tool_id: tool_call_id.clone(),
-                        tool_name: TASK_TOOL_NAME.to_string(),
+                        tool_name: AGENT_SPAWN_TOOL_NAME.to_string(),
                         arguments: tool_params,
                         raw_arguments: None,
                         is_error: false,
@@ -4527,7 +4523,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 .with_round_id(round_id.clone());
                 let tool_result_message = Message::tool_result(ToolResult {
                     tool_id: tool_call_id.clone(),
-                    tool_name: TASK_TOOL_NAME.to_string(),
+                    tool_name: AGENT_SPAWN_TOOL_NAME.to_string(),
                     effective_tool_name: None,
                     result: result_data,
                     result_for_assistant: Some(result_for_assistant),
@@ -4545,7 +4541,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                         .await
                     {
                         error!(
-                        "Failed to append delegated command Task message: session_id={}, turn_id={}, error={}",
+                        "Failed to append delegated command AgentSpawn message: session_id={}, turn_id={}, error={}",
                         session_id, turn_id, error
                     );
                     }
@@ -6983,12 +6979,6 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         if needs_computer_links_for_source(submission_policy.trigger_source) {
             context_vars.insert(
                 TOOL_CONTEXT_REMOTE_FILE_DELIVERY_KEY.to_string(),
-                "true".to_string(),
-            );
-        }
-        if supports_inline_markdown_images_for_source(submission_policy.trigger_source) {
-            context_vars.insert(
-                TOOL_CONTEXT_INLINE_MARKDOWN_IMAGE_DISPLAY_KEY.to_string(),
                 "true".to_string(),
             );
         }
@@ -11311,7 +11301,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 snapshot.parent_agent_type.clone(),
                 snapshot.build_child_session_config(None),
                 Some(format!("session-{}", snapshot.parent_session_id)),
-                SessionKind::Standard,
+                SessionKind::EphemeralChild,
             )
             .await?;
         self.session_manager
@@ -21722,7 +21712,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn btw_session_persists_relationship_and_seeds_forked_listing_baselines() {
+    async fn btw_session_is_ephemeral_and_seeds_forked_listing_baselines() {
         let (coordinator, session_manager) = test_persistent_coordinator();
         // The parent lives in a registered remote workspace; the child must
         // inherit that record's SSH facts rather than transport hints.
@@ -21764,7 +21754,7 @@ mod tests {
             )
             .await;
 
-        let system_prompt_identity = SystemPromptCacheIdentity::new("template:agentic_mode");
+        let system_prompt_identity = SystemPromptCacheIdentity::new("template:standard_mode");
         let user_context_identity = UserContextCacheIdentity::new("workspace_context");
         session_manager
             .remember_system_prompt(
@@ -21811,7 +21801,7 @@ mod tests {
 
         assert_eq!(
             child_session.kind,
-            crate::agentic::core::SessionKind::Standard
+            crate::agentic::core::SessionKind::EphemeralChild
         );
         assert_eq!(
             child_session.last_user_dialog_agent_type.as_deref(),
@@ -21871,26 +21861,27 @@ mod tests {
         let metadata = session_manager
             .load_session_metadata(&session_storage_path, &child_session.session_id)
             .await
-            .expect("BTW metadata should load")
-            .expect("BTW metadata should exist");
-        let relationship = metadata
-            .relationship
-            .expect("BTW relationship should persist");
-        assert_eq!(relationship.kind, Some(SessionRelationshipKind::Btw));
-        assert_eq!(
-            relationship.parent_session_id.as_deref(),
-            Some(parent_session.session_id.as_str())
-        );
-        assert_eq!(
-            relationship.parent_request_id.as_deref(),
-            Some("btw-request")
-        );
-        assert_eq!(
-            relationship.parent_dialog_turn_id.as_deref(),
-            Some("parent-turn")
-        );
-        assert_eq!(relationship.parent_turn_index, Some(2));
-        assert_eq!(metadata.memory_mode, SessionMemoryMode::Disabled);
+            .expect("BTW metadata lookup should succeed");
+        assert!(metadata.is_none(), "temporary BTW must not write history");
+        assert!(!session_manager.should_persist_session_id(&child_session.session_id));
+
+        let reused = coordinator
+            .ensure_btw_session(
+                &parent_session.session_id,
+                &child_session.session_id,
+                None,
+                "btw-follow-up",
+                Some("parent-turn"),
+                Some(2),
+            )
+            .await
+            .expect("temporary BTW should accept follow-up questions");
+        assert_eq!(reused.kind, SessionKind::EphemeralChild);
+        assert!(session_manager
+            .load_session_metadata(&session_storage_path, &child_session.session_id)
+            .await
+            .expect("BTW metadata lookup after reuse should succeed")
+            .is_none());
     }
 
     #[test]

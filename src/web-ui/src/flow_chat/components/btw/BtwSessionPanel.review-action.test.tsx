@@ -175,6 +175,7 @@ vi.mock('../../store/FlowChatStore', () => ({
     }),
   },
   flowChatStore: {
+    retainSessionHistory: () => () => {},
     clearSessionUnreadCompletion: vi.fn(),
     ensurePersistedSessionMetadata: (...args: unknown[]) =>
       panelMocks.ensurePersistedSessionMetadata(...args),

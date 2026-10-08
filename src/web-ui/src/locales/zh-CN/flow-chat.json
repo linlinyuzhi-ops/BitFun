@@ -1162,6 +1162,8 @@
   },
   "btw": {
     "title": "侧问",
+    "temporaryLabel": "临时",
+    "temporaryHint": "关闭标签页后，对话内容将消失，无法恢复。",
     "shortLabel": "侧问",
     "hint": "不保存 · 使用当前对话上下文 · 无工具",
     "placeholder": "问个小问题…",
@@ -1700,6 +1702,21 @@
     }
   },
   "modelRound": {
+    "metrics": {
+      "label": "本轮用量与输出速度",
+      "total": "Token 总量",
+      "input": "输入 Token",
+      "output": "输出 Token",
+      "cache": "输入缓存命中",
+      "averageRate": "平均输出",
+      "speedLevel": "速度档位",
+      "rateValue": "{{value}} t/s",
+      "rateBasis": "输出 Token 除以本轮总耗时，包含工具执行与等待；档位分界为 15、40、80 Token/秒",
+      "slow": "慢",
+      "normal": "一般",
+      "fast": "快",
+      "veryFast": "极快"
+    },
     "copyDialog": "复制对话",
     "copiedDialog": "已复制!",
     "forkDialog": "从这里分叉会话",
@@ -3282,6 +3299,16 @@
     "projectCowork": "项目里工作。"
   },
   "modelSelector": {
+    "modes": {
+      "selection": "选择模式",
+      "manual": "手动指定",
+      "manualUnavailable": "上次选择的模型暂不可用，请重新选择模型。",
+      "smart": "智能模式",
+      "pool": "电池模式",
+      "comingSoon": "即将上线",
+      "developmentNotice": "当前模式尚未完成，暂时直接使用主力模型。",
+      "primaryRequired": "请先配置主力模型"
+    },
     "model": "模型",
     "modelExplanation": "模型说明",
     "modelSettings": "模型设置",
@@ -3338,6 +3365,9 @@
     "xhighDesc": "最大推理深度（较慢）"
   },
   "reasoningSelector": {
+    "thinking": "思考",
+    "automatic": "自动推理",
+    "manual": "手动",
     "title": "推理强度",
     "auto": "自动",
     "modelDefault": "模型默认值",
@@ -3349,11 +3379,11 @@
       "on": "开启",
       "none": "关闭",
       "minimal": "极低",
-      "low": "低",
+      "low": "轻",
       "medium": "中",
       "high": "高",
       "xhigh": "极高",
-      "max": "最高"
+      "max": "最大"
     }
   },
   "coworkScope": {

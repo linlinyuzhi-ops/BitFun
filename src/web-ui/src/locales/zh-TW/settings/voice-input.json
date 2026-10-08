@@ -1,6 +1,6 @@
 {
   "title": "語音",
-  "subtitle": "設定本機語音輸入與雲端即時通話",
+  "subtitle": "設定目前裝置的語音輸入",
   "loading": "正在載入語音輸入設定...",
   "sections": {
     "basic": "語音輸入",
@@ -75,7 +75,8 @@
       "saved": "即時語音設定已儲存",
       "saveFailed": "儲存即時語音設定失敗",
       "required": "啟用即時語音前，請填寫 API Key 和語音角色。",
-      "unsaved": "即時語音設定有尚未儲存的修改。"
+      "unsaved": "即時語音設定有尚未儲存的修改。",
+      "unsupported": "即時語音通話僅在 OpenBitFun 桌面端中可用。"
     },
     "call": {
       "title": "即時通話",

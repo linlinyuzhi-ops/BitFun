@@ -200,13 +200,13 @@
     "sections": {
       "terminal": "终端",
       "defaultTerminal": "默认终端",
-      "terminalHint": "新建终端使用所选 Shell，已打开的终端继续使用原来的 Shell"
+      "terminalHint": "新建终端使用所选 Shell，已打开的终端继续使用原来的 Shell",
+      "terminalHintWithCmdFallback": "新建终端使用所选 Shell，已打开的终端继续使用原来的 Shell；智能体执行命令时实际使用 PowerShell"
     },
     "controls": {
       "refreshTooltip": "刷新可用终端列表",
       "autoDetect": "自动检测 (推荐)",
       "description": "用于新建终端，以及本地工作区中智能体执行的命令",
-      "cmdFallbackMessage": "智能体执行命令时实际使用 PowerShell。",
       "placeholder": "选择默认终端",
       "noShells": "未检测到可用的终端"
     },

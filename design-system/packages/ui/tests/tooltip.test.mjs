@@ -48,6 +48,7 @@ test("Tooltip owns delayed opening, viewport flipping, and interactive persisten
   assert.match(source, /followCursor/);
   assert.match(source, /aria-describedby/);
   assert.match(source, /role="tooltip"/);
+  assert.match(source, /data-motion="presence"/);
   assert.match(source, /requestAnimationFrame/);
   assert.match(source, /useDesignSystem/);
   assert.match(source, /<Portal/);

@@ -37,6 +37,7 @@ vi.mock('../../store/FlowChatStore', () => ({
   FlowChatStore: {
     getInstance: () => ({
       getState: () => flowChatState,
+      retainSessionHistory: () => () => {},
       subscribe: () => () => {},
     }),
   },

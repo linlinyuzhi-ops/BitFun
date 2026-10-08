@@ -1,6 +1,6 @@
 {
   "title": "Voice",
-  "subtitle": "Set up local dictation and live voice calls in the cloud",
+  "subtitle": "Configure voice dictation on this device",
   "loading": "Loading voice input settings...",
   "sections": {
     "basic": "Voice input",
@@ -75,7 +75,8 @@
       "saved": "Realtime voice settings saved",
       "saveFailed": "Failed to save realtime voice settings",
       "required": "Enter an API key and voice before enabling realtime voice.",
-      "unsaved": "You have unsaved realtime voice changes."
+      "unsaved": "You have unsaved realtime voice changes.",
+      "unsupported": "Real-time voice calls are only available in OpenBitFun Desktop."
     },
     "call": {
       "title": "Live Call",

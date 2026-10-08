@@ -3,7 +3,7 @@
   "subtitle": "Run commands automatically when selected agent events occur",
   "loading": "Loading hook settings...",
   "activation": {
-    "title": "Activation",
+    "title": "Agent Hooks",
     "description": "Commands run as the user running OpenBitFun; enable hooks only from trusted sources"
   },
   "fields": {

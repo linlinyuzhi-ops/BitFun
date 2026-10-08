@@ -83,7 +83,7 @@
       "id": "web-editor-option-metadata",
       "surface": "web-ui",
       "namespace": "settings/editor",
-      "owner": "src/web-ui/src/infrastructure/config/components/EditorConfig.tsx",
+      "owner": "src/web-ui/src/app/scenes/settings/pages/development/EditorSettingsPage.tsx",
       "description": "Editor option descriptors store labelKey metadata resolved with the settings/editor namespace.",
       "sourceReferences": [
         "labelKey: 'appearance.cursorStyles.line'",

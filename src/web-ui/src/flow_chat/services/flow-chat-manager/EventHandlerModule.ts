@@ -1833,6 +1833,7 @@ function handleDialogTurnStarted(context: FlowChatContext, event: any): void {
     // `surface: 'miniapp_agent'`. Register them as transient miniapp sessions
     // so they stay out of the session list and the agent companion bubbles.
     const isMiniAppAgentRun = userMessageMetadata?.surface === 'miniapp_agent';
+    const isBtwRun = userMessageMetadata?.kind === 'btw';
     const miniAppId = typeof userMessageMetadata?.appId === 'string'
       ? userMessageMetadata.appId
       : undefined;
@@ -1840,11 +1841,14 @@ function handleDialogTurnStarted(context: FlowChatContext, event: any): void {
     const workspace = resolveExternalSessionWorkspace(context, event);
     store.addExternalSession(
       sessionId,
-      isMiniAppAgentRun ? (miniAppId ? `MiniApp: ${miniAppId}` : 'MiniApp Agent') : 'Remote Session',
+      isMiniAppAgentRun ? (miniAppId ? `MiniApp: ${miniAppId}` : 'MiniApp Agent') : isBtwRun ? 'Side thread' : 'Remote Session',
       'Standard',
       workspace.workspacePath,
       isMiniAppAgentRun
         ? { sessionKind: 'miniapp', isTransient: true, agentBackedTransient: true, workspaceId: workspace.workspaceId }
+        : isBtwRun
+          ? { sessionKind: 'btw', isTransient: true, agentBackedTransient: true,
+              parentSessionId: userMessageMetadata.parentSessionId, workspaceId: workspace.workspaceId }
         : { workspaceId: workspace.workspaceId },
       extractEventRemoteConnectionId(event),
       extractEventRemoteSshHost(event)
@@ -2289,7 +2293,7 @@ function handleModelRoundStart(context: FlowChatContext, event: ModelRoundStarte
     ...(event.modelConfigId ? { modelConfigId: event.modelConfigId.trim() } : {}),
     ...(event.effectiveModelName ? { effectiveModelName: event.effectiveModelName.trim() } : {}),
     ...(disableExploreGrouping
-      ? { renderHints: { disableExploreGrouping: true } }
+      ? { renderHints: { disableExploreGrouping: true, disableExploreGroupingSource: 'host' } }
       : {}),
   };
 
@@ -2428,6 +2432,7 @@ function handleTokenUsageUpdate(context: FlowChatContext, event: any): void {
   const inputTokens = event.inputTokens ?? event.input_tokens;
   const outputTokens = event.outputTokens ?? event.output_tokens;
   const totalTokens = event.totalTokens ?? event.total_tokens;
+  const cachedTokens = event.cachedTokens ?? event.cached_tokens;
   const maxContextTokens = event.maxContextTokens ?? event.max_context_tokens;
   
   const store = FlowChatStore.getInstance();
@@ -2452,6 +2457,8 @@ function handleTokenUsageUpdate(context: FlowChatContext, event: any): void {
   store.updateTokenUsage(sessionId, {
     inputTokens,
     outputTokens: typeof outputTokens === 'number' ? outputTokens : undefined,
+    cachedTokens: typeof cachedTokens === 'number' && Number.isFinite(cachedTokens) && cachedTokens >= 0
+      ? cachedTokens : undefined,
     totalTokens,
     turnId,
     source: 'model_request',

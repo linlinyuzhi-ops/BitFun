@@ -3,7 +3,7 @@
   "subtitle": "在指定的智能體事件發生時自動執行命令",
   "loading": "正在載入 Hook 設定...",
   "activation": {
-    "title": "啟用",
+    "title": "智慧體 Hooks",
     "description": "命令以執行 OpenBitFun 的使用者權限執行，僅啟用可信來源的 Hooks"
   },
   "fields": {

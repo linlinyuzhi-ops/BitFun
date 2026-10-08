@@ -163,7 +163,7 @@ type PageHeaderAlign = "center" | "start";
 type PageHeaderSize = "display" | "lg" | "md" | "sm";
 
 const buttonVariants = ["outline", "fill", "secondary", "primary", "text"] as const;
-const iconButtonVariants = ["quiet", "outline", "fill", "primary"] as const;
+const iconButtonVariants = ["annotation", "quiet", "outline", "fill", "primary"] as const;
 const iconButtonSizes = ["xs", "standard", "sm", "md", "lg"] as const;
 const buttonInspectorStates = ["default", "hover", "active"] as const;
 const fieldOrientations = ["vertical", "horizontal"] as const;
@@ -230,6 +230,7 @@ const optionLabelKeys: Readonly<Record<string, MessageKey>> = {
   on: "detail.option.on",
   open: "detail.option.open",
   outline: "detail.option.outline",
+  annotation: "detail.option.annotation",
   primary: "detail.option.primary",
   quiet: "detail.option.quiet",
   raised: "detail.option.raised",
@@ -538,11 +539,12 @@ export function ComponentDetailPage({
 
     if (component.name === "IconButton") {
       const stateProps = `${inspectorDisabled ? " disabled" : ""}${inspectorLoading ? " loading" : ""}`;
-      return `import { IconButton } from "@openbitfun/ui";\nimport { List } from "lucide-react";\n\n<IconButton\n  aria-label="${t("components.preview.listView")}"\n  icon={<List />}\n  variant="${iconButtonVariant}"\n  size="${iconButtonSize}"\n  shape="${iconButtonShape}"${stateProps}\n/>`;
+      const annotation = iconButtonVariant === "annotation";
+      return `import { Icon, IconButton } from "@openbitfun/ui";${annotation ? "" : '\nimport { List } from "lucide-react";'}\n\n<IconButton\n  aria-label="${t(annotation ? "components.preview.fieldHelp" : "components.preview.listView")}"\n  icon={<Icon ${annotation ? 'name="info"' : 'glyph={List}'} />}\n  variant="${iconButtonVariant}"\n  size="${iconButtonSize}"\n  shape="${iconButtonShape}"${stateProps}\n/>`;
     }
     if (component.name === "Field") {
       const labelAction = fieldShowLabelAction
-        ? `\n  labelAction={<IconButton aria-label="${t("components.preview.fieldHelp")}" icon={<Icon name="info" />} size="xs" />}`
+        ? `\n  labelAction={\n    <Tooltip content="${t("components.preview.fieldDescription")}" trigger="hover-focus" openOnClick>\n      <IconButton aria-label="${t("components.preview.fieldHelp")}" icon={<Icon name="info" />} size="xs" variant="annotation" />\n    </Tooltip>\n  }`
         : "";
       const controlLeading = fieldShowControlLeading
         ? `\n  controlLeading={<Switch aria-label="${t("components.preview.notifications")}" />}`
@@ -550,7 +552,7 @@ export function ComponentDetailPage({
       const controlTrailing = fieldShowControlTrailing
         ? `\n  controlTrailing={<IconButton aria-label="${t("components.preview.more")}" icon={<Icon name="more" />} size="xs" />}`
         : "";
-      return `import { Icon, Field, IconButton, Input, Switch } from "@openbitfun/ui";\n\n<Field\n  description="${t("components.preview.fieldDescription")}"\n  label="${t("components.preview.appearance")}"${labelAction}${controlLeading}${controlTrailing}\n  orientation="${fieldOrientation}"\n  required\n>\n  <Input defaultValue="${t("components.preview.fieldValue")}" trailing={<Icon name="chevron-down" />} />\n</Field>`;
+      return `import { Icon, Field, IconButton, Input, Switch, Tooltip } from "@openbitfun/ui";\n\n<Field\n  description="${t("components.preview.fieldDescription")}"\n  label="${t("components.preview.appearance")}"${labelAction}${controlLeading}${controlTrailing}\n  orientation="${fieldOrientation}"\n  required\n>\n  <Input defaultValue="${t("components.preview.fieldValue")}" trailing={<Icon name="chevron-down" />} />\n</Field>`;
     }
     if (component.name === "Input") {
       const stateProps = previewState === "disabled"
@@ -867,13 +869,14 @@ export function ComponentDetailPage({
     previewVariant = iconButtonVariant,
     applyInspectorControls = false,
   ) {
+    const annotation = previewVariant === "annotation";
     return (
       <IconButton
-        aria-label={t("components.preview.listView")}
+        aria-label={t(annotation ? "components.preview.fieldHelp" : "components.preview.listView")}
         className={state === "focus-visible" ? "lab-force-focus" : undefined}
         data-openbitfun-preview-state={state === "hover" || state === "active" ? state : undefined}
         disabled={state === "disabled" || applyInspectorControls && inspectorDisabled}
-        icon={<List aria-hidden="true" />}
+        icon={annotation ? <Icon name="info" /> : <Icon glyph={List} />}
         loading={state === "loading" || applyInspectorControls && inspectorLoading}
         size={iconButtonSize}
         shape={iconButtonShape}
@@ -1364,11 +1367,14 @@ export function ComponentDetailPage({
           error={state === "invalid" ? t("components.preview.inputError") : undefined}
           label={t("components.preview.appearance")}
           labelAction={fieldShowLabelAction ? (
-            <IconButton
-              aria-label={t("components.preview.fieldHelp")}
-              icon={<Icon name="info" size="lg" aria-hidden="true" />}
-              size="xs"
-            />
+            <Tooltip content={t("components.preview.fieldDescription")} trigger="hover-focus" openOnClick>
+              <IconButton
+                aria-label={t("components.preview.fieldHelp")}
+                icon={<Icon name="info" size="xs" />}
+                size="xs"
+                variant="annotation"
+              />
+            </Tooltip>
           ) : undefined}
           orientation={applyInspectorControls ? fieldOrientation : "vertical"}
           required

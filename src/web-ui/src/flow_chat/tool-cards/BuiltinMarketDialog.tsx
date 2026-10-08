@@ -3,7 +3,7 @@ import { Dialog, DialogBody, DialogClose, DialogHeader, DialogHeaderActions, Dia
 import { useI18n } from '@/infrastructure/i18n';
 import { lazyWithRecovery } from '@/shared/utils/lazyWithRecovery';
 import { AccountIdentityControls } from '@/features/market-account';
-import '@/infrastructure/config/components/AppearanceSettingsPage.scss';
+import '@/app/scenes/settings/pages/application/AppearanceSettingsPage.scss';
 import '@/app/scenes/miniapps/MiniAppGalleryScene.scss';
 
 const MiniAppSubmissionsView = lazyWithRecovery(() => import('@/app/scenes/miniapps/views/MiniAppSubmissionsView'));

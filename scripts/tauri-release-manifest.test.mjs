@@ -87,6 +87,32 @@ test('1.0.0-beta manifest keeps the updater URL separate from the manual install
   assert.equal(verified.status, 0, verified.stderr);
 });
 
+test('updater manifest carries the version release notes for the update prompt', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'openbitfun-release-notes-'));
+  const updater = path.join(temp, 'updater');
+  const out = path.join(temp, 'latest-v1.json');
+  const notes = path.join(temp, '1.0.3.md');
+  fs.mkdirSync(updater, { recursive: true });
+  fs.writeFileSync(path.join(updater, 'OpenBitFun_1.0.3_windows-x86_64-setup.exe'), 'setup');
+  fs.writeFileSync(path.join(updater, 'OpenBitFun_1.0.3_windows-x86_64-setup.exe.sig'), 'signature');
+  fs.writeFileSync(notes, '系统优化 AI 对话界面与整体性能，让对话更清晰、交互更流畅。\n');
+
+  const generated = run('scripts/generate-tauri-latest-json.mjs', [
+    '--assets-dir', updater,
+    '--version', '1.0.3',
+    '--tag', 'v1.0.3',
+    '--repo', 'GCWing/OpenBitFun',
+    '--notes-file', notes,
+    '--out', out,
+    '--required-platforms', 'windows-x86_64',
+  ]);
+  assert.equal(generated.status, 0, generated.stderr);
+  assert.equal(
+    JSON.parse(fs.readFileSync(out, 'utf8')).notes,
+    '系统优化 AI 对话界面与整体性能，让对话更清晰、交互更流畅。',
+  );
+});
+
 test('manifest declares the signed macOS .dmg installers next to the .app.tar.gz updater packages', (t) => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'openbitfun-latest-dmg-'));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));

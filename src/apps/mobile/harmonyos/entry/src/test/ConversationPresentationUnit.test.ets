@@ -698,12 +698,16 @@ export default function conversationPresentationUnitTest() {
       expect(REMOTE_CHAT_COMPOSER_CAPABILITIES.supportsAttachments).assertTrue();
     });
 
-    it('keeps voice reachable beside Send once a draft has content', 0, () => {
+    it('keeps voice reachable beside Send while a draft holds the collapsed field', 0, () => {
       expect(ChatComposerPolicy.shouldShowSupplementalVoice('继续补充', 0, false, true)).assertTrue();
       expect(ChatComposerPolicy.shouldShowSupplementalVoice('', 1, false, true)).assertTrue();
       expect(ChatComposerPolicy.shouldShowSupplementalVoice('', 0, false, true)).assertFalse();
       expect(ChatComposerPolicy.shouldShowSupplementalVoice('继续补充', 0, true, true)).assertFalse();
       expect(ChatComposerPolicy.shouldShowSupplementalVoice('继续补充', 0, false, false)).assertFalse();
+      // The slot is the draft's second way into dictation, never its only one:
+      // an empty field still reaches the microphone from the primary slot.
+      expect(ChatComposerPolicy.primaryAction('', 0, false, false, false, true, true, 'connected', true))
+        .assertEqual(ComposerPrimaryAction.Voice);
       expect(ChatComposerPolicy.canUseSupplementalVoice(false)).assertTrue();
       expect(ChatComposerPolicy.canUseSupplementalVoice(true)).assertFalse();
     });

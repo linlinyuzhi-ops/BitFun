@@ -19,6 +19,7 @@ import {
 import { SidebarToggleButton } from './SidebarToggleButton';
 import { SidebarGlyph } from './SidebarGlyphs';
 import { SidebarConnectionActionPolicy } from '../policy/SidebarConnectionActionPolicy';
+import { WindowInsetsBinding } from '../../services/WindowSystemBarService';
 
 /** Device and workspace navigation shared by compact and wide controllers. */
 @ComponentV2
@@ -48,12 +49,31 @@ export struct AppSidebar {
   @Local showSearch: boolean = false;
   @Local sessionSearchQuery: string = '';
   /**
+   * The window's own insets, in vp. The panel's fill runs to its bottom edge —
+   * the screen edge for the compact drawer — and the session rows scroll under
+   * the navigation indicator, so the strip is the list's own business now. The
+   * floating footer keeps its distance from that edge itself, which is what
+   * keeps the buttons above the bar while the rows run under it.
+   */
+  @Local insets: WindowInsetsBinding = new WindowInsetsBinding();
+  /**
    * The authenticated device/workspace section.
    *
    * It is a slot rather than a component this file constructs because the
    * sidebar has no business knowing about remote state; the host wires it.
    */
   @BuilderParam contentSlot: () => void = this.EmptySlot;
+
+  aboutToAppear(): void {
+    const context = this.getUIContext().getHostContext();
+    if (context) {
+      this.insets.bind(this.getUIContext(), context);
+    }
+  }
+
+  aboutToDisappear(): void {
+    this.insets.unbind();
+  }
 
   build() {
     this.SidebarContent()
@@ -95,7 +115,7 @@ export struct AppSidebar {
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
-          .padding({ bottom: this.usesCompactFooter() ? 84 : 120 })
+          .padding({ bottom: this.scrollTailPadding() })
         }
         .width('100%')
         .height('100%')
@@ -106,6 +126,8 @@ export struct AppSidebar {
         // Pre-connection actions form a conventional footer and retain a fade.
         // Once either account or QR access unlocks the workspace, navigation
         // uses two floating controls and the scroll stays visible behind them.
+        // The fade stops above the navigation bar with the controls it serves,
+        // so the rows it does not cover stay readable in the strip below it.
         if (!this.shouldShowPrimaryNavigation()) {
           Column()
             .width('100%')
@@ -115,6 +137,7 @@ export struct AppSidebar {
               angle: 180,
               colors: [[SIDEBAR_BG_FADE, 0.0], [SIDEBAR_BG, 0.62]]
             })
+            .margin({ bottom: this.footerBottomPadding() })
         }
 
         if (this.shouldShowPrimaryNavigation()) {
@@ -128,7 +151,12 @@ export struct AppSidebar {
     }
     .width('100%')
     .height('100%')
-    .padding({ left: 20, right: 20, top: 0, bottom: 16 })
+    // The panel's fill runs to its own bottom edge — the screen edge for the
+    // compact drawer, the wide master pane's card edge in the wide host — and
+    // the session rows are content that scrolls under the navigation indicator.
+    // The footer, its fade and the list's tail are what keep the strip clear,
+    // each against the edge this panel actually has.
+    .padding({ left: 20, right: 20, top: 0 })
     .backgroundColor(SIDEBAR_BG)
   }
 
@@ -139,7 +167,7 @@ export struct AppSidebar {
   @Builder
   private PrimaryNavigationHeader() {
     Row() {
-      Text('OpenBitFun')
+      Text(RemoteI18n.t('app.title'))
         .fontSize(MobileDesignTypography.headlineMedium.size)
         .fontWeight(FontWeight.Medium)
         .fontColor(SIDEBAR_INK)
@@ -256,6 +284,7 @@ export struct AppSidebar {
       onOpenTools: () => this.requestDeviceTools(),
       onOpenSettings: () => this.onOpenSettings()
     })
+      .margin({ bottom: this.footerBottomPadding() })
   }
 
   @Builder
@@ -279,6 +308,7 @@ export struct AppSidebar {
         })
     }
       .width('100%')
+      .margin({ bottom: this.footerBottomPadding() })
       .zIndex(2)
   }
 
@@ -297,5 +327,26 @@ export struct AppSidebar {
 
   private usesCompactFooter(): boolean {
     return this.shouldShowPrimaryNavigation() || this.connectionState === 'connected';
+  }
+
+  /**
+   * The distance the floating footer and its fade keep from the panel's own
+   * bottom edge: the design's spacing where the strip is already clear of it,
+   * the strip itself where it is not. In the compact drawer that edge is the
+   * screen edge, so the buttons sit directly above the navigation bar; in the
+   * wide master pane the edge is the floating card's, and the same number
+   * keeps the buttons clear of the bar there too.
+   */
+  private footerBottomPadding(): number {
+    return this.insets.bottomPadding(16);
+  }
+
+  /**
+   * The session list's tail spacer: the floating footer's clearance plus the
+   * strip. The rows roll under the footer and the navigation indicator while
+   * they are moving, and the last row still rests above the bar.
+   */
+  private scrollTailPadding(): number {
+    return (this.usesCompactFooter() ? 84 : 120) + this.insets.bottom;
   }
 }

@@ -520,6 +520,8 @@ export function convertDialogTurnToBackendFormat(dialogTurn: DialogTurn, turnInd
       ? {
           inputTokens: dialogTurn.tokenUsage.inputTokens,
           outputTokens: dialogTurn.tokenUsage.outputTokens,
+          ...(dialogTurn.tokenUsage.cachedTokens !== undefined
+            ? { cachedTokens: dialogTurn.tokenUsage.cachedTokens } : {}),
           totalTokens: dialogTurn.tokenUsage.totalTokens,
           timestamp: dialogTurn.tokenUsage.timestamp,
         }

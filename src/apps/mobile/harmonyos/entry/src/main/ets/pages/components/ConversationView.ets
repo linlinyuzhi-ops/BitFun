@@ -12,6 +12,7 @@ import { ConversationViewState } from '../state/ConversationViewState';
 import { ConversationIntent, ConversationIntents, ConversationIntentType } from '../actions/ConversationIntent';
 import { ChatTimeline } from './ChatTimeline';
 import { ConversationLoadingState } from './ConversationLoadingState';
+import { WindowInsetsBinding } from '../../services/WindowSystemBarService';
 import {
   ConversationViewContract,
   ConversationViewOptions
@@ -56,16 +57,38 @@ export struct ConversationView {
    */
   @Local topInset: number = 0;
   @Local bottomInset: number = 0;
+  /**
+   * The window's own insets, in vp. The shell is immersive, so the page draws
+   * from the top of the window and the composer keeps its distance from the
+   * bottom edge itself, which is what lets the transcript and its fade run to the
+   * very bottom of the screen without carrying the composer down with them. The
+   * header band reserves the top strip for the same reason: the band's own box is
+   * what the transcript borrows as its content start offset.
+   */
+  @Local insets: WindowInsetsBinding = new WindowInsetsBinding();
   private previousKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET;
+
+  private get topSafeInset(): number {
+    return this.insets.top;
+  }
+
+  private get bottomSafeInset(): number {
+    return this.insets.bottom;
+  }
 
   aboutToAppear(): void {
     RemoteLogger.info(`conversation view mounted surface=${this.surface}`);
     this.previousKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode();
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+    const context = this.getUIContext().getHostContext();
+    if (context) {
+      this.insets.bind(this.getUIContext(), context);
+    }
   }
 
   aboutToDisappear(): void {
     RemoteLogger.info('conversation view disposed');
+    this.insets.unbind();
     this.getUIContext().setKeyboardAvoidMode(this.previousKeyboardAvoidMode);
   }
 
@@ -136,6 +159,9 @@ export struct ConversationView {
           this.Composer()
         }
         .width('100%')
+        // The composer pane of a half-folded screen is the bottom edge too, so it
+        // keeps the same distance from it as the floating layer does.
+        .padding({ bottom: this.bottomSafeInset })
       }
       .alignContent(Alignment.Bottom)
       .layoutWeight(1)
@@ -156,6 +182,10 @@ export struct ConversationView {
         this.Mailbox()
       }
       .width('100%')
+      // Carried by the band that owns the background, not by the wrapper: the
+      // band is what has to reach the status bar, and its measured height is
+      // what the transcript borrows as its content start offset.
+      .padding({ top: this.topSafeInset })
       .backgroundColor(PAGE_BG_OVERLAY)
       .backgroundBlurStyle(BlurStyle.Thin)
       this.TopEdgeFade()
@@ -173,6 +203,11 @@ export struct ConversationView {
       this.Composer()
     }
     .width('100%')
+    // The composer keeps the distance from the screen edge it had while the page
+    // area ended above the navigation bar, and the layer's own box grows by that
+    // strip: the gradient below is the layer's background, so it fills the strip
+    // and the transcript behind it reaches the bottom of the screen.
+    .padding({ bottom: this.bottomSafeInset })
     // The fade covers the whole layer, not just a strip above it: the transcript
     // runs behind the composer, so anything short of that leaves a line of text
     // sitting crisp and legible beside the pill after it has already faded out
@@ -182,6 +217,16 @@ export struct ConversationView {
       angle: 180,
       colors: [[PAGE_BG_FADE, 0.0], [PAGE_BG_OVERLAY, 0.45], [PAGE_BG_OVERLAY, 1.0]]
     })
+    // This layer owns the bottom edge of the screen, so it is allowed to paint
+    // into it. Where the immersive layout already puts the page area there the
+    // two overlap and nothing extra is drawn; on a window that still ends above
+    // the navigation bar this is what keeps the strip from being bare page
+    // colour under the fade.
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
+    // Named so a layout dump can be read against the pixels: the fade's own box
+    // is what says where the chat page's bottom edge sits and how far the
+    // transcript can scroll, and neither is visible in the composer's bounds.
+    .id('conversation-bottom-fade')
     .onAreaChange((_oldArea: Area, newArea: Area) => {
       this.bottomInset = newArea.height as number;
     })

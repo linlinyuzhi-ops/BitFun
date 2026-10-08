@@ -1,11 +1,19 @@
 import { RemoteI18n } from '../../i18n/RemoteI18n';
 import { MobileDesignTypography, MobileDesignGeometry as G } from '../../generated/MobileDesignTokens';
 import { MotionPreference } from '../../services/MotionPreference';
-import { WindowSystemBarService } from '../../services/WindowSystemBarService';
+import { WindowInsetsBinding, WindowSystemBarService } from '../../services/WindowSystemBarService';
 import { WelcomeBrandFlow } from './WelcomeBrandFlow';
 import { INK, PAGE_BG, WELCOME_PAGE_BG, MUTED, TRANSPARENT } from './Theme';
 
-/** A welcome composition with the C staggered-slide phrase timeline. */
+/**
+ * A welcome composition with the C staggered-slide phrase timeline.
+ *
+ * The window layout mode is not this page's business any more: it used to switch
+ * the whole shell in and out of full-screen as the compact welcome page came and
+ * went, which left every other page — the chat page above all — laid out without
+ * it. The shell runs immersive for every page now, and this page only reserves
+ * the status bar for its own header.
+ */
 @ComponentV2
 export struct WelcomeHome {
   @Param signedIn: boolean = false;
@@ -15,21 +23,37 @@ export struct WelcomeHome {
   @Local pageHeight: number = 700;
   @Local pageWidth: number = 390;
   @Local topInset: number = 0;
+  // The dock paints into the strip (expandSafeArea carries its background to
+  // the screen edge), so its buttons read the strip: the design's own clearance
+  // where it is already taller than the indicator, the indicator's height
+  // where it is not.
+  @Local insets: WindowInsetsBinding = new WindowInsetsBinding();
   private timer: number = -1;
   private started: number = 0;
-  private immersiveCompact: boolean = false;
+
+  aboutToAppear(): void {
+    this.readTopInset();
+    const context = this.getUIContext().getHostContext();
+    if (context) {
+      this.insets.bind(this.getUIContext(), context);
+    }
+  }
 
   aboutToDisappear(): void {
     this.stop();
-    if (this.immersiveCompact) {
-      const context = this.getUIContext().getHostContext();
-      if (context) {
-        void WindowSystemBarService.setLayoutFullScreen(context, false);
-      }
-      this.immersiveCompact = false;
-      this.topInset = 0;
-    }
+    this.insets.unbind();
   }
+
+  private readTopInset(): void {
+    const context = this.getUIContext().getHostContext();
+    if (!context) {
+      return;
+    }
+    void WindowSystemBarService.topSystemInsetPx(context).then((topInsetPx: number): void => {
+      this.topInset = this.getUIContext().px2vp(topInsetPx);
+    });
+  }
+
   private stop(): void { if (this.timer >= 0) clearInterval(this.timer); this.timer = -1; }
   private play(): void {
     this.stop();
@@ -108,34 +132,8 @@ export struct WelcomeHome {
       .onSizeChange((_old: SizeOptions, size: SizeOptions) => {
         this.pageHeight = Number(size.height);
         this.pageWidth = Number(size.width);
-        this.updateWindowLayout();
       })
       .onVisibleAreaChange([0], (visible: boolean) => { if (visible) this.play(); else this.stop(); })
-  }
-
-  private updateWindowLayout(): void {
-    const compact = this.pageWidth < 600;
-    if (compact === this.immersiveCompact) {
-      return;
-    }
-    const context = this.getUIContext().getHostContext();
-    if (!context) {
-      return;
-    }
-    this.immersiveCompact = compact;
-    if (!compact) {
-      this.topInset = 0;
-      void WindowSystemBarService.setLayoutFullScreen(context, false);
-      return;
-    }
-    void WindowSystemBarService.setLayoutFullScreen(context, true).then(async (): Promise<void> => {
-      if (this.immersiveCompact) {
-        const topInsetPx: number = await WindowSystemBarService.topSystemInsetPx(context);
-        if (this.immersiveCompact) {
-          this.topInset = this.getUIContext().px2vp(topInsetPx);
-        }
-      }
-    });
   }
 
   @Builder
@@ -167,7 +165,7 @@ export struct WelcomeHome {
       }.height(44).width('100%').backgroundColor(TRANSPARENT).onClick(this.onMiniApps)
     }.width('100%').constraintSize({ maxWidth: this.wide() ? 400 : G.welcomeMaxWidth })
       .padding({ left: G.welcomeGutter, right: G.welcomeGutter, top: this.wide() ? 0 : G.welcomeGutter,
-        bottom: this.wide() ? 0 : G.welcomeDockBottom })
+        bottom: this.wide() ? 0 : this.insets.bottomPadding(G.welcomeDockBottom) })
       .backgroundColor(this.wide() ? TRANSPARENT : $r('app.color.welcome_dock'))
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
       .borderRadius({ topLeft: G.welcomeDockRadius, topRight: G.welcomeDockRadius })

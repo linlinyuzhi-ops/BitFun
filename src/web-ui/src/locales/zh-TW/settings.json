@@ -5,32 +5,24 @@
       "empty": "沒有匹配的設定"
     },
     "categories": {
-      "application": "應用與介面",
-      "ai": "AI 與模型",
-      "workspace": "會話與工作區",
+      "application": "應用程式與介面",
+      "ai": "模型與智慧體",
+      "development": "程式設計與開發",
       "tools": "工具與整合",
       "data": "資料與維護"
     },
     "pages": {
       "general": {
-        "label": "通用",
-        "description": "調整啟動、更新、休眠、視窗與通知行為"
+        "label": "一般",
+        "description": "調整介面語言、啟動、更新、休眠、視窗與通知行為"
       },
       "appearance": {
         "label": "外觀",
-        "description": "調整介面語言、主題與字體大小"
+        "description": "調整主題、外觀套件與字型"
       },
       "pet": {
-        "label": "寵物",
-        "description": "選擇寵物造型，控制是否顯示"
-      },
-      "voice": {
-        "label": "語音",
-        "description": "設定本機語音輸入與雲端即時通話"
-      },
-      "shortcuts": {
-        "label": "快捷鍵",
-        "description": "檢視及自訂各操作的鍵盤快捷鍵"
+        "label": "寵物與助手",
+        "description": "選擇寵物形象，設定助手即時語音通話"
       },
       "terminal": {
         "label": "終端",
@@ -44,21 +36,9 @@
         "label": "模型",
         "description": "連線模型服務，並選擇各類任務使用的模型"
       },
-      "memory": {
-        "label": "記憶",
-        "description": "控制智能體如何從會話中產生及使用記憶"
-      },
-      "sessionWorkspace": {
-        "label": "會話與工作區",
-        "description": "設定新會話的執行框架、標題產生與工作區搜尋"
-      },
-      "worktrees": {
-        "label": "Worktrees",
-        "description": "設定會話隔離的預設行為，管理工作區 Worktree"
-      },
       "execution": {
-        "label": "執行與權限",
-        "description": "設定工具確認規則、執行時限與任務並行方式"
+        "label": "執行與協作",
+        "description": "設定工具執行時限、智慧體並行方式與審核容量"
       },
       "browserDesktopControl": {
         "label": "瀏覽器與桌面控制",
@@ -77,8 +57,8 @@
         "description": "連線 MCP 服務，為智能體提供外部工具與資料來源"
       },
       "acp": {
-        "label": "ACP 智能體",
-        "description": "透過 ACP 接入外部智能體，在 OpenBitFun 中執行任務"
+        "label": "外部智慧體",
+        "description": "透過 ACP 接入本機或 SSH 主機上的外部智慧體"
       },
       "usage": {
         "label": "調用統計",
@@ -91,16 +71,41 @@
       "diagnostics": {
         "label": "日誌與診斷",
         "description": "調整日誌記錄，匯出疑難排解資訊"
+      },
+      "input": {
+        "label": "輸入與互動",
+        "description": "設定語音轉文字與鍵盤快速鍵"
+      },
+      "sessionMemory": {
+        "label": "工作階段與記憶",
+        "description": "設定新工作階段的執行框架、標題產生與記憶策略"
+      },
+      "permissions": {
+        "label": "權限規則",
+        "description": "設定新工作階段的核准模式與全域工具權限規則"
+      },
+      "workspaceGit": {
+        "label": "工作區與 Git",
+        "description": "設定檔案搜尋、Git 提交署名與 Worktree，管理隔離工作目錄"
       }
     },
     "views": {
-      "common": "常用",
-      "advanced": "進階",
       "local": "本機",
       "ssh": "SSH",
-      "json": "進階 JSON",
+      "json": "進階 JSON"
+    },
+    "sections": {
+      "voice": "語音",
+      "shortcuts": "快捷鍵",
+      "session": "工作階段預設行為",
+      "memory": "記憶",
+      "workspace-search": "工作區搜尋",
+      "worktrees": "Worktrees",
+      "git": "Git 提交",
       "quick-actions": "快捷動作",
-      "hooks": "Hooks"
+      "hooks": "事件 Hooks",
+      "pet": "寵物",
+      "voice-call": "即時語音通話"
     }
   },
   "changeGuard": {

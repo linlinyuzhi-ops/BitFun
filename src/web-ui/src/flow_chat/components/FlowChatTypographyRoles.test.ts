@@ -130,17 +130,30 @@ describe('FlowChat semantic typography roles', () => {
     expect(thinkingMarkdown).not.toContain('font-size:');
   });
 
-  it('keeps frequent composer and menu actions on the control role', () => {
+  it('keeps composer controls on their flow role and menu labels on the shared action role', () => {
     const chatInput = readSource('./ChatInput.scss');
     const harness = readSource('./HarnessProfileSelector.scss');
     const model = readSource('./ModelSelector.scss');
     const reasoning = readSource('./ReasoningPresetSelector.scss');
+    const menu = readSource('../../../../../design-system/packages/ui/src/components/Menu/Menu.tsx');
+    const actionItem = readSource('../../../../../design-system/packages/ui/src/components/ActionItem/ActionItem.module.css');
 
     expectRole(chatInput, '&__target-tab {', 'control');
     expectRole(chatInput, '&__slash-command-name {', 'control');
     expectRole(harness, '.openbitfun-harness-selector__trigger {', 'control');
     expectRole(model, '&__trigger {', 'control');
-    expectRole(model, '&__option-name {', 'control');
+    // MenuItem now owns the model row's label through ActionItem; the product
+    // wrapper must inherit that public role rather than recreate its sizing.
+    expect(menu).toContain('<ActionItem');
+    expect(extractBlock(model, '&__option-name {')).not.toMatch(/\bfont(?:-[\w-]+)?\s*:/);
+    const label = extractBlock(actionItem, '\n  .label {');
+    for (const property of ['font-family', 'font-size', 'font-weight', 'letter-spacing']) {
+      expect(label).toContain(`${property}: var(--openbitfun-type-label-md-${property});`);
+      expect(extractBlock(model, '&__dropdown {')).toContain(
+        `${property}: var(--openbitfun-type-label-md-${property});`,
+      );
+    }
+    expect(label).toContain('line-height: var(--openbitfun-type-action-row-line-height);');
     expectRole(reasoning, '&__title {', 'control');
     expectRole(reasoning, '&__option-label {', 'control');
   });
@@ -173,14 +186,25 @@ describe('FlowChat semantic typography roles', () => {
     expect(inlineCode).toContain('font-weight: var(--openbitfun-type-flow-body-font-weight);');
   });
 
-  it('keeps completion metadata as an unlabeled two-value row on public tokens', () => {
+  it('keeps inline duration and shared completion details accessible on public tokens', () => {
     const component = readSource('./modern/ModelRoundItem.tsx');
     const stylesheet = readSource('./modern/ModelRoundItem.scss');
     const meta = extractBlock(stylesheet, '.model-round-item__meta {');
+    const metrics = readSource('../../../../../design-system/packages/ui/src/flow-chat/conversation/FlowChatTurnMetrics.tsx');
+    const metricStyles = readSource('../../../../../design-system/packages/ui/src/flow-chat/conversation/FlowChatTurnMetrics.module.css');
 
     expect(component).not.toContain('model-round-item__meta-label');
     expect(component).not.toContain('model-round-item__meta-value');
-    expect(component).toContain('aria-label={`${item.label}: ${item.value}`}');
+    expect(component).toContain('description={completionMetaItems.map(item => `${item.label}: ${item.value}`).join(\' · \')}');
+    expect(component).toContain('content={<FlowChatMetricDetails rows={completionMetaItems} />}');
+    expect(component).toContain('{durationMetaItem.value}');
+    expect(metrics).toContain('aria-label={description}');
+    expect(extractBlock(metricStyles, '.metric {')).toContain('font: inherit;');
+    for (const property of ['font-family', 'font-size', 'font-weight', 'line-height']) {
+      expect(extractBlock(metricStyles, '.root {')).toContain(
+        `${property}: var(--openbitfun-type-flow-meta-${property});`,
+      );
+    }
     expect(meta).toContain('gap: var(--openbitfun-space-2);');
     expect(meta).toContain('color: var(--openbitfun-color-content-muted);');
     expect(meta).toContain('font-family: var(--openbitfun-type-flow-meta-font-family);');

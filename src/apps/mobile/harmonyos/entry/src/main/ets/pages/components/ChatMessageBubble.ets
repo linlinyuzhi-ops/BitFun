@@ -83,6 +83,30 @@ export struct ChatMessageBubble {
     this.AssistantBubble()
   }
 
+  /**
+   * The Task branch as the transcript currently holds it.
+   *
+   * The structured ForEach that draws the card is keyed by the branch view key,
+   * which deliberately does not change while the subagent publishes steps, so its
+   * item builder keeps the entry it captured — the empty one a Task has before
+   * its subagent starts. Param expressions are re-evaluated on every render, so
+   * the branch is re-read from the observed message here, and a step that arrives
+   * later reaches the card without recreating it or closing it.
+   *
+   * Known limits. A branch nested inside another branch's child items resolves
+   * only through its captured entry: the lookup scans the top-level transcript,
+   * and today's wire publishes subagent records flat, so that shape is not
+   * reachable yet. The lookup also runs once per card param — title, status and
+   * items — which is bounded by the few branches a turn can draw.
+   */
+  private currentSubagentBranch(entry: ConversationUiMessageItem, path: string): ConversationUiMessageItem {
+    return ChatMessageStructurePolicy.subagentBranchAt(
+      this.structuredProcessItems(this.item.items || []),
+      ChatMessageStructurePolicy.subagentOrdinal(path),
+      entry.tool?.id || ''
+    ) || entry;
+  }
+
   @Builder
   AssistantBubble() {
     Row() {
@@ -340,10 +364,11 @@ export struct ChatMessageBubble {
   SubagentGroup(entry: ConversationUiMessageItem, path: string, activeScope: boolean = false) {
     SubagentTaskCard({
       interactionMailbox: this.interactionMailbox,
-      title: this.subagentTitle(entry),
+      title: this.subagentTitle(this.currentSubagentBranch(entry, path)),
       path: path,
-      status: entry.tool?.status || (activeScope ? 'running' : 'completed'),
-      items: entry.subItems || [],
+      status: this.currentSubagentBranch(entry, path).tool?.status ||
+        (activeScope ? 'running' : 'completed'),
+      items: this.currentSubagentBranch(entry, path).subItems || [],
       renderRevision: this.renderRevision,
       onApproveTool: this.onApproveTool,
       onRejectTool: this.onRejectTool,

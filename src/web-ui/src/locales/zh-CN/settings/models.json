@@ -69,7 +69,7 @@
     "useFormat": "使用 {{format}}",
     "useFormatWithCount": "使用 {{format}}（{{modelCount}} 个模型）",
     "detected": "将使用 {{label}}（账号 {{account}}）",
-    "notConnected": "尚未登录 {{kind}}，请先在上方完成登录",
+    "notConnected": "尚未登录 {{kind}}，请先在「订阅服务」中登录",
     "unknownAccount": "当前登录账号",
     "reauthenticationRequired": "凭据存储中未找到可用凭据，请重新登录一次",
     "vaultUnavailable": "凭据存储暂时不可用，请重试；你的登录信息并未被移除",
@@ -581,7 +581,8 @@
     "offlineTitle": "无法联网时如何更新",
     "offlineDescription": "在可联网的设备上下载 models.dev 原始文件，将其命名为 catalog.json 并放入上方缓存目录。替换后重启 OpenBitFun 即可生效；点击立即更新可能会覆盖该文件。",
     "downloadOriginal": "下载原始目录",
-    "openCacheDirectory": "打开缓存目录"
+    "openCacheDirectory": "打开缓存目录",
+    "fetchCatalog": "获取 models.dev 模型目录"
   },
   "advancedSettings": {
     "title": "高级设置",
@@ -622,7 +623,61 @@
     },
     "description": "用于适配服务的特殊请求与响应要求；不确定时保留默认值"
   },
-  "providersDescription": "同一服务可添加多个模型，默认模型在上方按任务单独选择",
+  "providersDescription": "统一管理 API 地址、认证方式和同一服务下的模型",
   "editSettingsTitle": "模型参数",
-  "editProviderSettingsTitle": "服务连接"
+  "editProviderSettingsTitle": "服务连接",
+  "sections": {
+    "acquisition": "添加或导入模型",
+    "selectionModes": "模型选用模式",
+    "pool": "模型池",
+    "more": "更多设置"
+  },
+  "acquisition": {
+    "api": "API 模型",
+    "apiHint": "通过 API Key 或自定义地址添加模型",
+    "configuredSummary": "已配置 {{providers}} 个服务，共 {{models}} 个模型",
+    "noneConfigured": "尚未配置 API 服务",
+    "configureProvider": "配置 {{provider}}",
+    "subscriptions": "订阅服务",
+    "importedSummary": "已导入 {{providers}} 个服务，共 {{models}} 个模型",
+    "noneImported": "尚未导入订阅服务",
+    "import": "导入",
+    "importTitle": "导入订阅服务",
+    "loadFailed": "无法读取订阅服务，请重试。已有模型配置仍会保留。",
+    "noServices": "当前主机没有可导入的订阅服务"
+  },
+  "selectionModes": {
+    "smart": "智能模式",
+    "smartHint": "基于 OpenBitFun 自适应路由与多模型协同推理技术，提升经济效益和任务表现。",
+    "battery": "电池模式",
+    "batteryHint": "基于多源模型池化与故障转移技术，额度耗尽或连接失效时自动接力。",
+    "unavailable": "尚未开发"
+  },
+  "pool": {
+    "manageConnections": "管理连接",
+    "search": "搜索模型、来源或标签",
+    "capabilityFilter": "筛选模型能力",
+    "allCapabilities": "全部能力",
+    "recommendationsUnavailable": "推荐标签服务暂未上线，当前尚未接入同步。你可以先手动给模型添加标签。",
+    "syncTags": "同步推荐标签",
+    "clearFilter": "清除筛选",
+    "noMatches": "没有符合条件的模型",
+    "empty": "先添加 API 模型或导入订阅服务，模型会汇集在这里。",
+    "editTags": "为 {{model}} 添加标签",
+    "tagsLabel": "自定义标签",
+    "tagsHint": "输入标签后按 Enter 添加，最多 {{max}} 个。主力、快速等槽位标签不占名额。",
+    "tagsPlaceholder": "添加标签",
+    "tagsCount": "{{count}} / {{max}}",
+    "tagsLimitReached": "最多添加 {{max}} 个自定义标签，移除一个后可继续添加。",
+    "recommendedTags": "已有推荐标签",
+    "tagsSaveFailed": "标签保存失败，修改已保留，请重试。",
+    "addTags": "添加标签",
+    "moreActions": "{{model}} 的更多操作",
+    "details": "详情",
+    "enableModel": "启用 {{model}}",
+    "editConnection": "编辑 {{provider}} 的连接",
+    "providerFilter": "筛选供应商",
+    "allProviders": "全部供应商",
+    "acknowledge": "知道了"
+  }
 }

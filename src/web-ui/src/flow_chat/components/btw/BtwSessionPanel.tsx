@@ -157,6 +157,7 @@ const BtwSessionPanelContent: React.FC<BtwSessionPanelProps & { viewState: BtwPa
   viewState,
 }) => {
   const { t } = useTranslation('flow-chat');
+  useEffect(() => childSessionId ? flowChatStore.retainSessionHistory(childSessionId) : undefined, [childSessionId]);
   const { childSession, parentMetadata, reviewTaskOutcome } = useBtwSessionState(
     childSessionId, parentSessionId, viewKind === 'review-check',
   );
@@ -1089,6 +1090,11 @@ const BtwSessionPanelContent: React.FC<BtwSessionPanelProps & { viewState: BtwPa
           )} trailing={(
             <div data-openbitfun-component="btw-session-panel" data-openbitfun-part="actions">
               <ToolbarGroup>
+                {childKind === 'btw' && childSession.isTransient && (
+                  <Tooltip content={t('btw.temporaryHint')}>
+                    <StatusPill tone="neutral">{t('btw.temporaryLabel')}</StatusPill>
+                  </Tooltip>
+                )}
                 {childKind === 'btw' && parentMetadata && (
                   <OverflowText className="btw-session-panel__origin" data-openbitfun-component="btw-session-panel" data-openbitfun-part="meta">
                     {childOriginLabel} {resolveSessionTitle(parentMetadata, t('btw.parent'))}

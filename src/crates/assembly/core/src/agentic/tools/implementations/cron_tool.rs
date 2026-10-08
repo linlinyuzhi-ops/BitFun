@@ -1607,6 +1607,12 @@ mod tests {
             config_updated_at_ms: 0,
             updated_at_ms: 0,
             state: Default::default(),
+            completion_status: Default::default(),
+            handling: Default::default(),
+            manual_due_at_ms: None,
+            planned_start_at_ms: None,
+            planned_completion_at_ms: None,
+            actual_completion_at_ms: None,
         }
     }
 

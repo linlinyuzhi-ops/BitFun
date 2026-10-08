@@ -20,10 +20,12 @@ import { ConversationExcerptMarkers } from '../../selection/ConversationExcerptM
 import { getKnownVirtualItemHeightPx } from './virtualItemHeightEstimators';
 import { Icon } from '@openbitfun/ui';
 import { TimelineContentBlock } from '../../timeline/TimelineContentBlock';
+import { useTurnFooterInteraction } from './useTurnFooterInteraction';
 
 interface VirtualItemRendererProps {
   item: VirtualItem;
   index: number;
+  isLatestTurn?: boolean;
   /** Stable projection facts used for spacing across virtual-row boundaries. */
   endsBeforeUserTurn?: boolean;
   continuesAmbientToolRunAfter?: boolean;
@@ -37,7 +39,8 @@ interface VirtualItemRendererProps {
 }
 
 export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
-  ({ item, index, endsBeforeUserTurn = false, continuesAmbientToolRunAfter = false, measureRef }) => {
+  ({ item, index, isLatestTurn = false, endsBeforeUserTurn = false, continuesAmbientToolRunAfter = false, measureRef }) => {
+    const turnInteraction = useTurnFooterInteraction(item.turnId);
     const { searchQuery, searchMatchesByVirtualIndex, searchCurrentMatch } = useFlowChatVolatileContext();
     const sourceIndex = item.timeline?.sourceIndex ?? index;
     const ownsMatch = (match: { flowItemId?: string }) => !item.timeline || !match.flowItemId || item.timeline.memberIds.includes(match.flowItemId);
@@ -87,6 +90,7 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
               projectedGroups={item.projectedGroups}
               turnId={item.turnId} 
               isLastRound={item.isLastRound}
+              isLatestTurn={isLatestTurn}
               isTurnComplete={item.isTurnComplete}
               turnStartedAt={item.turnStartedAt}
               turnEndedAt={item.turnEndedAt}
@@ -136,6 +140,7 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
     // data-turn-id is used for long-image export.
     return (
       <div
+        {...turnInteraction}
         ref={rowRef}
         data-openbitfun-component="virtual-item"
         data-openbitfun-part="root"
@@ -169,6 +174,7 @@ export const VirtualItemRenderer = React.memo<VirtualItemRendererProps>(
   (prev, next) => (
     prev.item === next.item &&
     prev.index === next.index &&
+    prev.isLatestTurn === next.isLatestTurn &&
     prev.endsBeforeUserTurn === next.endsBeforeUserTurn &&
     prev.continuesAmbientToolRunAfter === next.continuesAmbientToolRunAfter &&
     prev.measureRef === next.measureRef

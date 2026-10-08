@@ -15,7 +15,10 @@ val hasReleaseSigning = listOf(
     releaseKeyAlias,
     releaseKeyPassword,
 ).all { !it.isNullOrBlank() }
-
+val allowUnsignedRelease = providers.gradleProperty("allowUnsignedRelease")
+    .map { it.equals("true", ignoreCase = true) }
+    .orElse(false)
+    .get()
 android {
     sourceSets.getByName("main").assets.srcDir(file("../../../../shared/terminal/webview/generated"))
     namespace = "com.openbitfun.mobile.app"
@@ -60,7 +63,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            signingConfig = signingConfigs.findByName("release")
+            signingConfig = when {
+                hasReleaseSigning -> signingConfigs.getByName("release")
+                allowUnsignedRelease -> null
+                else -> signingConfigs.getByName("debug")
+            }
         }
     }
 }

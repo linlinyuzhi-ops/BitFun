@@ -11,6 +11,23 @@ export class FlowChatReaderState {
   private revision = 0;
   private groupHolds = new Map<string, Set<string>>();
   private reveals = new Map<string, Set<string>>();
+  private turnInteractions = new Map<string, Set<symbol>>();
+
+  /** Ephemeral hover/focus leases shared by a turn's independently virtualized rows. */
+  holdTurnInteraction(turn: string): () => void {
+    const lease = Symbol('turn-interaction');
+    const owners = this.turnInteractions.get(turn) ?? new Set<symbol>();
+    owners.add(lease);
+    this.turnInteractions.set(turn, owners);
+    this.set(`interaction:${turn}`, true);
+    return () => {
+      if (!owners.delete(lease)) return;
+      if (!owners.size) {
+        this.turnInteractions.delete(turn);
+        this.set(`interaction:${turn}`, false);
+      }
+    };
+  }
 
   reportReveal(turn: string, block: string) {
     const owners = this.reveals.get(turn) ?? new Set<string>();

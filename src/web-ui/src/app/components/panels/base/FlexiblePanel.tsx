@@ -835,6 +835,7 @@ const FlexiblePanel: React.FC<ExtendedFlexiblePanelProps> = memo(({
                 key={sessionId}
                 sessionId={sessionId}
                 autoFocus={isActive}
+                renderingActive={isActive}
                 closeBehavior="detach"
                 onClose={() => onContentChange?.(null)}
                 resizeSuspended={!isActive || terminalResizeSuspended}

@@ -172,6 +172,7 @@ export function BtwVirtualSessionList({
           key={row.key}
           item={items[row.index]}
           index={row.index}
+          isLatestTurn={items[row.index].turnId === sourceItems[sourceItems.length - 1]?.turnId}
           measureRef={virtualizer.measureRowElement}
         />
         </Fragment>

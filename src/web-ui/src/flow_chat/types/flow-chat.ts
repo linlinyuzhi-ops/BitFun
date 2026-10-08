@@ -189,6 +189,8 @@ export interface ModelRoundRenderHints {
    * collapsible tools and adjacent narrative into an explore group.
    */
   disableExploreGrouping?: boolean;
+  /** Explicit host policy; absent on older retry-derived hints. */
+  disableExploreGroupingSource?: 'host';
 }
 
 export interface ModelRoundAttempt {
@@ -231,6 +233,8 @@ export interface ModelRound {
 export interface TokenUsage {
   inputTokens: number;
   outputTokens?: number;
+  /** Cache-read tokens; absent when any request in the turn did not report them. */
+  cachedTokens?: number;
   totalTokens: number;
   timestamp: number;
   /** Persisted source turn used to invalidate usage after history rewrites. */

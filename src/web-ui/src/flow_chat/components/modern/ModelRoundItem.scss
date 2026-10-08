@@ -52,6 +52,17 @@
   padding: var(--openbitfun-space-1) 0;
   margin-top: var(--openbitfun-space-1);
 
+  // Keep the measured footer slot and keyboard access when a historical turn rests.
+  &[data-footer-reveal='hover'] {
+    opacity: 0;
+    pointer-events: none;
+
+    &:focus-within, &:has([aria-describedby], [aria-expanded='true']) {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+
   // Reserve layout while typewriter catch-up finishes; reveal without resize.
   &--pending {
     visibility: hidden;
@@ -63,14 +74,27 @@
   @include transcriptLayout.metadata-actions;
 }
 
+.model-round-item__usage {
+  margin-inline-end: auto;
+}
+
+.model-round-item__completion {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--openbitfun-space-2);
+  margin-inline-start: auto;
+  min-inline-size: 0;
+}
+
 .model-round-item__meta {
   display: flex;
-  flex: 1 1 auto;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
   align-items: center;
   gap: var(--openbitfun-space-2);
   min-width: 0;
-  margin-inline-end: auto;
   color: var(--openbitfun-color-content-muted);
   font-family: var(--openbitfun-type-flow-meta-font-family);
   font-size: var(--openbitfun-type-flow-meta-font-size);

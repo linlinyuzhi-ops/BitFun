@@ -6,31 +6,23 @@
     },
     "categories": {
       "application": "应用与界面",
-      "ai": "AI 与模型",
-      "workspace": "会话与工作区",
+      "ai": "模型与智能体",
+      "development": "编程与开发",
       "tools": "工具与集成",
       "data": "数据与维护"
     },
     "pages": {
       "general": {
         "label": "通用",
-        "description": "调整启动、更新、休眠、窗口与通知行为"
+        "description": "调整界面语言、启动、更新、休眠、窗口与通知行为"
       },
       "appearance": {
         "label": "外观",
-        "description": "调整界面语言、主题与字体大小"
+        "description": "调整主题、外观包与字体"
       },
       "pet": {
-        "label": "宠物",
-        "description": "选择宠物形象，控制是否显示"
-      },
-      "voice": {
-        "label": "语音",
-        "description": "设置本地语音输入与云端实时通话"
-      },
-      "shortcuts": {
-        "label": "快捷键",
-        "description": "查看和自定义各操作的键盘快捷键"
+        "label": "宠物与助手",
+        "description": "选择宠物形象，设置助手实时语音通话"
       },
       "terminal": {
         "label": "终端",
@@ -44,21 +36,9 @@
         "label": "模型",
         "description": "连接模型服务，并选择各类任务使用的模型"
       },
-      "memory": {
-        "label": "记忆",
-        "description": "控制智能体如何从会话中生成和使用记忆"
-      },
-      "sessionWorkspace": {
-        "label": "会话与工作区",
-        "description": "设置新会话的执行框架、标题生成与工作区搜索"
-      },
-      "worktrees": {
-        "label": "Worktrees",
-        "description": "设置会话隔离的默认行为，管理工作区 Worktree"
-      },
       "execution": {
-        "label": "执行与权限",
-        "description": "设置工具确认规则、运行时限与任务并行方式"
+        "label": "执行与协作",
+        "description": "设置工具运行时限、智能体并行方式与审核容量"
       },
       "browserDesktopControl": {
         "label": "浏览器与桌面控制",
@@ -77,8 +57,8 @@
         "description": "连接 MCP 服务，为智能体提供外部工具与数据源"
       },
       "acp": {
-        "label": "ACP 智能体",
-        "description": "通过 ACP 接入外部智能体，在 OpenBitFun 中运行任务"
+        "label": "外部智能体",
+        "description": "通过 ACP 接入本机或 SSH 主机上的外部智能体"
       },
       "usage": {
         "label": "调用统计",
@@ -91,16 +71,41 @@
       "diagnostics": {
         "label": "日志与诊断",
         "description": "调整日志记录，导出故障排查信息"
+      },
+      "input": {
+        "label": "输入与交互",
+        "description": "设置语音转文字与键盘快捷键"
+      },
+      "sessionMemory": {
+        "label": "会话与记忆",
+        "description": "设置新会话的执行框架、标题生成与记忆策略"
+      },
+      "permissions": {
+        "label": "权限规则",
+        "description": "设置新会话的审批模式与全局工具权限规则"
+      },
+      "workspaceGit": {
+        "label": "工作区与 Git",
+        "description": "设置文件搜索、Git 提交署名与 Worktree，管理隔离工作目录"
       }
     },
     "views": {
-      "common": "常用",
-      "advanced": "高级",
       "local": "本机",
       "ssh": "SSH",
-      "json": "高级 JSON",
+      "json": "高级 JSON"
+    },
+    "sections": {
+      "voice": "语音",
+      "shortcuts": "快捷键",
+      "session": "会话默认行为",
+      "memory": "记忆",
+      "workspace-search": "工作区搜索",
+      "worktrees": "Worktrees",
+      "git": "Git 提交",
       "quick-actions": "快捷动作",
-      "hooks": "Hooks"
+      "hooks": "事件 Hooks",
+      "pet": "宠物",
+      "voice-call": "实时语音通话"
     }
   },
   "changeGuard": {

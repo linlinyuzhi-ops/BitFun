@@ -23,6 +23,7 @@ const descriptionKeys: Readonly<Record<string, MessageKey>> = {
   ExploreGroup: "component.ExploreGroup.description",
   ContextLoadGroup: "component.ContextLoadGroup.description",
   FlowChatRuntimeStatus: "component.FlowChatRuntimeStatus.description",
+  FlowChatTurnMetrics: "component.FlowChatTurnMetrics.description",
   OpenBitFunSolidMark: "component.OpenBitFunSolidMark.description",
   OpenBitFunAppIcon: "component.OpenBitFunAppIcon.description",
   OpenBitFunMark: "component.OpenBitFunMark.description",

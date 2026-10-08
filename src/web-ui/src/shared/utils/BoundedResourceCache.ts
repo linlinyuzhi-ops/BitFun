@@ -1,6 +1,8 @@
+import { resourceBudget } from './resourceBudget';
+
 /** Evicts only recomputable display resources, never authoritative session data. */
 export class BoundedResourceCache<K, V> {
-  private entries = new Map<K, { value: V; bytes: number }>();
+  private entries = new Map<K, { value: V; bytes: number; budgetKey: object }>();
   private bytes = 0;
   constructor(private maxBytes: number, private maxEntries = 128, private dispose?: (value: V) => void) {}
   get size() { return this.entries.size; }
@@ -10,14 +12,20 @@ export class BoundedResourceCache<K, V> {
     if (!entry) return undefined;
     this.entries.delete(key);
     this.entries.set(key, entry);
+    resourceBudget.touch(entry.budgetKey);
     return entry.value;
   }
   has(key: K) { return this.entries.has(key); }
   set(key: K, value: V, bytes = 1): this {
     this.delete(key);
     if (bytes > this.maxBytes) return this;
-    this.entries.set(key, { value, bytes: Math.max(1, bytes) });
+    const budgetKey = {};
+    this.entries.set(key, { value, bytes: Math.max(1, bytes), budgetKey });
     this.bytes += Math.max(1, bytes);
+    resourceBudget.set(budgetKey, {
+      kind: 'derived', bytes: Math.max(1, bytes), lastUsedAt: Date.now(),
+      evict: () => { this.delete(key); },
+    });
     while (this.bytes > this.maxBytes || this.entries.size > this.maxEntries) this.delete(this.entries.keys().next().value!);
     return this;
   }
@@ -25,6 +33,7 @@ export class BoundedResourceCache<K, V> {
     const entry = this.entries.get(key);
     if (!entry) return false;
     this.entries.delete(key);
+    resourceBudget.delete(entry.budgetKey);
     this.bytes -= entry.bytes;
     this.dispose?.(entry.value);
     return true;

@@ -160,6 +160,9 @@ export struct AppShell {
       .backgroundColor(PAGE_BG)
       .borderRadius(MobileDesignGeometry.sheetTopRadius)
       .clip(true)
+      // The cover is bound with `enableSafeArea: true`, so the framework already
+      // ends its page above the navigation bar and this stays the design's own
+      // float above that edge.
       .margin({ bottom: MobileDesignGeometry.loginSheetOuterMargin })
     }
     .width('100%')

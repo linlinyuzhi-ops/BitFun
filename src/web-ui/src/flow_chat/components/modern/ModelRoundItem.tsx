@@ -11,7 +11,7 @@ import React, { useMemo, useState, useCallback, useEffect, useLayoutEffect, useR
 import { useFlowChatReaderValue, useTimelineReveal } from '../../timeline/readerState';
 import { useTranslation } from 'react-i18next';
 import { subscribeOverlayInteraction, createOverlayPortal, Button, Disclosure, Icon, IconButton, Menu, MenuItem, Tooltip } from '@openbitfun/ui';
-import { AmbientToolCard, AmbientToolCardHeader, ToolCardSection, ToolCardText } from '@openbitfun/ui/flow-chat';
+import { AmbientToolCard, AmbientToolCardHeader, FlowChatMetric, FlowChatMetricDetails, ToolCardSection, ToolCardText } from '@openbitfun/ui/flow-chat';
 import { CircleAlert, Wifi } from 'lucide-react';
 import type { ModelRound, ModelRoundAttempt, ModelRoundAttemptDiagnostic, FlowItem, FlowTextItem, FlowToolItem, FlowThinkingItem, ToolRejectOptions } from '../../types/flow-chat';
 import { useI18n } from '@/infrastructure/i18n';
@@ -27,10 +27,13 @@ import { getConcurrentCapsuleRows, type ConcurrentCapsuleRow } from '../../tool-
 import { useFlowChatContext } from './FlowChatContext';
 import { ExportImageButton } from './ExportImageButton';
 import { ForkSessionButton } from './ForkSessionButton';
+import { TurnUsageMetrics } from './TurnUsageMetrics';
+import { TurnFooter } from './TurnFooter';
 import {
   buildModelRoundItemGroups,
   buildInlineToolGroupData,
   getModelRoundActiveItems,
+  isModelRoundGroupingDisabled,
   type ModelRoundItemGroup,
 } from '../../grouping/roundGroups';
 import { FlowGroupRenderer } from './FlowGroupRenderer';
@@ -363,10 +366,12 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
     projectedGroups,
     turnId,
     isLastRound = false,
+    isLatestTurn = false,
     isTurnComplete = false,
     turnStartedAt,
     turnEndedAt,
     turnDurationMs,
+    turnTokenUsage,
     canvasArtifactItems = [],
     expandedThinkingItemIds = [],
   }) => {
@@ -462,6 +467,7 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
 
     // Collect settled exploration while keeping narrative and critical items
     // in their original transcript positions.
+    const disableExploreGrouping = isModelRoundGroupingDisabled(round);
     const groupedItems = useMemo(() => {
       if (projectedGroups) return projectedGroups;
       const visibleItems = isTurnComplete
@@ -470,10 +476,10 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
       return buildModelRoundItemGroups({
         items: visibleItems,
         isStreaming: round.isStreaming,
-        disableExploreGrouping: round.renderHints?.disableExploreGrouping === true,
+        disableExploreGrouping,
         isCollapsibleTool,
       });
-    }, [isTurnComplete, projectedGroups, round.isStreaming, round.renderHints?.disableExploreGrouping, sortedItems]);
+    }, [disableExploreGrouping, isTurnComplete, projectedGroups, round.isStreaming, sortedItems]);
 
     const groupSummary = useMemo(
       () => renderTraceEnabled ? summarizeModelRoundItemGroups(groupedItems) : null,
@@ -545,6 +551,9 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
     );
 
     const completedAt = turnEndedAt ?? round.endTime;
+    const usageDurationMs = turnDurationMs ??
+      (typeof turnStartedAt === 'number' && typeof completedAt === 'number'
+        ? Math.max(0, completedAt - turnStartedAt) : undefined);
     const effectiveDurationMs = turnDurationMs ??
       (typeof turnStartedAt === 'number' && typeof completedAt === 'number'
         ? Math.max(0, completedAt - turnStartedAt)
@@ -554,12 +563,16 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
       durationMs: effectiveDurationMs,
       status: round.status,
       formatTime: timestamp => formatDate(new Date(timestamp), {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
       }),
       t,
     }), [completedAt, effectiveDurationMs, formatDate, round.status, t]);
+    const durationMetaItem = completionMetaItems.find(item => item.key === 'duration');
     // Wait for typewriter catch-up before revealing footer controls. Reserve
     // footer layout as soon as the model round completes so the eventual
     // reveal does not resize the list (that resize flashed the chat pane).
@@ -738,88 +751,89 @@ export const ModelRoundItem = React.memo<ModelRoundItemProps>(
         )}
 
         {shouldReserveFooter && (
-          <div
-            className={`model-round-item__footer${shouldRevealFooter ? '' : ' model-round-item__footer--pending'}`}
-            data-openbitfun-product-component="model-round-item"
-            data-openbitfun-product-part="footer"
-            data-openbitfun-state={shouldRevealFooter ? undefined : 'pending'}
-            aria-hidden={!shouldRevealFooter}
-          >
-            {completionMetaItems.length > 0 && (
-              <div
-                className="model-round-item__meta"
-                data-openbitfun-product-component="model-round-item"
-                data-openbitfun-product-part="meta"
-                aria-label={t('modelRound.meta.label')}
-              >
-                {completionMetaItems.map(item => (
+          <TurnFooter turnId={turnId} isLatestTurn={isLatestTurn} ready={shouldRevealFooter}>
+            <div className="model-round-item__usage">
+              <TurnUsageMetrics usage={turnTokenUsage} durationMs={usageDurationMs} focusable={shouldRevealFooter} />
+            </div>
+            <div className="model-round-item__completion">
+              {durationMetaItem && (
+                <div
+                  className="model-round-item__meta"
+                  data-openbitfun-product-component="model-round-item"
+                  data-openbitfun-product-part="meta"
+                  aria-label={t('modelRound.meta.label')}
+                >
                   <span
-                    key={item.key}
                     className="model-round-item__meta-item"
                     data-openbitfun-product-component="model-round-item"
                     data-openbitfun-product-part="metaItem"
-                    aria-label={`${item.label}: ${item.value}`}
                   >
-                    {item.value}
+                    <FlowChatMetric
+                      focusable={shouldRevealFooter}
+                      description={completionMetaItems.map(item => `${item.label}: ${item.value}`).join(' · ')}
+                      content={<FlowChatMetricDetails rows={completionMetaItems} />}
+                    >
+                      {durationMetaItem.value}
+                    </FlowChatMetric>
                   </span>
-                ))}
+                </div>
+              )}
+
+              <div className="model-round-item__actions">
+                <ForkSessionButton sessionId={sessionId} turnId={turnId} />
+
+                {allowTranscriptExport && <div className="model-round-item__copy-menu-anchor">
+                  <Tooltip content={copied ? t('modelRound.copiedDialog') : t('modelRound.copyDialog')} placement="top">
+                    <IconButton
+                      ref={copyButtonRef}
+                      className={`model-round-item__action-btn model-round-item__copy-btn ${copied ? 'copied' : ''}`}
+                      onClick={() => setIsCopyMenuOpen(current => !current)}
+                      tabIndex={shouldRevealFooter ? 0 : -1}
+                      disabled={!shouldRevealFooter}
+                      aria-haspopup="menu"
+                      aria-expanded={isCopyMenuOpen}
+                      aria-label={copied ? t('modelRound.copiedDialog') : t('modelRound.copyDialog')}
+                      data-testid="model-round-copy-btn"
+                      data-openbitfun-product-component="model-round-item" data-openbitfun-product-part="action" data-openbitfun-state={copied ? 'copied' : undefined}
+                      icon={<Icon name={copied ? 'check-line' : 'duplicate'} size="sm" />}
+                    />
+                  </Tooltip>
+
+                  {isCopyMenuOpen && createOverlayPortal(
+                    <Menu
+                      ref={copyMenuRef}
+                      className="model-round-item__copy-menu"
+                      data-testid="model-round-copy-menu"
+                      data-openbitfun-placement={copyMenuLayout?.placement ?? 'top'}
+                      style={{
+                        top: `${copyMenuLayout?.top ?? 0}px`,
+                        left: `${copyMenuLayout?.left ?? 0}px`,
+                        visibility: copyMenuLayout ? 'visible' : 'hidden',
+                      }}
+                    >
+                      <MenuItem
+                        type="button"
+                        onClick={() => void handleCopyScope('full')}
+                        data-testid="model-round-copy-full"
+                      >
+                        {t('transcriptExport.copyFull')}
+                      </MenuItem>
+                      <MenuItem
+                        type="button"
+                        onClick={() => void handleCopyScope('result')}
+                        data-testid="model-round-copy-result"
+                      >
+                        {t('transcriptExport.copyResult')}
+                      </MenuItem>
+                    </Menu>,
+                    getAppearanceOverlayHost(),
+                  )}
+                </div>}
+
+                {allowTranscriptExport && <ExportImageButton turnId={turnId} />}
               </div>
-            )}
-
-            <div className="model-round-item__actions">
-              <ForkSessionButton sessionId={sessionId} turnId={turnId} />
-
-              {allowTranscriptExport && <div className="model-round-item__copy-menu-anchor">
-                <Tooltip content={copied ? t('modelRound.copiedDialog') : t('modelRound.copyDialog')} placement="top">
-                  <IconButton
-                    ref={copyButtonRef}
-                    className={`model-round-item__action-btn model-round-item__copy-btn ${copied ? 'copied' : ''}`}
-                    onClick={() => setIsCopyMenuOpen(current => !current)}
-                    tabIndex={shouldRevealFooter ? 0 : -1}
-                    disabled={!shouldRevealFooter}
-                    aria-haspopup="menu"
-                    aria-expanded={isCopyMenuOpen}
-                    aria-label={copied ? t('modelRound.copiedDialog') : t('modelRound.copyDialog')}
-                    data-testid="model-round-copy-btn"
-                    data-openbitfun-product-component="model-round-item" data-openbitfun-product-part="action" data-openbitfun-state={copied ? 'copied' : undefined}
-                    icon={<Icon name={copied ? 'check-line' : 'duplicate'} size="sm" />}
-                  />
-                </Tooltip>
-
-                {isCopyMenuOpen && createOverlayPortal(
-                  <Menu
-                    ref={copyMenuRef}
-                    className="model-round-item__copy-menu"
-                    data-testid="model-round-copy-menu"
-                    data-openbitfun-placement={copyMenuLayout?.placement ?? 'top'}
-                    style={{
-                      top: `${copyMenuLayout?.top ?? 0}px`,
-                      left: `${copyMenuLayout?.left ?? 0}px`,
-                      visibility: copyMenuLayout ? 'visible' : 'hidden',
-                    }}
-                  >
-                    <MenuItem
-                      type="button"
-                      onClick={() => void handleCopyScope('full')}
-                      data-testid="model-round-copy-full"
-                    >
-                      {t('transcriptExport.copyFull')}
-                    </MenuItem>
-                    <MenuItem
-                      type="button"
-                      onClick={() => void handleCopyScope('result')}
-                      data-testid="model-round-copy-result"
-                    >
-                      {t('transcriptExport.copyResult')}
-                    </MenuItem>
-                  </Menu>,
-                  getAppearanceOverlayHost(),
-                )}
-              </div>}
-
-              {allowTranscriptExport && <ExportImageButton turnId={turnId} />}
             </div>
-          </div>
+          </TurnFooter>
         )}
       </div>
       </TypewriterRevealGateProvider>

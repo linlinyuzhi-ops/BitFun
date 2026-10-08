@@ -34,6 +34,7 @@ export interface BtwSessionPanelMetadata {
   childSessionId: string;
   parentSessionId: string;
   contentRole: 'btw-session';
+  discardSessionOnClose: boolean;
 }
 
 export interface EnsureBtwSessionAvailableParams {
@@ -123,6 +124,10 @@ export const buildBtwSessionPanelContent = (
     childSessionId,
     parentSessionId,
     contentRole: 'btw-session',
+    discardSessionOnClose: (() => {
+      const session = flowChatStore.getState().sessions.get(childSessionId);
+      return session?.sessionKind === 'btw' && session.isTransient === true;
+    })(),
   } satisfies BtwSessionPanelMetadata,
 });
 
@@ -156,6 +161,7 @@ const metadataLoads = new Map<string, Promise<void>>();
 function ensureBtwSessionMetadata(params: LoadBtwSessionHistoryParams): Promise<void> {
   const sessions = flowChatStore.getState().sessions;
   const child = sessions.get(params.childSessionId);
+  if (child?.isTransient) return Promise.resolve();
   // A dispatch observer receives these facts from its host. It must not look
   // for child metadata in the controller's local workspace store.
   if (resolveSessionDriverId(params.childSessionId, child) === 'dispatch') return Promise.resolve();
@@ -183,6 +189,7 @@ function ensureBtwSessionMetadata(params: LoadBtwSessionHistoryParams): Promise<
 }
 
 export async function loadBtwSessionHistory(params: LoadBtwSessionHistoryParams): Promise<void> {
+  if (flowChatStore.getState().sessions.get(params.childSessionId)?.isTransient) return;
   const scope = getActiveSurfaceScope();
   // Reading history remains possible even if conversation metadata is unknown.
   await ensureBtwSessionMetadata(params).catch(() => undefined);

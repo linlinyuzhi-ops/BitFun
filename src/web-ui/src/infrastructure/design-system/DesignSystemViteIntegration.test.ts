@@ -82,12 +82,18 @@ describe('design-system Vite integration', () => {
     const layerPreludeIndex = mainSource.indexOf(
       'import "@openbitfun/ui/styles.css"',
     );
-    const productGraphIndex = mainSource.indexOf('import App from "./app/App"');
+    const productGraphImports = [
+      'import AppErrorBoundary from "./app/components/AppErrorBoundary"',
+      "import('./app/startup/MainApplicationRoot')",
+      "import('./app/components/AgentCompanionDesktopPet/AgentCompanionDesktopPet')",
+    ];
 
     expect(themeEntry).toContain('@import "@openbitfun/theme-openbitfun/default.css";');
     expect(mainSource).not.toContain('import "@openbitfun/theme-openbitfun/default.css"');
     expect(layerPreludeIndex).toBeGreaterThanOrEqual(0);
-    expect(productGraphIndex).toBeGreaterThan(layerPreludeIndex);
+    for (const productImport of productGraphImports) {
+      expect(mainSource.indexOf(productImport)).toBeGreaterThan(layerPreludeIndex);
+    }
 
     const bootstrapLayerOrder =
       '@layer openbitfun.tokens.system, openbitfun.tokens.theme, openbitfun.reset, openbitfun.base, openbitfun.components, openbitfun.overrides;';

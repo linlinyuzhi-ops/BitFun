@@ -1162,6 +1162,8 @@
   },
   "btw": {
     "title": "Side question",
+    "temporaryLabel": "Temporary",
+    "temporaryHint": "This conversation is discarded when you close its tab.",
     "shortLabel": "Side",
     "hint": "Not saved · Uses current chat context · No tools",
     "placeholder": "Ask a quick question…",
@@ -1700,6 +1702,21 @@
     }
   },
   "modelRound": {
+    "metrics": {
+      "label": "Turn usage and output speed",
+      "total": "Total tokens",
+      "input": "Input tokens",
+      "output": "Output tokens",
+      "cache": "Input cache hit",
+      "averageRate": "Average output",
+      "speedLevel": "Speed level",
+      "rateValue": "{{value}} t/s",
+      "rateBasis": "Output tokens divided by total turn time, including tools and waiting; speed levels change at 15, 40 and 80 tokens/s",
+      "slow": "Slow",
+      "normal": "Normal",
+      "fast": "Fast",
+      "veryFast": "Very fast"
+    },
     "copyDialog": "Copy dialog",
     "copiedDialog": "Copied!",
     "forkDialog": "Fork session from here",
@@ -3282,6 +3299,16 @@
     "projectCowork": "working in the project."
   },
   "modelSelector": {
+    "modes": {
+      "selection": "Select mode",
+      "manual": "Manual selection",
+      "manualUnavailable": "Your previous model is unavailable. Choose another model.",
+      "smart": "Smart mode",
+      "pool": "Battery mode",
+      "comingSoon": "Coming soon",
+      "developmentNotice": "This mode is not ready yet. It currently uses your primary model directly.",
+      "primaryRequired": "Configure a primary model first"
+    },
     "model": "Model",
     "modelExplanation": "Model explanation",
     "modelSettings": "Model settings",
@@ -3338,6 +3365,9 @@
     "xhighDesc": "Maximum reasoning depth (slower)"
   },
   "reasoningSelector": {
+    "thinking": "Thinking",
+    "automatic": "Automatic",
+    "manual": "Manual",
     "title": "Reasoning effort",
     "auto": "Auto",
     "modelDefault": "model default",

@@ -10,7 +10,7 @@ export type SessionModelSelectionTarget = {
 
 /** A side draft has no Runtime child until its first question forks the parent. */
 export function isBtwSessionDraft(session: SessionModelSelectionTarget | undefined): boolean {
-  return Boolean(session?.sessionKind === 'btw' && !session.isTransient && !session.isHistorical
+  return Boolean(session?.sessionKind === 'btw' && !session.isHistorical
     && !session.lastSubmittedMode && session.dialogTurns?.length === 0);
 }
 

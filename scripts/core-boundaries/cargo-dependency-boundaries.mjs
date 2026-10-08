@@ -574,7 +574,8 @@ const THIRD_PARTY_CAPABILITY_PROFILES = new Map([
       ['openbitfun-skin-market-service', dependencyProfile(['gif', 'jpeg', 'png', 'webp'], {
         useDefaultFeatures: false,
       })],
-      ['openbitfun-webdriver', dependencyProfile(['png'], {
+      // The embedded bridge captures PNG and encodes JPEG previews itself.
+      ['openbitfun-webdriver', dependencyProfile(['jpeg', 'png'], {
         useDefaultFeatures: false,
       })],
     ]),

@@ -1,18 +1,17 @@
 {
   "title": "Memory",
   "subtitle": "Control how agents create and use memories from sessions",
-  "scopeNotice": "Settings, candidate sessions, and memory files belong to the current execution host; other devices keep separate memories",
   "sections": {
     "basic": {
-      "title": "Basics",
+      "title": "Memory",
       "description": "Turning memory off keeps existing data; use Memory actions to clear it separately"
     },
     "models": {
-      "title": "Models",
+      "title": "Memory models",
       "description": "Unless set separately, extraction uses the primary model and consolidation uses the extraction model"
     },
     "advanced": {
-      "title": "Advanced settings",
+      "title": "Memory processing",
       "description": "Limit which sessions are processed and how much memory work runs; defaults usually suffice"
     },
     "extraction": {

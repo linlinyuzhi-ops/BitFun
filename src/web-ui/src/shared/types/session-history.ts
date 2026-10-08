@@ -311,6 +311,8 @@ export interface ModelRoundAttemptToolDiagnostic {
 
 export interface ModelRoundRenderHints {
   disableExploreGrouping?: boolean;
+  /** Explicit host policy; absent on older retry-derived hints. */
+  disableExploreGroupingSource?: 'host';
 }
 
 export interface TextItemData {

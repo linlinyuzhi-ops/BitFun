@@ -32,6 +32,7 @@ test("registry exposes only the formal stable components", () => {
       "ExploreGroup",
       "ContextLoadGroup",
       "FlowChatRuntimeStatus",
+      "FlowChatTurnMetrics",
       "CommandToolCard",
       "ToolRelationRow",
       "Composer",

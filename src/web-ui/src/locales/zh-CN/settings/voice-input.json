@@ -1,6 +1,6 @@
 {
   "title": "语音",
-  "subtitle": "设置本地语音输入与云端实时通话",
+  "subtitle": "设置当前设备的语音输入",
   "loading": "正在加载语音输入设置...",
   "sections": {
     "basic": "语音输入",
@@ -75,7 +75,8 @@
       "saved": "实时语音设置已保存",
       "saveFailed": "保存实时语音设置失败",
       "required": "启用实时语音前，请填写 API Key 和语音角色。",
-      "unsaved": "实时语音配置有尚未保存的修改。"
+      "unsaved": "实时语音配置有尚未保存的修改。",
+      "unsupported": "实时语音通话仅在 OpenBitFun 桌面端中可用。"
     },
     "call": {
       "title": "实时通话",

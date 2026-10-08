@@ -180,7 +180,7 @@ export const HarnessProfileSelector: React.FC<HarnessProfileSelectorProps> = ({
   useEffect(() => {
     if (!open) return;
 
-    const handlePointerDown = (event: PointerEvent) => {
+    const handlePointerInteraction = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (!target || triggerRef.current?.contains(target) || menuRef.current?.contains(target)) {
         return;
@@ -191,11 +191,14 @@ export const HarnessProfileSelector: React.FC<HarnessProfileSelectorProps> = ({
       if (event.key === 'Escape') close();
     };
 
-    const removeOverlayPointerdown0 = subscribeOverlayInteraction(menuRef, 'pointerdown', handlePointerDown);
-    const removeOverlayKeydown1 = subscribeOverlayInteraction(menuRef, 'keydown', handleKeyDown);
+    const removePointerDown = subscribeOverlayInteraction(menuRef, 'pointerdown', handlePointerInteraction);
+    // The add menu also listens for mousedown; a portalled child must own both events.
+    const removeMouseDown = subscribeOverlayInteraction(menuRef, 'mousedown', handlePointerInteraction);
+    const removeKeyDown = subscribeOverlayInteraction(menuRef, 'keydown', handleKeyDown);
     return () => {
-      removeOverlayPointerdown0?.();
-      removeOverlayKeydown1?.();
+      removePointerDown();
+      removeMouseDown();
+      removeKeyDown();
     };
   }, [close, open]);
 

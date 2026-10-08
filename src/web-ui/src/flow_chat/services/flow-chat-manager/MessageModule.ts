@@ -21,6 +21,7 @@ import type { FlowChatContext } from './types';
 import { isProjectedSessionEmpty } from '../../utils/flowChatTurnIdentity';
 import type { ImageContextData as ImageInputContextData } from '@/infrastructure/api/service-api/ImageContextTypes';
 import { pendingQueueManager } from './PendingQueueModule';
+import { isBtwSessionClosing, trackBtwSessionSubmission } from '../btwSessionSubmission';
 import {
   isRuntimeSessionAttachmentInFlight,
   isRuntimeSessionProjectionStale,
@@ -229,6 +230,21 @@ function acpClientIdFromMode(mode: string | undefined): string | null {
  * @param switchToMode - Optional, switch UI mode selector to this mode (if not provided, mode remains unchanged)
  */
 export async function sendMessage(
+  context: FlowChatContext,
+  message: string,
+  sessionId: string,
+  displayMessage?: string,
+  agentType?: string,
+  switchToMode?: string,
+  options?: SendMessageOptions
+): Promise<void> {
+  const submit = () => sendMessageInternal(context, message, sessionId, displayMessage, agentType, switchToMode, options);
+  return context.flowChatStore.getState().sessions.get(sessionId)?.sessionKind === 'btw'
+    ? trackBtwSessionSubmission(sessionId, submit)
+    : submit();
+}
+
+async function sendMessageInternal(
   context: FlowChatContext,
   message: string,
   sessionId: string,
@@ -679,6 +695,7 @@ export async function drainPendingQueue(
   sessionId: string,
   options?: { allowInterruptedRecoveryAbandon?: boolean },
 ): Promise<void> {
+  if (isBtwSessionClosing(sessionId)) return;
   if (hostQueueSupported(sessionId) && !options?.allowInterruptedRecoveryAbandon) return;
   if (isRuntimeSessionAttachmentInFlight(getActiveSurfaceId(), sessionId) ||
       isRuntimeSessionProjectionStale(getActiveSurfaceId(), sessionId)) {

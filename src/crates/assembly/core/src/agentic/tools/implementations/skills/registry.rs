@@ -8,6 +8,7 @@ use super::mode_overrides::{
     load_globally_disabled_project_skills, load_globally_disabled_user_skills,
     load_user_mode_skill_overrides, SkillPolicyWorkspace, UserModeSkillOverrides,
 };
+use super::runtime_settings::apply_builtin_runtime_settings;
 #[cfg(feature = "file-watch")]
 use super::source_cache::{LocalSkillWatchMonitor, LocalSkillWatchRoot, VersionedSnapshotCache};
 use super::types::{
@@ -1996,6 +1997,7 @@ impl SkillRegistry {
         data.source_id = info.source_id;
         data.source_label = info.source_label;
         data.dir_name = info.dir_name;
+        apply_builtin_runtime_settings(&mut data).await?;
         Ok(data)
     }
 
@@ -2040,6 +2042,7 @@ impl SkillRegistry {
         data.source_id = info.source_id;
         data.source_label = info.source_label;
         data.dir_name = info.dir_name;
+        apply_builtin_runtime_settings(&mut data).await?;
         Ok(data)
     }
 
@@ -2075,6 +2078,7 @@ impl SkillRegistry {
         data.source_id = info.source_id;
         data.source_label = info.source_label;
         data.dir_name = info.dir_name;
+        apply_builtin_runtime_settings(&mut data).await?;
         Ok(data)
     }
 
@@ -2118,6 +2122,7 @@ impl SkillRegistry {
         data.source_id = info.source_id;
         data.source_label = info.source_label;
         data.dir_name = info.dir_name;
+        apply_builtin_runtime_settings(&mut data).await?;
         Ok(data)
     }
 

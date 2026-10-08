@@ -224,6 +224,9 @@ export const SubagentProjectionView: React.FC<SubagentProjectionViewProps> = ({
   const resolvedSubagentSessionId = subagentSessionId
     ?? projectionState?.session?.sessionId
     ?? directSubagentSessionId;
+  useEffect(() => resolvedSubagentSessionId
+    ? FlowChatStore.getInstance().retainSessionHistory(resolvedSubagentSessionId)
+    : undefined, [resolvedSubagentSessionId]);
   const items = useMemo(() => liveItems.filter(isFlowItemVisible), [liveItems]);
   const runtimeStatus = useRuntimeStatusStore(state => (
     resolvedSubagentSessionId

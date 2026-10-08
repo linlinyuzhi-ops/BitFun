@@ -200,13 +200,13 @@
     "sections": {
       "terminal": "Terminal",
       "defaultTerminal": "Default Terminal",
-      "terminalHint": "New terminals use the selected shell; open terminals keep their existing shell"
+      "terminalHint": "New terminals use the selected shell; open terminals keep their existing shell",
+      "terminalHintWithCmdFallback": "New terminals use the selected shell; open terminals keep their existing shell. Agent commands actually use PowerShell."
     },
     "controls": {
       "refreshTooltip": "Refresh available terminals",
       "autoDetect": "Auto Detect (Recommended)",
       "description": "Used for new terminals and agent commands in local workspaces",
-      "cmdFallbackMessage": "Agent commands actually use PowerShell.",
       "placeholder": "Select default terminal",
       "noShells": "No available terminals detected"
     },

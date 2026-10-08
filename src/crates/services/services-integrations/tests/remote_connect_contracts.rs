@@ -2963,6 +2963,7 @@ fn remote_connect_model_catalog_builder_preserves_config_shape() {
                         value: "high".to_string(),
                     }],
                     source: ReasoningPresetSource::ModelsDev,
+                    effective_effort: None,
                     execution_provider: None,
                     execution_model: None,
                 }],

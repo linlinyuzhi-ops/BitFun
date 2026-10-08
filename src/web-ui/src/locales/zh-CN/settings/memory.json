@@ -1,18 +1,17 @@
 {
   "title": "记忆",
   "subtitle": "控制智能体如何从会话中生成和使用记忆",
-  "scopeNotice": "设置、候选会话和记忆文件均属于当前执行主机；其他设备的记忆独立保存",
   "sections": {
     "basic": {
-      "title": "基础",
+      "title": "记忆",
       "description": "关闭记忆会保留已有数据；如需清空，请在“记忆操作”中单独执行"
     },
     "models": {
-      "title": "模型",
+      "title": "记忆模型",
       "description": "未单独指定时，抽取跟随主模型，整理跟随抽取模型"
     },
     "advanced": {
-      "title": "高级设置",
+      "title": "记忆处理",
       "description": "限制记忆处理的会话范围和工作量；通常无需修改"
     },
     "extraction": {

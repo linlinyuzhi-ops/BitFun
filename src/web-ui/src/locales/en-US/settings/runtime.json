@@ -26,6 +26,8 @@
       "petLabel": "Pet appearance",
       "petDescription": "Import a Petdex ZIP pack or choose a built-in pet",
       "petPlaceholder": "Choose pet appearance",
+      "current": "Current",
+      "previewUnavailable": "Preview unavailable",
       "groupPreset": "Presets",
       "groupImported": "Imported",
       "import": "Import",

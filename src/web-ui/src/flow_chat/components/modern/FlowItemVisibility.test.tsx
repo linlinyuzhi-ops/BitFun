@@ -24,7 +24,10 @@ vi.mock('@/infrastructure/markdown', () => ({
   ThinkingMarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>,
 }));
 vi.mock('../../store/FlowChatStore', () => {
-  const store = { getState: () => ({ sessions: new Map() }) };
+  const store = {
+    getState: () => ({ sessions: new Map() }),
+    retainSessionHistory: () => () => {},
+  };
   return { flowChatStore: store, FlowChatStore: { getInstance: () => store } };
 });
 vi.mock('@/shared/notification-system', () => ({

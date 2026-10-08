@@ -524,15 +524,14 @@ describe('composer context track layout', () => {
     expect(stylesheet).not.toMatch(/__trigger-value \{[\s\S]*?display: none;/);
   });
 
-  it('uses a text reasoning label in ChatInput while preserving the default meter', () => {
+  it('uses text for manual reasoning while retaining the compact automatic icon', () => {
     const component = readLocalFile('ReasoningPresetSelector.tsx');
     const stylesheet = readLocalFile('ReasoningPresetSelector.scss');
     const chatInput = readLocalFile('ChatInput.tsx');
 
-    expect(component).toContain('__status-meter');
-    expect(component).toContain("triggerPresentation === 'label'");
+    expect(component).toContain("triggerPresentation === 'label' || Boolean(selected)");
     expect(component).toContain('__trigger-label');
-    expect(component).toContain('<ReasoningIntensityMark level={intensityLevel} compact />');
+    expect(component).toContain('<Icon name="reasoning-auto" size="xs" />');
     expect(component).toContain('aria-label={tooltip}');
     expect(stylesheet).toMatch(/&__trigger \{[\s\S]*?width: 18px;[\s\S]*?height: 18px;/);
     expect(stylesheet).toMatch(

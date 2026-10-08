@@ -71,6 +71,8 @@ import {
   DirectoryListToolCard,
   FileDiffToolCard,
   FileOperationToolCard,
+  FlowChatMetricDetails,
+  FlowChatTurnMetrics,
   GetToolSpecToolCard,
   GitToolCard,
   GlobSearchToolCard,
@@ -141,6 +143,34 @@ type FlowChatPreviewDefinitionMap = {
 };
 
 type PreviewProps = FlowChatPreviewRenderOptions;
+
+function TurnMetricsPreview({ state, interactive }: PreviewProps) {
+  const t = usePresentationTranslate();
+  const formatNumber = usePresentationFormatNumber();
+  const unknown = state === "unknown";
+  const tokenValue = formatNumber(24800);
+  const rateValue = t("modelRound.metrics.rateValue", { value: formatNumber(42) });
+  const tokenRows = [
+    { label: t("modelRound.metrics.total"), value: tokenValue },
+    { label: t("modelRound.metrics.input"), value: formatNumber(22400) },
+    { label: t("modelRound.metrics.output"), value: formatNumber(2400) },
+    ...(!unknown ? [{ label: t("modelRound.metrics.cache"), value: `${formatNumber(62.5)}%` }] : []),
+  ];
+  const rateRows = [{ label: t("modelRound.metrics.averageRate"), value: rateValue }];
+
+  return <FlowChatTurnMetrics
+    label={t("modelRound.metrics.label")}
+    tokenValue={tokenValue}
+    tokenDescription={tokenRows.map(row => `${row.label}: ${row.value}`).join(" · ")}
+    tokenDetails={<FlowChatMetricDetails rows={tokenRows} />}
+    cacheHitRate={unknown ? null : 0.625}
+    rateValue={unknown ? null : rateValue}
+    rateDescription={rateRows.map(row => `${row.label}: ${row.value}`).join(" · ")}
+    rateDetails={<FlowChatMetricDetails rows={rateRows} note={t("modelRound.metrics.rateBasis")} />}
+    speedLevel={unknown ? null : 3}
+    focusable={interactive}
+  />;
+}
 
 function RelationPreview({ state, interactive }: PreviewProps) {
   const t = usePresentationTranslate();
@@ -980,6 +1010,11 @@ export const flowChatPreviewDefinitions = {
     attention: "ambient", icon: Hourglass, section: "framework", specimens: [],
     codeSample: () => '<FlowChatRuntimeStatus label={hint} visible={visible} />',
     render: (options) => <RuntimeStatusPreview {...options} />,
+  },
+  FlowChatTurnMetrics: {
+    attention: "ambient", icon: Cpu, section: "framework", specimens: [],
+    codeSample: () => '<FlowChatTurnMetrics label={label} tokenValue={tokens} tokenDescription={tokenDescription} cacheHitRate={cacheHitRate} rateValue={rate} rateDescription={rateDescription} speedLevel={speedLevel} />',
+    render: (options) => <TurnMetricsPreview {...options} />,
   },
   AgentControlToolCard: {
     attention: "prominent",

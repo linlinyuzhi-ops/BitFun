@@ -69,7 +69,7 @@
     "useFormat": "使用 {{format}}",
     "useFormatWithCount": "使用 {{format}}（{{modelCount}} 個模型）",
     "detected": "將使用 {{label}}（賬號 {{account}}）",
-    "notConnected": "尚未登入 {{kind}}，請先在上方完成登入",
+    "notConnected": "尚未登入 {{kind}}，請先在「訂閱服務」中登入",
     "unknownAccount": "目前登入賬號",
     "reauthenticationRequired": "憑據儲存中未找到可用憑據，請重新登入一次",
     "vaultUnavailable": "憑據儲存暫時無法使用，請重試；你的登入資訊並未被移除",
@@ -581,7 +581,8 @@
     "offlineTitle": "無法連線時如何更新",
     "offlineDescription": "在可連線的裝置上下載 models.dev 原始檔案，將其命名為 catalog.json 並放入上方快取目錄。替換後重新啟動 OpenBitFun 即可生效；點擊立即更新可能會覆蓋該檔案。",
     "downloadOriginal": "下載原始目錄",
-    "openCacheDirectory": "開啟快取目錄"
+    "openCacheDirectory": "開啟快取目錄",
+    "fetchCatalog": "取得 models.dev 模型目錄"
   },
   "advancedSettings": {
     "title": "高級設置",
@@ -622,7 +623,61 @@
     },
     "description": "用於配合服務的特殊請求與回應要求；不確定時保留預設值"
   },
-  "providersDescription": "同一服務可新增多個模型，預設模型在上方依任務單獨選擇",
+  "providersDescription": "統一管理 API 位址、驗證方式與同一服務下的模型",
   "editSettingsTitle": "模型參數",
-  "editProviderSettingsTitle": "服務連線"
+  "editProviderSettingsTitle": "服務連線",
+  "sections": {
+    "acquisition": "新增或匯入模型",
+    "selectionModes": "模型選用模式",
+    "pool": "模型池",
+    "more": "更多設定"
+  },
+  "acquisition": {
+    "api": "API 模型",
+    "apiHint": "透過 API Key 或自訂位址新增模型",
+    "configuredSummary": "已設定 {{providers}} 個服務，共 {{models}} 個模型",
+    "noneConfigured": "尚未設定 API 服務",
+    "configureProvider": "設定 {{provider}}",
+    "subscriptions": "訂閱服務",
+    "importedSummary": "已匯入 {{providers}} 個服務，共 {{models}} 個模型",
+    "noneImported": "尚未匯入訂閱服務",
+    "import": "匯入",
+    "importTitle": "匯入訂閱服務",
+    "loadFailed": "無法讀取訂閱服務，請重試。既有模型設定仍會保留。",
+    "noServices": "目前主機沒有可匯入的訂閱服務"
+  },
+  "selectionModes": {
+    "smart": "智慧模式",
+    "smartHint": "基於 OpenBitFun 自適應路由與多模型協同推理技術，提升經濟效益和任務表現。",
+    "battery": "電池模式",
+    "batteryHint": "基於多源模型池化與故障轉移技術，額度耗盡或連線失效時自動接力。",
+    "unavailable": "尚未開發"
+  },
+  "pool": {
+    "manageConnections": "管理連線",
+    "search": "搜尋模型、來源或標籤",
+    "capabilityFilter": "篩選模型能力",
+    "allCapabilities": "全部能力",
+    "recommendationsUnavailable": "推薦標籤服務尚未上線，目前尚未接入同步。你可以先手動為模型新增標籤。",
+    "syncTags": "同步推薦標籤",
+    "clearFilter": "清除篩選",
+    "noMatches": "沒有符合條件的模型",
+    "empty": "先新增 API 模型或匯入訂閱服務，模型會集中在這裡。",
+    "editTags": "為 {{model}} 新增標籤",
+    "tagsLabel": "自訂標籤",
+    "tagsHint": "輸入標籤後按 Enter 新增，最多 {{max}} 個。主力、快速等欄位標籤不占名額。",
+    "tagsPlaceholder": "新增標籤",
+    "tagsCount": "{{count}} / {{max}}",
+    "tagsLimitReached": "最多新增 {{max}} 個自訂標籤，移除一個後可繼續新增。",
+    "recommendedTags": "既有推薦標籤",
+    "tagsSaveFailed": "標籤儲存失敗，修改已保留，請重試。",
+    "addTags": "新增標籤",
+    "moreActions": "{{model}} 的更多操作",
+    "details": "詳情",
+    "enableModel": "啟用 {{model}}",
+    "editConnection": "編輯 {{provider}} 的連線",
+    "providerFilter": "篩選供應商",
+    "allProviders": "全部供應商",
+    "acknowledge": "知道了"
+  }
 }

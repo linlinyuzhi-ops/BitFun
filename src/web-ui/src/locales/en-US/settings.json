@@ -5,32 +5,24 @@
       "empty": "No matching settings"
     },
     "categories": {
-      "application": "App & Interface",
-      "ai": "AI & Models",
-      "workspace": "Sessions & Workspace",
+      "application": "Application & Interface",
+      "ai": "Models & Agents",
+      "development": "Programming & Development",
       "tools": "Tools & Integrations",
       "data": "Data & Maintenance"
     },
     "pages": {
       "general": {
         "label": "General",
-        "description": "Set startup, update, sleep, window, and notification behavior"
+        "description": "Configure language, startup, updates, sleep, window behavior, and notifications"
       },
       "appearance": {
         "label": "Appearance",
-        "description": "Choose the interface language, theme, and text size"
+        "description": "Customize themes, appearance packages, and fonts"
       },
       "pet": {
-        "label": "Pet",
-        "description": "Choose a pet and whether to show it"
-      },
-      "voice": {
-        "label": "Voice",
-        "description": "Set up local dictation and live voice calls in the cloud"
-      },
-      "shortcuts": {
-        "label": "Keyboard Shortcuts",
-        "description": "View and customize keyboard shortcuts"
+        "label": "Pet & assistant",
+        "description": "Choose your pet and configure real-time voice calls with the assistant"
       },
       "terminal": {
         "label": "Terminal",
@@ -44,21 +36,9 @@
         "label": "Models",
         "description": "Connect model providers and choose models for each type of task"
       },
-      "memory": {
-        "label": "Memory",
-        "description": "Control how agents create and use memories from sessions"
-      },
-      "sessionWorkspace": {
-        "label": "Session & Workspace",
-        "description": "Set the runtime for new sessions, title generation, and workspace search"
-      },
-      "worktrees": {
-        "label": "Worktrees",
-        "description": "Set session isolation defaults and manage workspace worktrees"
-      },
       "execution": {
-        "label": "Execution & Permissions",
-        "description": "Set tool approval rules, timeouts, and task concurrency"
+        "label": "Execution & Collaboration",
+        "description": "Configure tool timeouts, agent concurrency, and review capacity"
       },
       "browserDesktopControl": {
         "label": "Browser & Desktop Control",
@@ -77,8 +57,8 @@
         "description": "Connect MCP servers to give agents access to external tools and data"
       },
       "acp": {
-        "label": "ACP Agents",
-        "description": "Connect external agents through ACP to run tasks in OpenBitFun"
+        "label": "External Agents",
+        "description": "Connect external agents on this host or an SSH host through ACP"
       },
       "usage": {
         "label": "Call Statistics",
@@ -91,16 +71,41 @@
       "diagnostics": {
         "label": "Logs & Diagnostics",
         "description": "Configure logging and export diagnostic information"
+      },
+      "input": {
+        "label": "Input & Interaction",
+        "description": "Configure voice dictation and keyboard shortcuts"
+      },
+      "sessionMemory": {
+        "label": "Sessions & Memory",
+        "description": "Configure default harnesses, session titles, and memory behavior"
+      },
+      "permissions": {
+        "label": "Permission Rules",
+        "description": "Configure default approval behavior and global tool permission rules"
+      },
+      "workspaceGit": {
+        "label": "Workspace & Git",
+        "description": "Configure file search, commit attribution, and worktrees, and manage isolated working directories"
       }
     },
     "views": {
-      "common": "Common",
-      "advanced": "Advanced",
       "local": "Local",
       "ssh": "SSH",
-      "json": "Advanced JSON",
+      "json": "Advanced JSON"
+    },
+    "sections": {
+      "voice": "Voice",
+      "shortcuts": "Keyboard Shortcuts",
+      "session": "Session Defaults",
+      "memory": "Memory",
+      "workspace-search": "Workspace Search",
+      "worktrees": "Worktrees",
+      "git": "Git Commits",
       "quick-actions": "Quick Actions",
-      "hooks": "Hooks"
+      "hooks": "Event Hooks",
+      "pet": "Pet",
+      "voice-call": "Real-time voice calls"
     }
   },
   "changeGuard": {

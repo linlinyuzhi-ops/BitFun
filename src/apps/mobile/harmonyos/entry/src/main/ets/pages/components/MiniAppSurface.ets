@@ -5,12 +5,25 @@ import { MiniAppState } from '../state/MiniAppState';
 import { MiniAppWebView } from './MiniAppWebView';
 import { NavigationBackButton } from './NavigationBackButton';
 import { PAGE_BG, INK, MUTED, SOFT, LINE, TRANSPARENT } from './Theme';
+import { WindowInsetsBinding } from '../../services/WindowSystemBarService';
 
 @ComponentV2
 export struct MiniAppSurface {
   @Param state: MiniAppState = new MiniAppState();
   @Param actions: MiniAppActions = emptyMiniAppActions();
   @Local galleryWidth: number = 0;
+  @Local insets: WindowInsetsBinding = new WindowInsetsBinding();
+
+  aboutToAppear(): void {
+    const context = this.getUIContext().getHostContext();
+    if (context) {
+      this.insets.bind(this.getUIContext(), context);
+    }
+  }
+
+  aboutToDisappear(): void {
+    this.insets.unbind();
+  }
 
   build() {
     Column() {
@@ -53,11 +66,28 @@ export struct MiniAppSurface {
               ForEach(this.state.apps, (app: MiniAppSummary) => {
                 GridItem() { this.PreviewTile(app) }
               }, (app: MiniAppSummary) => app.id)
-            }.columnsTemplate(this.galleryWidth >= 600 ? '1fr 1fr 1fr' : '1fr 1fr')
+              // The gallery's tail spacer: the strip plus the design's own
+              // breathing, as one full-width, untouchable row. The grid's
+              // viewport runs to the screen edge — tiles roll under the
+              // navigation indicator while they are moving — and the last row
+              // of tiles still rests above the bar.
+              GridItem() {
+                Column()
+                  .width('100%')
+                  .height(this.insets.tailSpacing(24))
+              }
+              .columnStart(0)
+              .columnEnd(this.galleryColumns() - 1)
+              .hitTestBehavior(HitTestMode.None)
+            }.columnsTemplate(this.galleryColumnsTemplate())
               .columnsGap(14).rowsGap(20).layoutWeight(1).width('100%').scrollBar(BarState.Off)
           }
         }.width('100%').constraintSize({ maxWidth: 1000 }).layoutWeight(1)
-          .alignItems(HorizontalAlign.Start).padding({ left: 16, right: 16, bottom: 24 })
+          // The gallery is the surface's bottom edge: its scrolling viewport
+          // runs to the screen edge, and the grid's own tail spacer is what
+          // keeps the last row of tiles out of the navigation bar.
+          .alignItems(HorizontalAlign.Start)
+          .padding({ left: 16, right: 16 })
           .onAreaChange((_oldArea: Area, area: Area) => { this.galleryWidth = Number(area.width); })
       }
     }.width('100%').height('100%').backgroundColor(PAGE_BG)
@@ -83,5 +113,14 @@ export struct MiniAppSurface {
     if (id === 'builtin-gomoku') return $r('app.media.miniapp_gomoku_preview');
     if (id === 'builtin-regex-playground') return $r('app.media.miniapp_regex_preview');
     return $r('app.media.miniapp_divination_preview');
+  }
+
+  /** Columns of the gallery grid: 3 once it is wide, 2 on a phone. */
+  private galleryColumns(): number {
+    return this.galleryWidth >= 600 ? 3 : 2;
+  }
+
+  private galleryColumnsTemplate(): string {
+    return this.galleryColumns() === 3 ? '1fr 1fr 1fr' : '1fr 1fr';
   }
 }

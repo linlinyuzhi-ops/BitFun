@@ -777,6 +777,40 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void import('@tauri-apps/api/window')
+      .then(({ getCurrentWindow }) => getCurrentWindow().onFocusChanged(({ payload }) => {
+        if (disposed) return;
+        void import('@tauri-apps/api/event').then(({ emit }) => {
+          void emit('agent-companion://main-window-state', { focused: payload });
+        });
+      }))
+      .then(removeListener => {
+        if (disposed) {
+          removeListener();
+          return;
+        }
+        unlisten = removeListener;
+      })
+      .catch(error => {
+        if (!disposed) {
+          log.warn('Failed to listen for main window focus changes', error);
+        }
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
     void import('@tauri-apps/api/event')

@@ -69,7 +69,7 @@
     "useFormat": "Use {{format}}",
     "useFormatWithCount": "Use {{format}} ({{modelCount}})",
     "detected": "Will use {{label}} ({{account}})",
-    "notConnected": "{{kind}} is not signed in; sign in above first",
+    "notConnected": "Not signed in to {{kind}}. Sign in under Subscriptions first.",
     "unknownAccount": "current account",
     "reauthenticationRequired": "No usable credential was found in credential storage. Sign in again once.",
     "vaultUnavailable": "Credential storage is temporarily unavailable. Try again; your sign-in has not been removed.",
@@ -581,7 +581,8 @@
     "offlineTitle": "Updating without network access",
     "offlineDescription": "On a device with internet access, download the original models.dev file, name it catalog.json, and place it in the cache directory above. Restart OpenBitFun to apply it; Update now may overwrite this file.",
     "downloadOriginal": "Download original catalog",
-    "openCacheDirectory": "Open cache directory"
+    "openCacheDirectory": "Open cache directory",
+    "fetchCatalog": "Get the models.dev catalog"
   },
   "advancedSettings": {
     "title": "Advanced Settings",
@@ -622,7 +623,61 @@
     },
     "description": "Adapt requests and responses to service-specific requirements; keep the defaults if unsure"
   },
-  "providersDescription": "Add multiple models to each service, then choose defaults for each task above",
+  "providersDescription": "Manage endpoints, authentication, and the models sharing each connection",
   "editSettingsTitle": "Model parameters",
-  "editProviderSettingsTitle": "Service connection"
+  "editProviderSettingsTitle": "Service connection",
+  "sections": {
+    "acquisition": "Add or import models",
+    "selectionModes": "Model selection modes",
+    "pool": "Model pool",
+    "more": "More settings"
+  },
+  "acquisition": {
+    "api": "API models",
+    "apiHint": "Add models with an API key or a custom endpoint",
+    "configuredSummary": "{{providers}} services configured, {{models}} models",
+    "noneConfigured": "No API services configured yet",
+    "configureProvider": "Configure {{provider}}",
+    "subscriptions": "Subscriptions",
+    "importedSummary": "{{models}} models imported from {{providers}} services",
+    "noneImported": "No subscriptions imported yet",
+    "import": "Import",
+    "importTitle": "Import subscriptions",
+    "loadFailed": "Could not load subscriptions. Retry to refresh; existing model configurations are retained.",
+    "noServices": "No subscriptions are available to import on this host"
+  },
+  "selectionModes": {
+    "smart": "Smart mode",
+    "smartHint": "Powered by OpenBitFun adaptive routing and collaborative multi-model reasoning to improve cost efficiency and task performance.",
+    "battery": "Battery mode",
+    "batteryHint": "Multi-source model pooling and failover automatically hand off when quota is exhausted or a connection fails.",
+    "unavailable": "Not implemented yet"
+  },
+  "pool": {
+    "manageConnections": "Manage connections",
+    "search": "Search models, sources, or tags",
+    "capabilityFilter": "Filter model capabilities",
+    "allCapabilities": "All capabilities",
+    "recommendationsUnavailable": "The recommended tag service has not launched, so sync is not connected yet. You can add model tags manually.",
+    "syncTags": "Sync recommended tags",
+    "clearFilter": "Clear filters",
+    "noMatches": "No models match these filters",
+    "empty": "Add API models or import a subscription to build your model pool.",
+    "editTags": "Add tags to {{model}}",
+    "tagsLabel": "Custom tags",
+    "tagsHint": "Type a tag and press Enter to add it, up to {{max}}. Slot labels such as Primary and Fast do not count toward this limit.",
+    "tagsPlaceholder": "Add tags",
+    "tagsCount": "{{count}} / {{max}}",
+    "tagsLimitReached": "You can add up to {{max}} custom tags. Remove one to add another.",
+    "recommendedTags": "Existing recommended tags",
+    "tagsSaveFailed": "Could not save tags. Your changes are retained; please retry.",
+    "addTags": "Add tags",
+    "moreActions": "More actions for {{model}}",
+    "details": "Details",
+    "enableModel": "Enable {{model}}",
+    "editConnection": "Edit the {{provider}} connection",
+    "providerFilter": "Filter providers",
+    "allProviders": "All providers",
+    "acknowledge": "Got it"
+  }
 }
