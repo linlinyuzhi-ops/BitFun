@@ -53,7 +53,9 @@ export struct AppSidebar {
    * the screen edge for the compact drawer — and the session rows scroll under
    * the navigation indicator, so the strip is the list's own business now. The
    * floating footer keeps its distance from that edge itself, which is what
-   * keeps the buttons above the bar while the rows run under it.
+   * keeps the buttons above the bar while the rows run under it. The panel's top
+   * edge is the screen edge too, so the status bar strip is the panel's own
+   * padding rather than a band the framework reserved for it.
    */
   @Local insets: WindowInsetsBinding = new WindowInsetsBinding();
   /**
@@ -156,7 +158,17 @@ export struct AppSidebar {
     // the session rows are content that scrolls under the navigation indicator.
     // The footer, its fade and the list's tail are what keep the strip clear,
     // each against the edge this panel actually has.
-    .padding({ left: 20, right: 20, top: 0 })
+    //
+    // The panel's top edge is the screen edge in both hosts, so its own first
+    // row is what has to keep clear of the status bar: the fill still reaches
+    // the top of the window, and the title, the search field and the session
+    // rows start below the strip.
+    //
+    // Its side edges are the screen's too, and a rotated device moves the camera
+    // cutout onto one of them: the wider of the design's gutter and the cutout
+    // is what the panel reserves, so the 20 the design asks for survives on a
+    // device that claims no side strip at all.
+    .padding({ left: this.insets.leftPadding(20), right: this.insets.rightPadding(20), top: this.insets.top })
     .backgroundColor(SIDEBAR_BG)
   }
 

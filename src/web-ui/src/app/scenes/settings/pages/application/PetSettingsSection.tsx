@@ -324,7 +324,6 @@ const PetSettingsSection: React.FC<{ isActive?: boolean }> = ({ isActive = true 
                           ))}
                         </span>
                       )}
-                      <Icon name="chevron-down" size="sm" className="openbitfun-runtime-settings__pet-summary-chevron" />
                     </button>
                   )}
                 >

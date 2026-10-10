@@ -451,6 +451,7 @@ const MemorySettingsSection: React.FC = () => {
         <ConfigPageSection
           title={t('sections.advanced.title')}
           description={t('sections.advanced.description')}
+          descriptionLayout={advancedOpen ? 'stacked' : 'inline'}
           extra={(
             <Tooltip
               content={t(advancedOpen ? 'actions.collapseAdvanced' : 'actions.expandAdvanced')}
@@ -463,7 +464,7 @@ const MemorySettingsSection: React.FC = () => {
                 onClick={() => setAdvancedOpen((open) => !open)}
                 aria-label={t(advancedOpen ? 'actions.collapseAdvanced' : 'actions.expandAdvanced')}
                 aria-expanded={advancedOpen}
-                icon={advancedOpen ? <Icon name="chevron-up" size="lg" /> : <Icon name="chevron-down" size="lg" />}
+                icon={<Icon name={advancedOpen ? 'chevron-down' : 'chevron-right'} size="lg" />}
               />
             </Tooltip>
           )}

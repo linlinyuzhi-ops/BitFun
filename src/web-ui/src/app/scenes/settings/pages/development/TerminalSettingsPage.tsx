@@ -19,9 +19,6 @@ type TerminalShellOption = ComboboxOption & {
   shell?: ShellInfo;
 };
 
-const formatShellLabel = (shell: ShellInfo): string =>
-  `${shell.name}${shell.version ? ` (${shell.version})` : ''}`;
-
 function TerminalSection() {
   const { t } = useTranslation('settings/application');
   const [defaultShell, setDefaultShell] = useState<string>('');
@@ -89,9 +86,8 @@ function TerminalSection() {
     () => [
       { value: AUTO_DETECT_SHELL_VALUE, label: t('terminal.controls.autoDetect') },
       ...availableShells.map((shell) => ({
-        description: shell.path,
         value: shell.path,
-        label: formatShellLabel(shell),
+        label: shell.name,
         shell,
       })),
     ],

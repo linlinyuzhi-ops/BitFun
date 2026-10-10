@@ -968,6 +968,8 @@ fn plan_workspace_sessions(roots: &MigrationRoots) -> LegacyMigrationResult<Work
         roots,
         &target_sessions,
         &assistant_path_relocations,
+        &workspace_id_map,
+        &workspace_data.workspaces,
         &mut conflicts,
     )?;
     let runtime_events = plan_runtime_events(roots, &sessions, &mut conflicts, &mut skipped_paths)?;
@@ -1117,10 +1119,13 @@ fn relocate_session_path(
     Some(relocated.clone())
 }
 
-fn relocate_assistant_session_state(
+fn migrate_session_workspace_state(
     legacy_home_root: &Path,
     state_path: &Path,
     relocations: &BTreeMap<String, PathBuf>,
+    workspace_id_map: &BTreeMap<String, String>,
+    workspaces: &HashMap<String, WorkspaceInfo>,
+    metadata: &SessionMetadata,
 ) -> LegacyMigrationResult<Option<Vec<u8>>> {
     if !state_path.is_file() {
         return Ok(None);
@@ -1134,6 +1139,15 @@ fn relocate_assistant_session_state(
     };
 
     let mut changed = false;
+    if let Some(model_id) = config.get_mut("model_id") {
+        if model_id
+            .as_str()
+            .is_some_and(|id| metadata.compatible_model_selector(id) != id)
+        {
+            *model_id = serde_json::Value::String("primary".to_string());
+            changed = true;
+        }
+    }
     for key in ["workspace_path", "project_workspace_path"] {
         if let Some(value) = config.get_mut(key) {
             changed |= relocate_json_path(value, relocations);
@@ -1150,9 +1164,84 @@ fn relocate_assistant_session_state(
         }
     }
 
+    // Legacy state already stores IDs even when its metadata is path-only.
+    // Rehome those references together with the paths, preserving unknown fields.
+    let workspace_id = migrated_session_workspace_id(
+        config
+            .get("workspace_id")
+            .and_then(serde_json::Value::as_str),
+        config
+            .get("workspace_path")
+            .and_then(serde_json::Value::as_str)
+            .or(metadata.workspace_path.as_deref()),
+        workspace_id_map,
+        workspaces,
+    )
+    .or_else(|| metadata.workspace_id.clone());
+    let project_workspace_id = migrated_session_workspace_id(
+        config
+            .get("project_workspace_id")
+            .and_then(serde_json::Value::as_str),
+        config
+            .get("project_workspace_path")
+            .and_then(serde_json::Value::as_str)
+            .or(metadata.project_workspace_path.as_deref()),
+        workspace_id_map,
+        workspaces,
+    )
+    .or_else(|| metadata.project_workspace_id.clone())
+    .or_else(|| session_project_workspace_id(workspace_id.as_deref(), workspaces));
+    for (key, id) in [
+        ("workspace_id", workspace_id),
+        ("project_workspace_id", project_workspace_id),
+    ] {
+        if let Some(id) = id {
+            let value = serde_json::Value::String(id);
+            if config.get(key) != Some(&value) {
+                config.insert(key.to_string(), value);
+                changed = true;
+            }
+        }
+    }
+
     changed
         .then(|| serde_json::to_vec(&state).map_err(json_error))
         .transpose()
+}
+
+fn migrated_session_workspace_id(
+    id: Option<&str>,
+    path: Option<&str>,
+    workspace_id_map: &BTreeMap<String, String>,
+    workspaces: &HashMap<String, WorkspaceInfo>,
+) -> Option<String> {
+    if let Some(id) = id {
+        return Some(
+            workspace_id_map
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| id.to_string()),
+        );
+    }
+    let key = native_path_key(Path::new(path?));
+    let mut matches = workspaces.values().filter(|workspace| {
+        workspace.workspace_kind == WorkspaceKind::Assistant
+            && native_path_key(&workspace.root_path) == key
+    });
+    let workspace = matches.next()?;
+    matches.next().is_none().then(|| workspace.id.clone())
+}
+
+fn session_project_workspace_id(
+    workspace_id: Option<&str>,
+    workspaces: &HashMap<String, WorkspaceInfo>,
+) -> Option<String> {
+    workspaces
+        .get(workspace_id?)?
+        .project_workspace_id()
+        .ok()
+        .filter(|id| workspaces.contains_key(*id))
+        .map(str::to_string)
 }
 
 fn relocate_json_path(
@@ -1210,6 +1299,8 @@ fn plan_sessions(
     roots: &MigrationRoots,
     target_sessions: &HashMap<String, Vec<PathBuf>>,
     assistant_path_relocations: &BTreeMap<String, PathBuf>,
+    workspace_id_map: &BTreeMap<String, String>,
+    workspaces: &HashMap<String, WorkspaceInfo>,
     conflicts: &mut Vec<MigrationConflict>,
 ) -> LegacyMigrationResult<(Vec<PlannedSession>, Vec<String>)> {
     let session_roots = find_session_roots(&roots.legacy_home_root)?;
@@ -1258,6 +1349,7 @@ fn plan_sessions(
                     conflicts.push(MigrationConflict { domain: MigrationDomainId::WorkspaceSessions, code: "session_turns_recovered".into(), source_summary: session_id.clone(), target_summary: "Only readable, unambiguous Turns will be imported; inspect the original Session for omitted content.".into(), resolution: ConflictResolution::ItemSkipped });
                 }
                 let mut session_metadata = metadata_file.metadata;
+                session_metadata.normalize_legacy_model_selector();
                 // Legacy metadata counters can lag persisted Turns. Rebuild the
                 // derived count in the import copy without changing the source.
                 session_metadata.turn_count = turns.len();
@@ -1265,6 +1357,33 @@ fn plan_sessions(
                     &mut session_metadata,
                     assistant_path_relocations,
                 );
+                session_metadata.workspace_id = migrated_session_workspace_id(
+                    session_metadata.workspace_id.as_deref(),
+                    session_metadata
+                        .workspace_path
+                        .as_deref()
+                        .or_else(|| {
+                            session_metadata
+                                .execution_target
+                                .as_ref()
+                                .map(|target| target.root_path.as_str())
+                        })
+                        .or(session_metadata.project_workspace_path.as_deref()),
+                    workspace_id_map,
+                    workspaces,
+                );
+                session_metadata.project_workspace_id = migrated_session_workspace_id(
+                    session_metadata.project_workspace_id.as_deref(),
+                    session_metadata.project_workspace_path.as_deref(),
+                    workspace_id_map,
+                    workspaces,
+                )
+                .or_else(|| {
+                    session_project_workspace_id(
+                        session_metadata.workspace_id.as_deref(),
+                        workspaces,
+                    )
+                });
                 let runtime_relative = relocated_assistant_path
                     .clone()
                     .map(assistant_session_runtime_relative)
@@ -1289,15 +1408,17 @@ fn plan_sessions(
                         )
                     });
                 }
-                let state_bytes_override = if relocated_assistant_path.is_some()
-                    && auxiliary_files
-                        .iter()
-                        .any(|(relative, _)| relative == Path::new("state.json"))
+                let state_bytes_override = if auxiliary_files
+                    .iter()
+                    .any(|(relative, _)| relative == Path::new("state.json"))
                 {
-                    relocate_assistant_session_state(
+                    migrate_session_workspace_state(
                         &roots.legacy_home_root,
                         &session_dir.join("state.json"),
                         assistant_path_relocations,
+                        workspace_id_map,
+                        workspaces,
+                        &bundle.metadata,
                     )?
                 } else {
                     None
@@ -2366,6 +2487,62 @@ mod tests {
 
     #[test]
     fn personal_assistant_tree_and_session_paths_are_rehomed_together() {
+        for (metadata_has_id, state_has_id) in
+            [(false, true), (true, true), (false, false), (true, false)]
+        {
+            assert_personal_assistant_rehomed(metadata_has_id, state_has_id);
+        }
+    }
+
+    #[test]
+    fn legacy_auto_state_conversion_preserves_external_selectors_and_unknown_fields() {
+        let temp = test_tempdir("legacy-auto");
+        let path = temp.path().join("state.json");
+        for (agent, provider, selector, expected) in [
+            ("Standard", None, Some("auto"), Some("primary")),
+            ("Standard", None, None, None),
+            (
+                "Standard",
+                None,
+                Some("removed-model"),
+                Some("removed-model"),
+            ),
+            ("acp:codex", None, Some("auto"), Some("auto")),
+            ("Standard", Some("acp"), Some("auto"), Some("auto")),
+        ] {
+            let mut metadata = SessionMetadata::new(
+                "session-1".into(),
+                "Legacy".into(),
+                agent.into(),
+                "auto".into(),
+            );
+            metadata.custom_metadata = provider.map(|value| serde_json::json!({"provider": value}));
+            let source = serde_json::json!({
+                "config": {"model_id": selector, "unknown_future_field": "preserved"},
+                "history": {"model": "auto"}
+            });
+            atomic_write_json(&path, &source).unwrap();
+            let original = fs::read(&path).unwrap();
+            let converted = migrate_session_workspace_state(
+                temp.path(),
+                &path,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+                &HashMap::new(),
+                &metadata,
+            )
+            .unwrap();
+            assert_eq!(converted.is_some(), selector != expected);
+            let value: serde_json::Value =
+                serde_json::from_slice(converted.as_deref().unwrap_or(&original)).unwrap();
+            assert_eq!(value["config"]["model_id"].as_str(), expected);
+            assert_eq!(value["config"]["unknown_future_field"], "preserved");
+            assert_eq!(value["history"]["model"], "auto");
+            assert_eq!(fs::read(&path).unwrap(), original);
+        }
+    }
+
+    fn assert_personal_assistant_rehomed(metadata_has_id: bool, state_has_id: bool) {
         let temp = test_tempdir("personal-assistant");
         let roots = fixture_roots(temp.path());
         let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -2417,10 +2594,15 @@ mod tests {
         let mut metadata: StoredSessionMetadataFile =
             serde_json::from_slice(&fs::read(&metadata_path).unwrap()).unwrap();
         let source_display = source_assistant.to_string_lossy().into_owned();
+        metadata.metadata.model_name = "auto".to_string();
         metadata.metadata.workspace_path = Some(source_display.clone());
         metadata.metadata.project_workspace_path = Some(source_display.clone());
         metadata.metadata.execution_target =
             Some(SessionExecutionTarget::local(source_display.clone()));
+        if metadata_has_id {
+            metadata.metadata.workspace_id = Some("assistant-legacy".to_string());
+            metadata.metadata.project_workspace_id = Some("assistant-legacy".to_string());
+        }
         atomic_write_json(&metadata_path, &metadata).unwrap();
         let session_dir = metadata_path.parent().unwrap();
         atomic_write_json(
@@ -2428,6 +2610,9 @@ mod tests {
             &serde_json::json!({
                 "schema_version": 1,
                 "config": {
+                    "model_id": "auto",
+                    "workspace_id": state_has_id.then_some("assistant-legacy"),
+                    "project_workspace_id": state_has_id.then_some("assistant-legacy"),
                     "workspace_path": source_display.clone(),
                     "project_workspace_path": source_display.clone(),
                     "execution_target": {
@@ -2451,6 +2636,9 @@ mod tests {
         )
         .unwrap();
 
+        let original_metadata = fs::read(&metadata_path).unwrap();
+        let original_state = fs::read(session_dir.join("state.json")).unwrap();
+
         let plan = plan_workspace_sessions(&roots).unwrap();
         assert_eq!(plan.assistant_workspaces.len(), 1);
         assert_eq!(plan.assistant_workspaces[0].source_path, source_assistant);
@@ -2461,6 +2649,7 @@ mod tests {
             .find(|workspace| workspace.workspace_kind == WorkspaceKind::Assistant)
             .unwrap();
         assert_eq!(assistant.root_path, target_assistant);
+        assert_ne!(assistant.id, "assistant-legacy");
         assert!(!plan.requires_relocation.contains(&assistant.id));
 
         let session = plan
@@ -2469,6 +2658,14 @@ mod tests {
             .find(|session| session.bundle.metadata.session_id == "session-1")
             .unwrap();
         let target_key = native_path_key(&target_assistant);
+        assert_eq!(
+            session.bundle.metadata.workspace_id.as_ref(),
+            Some(&assistant.id)
+        );
+        assert_eq!(
+            session.bundle.metadata.project_workspace_id.as_ref(),
+            Some(&assistant.id)
+        );
         assert_eq!(
             session
                 .bundle
@@ -2518,6 +2715,12 @@ mod tests {
                 .expect("assistant Session state should be rewritten"),
         )
         .unwrap();
+        for key in ["workspace_id", "project_workspace_id"] {
+            assert_eq!(
+                migrated_state["config"][key].as_str(),
+                Some(assistant.id.as_str())
+            );
+        }
         for pointer in [
             "/config/workspace_path",
             "/config/project_workspace_path",
@@ -2544,6 +2747,106 @@ mod tests {
                 .pointer("/historical_tool_path")
                 .and_then(serde_json::Value::as_str),
             Some(source_display.as_str())
+        );
+
+        use openbitfun_legacy_migration::{
+            probe_legacy_source, CancellationToken, MigrationEngine, NoCrashInjection, ProbeLimits,
+        };
+        use openbitfun_product_domains::legacy_migration::{MigrationGroupId, MigrationSelection};
+        let source = probe_legacy_source(&roots, ProbeLimits::default())
+            .unwrap()
+            .unwrap();
+        let selection = MigrationSelection {
+            groups: BTreeSet::from([MigrationGroupId::WorkspacesSessionsAndTasks]),
+        };
+        let engine =
+            MigrationEngine::new(roots.clone(), crate::adapters_for_groups(&selection)).unwrap();
+        let migration_plan = engine
+            .plan(&source, selection, &CancellationToken::default())
+            .unwrap();
+        let report = engine
+            .execute(
+                &migration_plan,
+                &CancellationToken::default(),
+                &NoCrashInjection,
+            )
+            .unwrap();
+        assert_eq!(
+            report
+                .domain_results
+                .iter()
+                .find(|result| result.domain == MigrationDomainId::WorkspaceSessions)
+                .unwrap()
+                .state,
+            MigrationDomainState::Verified
+        );
+        let imported_root = roots
+            .target_home_root
+            .join(&session.runtime_relative)
+            .join(&session.bundle.metadata.session_id);
+        let imported_metadata: StoredSessionMetadataFile =
+            serde_json::from_slice(&fs::read(imported_root.join("metadata.json")).unwrap())
+                .unwrap();
+        let imported_state: serde_json::Value =
+            serde_json::from_slice(&fs::read(imported_root.join("state.json")).unwrap()).unwrap();
+        assert_eq!(imported_metadata.metadata.model_name, "primary");
+        assert_eq!(imported_state["config"]["model_id"], "primary");
+        let imported_registry: WorkspacePersistenceData =
+            serde_json::from_slice(&fs::read(target_workspace_data_path(&roots)).unwrap()).unwrap();
+        for id in [
+            imported_metadata.metadata.workspace_id.as_deref(),
+            imported_metadata.metadata.project_workspace_id.as_deref(),
+            imported_state["config"]["workspace_id"].as_str(),
+            imported_state["config"]["project_workspace_id"].as_str(),
+        ] {
+            let workspace = &imported_registry.workspaces[id.unwrap()];
+            assert_eq!(workspace.root_path, target_assistant);
+            assert_eq!(workspace.workspace_kind, WorkspaceKind::Assistant);
+        }
+        assert_eq!(fs::read(&metadata_path).unwrap(), original_metadata);
+        assert_eq!(
+            fs::read(session_dir.join("state.json")).unwrap(),
+            original_state
+        );
+        let retry = plan_workspace_sessions(&roots).unwrap();
+        let retry_session = retry
+            .sessions
+            .iter()
+            .find(|entry| entry.bundle.metadata.session_id == session.bundle.metadata.session_id)
+            .unwrap();
+        assert_eq!(retry_session.action, SessionImportAction::Duplicate);
+        assert_eq!(retry_session.expected_hash, session.expected_hash);
+    }
+
+    #[test]
+    fn explicit_session_workspace_ids_are_mapped_without_path_fallback() {
+        let id_map = BTreeMap::from([("old-id".to_string(), "new-id".to_string())]);
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../legacy-migration/tests/fixtures/v0.2.19/user-root/data/workspace_data.json");
+        let registry: LegacyWorkspacePersistenceData =
+            serde_json::from_slice(&fs::read(fixture).unwrap()).unwrap();
+        let mut assistant = registry.workspaces.into_values().next().unwrap();
+        assistant.id = "new-id".to_string();
+        assistant.workspace_kind = WorkspaceKind::Assistant;
+        let path = assistant.root_path.to_string_lossy().into_owned();
+        let mut workspaces = HashMap::from([(assistant.id.clone(), assistant.clone())]);
+        assert_eq!(
+            migrated_session_workspace_id(Some("old-id"), None, &id_map, &workspaces),
+            Some("new-id".to_string())
+        );
+        assert_eq!(
+            migrated_session_workspace_id(Some("unknown-id"), Some(&path), &id_map, &workspaces),
+            Some("unknown-id".to_string())
+        );
+        assert_eq!(
+            migrated_session_workspace_id(None, Some(&path), &id_map, &workspaces),
+            Some("new-id".to_string())
+        );
+        assistant.id = "other-id".to_string();
+        workspaces.insert(assistant.id.clone(), assistant);
+        assert_eq!(
+            migrated_session_workspace_id(None, Some(&path), &id_map, &workspaces),
+            None
         );
     }
 

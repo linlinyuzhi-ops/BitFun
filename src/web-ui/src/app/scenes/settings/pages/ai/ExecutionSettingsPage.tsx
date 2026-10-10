@@ -316,6 +316,25 @@ const ExecutionSettingsPage: React.FC = () => {
       ) : (
         <>
 
+          <ConfigPageSection
+            title={t('deferredToolLoading.sectionTitle')}
+            description={t('deferredToolLoading.sectionDescription')}
+          >
+            <ConfigPageRow
+              label={t('common.enable')}
+              description={!enableDeferredToolLoading ? t('deferredToolLoading.warning') : undefined}
+              align="center"
+            >
+              <div className="openbitfun-runtime-settings__row-control" data-openbitfun-component="runtime-settings" data-openbitfun-part="control">
+                <Switch
+                  checked={enableDeferredToolLoading}
+                  onChange={(event) => handleDeferredToolLoadingChange(event.target.checked)}
+                  disabled={deferredToolLoadingConfigSaving}
+                />
+              </div>
+            </ConfigPageRow>
+          </ConfigPageSection>
+
           {/* ── Tool execution behavior ────────────────────────────── */}
           <ConfigPageSection
             title={t('toolExecution.sectionTitle')}
@@ -448,25 +467,6 @@ const ExecutionSettingsPage: React.FC = () => {
                   size="sm"
                   variant="compact"
                   disabled={toolExecConfigLoading}
-                />
-              </div>
-            </ConfigPageRow>
-          </ConfigPageSection>
-
-          <ConfigPageSection
-            title={t('deferredToolLoading.sectionTitle')}
-            description={t('deferredToolLoading.sectionDescription')}
-          >
-            <ConfigPageRow
-              label={t('common.enable')}
-              description={!enableDeferredToolLoading ? t('deferredToolLoading.warning') : undefined}
-              align="center"
-            >
-              <div className="openbitfun-runtime-settings__row-control" data-openbitfun-component="runtime-settings" data-openbitfun-part="control">
-                <Switch
-                  checked={enableDeferredToolLoading}
-                  onChange={(event) => handleDeferredToolLoadingChange(event.target.checked)}
-                  disabled={deferredToolLoadingConfigSaving}
                 />
               </div>
             </ConfigPageRow>

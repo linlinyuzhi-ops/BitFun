@@ -114,6 +114,15 @@ and recording in the signed app on macOS. Ad-hoc fixture tests do not prove TCC 
 cargo check -p openbitfun-desktop && cargo test -p openbitfun-desktop
 ```
 
+For session storage directory access, run
+`cargo test -p openbitfun-desktop --lib api::session_storage_directory::tests`
+for session storage directory resolution (these tests do not launch a file manager),
+and `cargo test -p openbitfun-desktop --lib remote_workspace_policy` after registration changes.
+
+For MiniApp Agent session and context changes, run
+`cargo test --locked -p openbitfun-desktop --lib api::miniapp_agent_api::tests`.
+This covers legacy payloads, exact context paths, trust instructions, and snapshot cleanup.
+
 For tray unread synchronization, run
 `pnpm --dir src/web-ui run test:run src/flow_chat/services/trayUnreadService.test.ts src/flow_chat/services/sessionNavStatusService.test.ts`
 and `cargo test -p openbitfun-desktop --lib remote_workspace_policy` after command changes.

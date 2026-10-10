@@ -446,10 +446,14 @@ padding uses `space.component.inline` and icon-to-text spacing uses `space.1`.
 An absolute-positioned search host must reserve that same search-row height.
 The built-in clear action uses the shared square xs quiet-button hover feedback.
 
+Use `Input size="xs" shape="pill"` for inline capsule editing. Its height,
+padding, and metadata type match compact `Button size="xs"` capsules; keep
+capsule placement and input width in the consumer layout.
+
 Choose `size` explicitly when composing form rows: selectors default to `md`,
-while `Input` defaults to `sm`. Except for SearchField's dedicated row contract,
-the shared `control.height.sm/md/lg` tokens and
-active density own the actual heights; consumers must not replace them with
+while `Input` defaults to `sm`. For ordinary `sm/md/lg` fields, apart from
+SearchField's dedicated row contract, the shared `control.height.sm/md/lg`
+tokens and active density own the actual heights; consumers must not replace them with
 page-level heights or padding overrides. Picker bodies stay single-line and
 token-sized, with labels and validation messages outside that height. Select
 keeps its in-flow anchor mounted when the unified popup covers it, so opening
@@ -461,6 +465,8 @@ inside one border and shadow. Flipping above the field keeps the search header
 beside the anchor. Labels, validation, and the field id follow the active input;
 Escape or selection restores the trigger, and Tab continues from its position
 in the form. Search, typed values, and multiple selection remain component-owned.
+Joined picker surfaces use the default neutral border on focus, matching the
+quiet search treatment while preserving validation and forced-color states.
 `SearchField variant="embedded"` removes its standalone pill surface for these
 compositions; its container must supply padding, height, and visible focus
 treatment. Standalone SearchField pills use a subtle neutral border, increasing
@@ -616,6 +622,11 @@ leading roles scale with user typography. FieldGroup uses the form group tint,
 retaining its existing row padding, dividers, and radius. The Patterns form
 specimen shows both orientations and long values over a tinted container.
 
+FormSection keeps descriptions below the title by default. Use
+`descriptionLayout="inline"` for compact summaries that share one line with
+the title. The description uses OverflowText while the heading and actions
+remain independent.
+
 Menu and Listbox row surfaces are separated by `overlay.menu.rowGap` (2px),
 including grouped options and the Listbox used by Select, Combobox and MultiSelect.
 This is distinct from `itemGap` (icon-to-label spacing) and `sectionGap` (8px).
@@ -651,7 +662,7 @@ Dialog titles use 24px bold type with their own 29px line box and normal trackin
 
 Extra-large (`xl`) dialogs have an 800px maximum width and continue shrinking within the viewport gutter. Provider editing uses the floating footer; small workspace creation retains its attached footer and existing button/input sizes. The Lab workspace pattern uses local sample paths and callbacks only.
 
-Keep `Dialog` and `Sheet` mounted and set `open={false}` to close them. They retain the last committed children during the exit animation, with interaction disabled, so clearing an owner selection does not collapse the surface. Reopening uses the latest children and cancels the pending exit. Owners that conditionally mount an editor can remove it in `onExitComplete`, which runs once after the surface unmounts.
+Keep `Dialog` and `Sheet` mounted and set `open={false}` to close them. They retain the last committed children, size, placement, classes, and styles during the exit animation, with interaction disabled, so clearing an owner selection does not resize the surface. Reopening uses the latest presentation and cancels the pending exit. Owners that conditionally mount an editor can remove it in `onExitComplete`, which runs once after the surface unmounts.
 
 PageHeader `md` uses the settings title with a primary 15px description; `display` uses the welcome heading and medium 17px introduction with a 12px gap. ActionCard uses 12px padding, section-heading typography (15px semibold), and a primary 13px single-line action description. Its inset outline does not inflate the 62px medium minimum height; longer content keeps the independent sibling actions and OverflowText behavior.
 

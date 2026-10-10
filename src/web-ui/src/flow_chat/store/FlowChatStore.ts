@@ -5522,6 +5522,7 @@ export class FlowChatStore {
   public async cancelRunningSessionsForWorkspace(
     workspace: Pick<WorkspaceInfo, 'id' | 'rootPath' | 'connectionId' | 'sshHost'>
   ): Promise<string[]> {
+    const scope = getActiveSurfaceScope();
     const runningSessions = Array.from(this.state.sessions.values())
       .filter(session => sessionMatchesWorkspace(session, workspace))
       .filter(session => {
@@ -5542,7 +5543,6 @@ export class FlowChatStore {
       return [];
     }
 
-    const { agentAPI } = await import('@/infrastructure/api/service-api/AgentAPI');
     await Promise.allSettled(
       runningSessions.map(async session => {
         const sessionId = session.sessionId;
@@ -5555,11 +5555,12 @@ export class FlowChatStore {
             error,
           });
         } finally {
-          this.cancelSessionTask(sessionId);
+          if (scope.isCurrent()) this.cancelSessionTask(sessionId);
         }
       })
     );
 
+    scope.assertCurrent('cancel workspace sessions');
     return runningSessionIds;
   }
 

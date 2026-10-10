@@ -168,22 +168,13 @@ function LoggingSection() {
       <div className="openbitfun-logging-config__content">
         <ConfigMessage message={message} />
 
-        {runtimeInfo?.previousUnexpectedExit?.detected && (
+        {runtimeInfo?.previousUnexpectedExit?.detected && runtimeInfo.previousUnexpectedExit.category === 'crash' && (
           <Alert
-            tone={runtimeInfo.previousUnexpectedExit.category === 'crash' ? 'warning' : 'info'}
-            message={t(
-              runtimeInfo.previousUnexpectedExit.category === 'crash'
-                ? 'logging.previousCrash.title'
-                : 'logging.previousUncleanShutdown.title'
-            )}
-            description={t(
-              runtimeInfo.previousUnexpectedExit.category === 'crash'
-                ? 'logging.previousCrash.description'
-                : 'logging.previousUncleanShutdown.description',
-              {
-                path: runtimeInfo.previousUnexpectedExit.sessionLogDir || '-',
-              }
-            )}
+            tone="warning"
+            message={t('logging.previousCrash.title')}
+            description={t('logging.previousCrash.description', {
+              path: runtimeInfo.previousUnexpectedExit.sessionLogDir || '-',
+            })}
           />
         )}
 

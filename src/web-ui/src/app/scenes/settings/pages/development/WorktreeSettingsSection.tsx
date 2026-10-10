@@ -728,7 +728,7 @@ const WorktreeSettingsSection: React.FC = () => {
           className="openbitfun-worktree-settings__empty"
           icon={<FolderGit2 aria-hidden />}
           title={t('management.empty.title')}
-          description={t('management.empty.description')}
+          description={null}
         />
       );
     }

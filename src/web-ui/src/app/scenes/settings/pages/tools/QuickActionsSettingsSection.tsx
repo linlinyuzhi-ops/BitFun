@@ -26,7 +26,6 @@ import {
   DialogHeader,
   DialogHeading,
   DialogTitle,
-  Empty,
   Icon,
   IconButton,
   Input,
@@ -423,27 +422,9 @@ const QuickActionsSettingsSection: React.FC = () => {
             </Button>
           }
         >
-          <div data-openbitfun-component="quick-actions-config" data-openbitfun-part="list" className="quick-actions-config__list">
-            {customActions.length === 0 ? (
-              <div data-openbitfun-component="quick-actions-config" data-openbitfun-part="empty" data-openbitfun-state="empty" className="quick-actions-config__empty">
-                <Empty
-                  icon={<Zap aria-hidden />}
-                  description={t('sections.custom.empty')}
-                  actions={(
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setModalTarget(null)}
-                      disabled={saving}
-                      leadingIcon={<Icon name="plus" size="sm" />}
-                    >
-                      {t('add.button')}
-                    </Button>
-                  )}
-                />
-              </div>
-            ) : (
-              customActions.map(action => (
+          {customActions.length > 0 && (
+            <div data-openbitfun-component="quick-actions-config" data-openbitfun-part="list" className="quick-actions-config__list">
+              {customActions.map(action => (
                 <ActionRow
                   key={action.id}
                   action={action}
@@ -454,9 +435,9 @@ const QuickActionsSettingsSection: React.FC = () => {
                   disabled={saving}
                   t={t}
                 />
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </ConfigPageSection>
 
       </ConfigPageSectionStack>
